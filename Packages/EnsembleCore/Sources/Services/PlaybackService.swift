@@ -2862,7 +2862,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // If no track is loaded in the engine (e.g., after state restoration where
         // pre-buffer hasn't completed yet), check if a pre-buffer is in progress.
-        if audioEngine?.currentTrackId == nil, currentTrack != nil {
+        if let currentTrack, audioEngine?.currentTrackId != currentTrack.playbackIdentity {
             if let task = preBufferTask {
                 // Pre-buffer is downloading — await it instead of starting a duplicate
                 playbackState = .buffering
@@ -2870,7 +2870,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     await task.value
                     guard let self else { return }
                     self.preBufferTask = nil
-                    if self.audioEngine?.currentTrackId != nil {
+                    if self.audioEngine?.currentTrackId == self.currentTrack?.playbackIdentity {
                         do {
                             try self.audioEngine?.resume()
                             self.refreshPresentationLatencyEstimate()
@@ -3042,6 +3042,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
+        if playbackState == .paused {
+            Task { @MainActor in
+                self.navigateToNextQueueItemWhilePaused()
+            }
+            return
+        }
+
         // Cancel any in-progress skip transition
         skipTransitionTask?.cancel()
         skipTransitionTask = nil
@@ -3178,6 +3185,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func previous() {
+        if playbackState == .paused {
+            Task { @MainActor in
+                self.navigateToPreviousQueueItemWhilePaused()
+            }
+            return
+        }
+
         // If more than 3 seconds in, restart current track
         if currentTime > 3 {
             seek(to: 0)
@@ -3229,6 +3243,65 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.savePlaybackState()
             await self.checkAndRefreshAutoplayQueue()
         }
+    }
+
+    @MainActor
+    private func navigateToNextQueueItemWhilePaused() {
+        if let nextIndex = findNextPlayableTrackIndex(after: currentQueueIndex) {
+            recordCurrentAndSkippedTracksBeforeJump(to: nextIndex)
+            selectQueueItemWhilePaused(at: nextIndex, caller: "next-paused")
+        } else if repeatMode == .all,
+                  let wrappedIndex = findNextPlayableTrackIndex(after: -1) {
+            recordCurrentAndSkippedTracksBeforeJump(to: wrappedIndex)
+            selectQueueItemWhilePaused(at: wrappedIndex, caller: "next-paused-repeatAll")
+        }
+    }
+
+    @MainActor
+    private func navigateToPreviousQueueItemWhilePaused() {
+        guard currentQueueIndex > 0 else {
+            seek(to: 0)
+            return
+        }
+
+        resetHandoffForUserPlaybackIntent()
+        if !playbackHistory.isEmpty {
+            playbackHistory.removeLast()
+        }
+        selectQueueItemWhilePaused(at: currentQueueIndex - 1, caller: "previous-paused")
+    }
+
+    @MainActor
+    private func recordCurrentAndSkippedTracksBeforeJump(to targetIndex: Int) {
+        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return }
+        recordToHistory(queue[currentQueueIndex])
+
+        guard targetIndex > currentQueueIndex + 1 else { return }
+        for index in (currentQueueIndex + 1) ..< targetIndex where queue.indices.contains(index) {
+            recordToHistory(queue[index])
+        }
+    }
+
+    @MainActor
+    private func selectQueueItemWhilePaused(at index: Int, caller: String) {
+        guard queue.indices.contains(index) else { return }
+
+        skipTransitionTask?.cancel()
+        skipTransitionTask = nil
+        audioEngine?.clearScheduledFiles()
+        audioEngine?.stop()
+        audioAnalyzer.pauseUpdates()
+
+        currentQueueIndex = index
+        currentTrack = queue[index].track
+        updatePlaybackTimes(rawTime: 0)
+        bufferedProgress = 0
+        playbackState = .paused
+        updateNowPlayingInfo()
+        savePlaybackState()
+
+        EnsembleLogger.playback("QUEUE_NAVIGATE_PAUSED: \(caller) - idx=\(currentQueueIndex)/\(queue.count), track='\(currentTrack?.title ?? "nil")'")
+        Task { await checkAndRefreshAutoplayQueue() }
     }
 
     public func seek(to time: TimeInterval) {

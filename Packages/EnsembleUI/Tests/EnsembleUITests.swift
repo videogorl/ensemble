@@ -14,7 +14,7 @@ final class EnsembleUITests: XCTestCase {
         )
         XCTAssertEqual(
             EnsembleDesign.Icon.chordIconName(modernSymbolSetAvailable: true),
-            "music.pages"
+            "apple.classical.pages"
         )
     }
 

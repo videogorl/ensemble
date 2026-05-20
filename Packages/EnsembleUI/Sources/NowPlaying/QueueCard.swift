@@ -17,6 +17,7 @@ public struct QueueCard: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var lastPlaylistTargetID: String?
+    private let queueDisplayLimit = 50
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -264,7 +265,9 @@ public struct QueueCard: View {
     #if os(macOS)
         @ViewBuilder
         private var macOSQueueListView: some View {
-            let queueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
+            let fullQueueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
+            let queueItemsToShow = Array(fullQueueItemsToShow.prefix(queueDisplayLimit))
+            let hiddenQueueItemCount = max(0, fullQueueItemsToShow.count - queueDisplayLimit)
             let capturedCurrentIndex = queueProjection.currentQueueIndex
 
             if queueProjection.showHistory {
@@ -284,7 +287,11 @@ public struct QueueCard: View {
                 // Queue list with drag-to-reorder
                 List {
                     ForEach(Array(queueItemsToShow.enumerated()), id: \.element.id) { index, item in
-                        macOSQueueRow(item: item, isAutoplay: item.source == .autoplay)
+                        macOSQueueRow(
+                            item: item,
+                            isAutoplay: item.source == .autoplay,
+                            contextMenu: AnyView(queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index))
+                        )
                             .listRowBackground(Color.clear)
                             .contentShape(Rectangle())
                             .onTapGesture { viewModel.playFromQueue(at: capturedCurrentIndex + 1 + index) }
@@ -297,6 +304,12 @@ public struct QueueCard: View {
                         let absoluteFrom = capturedCurrentIndex + 1 + fromOffset
                         let absoluteTo = capturedCurrentIndex + 1 + destination
                         viewModel.moveQueueItem(byId: item.id, from: absoluteFrom, to: absoluteTo)
+                    }
+                    if hiddenQueueItemCount > 0 {
+                        Text("\(hiddenQueueItemCount) more songs")
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.plain)
@@ -317,7 +330,7 @@ public struct QueueCard: View {
         }
 
         /// Single row for the macOS queue/history list
-        private func macOSQueueRow(item: QueueItem, isAutoplay: Bool) -> some View {
+        private func macOSQueueRow(item: QueueItem, isAutoplay: Bool, contextMenu: AnyView? = nil) -> some View {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 // Artwork thumbnail
                 ArtworkView(track: item.track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
@@ -345,10 +358,21 @@ public struct QueueCard: View {
 
                 Spacer()
 
-                Text(item.track.formattedDuration)
-                    .font(EnsembleDesign.Typography.rowSecondary)
+                Image(systemName: EnsembleDesign.Icon.dragReorder)
+                    .font(EnsembleDesign.Typography.overflowIcon)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    .monospacedDigit()
+
+                if let contextMenu {
+                    Menu {
+                        contextMenu
+                    } label: {
+                        Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
+                            .font(EnsembleDesign.Typography.overflowIcon)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
             }
             .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
         }

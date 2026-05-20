@@ -14,7 +14,7 @@ public class QueueItemCell: UITableViewCell {
     private let durationLabel = UILabel()
     private let playingIndicator = UIImageView()
     private let autoplayIndicator = UIImageView()
-    private let dragHandleView = UIImageView()
+    private let contextMenuButton = UIButton(type: .system)
 
     private var titleLeadingConstraint: NSLayoutConstraint?
     private var subtitleLeadingConstraint: NSLayoutConstraint?
@@ -56,8 +56,7 @@ public class QueueItemCell: UITableViewCell {
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(subtitleLabel)
         
-        durationLabel.font = .systemFont(ofSize: TrackListLayoutMetrics.nativeSecondaryFontSize, weight: .regular)
-        durationLabel.textColor = .secondaryLabel
+        durationLabel.isHidden = true
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(durationLabel)
         
@@ -75,11 +74,12 @@ public class QueueItemCell: UITableViewCell {
         autoplayIndicator.isHidden = true
         contentView.addSubview(autoplayIndicator)
         
-        dragHandleView.image = UIImage(systemName: EnsembleDesign.Icon.dragReorder)
-        dragHandleView.tintColor = .systemGray
-        dragHandleView.contentMode = .scaleAspectFit
-        dragHandleView.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(dragHandleView)
+        contextMenuButton.setImage(UIImage(systemName: EnsembleDesign.Icon.trackActionsCircle), for: .normal)
+        contextMenuButton.tintColor = .secondaryLabel
+        contextMenuButton.showsMenuAsPrimaryAction = true
+        contextMenuButton.translatesAutoresizingMaskIntoConstraints = false
+        contextMenuButton.accessibilityLabel = "Track Actions"
+        contentView.addSubview(contextMenuButton)
         
         let widthConstraint = autoplayIndicator.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueGeneratedBadgeDimension)
         self.autoplayWidthConstraint = widthConstraint
@@ -95,34 +95,30 @@ public class QueueItemCell: UITableViewCell {
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: autoplayIndicator.leadingAnchor, constant: -TrackListLayoutMetrics.rowTightAccessoryGap),
             
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: TrackListLayoutMetrics.primarySecondaryTextSpacing),
-            subtitleLabel.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: contextMenuButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             
-            durationLabel.trailingAnchor.constraint(equalTo: dragHandleView.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing),
-            durationLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: TrackListLayoutMetrics.durationMinimumWidth),
-            
-            playingIndicator.trailingAnchor.constraint(equalTo: dragHandleView.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing),
+            playingIndicator.trailingAnchor.constraint(equalTo: contextMenuButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowInterItemSpacing),
             playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             playingIndicator.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
             playingIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
             
-            autoplayIndicator.trailingAnchor.constraint(equalTo: durationLabel.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
+            autoplayIndicator.trailingAnchor.constraint(equalTo: contextMenuButton.leadingAnchor, constant: -TrackListLayoutMetrics.rowAccessoryGap),
             autoplayIndicator.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             autoplayIndicator.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueGeneratedBadgeDimension),
             widthConstraint,
             
-            dragHandleView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
-            dragHandleView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            dragHandleView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
-            dragHandleView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension)
+            contextMenuButton.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
+            contextMenuButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            contextMenuButton.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension),
+            contextMenuButton.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.queueDragHandleDimension)
         ])
     }
     
     public func configure(
         with item: QueueItem,
         isPlaying: Bool,
-        showDragHandle: Bool,
-        artworkLoader: ArtworkLoaderProtocol
+        artworkLoader: ArtworkLoaderProtocol,
+        contextMenu: UIMenu?
     ) {
         let track = item.track
         titleLabel.text = track.title
@@ -153,12 +149,12 @@ public class QueueItemCell: UITableViewCell {
         }
         subtitleLabel.text = subtitleParts.joined(separator: " · ")
         
-        durationLabel.text = track.formattedDuration
-        durationLabel.isHidden = isPlaying
+        durationLabel.text = nil
+        durationLabel.isHidden = true
         playingIndicator.isHidden = !isPlaying
-        
-        // Show/hide drag handle
-        dragHandleView.isHidden = !showDragHandle
+
+        contextMenuButton.menu = contextMenu
+        contextMenuButton.isHidden = contextMenu == nil
         
         // Load artwork — increment generation so stale loads are discarded
         configureGeneration &+= 1
@@ -219,6 +215,38 @@ public class QueueItemCell: UITableViewCell {
         currentItemID = nil
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
+        contextMenuButton.menu = nil
+    }
+}
+
+private final class QueueMoreItemsCell: UITableViewCell {
+    private let moreLabel = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+
+        moreLabel.font = .systemFont(ofSize: TrackListLayoutMetrics.nativeSecondaryFontSize, weight: .regular)
+        moreLabel.textColor = .secondaryLabel
+        moreLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(moreLabel)
+
+        NSLayoutConstraint.activate([
+            moreLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
+            moreLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
+            moreLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(hiddenCount: Int) {
+        moreLabel.text = "\(hiddenCount) more songs"
+        accessibilityLabel = moreLabel.text
+        selectionStyle = .none
     }
 }
 
@@ -288,6 +316,7 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.dragDelegate = context.coordinator
         tableView.dropDelegate = context.coordinator
         tableView.register(QueueItemCell.self, forCellReuseIdentifier: "QueueItemCell")
+        tableView.register(QueueMoreItemsCell.self, forCellReuseIdentifier: "QueueMoreItemsCell")
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
@@ -333,6 +362,9 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
         context.coordinator.onMoveItem = onMoveItem
         context.coordinator.artworkLoader = dependencies.artworkLoader
+        if tableView.isEditing == showHistory {
+            tableView.setEditing(!showHistory, animated: false)
+        }
         
         // Rebuild sections
         context.coordinator.rebuildSections()
@@ -343,16 +375,16 @@ public struct QueueTableView: UIViewRepresentable {
             // Only update visible cells
             tableView.visibleCells.forEach { cell in
                 if let queueCell = cell as? QueueItemCell,
-                   let indexPath = tableView.indexPath(for: cell) {
+                   let indexPath = tableView.indexPath(for: cell),
+                   !context.coordinator.isMoreRow(indexPath) {
                     let item = context.coordinator.item(at: indexPath)
                     let absoluteIndex = context.coordinator.absoluteQueueIndex(for: indexPath)
                     let isPlaying = absoluteIndex == currentQueueIndex
-                    let showDragHandle = !showHistory // No drag handle in history
                     queueCell.configure(
                         with: item,
                         isPlaying: isPlaying,
-                        showDragHandle: showDragHandle,
-                        artworkLoader: dependencies.artworkLoader
+                        artworkLoader: dependencies.artworkLoader,
+                        contextMenu: context.coordinator.contextMenu(for: item.track, absoluteIndex: absoluteIndex)
                     )
                 }
             }
@@ -406,6 +438,7 @@ public struct QueueTableView: UIViewRepresentable {
 
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
+        private let queueDisplayLimit = 50
 
         struct QueueSection {
             let type: SectionType
@@ -416,6 +449,7 @@ public struct QueueTableView: UIViewRepresentable {
                 case upNext
                 case continuePlaying
                 case autoplay
+                case more(Int)
 
                 var title: String {
                     switch self {
@@ -423,6 +457,7 @@ public struct QueueTableView: UIViewRepresentable {
                     case .upNext: return "Up Next"
                     case .continuePlaying: return "Continue Playing"
                     case .autoplay: return "Autoplay"
+                    case .more: return ""
                     }
                 }
             }
@@ -482,9 +517,11 @@ public struct QueueTableView: UIViewRepresentable {
                 }
             } else {
                 // Split queue by source
-                let upNext = queueItems.filter { $0.source == .upNext }
-                let continuePlaying = queueItems.filter { $0.source == .continuePlaying }
-                let autoplay = queueItems.filter { $0.source == .autoplay }
+                let visibleQueueItems = Array(queueItems.prefix(queueDisplayLimit))
+                let hiddenCount = max(0, queueItems.count - queueDisplayLimit)
+                let upNext = visibleQueueItems.filter { $0.source == .upNext }
+                let continuePlaying = visibleQueueItems.filter { $0.source == .continuePlaying }
+                let autoplay = visibleQueueItems.filter { $0.source == .autoplay }
                 
                 if !upNext.isEmpty {
                     sections.append(QueueSection(type: .upNext, items: upNext))
@@ -494,6 +531,9 @@ public struct QueueTableView: UIViewRepresentable {
                 }
                 if !autoplay.isEmpty {
                     sections.append(QueueSection(type: .autoplay, items: autoplay))
+                }
+                if hiddenCount > 0 {
+                    sections.append(QueueSection(type: .more(hiddenCount), items: []))
                 }
             }
         }
@@ -515,20 +555,28 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            sections[section].items.count
+            if case .more = sections[section].type {
+                return 1
+            }
+            return sections[section].items.count
         }
         
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            if case let .more(hiddenCount) = sections[indexPath.section].type {
+                let cell = tableView.dequeueReusableCell(withIdentifier: "QueueMoreItemsCell", for: indexPath) as! QueueMoreItemsCell
+                cell.configure(hiddenCount: hiddenCount)
+                return cell
+            }
+
             let cell = tableView.dequeueReusableCell(withIdentifier: "QueueItemCell", for: indexPath) as! QueueItemCell
             let item = self.item(at: indexPath)
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
             let isPlaying = absoluteIndex == currentQueueIndex
-            let showDragHandle = !showHistory // No drag handle in history
             cell.configure(
                 with: item,
                 isPlaying: isPlaying,
-                showDragHandle: showDragHandle,
-                artworkLoader: artworkLoader
+                artworkLoader: artworkLoader,
+                contextMenu: contextMenu(for: item.track, absoluteIndex: absoluteIndex)
             )
             return cell
         }
@@ -539,6 +587,9 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
             let sectionData = sections[section]
+            if case .more = sectionData.type {
+                return nil
+            }
             
             let headerView = UIView()
             headerView.backgroundColor = .clear // Transparent to show blurred background
@@ -551,7 +602,7 @@ public struct QueueTableView: UIViewRepresentable {
             
             headerView.addSubview(label)
             
-            if sectionData.type == .history {
+            if case .history = sectionData.type {
                 let clockIcon = UIImageView(image: UIImage(systemName: EnsembleDesign.Icon.clock))
                 clockIcon.tintColor = .secondaryLabel
                 clockIcon.contentMode = .scaleAspectFit
@@ -580,7 +631,10 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            40
+            if case .more = sections[section].type {
+                return CGFloat.leastNormalMagnitude
+            }
+            return 40
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
@@ -591,11 +645,14 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
-            let item = self.item(at: indexPath)
             let section = sections[indexPath.section]
+            if case .more = section.type {
+                return
+            }
+            let item = self.item(at: indexPath)
 
             // Handle history items separately
-            if section.type == .history {
+            if case .history = section.type {
                 // History is displayed reversed (most recent first), so convert index
                 // back to original history array index
                 let originalHistoryIndex = history.count - 1 - indexPath.row
@@ -616,10 +673,14 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Context Menu
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-            let item = self.item(at: indexPath)
             let section = sections[indexPath.section]
+            if case .more = section.type {
+                return nil
+            }
+
+            let item = self.item(at: indexPath)
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
-            if section.type != .history, absoluteIndex == nil {
+            if !isHistorySection(section), absoluteIndex == nil {
                 return nil
             }
             
@@ -628,7 +689,7 @@ public struct QueueTableView: UIViewRepresentable {
             }
         }
 
-        private func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu? {
+        func contextMenu(for track: Track, absoluteIndex: Int?) -> UIMenu? {
             let interactionModel = TrackRowInteractionModel(
                 onPlayNext: { [weak self] track in self?.onPlayNext(track) },
                 onPlayLast: { [weak self] track in self?.onPlayLast(track) },
@@ -652,15 +713,53 @@ public struct QueueTableView: UIViewRepresentable {
                 }
             )
         }
+
+        private func isHistorySection(_ section: QueueSection) -> Bool {
+            if case .history = section.type {
+                return true
+            }
+            return false
+        }
         
         // MARK: - Drag & Drop
         
         public func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-            !showHistory // History not movable
+            guard !showHistory else { return false }
+            if case .more = sections[indexPath.section].type {
+                return false
+            }
+            return true
+        }
+
+        public func tableView(_ tableView: UITableView, moveRowAt sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
+            guard !showHistory, !isMoreRow(sourceIndexPath) else { return }
+            moveQueueRow(from: sourceIndexPath, to: destinationIndexPath)
+        }
+
+        public func tableView(
+            _ tableView: UITableView,
+            targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
+            toProposedIndexPath proposedDestinationIndexPath: IndexPath
+        ) -> IndexPath {
+            guard sections.indices.contains(proposedDestinationIndexPath.section),
+                  case .more = sections[proposedDestinationIndexPath.section].type
+            else {
+                return proposedDestinationIndexPath
+            }
+
+            let lastMovableSectionIndex = sections.lastIndex { section in
+                if case .more = section.type { return false }
+                return !section.items.isEmpty
+            }
+            guard let sectionIndex = lastMovableSectionIndex else {
+                return sourceIndexPath
+            }
+            return IndexPath(row: sections[sectionIndex].items.count - 1, section: sectionIndex)
         }
         
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
-            guard !showHistory else { return [] }
+            guard !showHistory,
+                  !isMoreRow(indexPath) else { return [] }
             let item = self.item(at: indexPath)
             let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
             itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
@@ -733,6 +832,44 @@ public struct QueueTableView: UIViewRepresentable {
             EnsembleLogger.debug("Drag-drop: source '\(sourceItem.track.title)' from \(sourceAbsoluteIndex) to \(destinationAbsoluteIndex)")
             
             // Pass item ID + both absolute indices
+            onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)
+        }
+
+        func isMoreRow(_ indexPath: IndexPath) -> Bool {
+            guard sections.indices.contains(indexPath.section) else { return false }
+            if case .more = sections[indexPath.section].type {
+                return true
+            }
+            return false
+        }
+
+        private func moveQueueRow(from sourceIndexPath: IndexPath, to destinationIndexPath: IndexPath) {
+            guard !isMoreRow(sourceIndexPath),
+                  sections.indices.contains(sourceIndexPath.section),
+                  sections[sourceIndexPath.section].items.indices.contains(sourceIndexPath.row)
+            else { return }
+
+            let sourceItem = sections[sourceIndexPath.section].items[sourceIndexPath.row]
+            guard let sourceAbsoluteIndex = queueItems.firstIndex(where: { $0.id == sourceItem.id }) else { return }
+
+            let destinationAbsoluteIndex: Int
+            if isMoreRow(destinationIndexPath) {
+                destinationAbsoluteIndex = min(queueItems.count, queueDisplayLimit)
+            } else if sections.indices.contains(destinationIndexPath.section) {
+                let destinationItems = sections[destinationIndexPath.section].items
+                if destinationItems.indices.contains(destinationIndexPath.row),
+                   let index = queueItems.firstIndex(where: { $0.id == destinationItems[destinationIndexPath.row].id }) {
+                    destinationAbsoluteIndex = index
+                } else if let lastItem = destinationItems.last,
+                          let lastIndex = queueItems.firstIndex(where: { $0.id == lastItem.id }) {
+                    destinationAbsoluteIndex = lastIndex + 1
+                } else {
+                    destinationAbsoluteIndex = queueItems.count
+                }
+            } else {
+                destinationAbsoluteIndex = queueItems.count
+            }
+
             onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)
         }
     }
