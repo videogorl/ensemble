@@ -81,38 +81,48 @@ public struct GenreChipBar: View {
     public var body: some View {
         if !availableGenres.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
-                    // Clear button — animates width to/from zero so it doesn't
-                    // cause a jarring shift when chips are toggled mid-scroll
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            selectedGenres.removeAll()
-                            excludedGenres.removeAll()
-                        }
-                    } label: {
-                        Image(systemName: EnsembleDesign.Icon.closeCircle)
-                            .font(.system(size: EnsembleScaffold.Chip.clearButtonIconSize, weight: .medium))
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                if #available(iOS 26, macOS 26, *) {
+                    GlassEffectContainer(spacing: EnsembleScaffold.Chip.rowSpacing) {
+                        chipRow
                     }
-                    .buttonStyle(.plain)
-                    .frame(width: hasActiveChips ? nil : 0)
-                    .clipped()
-                    .opacity(hasActiveChips ? 1 : 0)
-                    .disabled(!hasActiveChips)
-                    .animation(.easeInOut(duration: 0.2), value: hasActiveChips)
-
-                    ForEach(availableGenres, id: \.self) { genre in
-                        GenreChip(
-                            title: genre,
-                            state: chipState(for: genre),
-                            onTap: { cycleState(for: genre) }
-                        )
-                    }
+                } else {
+                    chipRow
                 }
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
             }
             .frame(height: EnsembleScaffold.Chip.barHeight)
         }
+    }
+
+    private var chipRow: some View {
+        HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
+            // Clear button — animates width to/from zero so it doesn't
+            // cause a jarring shift when chips are toggled mid-scroll
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedGenres.removeAll()
+                    excludedGenres.removeAll()
+                }
+            } label: {
+                Image(systemName: EnsembleDesign.Icon.closeCircle)
+                    .font(.system(size: EnsembleScaffold.Chip.clearButtonIconSize, weight: .medium))
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+            .buttonStyle(.plain)
+            .frame(width: hasActiveChips ? nil : 0)
+            .clipped()
+            .opacity(hasActiveChips ? 1 : 0)
+            .disabled(!hasActiveChips)
+            .animation(.easeInOut(duration: 0.2), value: hasActiveChips)
+
+            ForEach(availableGenres, id: \.self) { genre in
+                GenreChip(
+                    title: genre,
+                    state: chipState(for: genre),
+                    onTap: { cycleState(for: genre) }
+                )
+            }
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
     }
 
     /// Determine the current state of a genre chip
@@ -164,10 +174,7 @@ private struct GenreChip: View {
                 .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
                 .padding(.vertical, EnsembleScaffold.Chip.verticalPadding)
                 .foregroundColor(foregroundColor)
-                .background(
-                    Capsule()
-                        .fill(backgroundColor)
-                )
+                .genreChipMaterial(backgroundColor: backgroundColor)
                 .overlay(
                     Capsule()
                         .strokeBorder(borderColor, lineWidth: state == .included ? 0 : EnsembleScaffold.Chip.borderWidth)
@@ -197,6 +204,23 @@ private struct GenreChip: View {
         case .neutral: return EnsembleDesign.Color.accent
         case .included: return .clear
         case .excluded: return EnsembleDesign.Color.destructive
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func genreChipMaterial(backgroundColor: Color) -> some View {
+        if #available(iOS 26, macOS 26, *) {
+            self
+                .clipShape(Capsule())
+                .glassEffect(.regular.tint(backgroundColor).interactive(), in: .capsule)
+        } else {
+            self
+                .background(
+                    Capsule()
+                        .fill(backgroundColor)
+                )
         }
     }
 }
