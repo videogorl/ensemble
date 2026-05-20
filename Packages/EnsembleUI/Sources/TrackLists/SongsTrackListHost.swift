@@ -150,48 +150,70 @@ public struct SongsTrackListHost: View {
 
     #if os(iOS)
     private var iOSTrackList: some View {
-        if configuration.showsSectionIndex {
-            MediaTrackList(
-                sections: sections,
-                showArtwork: configuration.showArtwork,
-                showTrackNumbers: configuration.showTrackNumbers,
-                showAlbumName: configuration.showAlbumName,
-                currentTrackId: configuration.currentTrackId,
-                availabilityGeneration: configuration.availabilityGeneration,
-                activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
-                bottomContentInset: configuration.bottomContentInset,
-                rowHeight: configuration.rowHeight,
-                tableHeaderContent: tableHeaderContent,
-                tableFooterContent: tableFooterContent,
-                searchTextBinding: searchTextBinding,
-                interactionModel: configuration.interactionModel,
-                supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-                onRemoveFromPlaylist: onRemoveFromPlaylist
-            ) { track, index in
-                onTrackTap(track, index)
+        Group {
+            if configuration.showsSectionIndex {
+                indexedIOSTrackList
+            } else {
+                flatIOSTrackList
             }
-        } else {
-            MediaTrackList(
-                tracks: allTracks,
-                showArtwork: configuration.showArtwork,
-                showTrackNumbers: configuration.showTrackNumbers,
-                showAlbumName: configuration.showAlbumName,
-                groupByDisc: configuration.groupByDisc,
-                currentTrackId: configuration.currentTrackId,
-                availabilityGeneration: configuration.availabilityGeneration,
-                activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
-                managesOwnScrolling: true,
-                bottomContentInset: configuration.bottomContentInset,
-                rowHeight: configuration.rowHeight,
-                tableHeaderContent: tableHeaderContent,
-                tableFooterContent: tableFooterContent,
-                searchTextBinding: searchTextBinding,
-                interactionModel: configuration.interactionModel,
-                supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-                onRemoveFromPlaylist: onRemoveFromPlaylist
-            ) { track, index in
-                onTrackTap(track, index)
+        }
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var indexedIOSTrackList: some View {
+        MediaTrackList(
+            sections: sections,
+            showArtwork: configuration.showArtwork,
+            showTrackNumbers: configuration.showTrackNumbers,
+            showAlbumName: configuration.showAlbumName,
+            currentTrackId: configuration.currentTrackId,
+            availabilityGeneration: configuration.availabilityGeneration,
+            activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+            bottomContentInset: configuration.bottomContentInset,
+            rowHeight: configuration.rowHeight,
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: tableFooterContent,
+            searchTextBinding: searchTextBinding,
+            interactionModel: configuration.interactionModel,
+            supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+            sectionScrollRequestID: sectionScrollRequest?.id,
+            sectionScrollTargetID: sectionScrollRequest?.sectionID,
+            onRemoveFromPlaylist: onRemoveFromPlaylist
+        ) { track, index in
+            onTrackTap(track, index)
+        }
+        .libraryScrollIndexOverlay(.centered) {
+            sectionIndex { sectionID in
+                sectionScrollRequestID += 1
+                sectionScrollRequest = TrackSectionScrollRequest(
+                    id: sectionScrollRequestID,
+                    sectionID: sectionID
+                )
             }
+        }
+    }
+
+    private var flatIOSTrackList: some View {
+        MediaTrackList(
+            tracks: allTracks,
+            showArtwork: configuration.showArtwork,
+            showTrackNumbers: configuration.showTrackNumbers,
+            showAlbumName: configuration.showAlbumName,
+            groupByDisc: configuration.groupByDisc,
+            currentTrackId: configuration.currentTrackId,
+            availabilityGeneration: configuration.availabilityGeneration,
+            activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+            managesOwnScrolling: true,
+            bottomContentInset: configuration.bottomContentInset,
+            rowHeight: configuration.rowHeight,
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: tableFooterContent,
+            searchTextBinding: searchTextBinding,
+            interactionModel: configuration.interactionModel,
+            supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+            onRemoveFromPlaylist: onRemoveFromPlaylist
+        ) { track, index in
+            onTrackTap(track, index)
         }
     }
     #endif

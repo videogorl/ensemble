@@ -506,6 +506,9 @@ public struct MediaTrackList: UIViewRepresentable {
     let isTrackFavorited: ((Track) -> Bool)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
+    let showsNativeSectionIndex: Bool
+    let sectionScrollRequestID: Int?
+    let sectionScrollTargetID: String?
     let interactionModel: TrackRowInteractionModel
     /// Optional available width used to reveal wide artist/album metadata columns.
     let supplementalMetadataWidth: CGFloat?
@@ -604,6 +607,9 @@ public struct MediaTrackList: UIViewRepresentable {
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.showsNativeSectionIndex = false
+        self.sectionScrollRequestID = nil
+        self.sectionScrollTargetID = nil
         self.interactionModel = interactionModel ?? TrackRowInteractionModel(
             onPlayNext: onPlayNext,
             onPlayLast: onPlayLast,
@@ -637,6 +643,9 @@ public struct MediaTrackList: UIViewRepresentable {
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        showsNativeSectionIndex: Bool = false,
+        sectionScrollRequestID: Int? = nil,
+        sectionScrollTargetID: String? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -670,6 +679,9 @@ public struct MediaTrackList: UIViewRepresentable {
         self.isTrackFavorited = nil
         self.canAddToRecentPlaylist = nil
         self.recentPlaylistTitle = nil
+        self.showsNativeSectionIndex = showsNativeSectionIndex
+        self.sectionScrollRequestID = sectionScrollRequestID
+        self.sectionScrollTargetID = sectionScrollTargetID
         self.interactionModel = interactionModel ?? TrackRowInteractionModel()
         self.onTrackTap = onTrackTap
     }
@@ -712,7 +724,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.sectionIndexMinimumDisplayRowCount = 1
         tableView.sectionIndexColor = UIColor(EnsembleDesign.Color.accent)
         tableView.sectionIndexBackgroundColor = .clear
-        tableView.sectionIndexTrackingBackgroundColor = UIColor.systemFill
+        tableView.sectionIndexTrackingBackgroundColor = .clear
 
         // iOS 15 introduced automatic top padding above section headers; suppress it
         // so the content height is exactly N × rowHeight with no leading offset.
@@ -835,6 +847,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.isTrackFavorited = isTrackFavorited
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
+        context.coordinator.showsNativeSectionIndex = showsNativeSectionIndex
         context.coordinator.interactionModel = interactionModel
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -912,6 +925,25 @@ public struct MediaTrackList: UIViewRepresentable {
         // will trigger reloadData() on didMoveToWindow to avoid early layout passes.
         guard tableView.window != nil else { return }
 
+        if let sectionScrollRequestID,
+           context.coordinator.consumedSectionScrollRequestID != sectionScrollRequestID,
+           let sectionScrollTargetID,
+           let targetSection = context.coordinator.sectionIndex(forID: sectionScrollTargetID) {
+            context.coordinator.consumedSectionScrollRequestID = sectionScrollRequestID
+            tableView.layoutIfNeeded()
+            if tableView.numberOfRows(inSection: targetSection) > 0 {
+                tableView.scrollToRow(
+                    at: IndexPath(row: 0, section: targetSection),
+                    at: .top,
+                    animated: false
+                )
+            } else {
+                let headerRect = tableView.rectForHeader(inSection: targetSection)
+                let targetOffset = max(-tableView.adjustedContentInset.top, headerRect.minY - tableView.adjustedContentInset.top)
+                tableView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
+            }
+        }
+
         if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
             // Bounds-check indexPaths since visible cells may reference stale geometry.
@@ -968,6 +1000,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: isTrackFavorited,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
+            showsNativeSectionIndex: showsNativeSectionIndex,
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
             artworkLoader: dependencies.artworkLoader,
@@ -1042,6 +1075,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var isTrackFavorited: ((Track) -> Bool)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
+        var showsNativeSectionIndex: Bool
+        var consumedSectionScrollRequestID: Int?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
         var artworkLoader: ArtworkLoaderProtocol
@@ -1089,6 +1124,7 @@ public struct MediaTrackList: UIViewRepresentable {
             isTrackFavorited: ((Track) -> Bool)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
+            showsNativeSectionIndex: Bool,
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
             artworkLoader: ArtworkLoaderProtocol,
@@ -1122,6 +1158,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isTrackFavorited = isTrackFavorited
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
+            self.showsNativeSectionIndex = showsNativeSectionIndex
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.artworkLoader = artworkLoader
@@ -1150,6 +1187,10 @@ public struct MediaTrackList: UIViewRepresentable {
             }
             let index = groupedTracks[..<indexPath.section].reduce(0) { $0 + $1.tracks.count } + indexPath.row
             return (groupedTracks[indexPath.section].tracks[indexPath.row], index)
+        }
+
+        func sectionIndex(forID sectionID: String) -> Int? {
+            groupedTracks.firstIndex { $0.id == sectionID }
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {
@@ -1215,6 +1256,8 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func sectionIndexTitles(for tableView: UITableView) -> [String]? {
+            guard showsNativeSectionIndex else { return nil }
+
             let titles = groupedTracks.compactMap { group in
                 group.isIndexable ? group.title : nil
             }

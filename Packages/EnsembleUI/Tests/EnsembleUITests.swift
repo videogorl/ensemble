@@ -326,6 +326,10 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(EnsembleScaffold.ScrollIndex.compactTrailingPadding, 0)
     }
 
+    func testScrollIndexHitStripStaysClearOfTrailingRowActions() {
+        XCTAssertLessThanOrEqual(EnsembleScaffold.ScrollIndex.hitTargetWidth, 14)
+    }
+
     func testScrollIndexMapsLetterCentersToContainingSlot() {
         let letterHeight = EnsembleScaffold.ScrollIndex.letterHeight
         let letterSpacing = EnsembleScaffold.ScrollIndex.letterSpacing
