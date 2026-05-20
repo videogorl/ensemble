@@ -262,7 +262,7 @@ public enum EnsembleDesign {
         public static let trackActionsCircle = moreCircle
 
         static func chordIconName(modernSymbolSetAvailable: Bool) -> String {
-            modernSymbolSetAvailable ? "music.pages" : "music.note.list"
+            modernSymbolSetAvailable ? "apple.classical.pages" : "music.note.list"
         }
 
         private static var isModernChordSymbolAvailable: Bool {
