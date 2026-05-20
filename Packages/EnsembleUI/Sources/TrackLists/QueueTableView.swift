@@ -440,6 +440,7 @@ public struct QueueTableView: UIViewRepresentable {
         weak var tableView: UITableView?
         private let queueDisplayLimit = 50
         private let reorderFeedback = UISelectionFeedbackGenerator()
+        private var lastReorderFeedbackIndexPath: IndexPath?
 
         struct QueueSection {
             let type: SectionType
@@ -745,6 +746,7 @@ public struct QueueTableView: UIViewRepresentable {
             guard sections.indices.contains(proposedDestinationIndexPath.section),
                   case .more = sections[proposedDestinationIndexPath.section].type
             else {
+                triggerQueueMoveFeedbackIfNeeded(for: proposedDestinationIndexPath)
                 return proposedDestinationIndexPath
             }
 
@@ -755,13 +757,16 @@ public struct QueueTableView: UIViewRepresentable {
             guard let sectionIndex = lastMovableSectionIndex else {
                 return sourceIndexPath
             }
-            return IndexPath(row: sections[sectionIndex].items.count - 1, section: sectionIndex)
+            let targetIndexPath = IndexPath(row: sections[sectionIndex].items.count - 1, section: sectionIndex)
+            triggerQueueMoveFeedbackIfNeeded(for: targetIndexPath)
+            return targetIndexPath
         }
         
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory,
                   !isMoreRow(indexPath) else { return [] }
             reorderFeedback.prepare()
+            lastReorderFeedbackIndexPath = indexPath
             let item = self.item(at: indexPath)
             let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
             itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
@@ -778,7 +783,14 @@ public struct QueueTableView: UIViewRepresentable {
             guard destinationIndexPath != nil, !showHistory else {
                 return UITableViewDropProposal(operation: .cancel)
             }
+            if let destinationIndexPath {
+                triggerQueueMoveFeedbackIfNeeded(for: destinationIndexPath)
+            }
             return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
+        }
+
+        public func tableView(_ tableView: UITableView, dropSessionDidEnd session: UIDropSession) {
+            lastReorderFeedbackIndexPath = nil
         }
         
         public func tableView(_ tableView: UITableView, performDropWith coordinator: UITableViewDropCoordinator) {
@@ -885,6 +897,15 @@ public struct QueueTableView: UIViewRepresentable {
             reorderFeedback.selectionChanged()
             reorderFeedback.prepare()
             onMoveItem(itemId, sourceIndex, destinationIndex)
+        }
+
+        private func triggerQueueMoveFeedbackIfNeeded(for indexPath: IndexPath) {
+            guard lastReorderFeedbackIndexPath != indexPath,
+                  !isMoreRow(indexPath)
+            else { return }
+            lastReorderFeedbackIndexPath = indexPath
+            reorderFeedback.selectionChanged()
+            reorderFeedback.prepare()
         }
     }
 }
