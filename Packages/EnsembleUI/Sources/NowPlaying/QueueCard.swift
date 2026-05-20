@@ -224,6 +224,7 @@ public struct QueueCard: View {
                             viewModel.moveQueueItem(byId: itemId, from: sourceIndex + offset, to: destinationIndex + offset)
                         }
                     )
+                    .padding(.horizontal, TrackListLayoutMetrics.queueOuterContentPadding)
 
                     // Recommendations exhausted indicator
                     if queueProjection.recommendationsExhausted && queueProjection.isAutoplayEnabled {

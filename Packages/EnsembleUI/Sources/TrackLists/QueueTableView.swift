@@ -233,8 +233,8 @@ private final class QueueMoreItemsCell: UITableViewCell {
         contentView.addSubview(moreLabel)
 
         NSLayoutConstraint.activate([
-            moreLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
-            moreLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.detailHorizontalPadding),
+            moreLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.queueHorizontalGutter),
+            moreLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -TrackListLayoutMetrics.queueHorizontalGutter),
             moreLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
         ])
     }
@@ -610,7 +610,7 @@ public struct QueueTableView: UIViewRepresentable {
                 headerView.addSubview(clockIcon)
                 
                 NSLayoutConstraint.activate([
-                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
+                    clockIcon.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: TrackListLayoutMetrics.queueHorizontalGutter),
                     clockIcon.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     clockIcon.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.nativeSectionIconDimension),
                     clockIcon.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.nativeSectionIconDimension),
@@ -621,7 +621,7 @@ public struct QueueTableView: UIViewRepresentable {
                 ])
             } else {
                 NSLayoutConstraint.activate([
-                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
+                    label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: TrackListLayoutMetrics.queueHorizontalGutter),
                     label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
                     label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -TrackListLayoutMetrics.rowHorizontalPadding)
                 ])
