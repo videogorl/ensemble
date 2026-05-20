@@ -517,7 +517,7 @@ public enum EnsembleScaffold {
         public static let verticalPadding = EnsembleDesign.Spacing.sm
         public static let horizontalPadding = EnsembleDesign.Spacing.xs
         public static let letterHeight: CGFloat = 15
-        public static let letterSpacing = EnsembleDesign.Spacing.xxs
+        public static let letterSpacing = EnsembleDesign.Spacing.none
         public static let letterWidth = EnsembleDesign.Spacing.xl
         public static let letterFont: Font = .system(size: 10, weight: .bold)
         public static let bottomLift: CGFloat = 6
