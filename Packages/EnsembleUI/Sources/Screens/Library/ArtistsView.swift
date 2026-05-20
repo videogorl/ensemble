@@ -166,30 +166,29 @@ public struct ArtistsView: View {
                 ZStack(alignment: .trailing) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                            if libraryVM.artistSortOption == .name {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedArtistSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            ForEach(section.artists) { displayArtist in
-                                                artistSelectionRow(displayArtist)
+                            Section(header: artistGenreChipBar) {
+                                if libraryVM.artistSortOption == .name {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(cachedArtistSections) { section in
+                                            Section(header: sectionHeader(section.letter)) {
+                                                ForEach(section.artists) { displayArtist in
+                                                    artistSelectionRow(displayArtist)
+                                                }
                                             }
+                                            .id(section.letter)
                                         }
-                                        .id(section.letter)
                                     }
-                                }
-                                .padding(.vertical)
-                            } else {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(libraryVM.displayArtists) { displayArtist in
-                                        artistSelectionRow(displayArtist)
+                                    .padding(.vertical)
+                                } else {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(libraryVM.displayArtists) { displayArtist in
+                                            artistSelectionRow(displayArtist)
+                                        }
                                     }
+                                    .padding(.vertical)
                                 }
-                                .padding(.vertical)
                             }
                         }
-                    }
-                    .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
-                        artistGenreChipBar
                     }
                     .miniPlayerBottomSpacing()
 
@@ -291,30 +290,29 @@ public struct ArtistsView: View {
                 ZStack(alignment: .trailing) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                            if libraryVM.artistSortOption == .name {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedArtistSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            DisplayArtistGrid(
-                                                artists: section.artists,
-                                                nowPlayingVM: nowPlayingVM
-                                            )
-                                            .id(section.letter)
+                            Section(header: artistGenreChipBar) {
+                                if libraryVM.artistSortOption == .name {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(cachedArtistSections) { section in
+                                            Section(header: sectionHeader(section.letter)) {
+                                                DisplayArtistGrid(
+                                                    artists: section.artists,
+                                                    nowPlayingVM: nowPlayingVM
+                                                )
+                                                .id(section.letter)
+                                            }
                                         }
                                     }
+                                    .padding(.vertical)
+                                } else {
+                                    DisplayArtistGrid(
+                                        artists: libraryVM.displayArtists,
+                                        nowPlayingVM: nowPlayingVM
+                                    )
+                                    .padding(.vertical)
                                 }
-                                .padding(.vertical)
-                            } else {
-                                DisplayArtistGrid(
-                                    artists: libraryVM.displayArtists,
-                                    nowPlayingVM: nowPlayingVM
-                                )
-                                .padding(.vertical)
                             }
                         }
-                    }
-                    .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
-                        artistGenreChipBar
                     }
                     .miniPlayerBottomSpacing()
             

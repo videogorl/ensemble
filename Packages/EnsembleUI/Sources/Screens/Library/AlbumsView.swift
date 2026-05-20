@@ -211,24 +211,23 @@ public struct AlbumsView: View {
                 ZStack(alignment: .trailing) {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                            if isSortIndexed {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedAlbumSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                                .id(section.letter)
+                            Section(header: albumGenreChipBar) {
+                                if isSortIndexed {
+                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        ForEach(cachedAlbumSections) { section in
+                                            Section(header: sectionHeader(section.letter)) {
+                                                AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                                    .id(section.letter)
+                                            }
                                         }
                                     }
-                                }
-                                .padding(.vertical)
-                            } else {
-                                AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
                                     .padding(.vertical)
+                                } else {
+                                    AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                                        .padding(.vertical)
+                                }
                             }
                         }
-                    }
-                    .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
-                        albumGenreChipBar
                     }
                     .miniPlayerBottomSpacing()
             
