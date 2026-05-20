@@ -215,10 +215,11 @@ public struct SongsView: View {
                         ZStack(alignment: .trailing) {
                             ScrollView {
                                 LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                                    Section(header: songsGenreChipBar) {
-                                        indexedTrackListContent
-                                    }
+                                    indexedTrackListContent
                                 }
+                            }
+                            .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
+                                songsGenreChipBar
                             }
                             .miniPlayerBottomSpacing()
 
@@ -258,10 +259,11 @@ public struct SongsView: View {
                 #if os(iOS)
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                            Section(header: songsGenreChipBar) {
-                                compactSwiftUITrackList
-                            }
+                            compactSwiftUITrackList
                         }
+                    }
+                    .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
+                        songsGenreChipBar
                     }
                     .miniPlayerBottomSpacing()
                 #else
