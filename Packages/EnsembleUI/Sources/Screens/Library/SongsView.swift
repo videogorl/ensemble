@@ -230,7 +230,7 @@ public struct SongsView: View {
                                         proxy.scrollTo(letter, anchor: .top)
                                     }
                                 )
-                                .libraryScrollIndexPositioning(.centered)
+                                .libraryScrollIndexPositioning()
                             }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

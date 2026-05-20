@@ -200,7 +200,7 @@ public struct ArtistsView: View {
                                 proxy.scrollTo(letter, anchor: .top)
                             }
                         )
-                        .libraryScrollIndexPositioning(.centered)
+                        .libraryScrollIndexPositioning()
                     }
                 }
             }
@@ -324,7 +324,7 @@ public struct ArtistsView: View {
                                 proxy.scrollTo(letter, anchor: .top)
                             }
                         )
-                        .libraryScrollIndexPositioning(.centered)
+                        .libraryScrollIndexPositioning()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
