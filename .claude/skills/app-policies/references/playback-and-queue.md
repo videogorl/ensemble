@@ -9,6 +9,11 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - Toggling shuffle keeps the current item, excludes autoplay items from the shuffle candidates, filters already played history from candidates, and restores original order when disabled.
 - Queue navigation records history before advancing, restarts the current track when Previous is invoked after the configured restart threshold, and wraps only when repeat-all is enabled.
 - Autoplay is a separate queue section. It should not be treated as manually queued content or shuffled into the main future queue.
+- SmartMix is a per-device playback preference controlled from the Now Playing Queue card. It defaults off, persists in local `UserDefaults`, and does not sync across devices.
+- SmartMix uses bounded local/temp file silence and tempo analysis, equal-power overlapping deck fades, an eased outgoing high-pass sweep, and confidence-gated tempo matching. Very high-confidence matches let the outgoing deck ease toward the incoming track's tempo during the overlap; moderate-confidence close matches may still use incoming-only time stretching. SmartMix automatically falls back to non-stretched overlap when confidence, rate range, or device state is not suitable.
+- SmartMix uses a true two-deck playback model: when a transition finishes, the incoming deck remains the live deck until the next transition, and the next SmartMix schedules onto the opposite deck. Do not force an immediate handoff back to a single primary deck at the transition boundary.
+- SmartMix transitions keep track A current until transition midpoint, then promote track B for Now Playing presentation, artwork, queue index, system media identifiers, timeline reporting, and history. A skip before the SmartMix threshold keeps B playing; a skip at or after the threshold advances past B.
+- SmartMix must gracefully fall back to existing gapless playback when analysis, file resolution, queue shape, route recovery, or second-deck scheduling is unavailable.
 - Playback start paths must pass `PlaybackStartContext`. Only direct app UI starts donate to system media; Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery are non-donating.
 - macOS Dock menu playback controls are user commands for the existing queue/playback state. They must dispatch through `PlaybackService`/active Now Playing owners and must not add system-media donations or mutate `MPRemoteCommandCenter` directly.
 - Playback should prefer valid local files/downloads when present. Corrupt or invalid local files fail locally while online paths may recover by streaming or refreshing.
@@ -22,7 +27,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - `PlaybackService` remains the playback facade and side-effect boundary for queue mutation and transport retry loops.
 - `QueueManager` owns queue state and pure queue operations.
 - `PlaybackQueueController` owns queue persistence, history normalization, autoplay flattening, and download-state restamping.
-- `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, and `PlaybackLaunchCoordinator` own focused playback seams.
+- `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
 - `PlaybackNowPlayingBridge` owns `MPNowPlayingInfoCenter` and remote command writes.
 - `SystemMediaIntegrationService` owns donations, Spotlight indexing/deletion, and media user-context refresh.
 

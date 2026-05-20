@@ -25,6 +25,87 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
     }
 
+    func testInstrumentalModeUsesLargeRenderSlicesForIsolationHeadroom() {
+        XCTAssertEqual(AudioPlaybackEngine.instrumentalIsolationMaxFramesToRender, 8192)
+        XCTAssertGreaterThan(AudioPlaybackEngine.instrumentalIsolationPreferredIOBufferDuration, 0.12)
+        XCTAssertLessThan(AudioPlaybackEngine.standardPreferredIOBufferDuration, 0.03)
+    }
+
+    func testSmartMixIncomingPositionUsesTempoRate() {
+        let position = AudioPlaybackEngine.smartMixIncomingPosition(
+            incomingStartTime: 10,
+            elapsed: 5,
+            incomingPlaybackRate: 0.98,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 14.9, accuracy: 0.0001)
+    }
+
+    func testSmartMixIncomingPositionClampsToDuration() {
+        let position = AudioPlaybackEngine.smartMixIncomingPosition(
+            incomingStartTime: 175,
+            elapsed: 10,
+            incomingPlaybackRate: 1.04,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 180, accuracy: 0.0001)
+    }
+
+    func testSmartMixHighPassFrequencyRampsAfterStartProgress() {
+        let sweep = SmartMixHighPassSweep(startFrequency: 80, endFrequency: 700, startProgress: 0.35)
+
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 0.2, sweep: sweep, sampleRate: 44100),
+            80,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 1, sweep: sweep, sampleRate: 44100),
+            700,
+            accuracy: 0.001
+        )
+    }
+
+    func testSmartMixDefaultHighPassSweepIsStrongerAndEased() {
+        let sweep = SmartMixHighPassSweep.subtle
+
+        XCTAssertEqual(sweep.startFrequency, 90)
+        XCTAssertEqual(sweep.endFrequency, 1_400)
+        XCTAssertEqual(sweep.startProgress, 0.25)
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 0.625, sweep: sweep, sampleRate: 44100),
+            745,
+            accuracy: 0.001
+        )
+    }
+
+    func testSmartMixTempoRateEasesTowardTarget() {
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixTempoRate(progress: 0.05, targetRate: 1.08),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixTempoRate(progress: 1, targetRate: 1.08),
+            1.08,
+            accuracy: 0.0001
+        )
+    }
+
+    func testSmartMixFormatsMatchAllowsSampleRateConversionForEquivalentDeckFormats() {
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let stereoCopy = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let stereo48k = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)
+        let mono = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)
+
+        XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereoCopy!))
+        XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereo48k!))
+        XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(stereo, mono!))
+        XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(nil, stereo!))
+    }
+
     func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
         let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
             livePosition: 0,
@@ -415,6 +496,17 @@ final class PlaybackServiceTests: XCTestCase {
                 currentTrackID: "8877",
                 engineTrackID: "8878",
                 isSkipTransitionInProgress: true
+            )
+        )
+    }
+
+    func testEngineTrackReconciliationSkipsDuringSmartMixTransition() {
+        XCTAssertFalse(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: false,
+                isSmartMixTransitionActive: true
             )
         )
     }

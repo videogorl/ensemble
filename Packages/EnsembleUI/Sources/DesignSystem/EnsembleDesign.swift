@@ -227,6 +227,7 @@ public enum EnsembleDesign {
         public static let shareAudioFile = "square.and.arrow.up"
         public static let shareLink = "link"
         public static let shuffle = "shuffle"
+        public static let smartMix = "circle.dotted.and.circle"
         public static let smartPlaylist = "gearshape.fill"
         public static let sort = "arrow.up.arrow.down"
         public static let speakerPlayingCompact = "speaker.wave.2.fill"
@@ -261,7 +262,7 @@ public enum EnsembleDesign {
         public static let trackActionsCircle = moreCircle
 
         static func chordIconName(modernSymbolSetAvailable: Bool) -> String {
-            modernSymbolSetAvailable ? "music.pages" : "music.note.list"
+            modernSymbolSetAvailable ? "apple.classical.pages" : "music.note.list"
         }
 
         private static var isModernChordSymbolAvailable: Bool {

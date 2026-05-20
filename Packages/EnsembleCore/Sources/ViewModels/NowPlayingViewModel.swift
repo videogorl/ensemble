@@ -111,6 +111,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     @Published public var currentRating: TrackRating = .none
     @Published public private(set) var isAutoplayEnabled = false
+    @Published public private(set) var isSmartMixEnabled = false
     @Published public private(set) var autoplayTracks: [Track] = []
     @Published public private(set) var isAutoplayActive = false
     @Published public private(set) var radioMode: RadioMode = .off
@@ -321,6 +322,13 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        playbackService.smartMixEnabledPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.setIfChanged(\.isSmartMixEnabled, isEnabled)
+            }
+            .store(in: &cancellables)
+
         playbackService.autoplayTracksPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] tracks in
@@ -442,6 +450,13 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isEnabled in
                 self?.queueProjection.updateAutoplayEnabled(isEnabled)
+            }
+            .store(in: &cancellables)
+
+        $isSmartMixEnabled
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isEnabled in
+                self?.queueProjection.updateSmartMixEnabled(isEnabled)
             }
             .store(in: &cancellables)
 
@@ -1483,6 +1498,10 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func toggleAutoplay() {
         playbackService.toggleAutoplay()
+    }
+
+    public func toggleSmartMix() {
+        playbackService.toggleSmartMix()
     }
 
     /// Toggle instrumental mode (vocal attenuation via AUSoundIsolation)

@@ -289,13 +289,24 @@ final class PlaybackNowPlayingBridge {
             let position = event.positionTime
             let trackAge = handlers.trackAge()
             let currentTime = handlers.currentTime()
+            let nowTimestamp = ProcessInfo.processInfo.systemUptime
 
-            if trackAge < 5.0 && trackAge > 0 {
-                let delta = abs(position - currentTime)
-                if delta > 30.0 {
-                    EnsembleLogger.debug("[RemoteSeek] Rejected stale position command: target=\(String(format: "%.1f", position))s current=\(String(format: "%.1f", currentTime))s trackAge=\(String(format: "%.1f", trackAge))s")
-                    return .success
-                }
+            if Self.shouldRejectRemoteSeekAsStale(
+                targetPosition: position,
+                currentTime: currentTime,
+                trackAge: trackAge,
+                eventTimestamp: event.timestamp,
+                nowTimestamp: nowTimestamp
+            ) {
+                let eventAge = max(0, nowTimestamp - event.timestamp)
+                EnsembleLogger.debug(
+                    "[RemoteSeek] Rejected stale position command:"
+                    + " target=\(String(format: "%.1f", position))s"
+                    + " current=\(String(format: "%.1f", currentTime))s"
+                    + " trackAge=\(String(format: "%.1f", trackAge))s"
+                    + " eventAge=\(String(format: "%.1f", eventAge))s"
+                )
+                return .success
             }
 
             EnsembleLogger.debug("[RemoteSeek] Accepted: \(String(format: "%.1f", position))s (current=\(String(format: "%.1f", currentTime))s, trackAge=\(String(format: "%.1f", trackAge))s)")
@@ -475,10 +486,6 @@ final class PlaybackNowPlayingBridge {
             info[MPNowPlayingInfoPropertyPlaybackQueueCount] = state.queueCount
         }
 
-        if effectiveDuration > 0 {
-            info[MPNowPlayingInfoPropertyPlaybackProgress] = min(max(state.currentTime / effectiveDuration, 0), 1)
-        }
-
         if let artist = track.artistName {
             info[MPMediaItemPropertyArtist] = artist
         }
@@ -555,6 +562,21 @@ final class PlaybackNowPlayingBridge {
         @unknown default:
             return .off
         }
+    }
+
+    static func shouldRejectRemoteSeekAsStale(
+        targetPosition: TimeInterval,
+        currentTime: TimeInterval,
+        trackAge: TimeInterval,
+        eventTimestamp: TimeInterval,
+        nowTimestamp: TimeInterval
+    ) -> Bool {
+        guard trackAge > 0, trackAge < 5 else { return false }
+        guard abs(targetPosition - currentTime) > 30 else { return false }
+        guard eventTimestamp > 0, nowTimestamp >= eventTimestamp else { return false }
+
+        let eventAge = nowTimestamp - eventTimestamp
+        return eventAge > trackAge + 0.25
     }
 
     private func register(
