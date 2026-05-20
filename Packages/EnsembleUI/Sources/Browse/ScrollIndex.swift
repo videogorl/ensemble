@@ -13,6 +13,7 @@ public struct ScrollIndex: View {
     private let horizontalPadding = EnsembleScaffold.ScrollIndex.horizontalPadding
     private let letterHeight = EnsembleScaffold.ScrollIndex.letterHeight
     private let letterSpacing = EnsembleScaffold.ScrollIndex.letterSpacing
+    private let hitTargetWidth = EnsembleScaffold.ScrollIndex.hitTargetWidth
     
     public init(letters: [String], currentLetter: Binding<String?>, onLetterTap: @escaping (String) -> Void) {
         self.letters = letters
@@ -32,35 +33,52 @@ public struct ScrollIndex: View {
     }
     
     public var body: some View {
-        VStack(spacing: letterSpacing) {
-            ForEach(letters, id: \.self) { letter in
-                Text(letter)
-                    .font(EnsembleScaffold.ScrollIndex.letterFont)
-                    .foregroundColor(EnsembleDesign.Color.accent)
-                    .frame(width: EnsembleScaffold.ScrollIndex.letterWidth, height: letterHeight)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+        ZStack(alignment: .trailing) {
+            VStack(spacing: letterSpacing) {
+                ForEach(letters, id: \.self) { letter in
+                    Button {
                         select(letter)
                         dragLetter = nil
+                    } label: {
+                        Text(letter)
+                            .font(EnsembleScaffold.ScrollIndex.letterFont)
+                            .foregroundColor(EnsembleDesign.Color.accent)
+                            .frame(width: EnsembleScaffold.ScrollIndex.letterWidth, height: letterHeight)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(letter)
+                    .accessibilityAddTraits(.isButton)
+                }
             }
-        }
-        .padding(.vertical, verticalPadding)
-        .padding(.horizontal, horizontalPadding)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 8)
-                .onChanged { value in
-                    guard let index = letterIndex(for: value.location.y),
-                          letters.indices.contains(index) else { return }
+            .padding(.vertical, verticalPadding)
+            .padding(.horizontal, horizontalPadding)
 
-                    select(letters[index])
-                }
-                .onEnded { _ in
-                    dragLetter = nil
-                }
-        )
+            Color.clear
+                .frame(width: hitTargetWidth, height: indexHeight)
+                .contentShape(Rectangle())
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard let index = letterIndex(for: value.location.y),
+                                  letters.indices.contains(index) else { return }
+
+                            select(letters[index])
+                        }
+                        .onEnded { _ in
+                            dragLetter = nil
+                        }
+                )
+                .accessibilityHidden(true)
+        }
         .padding(.trailing, EnsembleDesign.Spacing.none)
+    }
+
+    private var indexHeight: CGFloat {
+        guard !letters.isEmpty else { return verticalPadding * 2 }
+
+        return (CGFloat(letters.count) * letterHeight)
+            + (CGFloat(max(letters.count - 1, 0)) * letterSpacing)
+            + (verticalPadding * 2)
     }
 
     private func select(_ letter: String) {
