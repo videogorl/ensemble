@@ -202,18 +202,22 @@ public struct SongsView: View {
         Group {
             if libraryVM.trackSortOption == .title {
                 #if os(iOS)
-                    SongsTrackListHost(
-                        sections: largeScreenTrackSections,
-                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                        supplementalMetadataWidth: width,
-                        showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-                        interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: AnyView(songsGenreChipBar)
-                    ) { track, _ in
-                        playAvailableTrack(track)
+                    VStack(spacing: EnsembleDesign.Spacing.none) {
+                        songsGenreChipBar
+
+                        SongsTrackListHost(
+                            sections: largeScreenTrackSections,
+                            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                            availabilityGeneration: availabilityGeneration,
+                            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                            bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                            supplementalMetadataWidth: width,
+                            showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
+                            interactionModel: largeScreenTrackInteractionModel
+                        ) { track, _ in
+                            playAvailableTrack(track)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #else
@@ -237,17 +241,21 @@ public struct SongsView: View {
                 #endif
             } else {
                 #if os(iOS)
-                    SongsTrackListHost(
-                        tracks: libraryVM.filteredTracks,
-                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                        supplementalMetadataWidth: width,
-                        interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: AnyView(songsGenreChipBar)
-                    ) { track, index in
-                        playAvailableTrack(track, index: index)
+                    VStack(spacing: EnsembleDesign.Spacing.none) {
+                        songsGenreChipBar
+
+                        SongsTrackListHost(
+                            tracks: libraryVM.filteredTracks,
+                            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                            availabilityGeneration: availabilityGeneration,
+                            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                            bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                            supplementalMetadataWidth: width,
+                            interactionModel: largeScreenTrackInteractionModel
+                        ) { track, index in
+                            playAvailableTrack(track, index: index)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #else
