@@ -420,77 +420,17 @@ public struct SongsView: View {
     }
 
     private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
-        Section(header: sectionHeader(section.letter)) {
-            let trackCount = section.tracks.count
-            let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+            Color.clear
+                .frame(height: 0)
+                .id(section.letter)
 
-            #if os(iOS)
-                MediaTrackList(
-                    tracks: section.tracks,
-                    showArtwork: true,
-                    showTrackNumbers: false,
-                    groupByDisc: false,
-                    currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                    availabilityGeneration: availabilityGeneration,
-                    activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                    onPlayNext: { track in
-                        nowPlayingVM.playNext(track)
-                    },
-                    onPlayLast: { track in
-                        nowPlayingVM.playLast(track)
-                    },
-                    onAddToPlaylist: { track in
-                        presentPlaylistPicker(with: [track])
-                    },
-                    onAddToRecentPlaylist: { track in
-                        addToRecentPlaylist(track)
-                    },
-                    onToggleFavorite: { track in
-                        Task {
-                            await nowPlayingVM.toggleTrackFavorite(track)
-                        }
-                    },
-                    onGoToAlbum: { track in
-                        if let albumId = track.albumRatingKey {
-                            navigationCoordinator.push(
-                                .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                                in: navigationCoordinator.selectedTab
-                            )
-                        }
-                    },
-                    onGoToArtist: { track in
-                        if let artistId = track.artistRatingKey {
-                            navigationCoordinator.push(
-                                .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                                in: navigationCoordinator.selectedTab
-                            )
-                        }
-                    },
-                    onGetInfo: { track in
-                        libraryItemInfoRequest = .track(track)
-                    },
-                    onShareLink: { track in
-                        ShareActions.shareTrackLink(track, deps: deps)
-                    },
-                    onShareFile: { track in
-                        ShareActions.shareTrackFile(track, deps: deps)
-                    },
-                    isTrackFavorited: { track in
-                        nowPlayingVM.isTrackFavorited(track)
-                    },
-                    canAddToRecentPlaylist: { track in
-                        recentPlaylistTitle(for: track) != nil
-                    },
-                    recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
-                ) { track, _ in
-                    if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
-                        nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
-                    }
+            Section(header: sectionHeader(section.letter)) {
+                ForEach(section.tracks, id: \.sourceScopedID) { track in
+                    compactSwiftUITrackRow(track)
                 }
-                .frame(height: height)
-            #endif
+            }
         }
-        .id(section.letter)
     }
 
     private var compactSwiftUITrackList: some View {
@@ -502,9 +442,21 @@ public struct SongsView: View {
         .padding(.vertical)
     }
 
+    private func compactSwiftUITrackRow(_ track: Track) -> some View {
+        compactSwiftUITrackRow(track) {
+            playAvailableTrack(track)
+        }
+    }
+
     private func compactSwiftUITrackRow(_ track: Track, index: Int) -> some View {
-        Button {
+        compactSwiftUITrackRow(track) {
             playAvailableTrack(track, index: index)
+        }
+    }
+
+    private func compactSwiftUITrackRow(_ track: Track, onTap: @escaping () -> Void) -> some View {
+        Button {
+            onTap()
         } label: {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
                 ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
@@ -613,6 +565,14 @@ public struct SongsView: View {
                 libraryItemInfoRequest = .track(track)
             }
         )
+    }
+
+    private func playAvailableTrack(_ track: Track) {
+        guard let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.sourceScopedID == track.sourceScopedID }) else {
+            return
+        }
+
+        playAvailableTrack(track, index: globalIndex)
     }
 
     private func playAvailableTrack(_ track: Track, index: Int) {

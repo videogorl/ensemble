@@ -39,32 +39,39 @@ public struct ScrollIndex: View {
                     .foregroundColor(EnsembleDesign.Color.accent)
                     .frame(width: EnsembleScaffold.ScrollIndex.letterWidth, height: letterHeight)
                     .contentShape(Rectangle())
+                    .onTapGesture {
+                        select(letter)
+                        dragLetter = nil
+                    }
             }
         }
         .padding(.vertical, verticalPadding)
         .padding(.horizontal, horizontalPadding)
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 8)
                 .onChanged { value in
                     guard let index = letterIndex(for: value.location.y),
                           letters.indices.contains(index) else { return }
 
-                    let letter = letters[index]
-                    if letter != dragLetter {
-                        dragLetter = letter
-                        onLetterTap(letter)
-
-                        #if os(iOS)
-                        UISelectionFeedbackGenerator().selectionChanged()
-                        #endif
-                    }
+                    select(letters[index])
                 }
                 .onEnded { _ in
                     dragLetter = nil
                 }
         )
         .padding(.trailing, EnsembleDesign.Spacing.none)
+    }
+
+    private func select(_ letter: String) {
+        guard letter != dragLetter else { return }
+
+        dragLetter = letter
+        onLetterTap(letter)
+
+        #if os(iOS)
+        UISelectionFeedbackGenerator().selectionChanged()
+        #endif
     }
 
     /// Maps a drag/tap y-position within the compact control to the containing letter slot.
