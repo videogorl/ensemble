@@ -93,6 +93,34 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testSmartMixDeckFrameCountSchedulesOnlyHandoffTail() {
+        let frames = AudioPlaybackEngine.smartMixDeckFrameCount(
+            incomingStartFrame: 441_000,
+            contentEndFrame: 44_100_000,
+            sampleRate: 44_100,
+            transitionDuration: 10,
+            incomingPlaybackRate: 1,
+            stabilizationDuration: 0.25,
+            tailDuration: 2
+        )
+
+        XCTAssertEqual(frames, 540_225)
+    }
+
+    func testSmartMixDeckFrameCountClampsToContentEnd() {
+        let frames = AudioPlaybackEngine.smartMixDeckFrameCount(
+            incomingStartFrame: 990,
+            contentEndFrame: 1_000,
+            sampleRate: 100,
+            transitionDuration: 10,
+            incomingPlaybackRate: 1,
+            stabilizationDuration: 0.25,
+            tailDuration: 2
+        )
+
+        XCTAssertEqual(frames, 10)
+    }
+
     func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
         let time = AudioPlaybackEngine.resolvedRouteRecoveryPosition(
             livePosition: 0,

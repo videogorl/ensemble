@@ -124,6 +124,7 @@ public final class AudioPlaybackEngine {
     private var smartMixFadeTimer: DispatchSourceTimer?
     private var smartMixStabilizationTimer: DispatchSourceTimer?
     private static let smartMixStabilizationDuration: TimeInterval = 0.25
+    private static let smartMixDeckTailDuration: TimeInterval = 2.0
 
     // MARK: - Time Tracking
 
@@ -999,7 +1000,13 @@ public final class AudioPlaybackEngine {
         smartMixPlayerNode.volume = 0
         playerNode.volume = 1
 
-        let frameCount = AVAudioFrameCount(contentEnd - incomingStartFrame)
+        let frameCount = Self.smartMixDeckFrameCount(
+            incomingStartFrame: incomingStartFrame,
+            contentEndFrame: contentEnd,
+            sampleRate: incomingRate,
+            transitionDuration: plan.transitionDuration,
+            incomingPlaybackRate: plan.incomingPlaybackRate
+        )
         smartMixPlayerNode.scheduleSegment(
             file,
             startingFrame: incomingStartFrame,
@@ -1317,11 +1324,31 @@ public final class AudioPlaybackEngine {
         guard progress >= 1 else { return }
 
         cancelSmartMixStabilization()
-        smartMixPlayerNode.stop()
         smartMixPlayerNode.volume = 0
         playerNode.volume = 1
         resetIncomingTimePitch()
         EnsembleLogger.debug("[AudioEngine] SmartMix seamless stabilization complete trackId=\(trackId)")
+    }
+
+    static func smartMixDeckFrameCount(
+        incomingStartFrame: AVAudioFramePosition,
+        contentEndFrame: AVAudioFramePosition,
+        sampleRate: Double,
+        transitionDuration: TimeInterval,
+        incomingPlaybackRate: Double,
+        stabilizationDuration: TimeInterval = smartMixStabilizationDuration,
+        tailDuration: TimeInterval = smartMixDeckTailDuration
+    ) -> AVAudioFrameCount {
+        guard incomingStartFrame < contentEndFrame, sampleRate > 0 else { return 0 }
+
+        let wallClockDuration = max(0, transitionDuration)
+            + max(0, stabilizationDuration)
+            + max(0, tailDuration)
+        let consumedSourceDuration = wallClockDuration * max(0.001, incomingPlaybackRate)
+        let requestedFrames = max(1, AVAudioFramePosition(consumedSourceDuration * sampleRate))
+        let requestedEndFrame = incomingStartFrame + requestedFrames
+        let scheduledEndFrame = min(contentEndFrame, requestedEndFrame)
+        return AVAudioFrameCount(max(1, scheduledEndFrame - incomingStartFrame))
     }
 
     private func currentSmartMixIncomingTime() -> TimeInterval {
