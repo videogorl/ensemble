@@ -24,7 +24,6 @@ public struct SongsTrackListHost: View {
     private let tableHeaderContent: AnyView?
     private let tableFooterContent: AnyView?
     private let searchTextBinding: Binding<String>?
-    private let onTopOverscrollChange: ((CGFloat) -> Void)?
     private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
 
@@ -41,7 +40,6 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
-        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -52,7 +50,6 @@ public struct SongsTrackListHost: View {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
-        self.onTopOverscrollChange = onTopOverscrollChange
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
@@ -63,7 +60,6 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
-        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -72,7 +68,6 @@ public struct SongsTrackListHost: View {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
-        self.onTopOverscrollChange = onTopOverscrollChange
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
@@ -89,7 +84,6 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
-        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -107,7 +101,6 @@ public struct SongsTrackListHost: View {
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
             searchTextBinding: searchTextBinding,
-            onTopOverscrollChange: onTopOverscrollChange,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -126,7 +119,6 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
-        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -145,7 +137,6 @@ public struct SongsTrackListHost: View {
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
             searchTextBinding: searchTextBinding,
-            onTopOverscrollChange: onTopOverscrollChange,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -190,7 +181,6 @@ public struct SongsTrackListHost: View {
                 searchTextBinding: searchTextBinding,
                 interactionModel: configuration.interactionModel,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-                onTopOverscrollChange: onTopOverscrollChange,
                 sectionScrollRequestID: sectionScrollRequest?.id,
                 sectionScrollTargetID: sectionScrollRequest?.sectionID,
                 onRemoveFromPlaylist: onRemoveFromPlaylist
@@ -229,7 +219,6 @@ public struct SongsTrackListHost: View {
             searchTextBinding: searchTextBinding,
             interactionModel: configuration.interactionModel,
             supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-            onTopOverscrollChange: onTopOverscrollChange,
             onRemoveFromPlaylist: onRemoveFromPlaylist
         ) { track, index in
             onTrackTap(track, index)

@@ -19,7 +19,6 @@ public struct SongsView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
-    @State private var songsGenreChipBarTopOverscroll: CGFloat = 0
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -208,19 +207,15 @@ public struct SongsView: View {
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        topContentInset: songsGenreChipBarTopInset,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        onTopOverscrollChange: updateSongsGenreChipBarTopOverscroll
+                        tableHeaderContent: songsGenreChipTableHeader
                     ) { track, _ in
                         playAvailableTrack(track)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
-                        stickySongsGenreChipBar
-                    }
                 #else
                     VStack(spacing: EnsembleDesign.Spacing.none) {
                         songsGenreChipBar
@@ -247,18 +242,14 @@ public struct SongsView: View {
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        topContentInset: songsGenreChipBarTopInset,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         interactionModel: largeScreenTrackInteractionModel,
-                        onTopOverscrollChange: updateSongsGenreChipBarTopOverscroll
+                        tableHeaderContent: songsGenreChipTableHeader
                     ) { track, index in
                         playAvailableTrack(track, index: index)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .safeAreaInset(edge: .top, spacing: EnsembleDesign.Spacing.none) {
-                        stickySongsGenreChipBar
-                    }
                 #else
                     VStack(spacing: EnsembleDesign.Spacing.none) {
                         songsGenreChipBar
@@ -279,23 +270,9 @@ public struct SongsView: View {
         )
     }
 
-    private var stickySongsGenreChipBar: some View {
-        songsGenreChipBar
-            .offset(y: songsGenreChipBarTopOverscroll)
-    }
-
-    private var songsGenreChipBarTopInset: CGFloat {
-        libraryVM.availableTrackGenres.isEmpty
-            ? 0
-            : EnsembleScaffold.Chip.barHeight + (EnsembleScaffold.Chip.verticalPadding * 2)
-    }
-
-    private func updateSongsGenreChipBarTopOverscroll(_ overscroll: CGFloat) {
-        guard abs(overscroll - songsGenreChipBarTopOverscroll) > 0.5 ||
-            overscroll == 0 && songsGenreChipBarTopOverscroll != 0 else {
-            return
-        }
-        songsGenreChipBarTopOverscroll = overscroll
+    private var songsGenreChipTableHeader: AnyView? {
+        guard !libraryVM.availableTrackGenres.isEmpty else { return nil }
+        return AnyView(songsGenreChipBar)
     }
 
     private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
