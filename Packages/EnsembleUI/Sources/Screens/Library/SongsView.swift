@@ -24,14 +24,6 @@ public struct SongsView: View {
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
 
-    private var backgroundColor: Color {
-        #if os(macOS)
-            return EnsembleDesign.Color.windowSurface
-        #else
-            return EnsembleDesign.Color.windowSurface
-        #endif
-    }
-
     private var canShowLargeScreenSongBrowser: Bool {
         #if os(iOS)
             return UIDevice.current.userInterfaceIdiom != .phone
@@ -210,34 +202,20 @@ public struct SongsView: View {
         Group {
             if libraryVM.trackSortOption == .title {
                 #if os(iOS)
-                    // Indexed mode: ScrollView + LazyVStack for section headers + scroll index
-                    ScrollViewReader { proxy in
-                        ZStack(alignment: .trailing) {
-                            ScrollView {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                                    Section(header: songsGenreChipBar) {
-                                        ForEach(libraryVM.trackSections) { section in
-                                            indexedSection(section: section)
-                                        }
-                                    }
-                                }
-                                .padding(.vertical)
-                            }
-                            .miniPlayerBottomSpacing()
-
-                            if !libraryVM.filteredTracks.isEmpty && ScrollIndex.isVisible(forContainerWidth: width) {
-                                ScrollIndex(
-                                    letters: libraryVM.trackSections.map { $0.letter },
-                                    currentLetter: .constant(nil),
-                                    onLetterTap: { letter in
-                                        proxy.scrollTo(letter, anchor: .top)
-                                    }
-                                )
-                                .libraryScrollIndexPositioning()
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SongsTrackListHost(
+                        sections: largeScreenTrackSections,
+                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                        supplementalMetadataWidth: width,
+                        showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
+                        interactionModel: largeScreenTrackInteractionModel,
+                        tableHeaderContent: AnyView(songsGenreChipBar)
+                    ) { track, _ in
+                        playAvailableTrack(track)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #else
                     VStack(spacing: EnsembleDesign.Spacing.none) {
                         songsGenreChipBar
@@ -259,14 +237,19 @@ public struct SongsView: View {
                 #endif
             } else {
                 #if os(iOS)
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                            Section(header: songsGenreChipBar) {
-                                compactSwiftUITrackList
-                            }
-                        }
+                    SongsTrackListHost(
+                        tracks: libraryVM.filteredTracks,
+                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                        supplementalMetadataWidth: width,
+                        interactionModel: largeScreenTrackInteractionModel,
+                        tableHeaderContent: AnyView(songsGenreChipBar)
+                    ) { track, index in
+                        playAvailableTrack(track, index: index)
                     }
-                    .miniPlayerBottomSpacing()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #else
                     VStack(spacing: EnsembleDesign.Spacing.none) {
                         songsGenreChipBar
@@ -413,149 +396,6 @@ public struct SongsView: View {
         }
     }
 
-    private func indexedSection(section: LibraryViewModel.TrackSection) -> some View {
-        Section(header: sectionHeader(section.letter)) {
-            ForEach(section.tracks, id: \.sourceScopedID) { track in
-                compactSwiftUITrackRow(track)
-            }
-        }
-        .id(section.letter)
-    }
-
-    private var compactSwiftUITrackList: some View {
-        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.offset) { index, track in
-                compactSwiftUITrackRow(track, index: index)
-            }
-        }
-        .padding(.vertical)
-    }
-
-    private func compactSwiftUITrackRow(_ track: Track) -> some View {
-        compactSwiftUITrackRow(track) {
-            playAvailableTrack(track)
-        }
-    }
-
-    private func compactSwiftUITrackRow(_ track: Track, index: Int) -> some View {
-        compactSwiftUITrackRow(track) {
-            playAvailableTrack(track, index: index)
-        }
-    }
-
-    private func compactSwiftUITrackRow(_ track: Track, onTap: @escaping () -> Void) -> some View {
-        Button {
-            onTap()
-        } label: {
-            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
-
-                VStack(alignment: .leading, spacing: TrackListLayoutMetrics.primarySecondaryTextSpacing) {
-                    Text(track.title)
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-                        .lineLimit(1)
-
-                    Text(compactTrackSubtitle(for: track))
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: TrackListLayoutMetrics.rowInterItemSpacing)
-
-                if activeDownloadTrackIdentities.contains(track.sourceScopedID) {
-                    ProgressView()
-                        .controlSize(.small)
-                } else if track.isDownloaded {
-                    Image(systemName: EnsembleDesign.Icon.downloaded)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
-
-                if nowPlayingVM.currentTrack?.playbackIdentity == track.playbackIdentity {
-                    Image(systemName: EnsembleDesign.Icon.play)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                } else {
-                    Text(track.formattedDuration)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        .monospacedDigit()
-                }
-
-                Menu {
-                    compactTrackContextMenu(for: track)
-                } label: {
-                    Image(systemName: EnsembleDesign.Icon.more)
-                        .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        .frame(width: TrackListLayoutMetrics.overflowControlDimension, height: TrackListLayoutMetrics.overflowControlDimension)
-                }
-                .accessibilityLabel("Track Actions")
-            }
-            .frame(height: TrackListLayoutMetrics.defaultRowHeight)
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-            .opacity(deps.trackAvailabilityResolver.availability(for: track).shouldDim ? 0.45 : 1)
-            .overlay(alignment: .leading) {
-                if nowPlayingVM.isTrackFavorited(track) {
-                    Image(systemName: EnsembleDesign.Icon.favoriteFilled)
-                        .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
-                        .foregroundColor(EnsembleDesign.Color.favorite)
-                        .offset(x: -EnsembleDesign.Spacing.xs)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .contextMenu {
-            compactTrackContextMenu(for: track)
-        }
-        .overlay(alignment: .bottom) {
-            Divider()
-                .padding(.leading, TrackListLayoutMetrics.contentLeadingInset(showArtwork: true, showTrackNumbers: false))
-        }
-    }
-
-    private func compactTrackSubtitle(for track: Track) -> String {
-        [track.artistName, track.albumName]
-            .compactMap { value in
-                guard let value, !value.isEmpty else { return nil }
-                return value
-            }
-            .joined(separator: " · ")
-    }
-
-    @ViewBuilder
-    private func compactTrackContextMenu(for track: Track) -> some View {
-        TrackActionsContextMenu(
-            track: track,
-            nowPlayingVM: nowPlayingVM,
-            context: .library,
-            onAddToPlaylist: {
-                presentPlaylistPicker(with: [track])
-            },
-            onGoToAlbum: {
-                if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGoToArtist: {
-                if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                }
-            },
-            onGetInfo: {
-                libraryItemInfoRequest = .track(track)
-            }
-        )
-    }
-
     private func playAvailableTrack(_ track: Track) {
         guard let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.sourceScopedID == track.sourceScopedID }) else {
             return
@@ -611,10 +451,6 @@ public struct SongsView: View {
 
     private func recentPlaylistTitle(for track: Track) -> String? {
         PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func sectionHeader(_ letter: String) -> some View {
-        EnsembleBrowseSectionHeader(letter, backgroundColor: backgroundColor)
     }
 
     private var albumStageFlowView: some View {

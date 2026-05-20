@@ -156,12 +156,17 @@ public struct SongsTrackListHost: View {
                     ZStack(alignment: .trailing) {
                         ScrollView {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                if let tableHeaderContent {
+                                    tableHeaderContent
+                                }
+
                                 ForEach(sections) { section in
                                     iOSSection(section, allTracks: allTracks)
                                 }
                             }
                             .padding(.vertical)
                         }
+                        .miniPlayerBottomSpacing(configuration.bottomContentInset)
 
                         sectionIndex { sectionID in
                             proxy.scrollTo(sectionID, anchor: .top)

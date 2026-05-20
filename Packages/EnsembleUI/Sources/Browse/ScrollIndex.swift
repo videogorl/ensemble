@@ -42,7 +42,7 @@ public struct ScrollIndex: View {
                         Text(letter)
                             .font(EnsembleScaffold.ScrollIndex.letterFont)
                             .foregroundColor(EnsembleDesign.Color.accent)
-                            .frame(width: hitTargetWidth, height: letterHeight, alignment: .trailing)
+                            .frame(width: hitTargetWidth, height: letterHeight, alignment: .center)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(letter)
