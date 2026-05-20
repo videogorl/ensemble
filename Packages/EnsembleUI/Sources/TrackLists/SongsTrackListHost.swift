@@ -153,21 +153,20 @@ public struct SongsTrackListHost: View {
         Group {
             if configuration.showsSectionIndex {
                 ScrollViewReader { proxy in
-                    ZStack(alignment: .trailing) {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                if let tableHeaderContent {
-                                    tableHeaderContent
-                                }
-
-                                ForEach(sections) { section in
-                                    iOSSection(section, allTracks: allTracks)
-                                }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            if let tableHeaderContent {
+                                tableHeaderContent
                             }
-                            .padding(.vertical)
-                        }
-                        .miniPlayerBottomSpacing(configuration.bottomContentInset)
 
+                            ForEach(sections) { section in
+                                iOSSection(section, allTracks: allTracks)
+                            }
+                        }
+                        .padding(.vertical)
+                    }
+                    .miniPlayerBottomSpacing(configuration.bottomContentInset)
+                    .libraryScrollIndexOverlay {
                         sectionIndex { sectionID in
                             proxy.scrollTo(sectionID, anchor: .top)
                         }
@@ -234,7 +233,6 @@ public struct SongsTrackListHost: View {
     #if os(macOS)
     private var macTrackList: some View {
         searchableIfNeeded(
-            ZStack(alignment: .trailing) {
             MacNativeTrackTableView(
                 sections: sections,
                 showArtwork: configuration.showArtwork,
@@ -254,14 +252,14 @@ public struct SongsTrackListHost: View {
                 sectionScrollRequest: sectionScrollRequest,
                 onTrackTap: onTrackTap
             )
-
-            sectionIndex { sectionID in
-                sectionScrollRequestID += 1
-                sectionScrollRequest = TrackSectionScrollRequest(
-                    id: sectionScrollRequestID,
-                    sectionID: sectionID
-                )
-            }
+            .libraryScrollIndexOverlay(.centered) {
+                sectionIndex { sectionID in
+                    sectionScrollRequestID += 1
+                    sectionScrollRequest = TrackSectionScrollRequest(
+                        id: sectionScrollRequestID,
+                        sectionID: sectionID
+                    )
+                }
             }
         )
     }
@@ -284,7 +282,6 @@ public struct SongsTrackListHost: View {
                 currentLetter: .constant(nil),
                 onLetterTap: onTap
             )
-            .libraryScrollIndexPositioning(.centered)
         }
     }
 

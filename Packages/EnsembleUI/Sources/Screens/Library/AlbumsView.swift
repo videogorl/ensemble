@@ -208,29 +208,28 @@ public struct AlbumsView: View {
     private var albumGridView: some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
-                ZStack(alignment: .trailing) {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                            Section(header: albumGenreChipBar) {
-                                if isSortIndexed {
-                                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                        ForEach(cachedAlbumSections) { section in
-                                            Section(header: sectionHeader(section.letter)) {
-                                                AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                                    .id(section.letter)
-                                            }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                        Section(header: albumGenreChipBar) {
+                            if isSortIndexed {
+                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    ForEach(cachedAlbumSections) { section in
+                                        Section(header: sectionHeader(section.letter)) {
+                                            AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                                .id(section.letter)
                                         }
                                     }
-                                    .padding(.vertical)
-                                } else {
-                                    AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
-                                        .padding(.vertical)
                                 }
+                                .padding(.vertical)
+                            } else {
+                                AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                                    .padding(.vertical)
                             }
                         }
                     }
-                    .miniPlayerBottomSpacing()
-            
+                }
+                .miniPlayerBottomSpacing()
+                .libraryScrollIndexOverlay {
                     if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
                         ScrollIndex(
                             letters: cachedAlbumSections.map { $0.letter },
@@ -239,7 +238,6 @@ public struct AlbumsView: View {
                                 proxy.scrollTo(letter, anchor: .top)
                             }
                         )
-                        .libraryScrollIndexPositioning()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

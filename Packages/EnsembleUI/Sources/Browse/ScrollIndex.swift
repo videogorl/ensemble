@@ -130,6 +130,20 @@ public enum ScrollIndexPlacement {
 }
 
 public extension View {
+    /// Places the scroll index as viewport chrome over the scroll/list owner.
+    /// The caller keeps content and index layout separate so collapsing headers
+    /// and scroll content do not move the index.
+    @ViewBuilder
+    func libraryScrollIndexOverlay<Index: View>(
+        _ placement: ScrollIndexPlacement = .bottomChrome,
+        @ViewBuilder index: () -> Index
+    ) -> some View {
+        overlay(alignment: .trailing) {
+            index()
+                .libraryScrollIndexPositioning(placement)
+        }
+    }
+
     /// Anchors the alphabetical scroll index in the viewport so it stays fixed
     /// between top chrome and mini-player/tab chrome while content scrolls.
     @ViewBuilder
