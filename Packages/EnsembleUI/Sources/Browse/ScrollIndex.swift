@@ -67,19 +67,37 @@ public struct ScrollIndex: View {
         .padding(.trailing, EnsembleDesign.Spacing.none)
     }
 
-    /// Maps a drag/tap y-position within the compact control to the nearest letter slot.
+    /// Maps a drag/tap y-position within the compact control to the containing letter slot.
     private func letterIndex(for locationY: CGFloat) -> Int? {
-        guard !letters.isEmpty else { return nil }
+        Self.letterIndex(
+            for: locationY,
+            letterCount: letters.count,
+            letterHeight: letterHeight,
+            letterSpacing: letterSpacing,
+            verticalPadding: verticalPadding
+        )
+    }
+
+    static func letterIndex(
+        for locationY: CGFloat,
+        letterCount: Int,
+        letterHeight: CGFloat,
+        letterSpacing: CGFloat,
+        verticalPadding: CGFloat
+    ) -> Int? {
+        guard letterCount > 0 else { return nil }
 
         let slotHeight = letterHeight + letterSpacing
-        let contentHeight = (CGFloat(letters.count) * letterHeight)
-            + (CGFloat(max(letters.count - 1, 0)) * letterSpacing)
+        guard slotHeight > 0 else { return nil }
+
+        let contentHeight = (CGFloat(letterCount) * letterHeight)
+            + (CGFloat(max(letterCount - 1, 0)) * letterSpacing)
         let clampedY = min(
             max(locationY - verticalPadding, 0),
             max(contentHeight - 0.001, 0)
         )
-        let nearestSlot = Int((clampedY / slotHeight).rounded())
-        return min(max(nearestSlot, 0), letters.count - 1)
+        let containingSlot = Int((clampedY / slotHeight).rounded(.down))
+        return min(max(containingSlot, 0), letterCount - 1)
     }
 }
 

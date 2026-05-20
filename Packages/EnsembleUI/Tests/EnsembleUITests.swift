@@ -326,6 +326,27 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(EnsembleScaffold.ScrollIndex.compactTrailingPadding, 0)
     }
 
+    func testScrollIndexMapsLetterCentersToContainingSlot() {
+        let letterHeight = EnsembleScaffold.ScrollIndex.letterHeight
+        let letterSpacing = EnsembleScaffold.ScrollIndex.letterSpacing
+        let verticalPadding = EnsembleScaffold.ScrollIndex.verticalPadding
+        let slotHeight = letterHeight + letterSpacing
+
+        for index in 0..<26 {
+            let centerY = verticalPadding + (CGFloat(index) * slotHeight) + (letterHeight / 2)
+            XCTAssertEqual(
+                ScrollIndex.letterIndex(
+                    for: centerY,
+                    letterCount: 26,
+                    letterHeight: letterHeight,
+                    letterSpacing: letterSpacing,
+                    verticalPadding: verticalPadding
+                ),
+                index
+            )
+        }
+    }
+
     func testTrackRowInteractionModelResolvesRecentPlaylistAndFavoriteState() {
         let track = Track(
             id: "track-1",
