@@ -268,6 +268,7 @@ final class EnsembleUITests: XCTestCase {
         )
         XCTAssertEqual(TrackListLayoutMetrics.detailHorizontalPadding, 40)
         XCTAssertEqual(TrackListLayoutMetrics.utilitySectionOuterPadding, 24)
+        XCTAssertEqual(TrackListLayoutMetrics.queueHorizontalGutter, 20)
         XCTAssertGreaterThan(TrackListLayoutMetrics.durationColumnWidth, TrackListLayoutMetrics.durationMinimumWidth)
         XCTAssertEqual(TrackListLayoutMetrics.miniPlayerBottomSpacing, 140)
         XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)

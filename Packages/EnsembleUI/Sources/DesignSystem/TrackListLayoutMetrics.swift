@@ -20,6 +20,7 @@ public enum TrackListLayoutMetrics {
     public static let compactArtworkDimension: CGFloat = 40
     public static let trackNumberWidth: CGFloat = 30
     public static let overflowControlDimension: CGFloat = 25
+    public static let queueHorizontalGutter: CGFloat = 20
     public static let queueDragHandleDimension: CGFloat = 20
     public static let queueGeneratedBadgeDimension: CGFloat = 14
     public static let nativeSectionIconDimension: CGFloat = 14

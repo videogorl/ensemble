@@ -85,7 +85,7 @@ public class QueueItemCell: UITableViewCell {
         self.autoplayWidthConstraint = widthConstraint
         
         NSLayoutConstraint.activate([
-            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.detailHorizontalPadding),
+            artworkImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: TrackListLayoutMetrics.queueHorizontalGutter),
             artworkImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             artworkImageView.widthAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
             artworkImageView.heightAnchor.constraint(equalToConstant: TrackListLayoutMetrics.standardArtworkDimension),
@@ -320,9 +320,9 @@ public struct QueueTableView: UIViewRepresentable {
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
-            left: TrackListLayoutMetrics.detailHorizontalPadding,
+            left: TrackListLayoutMetrics.queueHorizontalGutter,
             bottom: 0,
-            right: TrackListLayoutMetrics.queueDragHandleDimension
+            right: TrackListLayoutMetrics.queueHorizontalGutter
         )
         tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
