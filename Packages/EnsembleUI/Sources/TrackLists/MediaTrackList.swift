@@ -512,6 +512,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let interactionModel: TrackRowInteractionModel
     /// Optional available width used to reveal wide artist/album metadata columns.
     let supplementalMetadataWidth: CGFloat?
+    let onTopOverscrollChange: ((CGFloat) -> Void)?
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -526,6 +527,7 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Bottom content inset for the UITableView. Used with self-scrolling tables to
     /// allow content to scroll behind the mini player/tab bar (iOS blur-through effect).
     /// Only applies when managesOwnScrolling is true.
+    let topContentInset: CGFloat
     let bottomContentInset: CGFloat
     /// Fixed height for each row. StageFlow uses a denser value while standard lists keep 68pt.
     let rowHeight: CGFloat
@@ -554,6 +556,7 @@ public struct MediaTrackList: UIViewRepresentable {
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         managesOwnScrolling: Bool = false,
+        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
@@ -561,6 +564,7 @@ public struct MediaTrackList: UIViewRepresentable {
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -587,12 +591,14 @@ public struct MediaTrackList: UIViewRepresentable {
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = managesOwnScrolling
+        self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.onTopOverscrollChange = onTopOverscrollChange
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -636,6 +642,7 @@ public struct MediaTrackList: UIViewRepresentable {
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
+        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
@@ -643,6 +650,7 @@ public struct MediaTrackList: UIViewRepresentable {
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         showsNativeSectionIndex: Bool = false,
         sectionScrollRequestID: Int? = nil,
         sectionScrollTargetID: String? = nil,
@@ -659,12 +667,14 @@ public struct MediaTrackList: UIViewRepresentable {
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = true
+        self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.onTopOverscrollChange = onTopOverscrollChange
         self.onPlayNext = nil
         self.onPlayLast = nil
         self.onAddToPlaylist = nil
@@ -730,8 +740,11 @@ public struct MediaTrackList: UIViewRepresentable {
         // so the content height is exactly N × rowHeight with no leading offset.
         tableView.sectionHeaderTopPadding = 0
 
-        // Bottom content inset for scroll-behind-chrome behavior.
+        // Content insets for scroll-behind-chrome behavior.
         // Lets content scroll behind mini player/tab bar with blur effect.
+        if managesOwnScrolling && topContentInset > 0 {
+            tableView.contentInset.top = topContentInset
+        }
         if managesOwnScrolling && bottomContentInset > 0 {
             tableView.contentInset.bottom = bottomContentInset
         }
@@ -796,9 +809,12 @@ public struct MediaTrackList: UIViewRepresentable {
             context.coordinator.attachSearchController()
         }
 
-        // Re-apply bottom content inset if it was cleared. This can happen when
+        // Re-apply content insets if they were cleared. This can happen when
         // .automatic contentInsetAdjustmentBehavior recalculates insets as the table
         // enters the view hierarchy (e.g. a navigation controller or tab bar controller).
+        if managesOwnScrolling && tableView.contentInset.top != topContentInset {
+            tableView.contentInset.top = topContentInset
+        }
         if managesOwnScrolling && bottomContentInset > 0 && tableView.contentInset.bottom != bottomContentInset {
             EnsembleLogger.debug("MediaTrackList re-applying bottomContentInset: was \(tableView.contentInset.bottom), setting to \(bottomContentInset)")
             tableView.contentInset.bottom = bottomContentInset
@@ -850,6 +866,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.showsNativeSectionIndex = showsNativeSectionIndex
         context.coordinator.interactionModel = interactionModel
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
+        context.coordinator.onTopOverscrollChange = onTopOverscrollChange
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.settingsManager = dependencies.settingsManager
@@ -1003,6 +1020,7 @@ public struct MediaTrackList: UIViewRepresentable {
             showsNativeSectionIndex: showsNativeSectionIndex,
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
+            onTopOverscrollChange: onTopOverscrollChange,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
@@ -1079,6 +1097,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var consumedSectionScrollRequestID: Int?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
+        var onTopOverscrollChange: ((CGFloat) -> Void)?
+        private var lastReportedTopOverscroll: CGFloat = 0
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
         var toastCenter: ToastCenter
@@ -1127,6 +1147,7 @@ public struct MediaTrackList: UIViewRepresentable {
             showsNativeSectionIndex: Bool,
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
+            onTopOverscrollChange: ((CGFloat) -> Void)?,
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService,
             toastCenter: ToastCenter,
@@ -1161,6 +1182,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.showsNativeSectionIndex = showsNativeSectionIndex
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
+            self.onTopOverscrollChange = onTopOverscrollChange
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
@@ -1293,6 +1315,21 @@ public struct MediaTrackList: UIViewRepresentable {
 
         public func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
             return 0
+        }
+
+        public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard let onTopOverscrollChange else { return }
+
+            let restingTopOffset = -scrollView.adjustedContentInset.top
+            let overscroll = max(0, restingTopOffset - scrollView.contentOffset.y)
+            let reportedOverscroll = overscroll < 0.5 ? 0 : overscroll
+            let shouldReportOverscroll = abs(reportedOverscroll - lastReportedTopOverscroll) > 0.5 ||
+                (reportedOverscroll == 0 && lastReportedTopOverscroll != 0)
+
+            if shouldReportOverscroll {
+                lastReportedTopOverscroll = reportedOverscroll
+                onTopOverscrollChange(reportedOverscroll)
+            }
         }
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

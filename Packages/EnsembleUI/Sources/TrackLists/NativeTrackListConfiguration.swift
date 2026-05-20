@@ -13,6 +13,7 @@ public struct NativeTrackListConfiguration {
     public var groupByDisc: Bool
     public var showsSectionIndex: Bool
     public var rowHeight: CGFloat
+    public var topContentInset: CGFloat
     public var bottomContentInset: CGFloat
     public var tableHeaderExtraHeight: CGFloat
     public var supplementalMetadataWidth: CGFloat?
@@ -28,6 +29,7 @@ public struct NativeTrackListConfiguration {
         groupByDisc: Bool = false,
         showsSectionIndex: Bool = false,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
+        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         tableHeaderExtraHeight: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
@@ -42,6 +44,7 @@ public struct NativeTrackListConfiguration {
         self.groupByDisc = groupByDisc
         self.showsSectionIndex = showsSectionIndex
         self.rowHeight = rowHeight
+        self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.tableHeaderExtraHeight = tableHeaderExtraHeight
         self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -55,6 +58,7 @@ public struct NativeTrackListConfiguration {
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
+        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         tableHeaderExtraHeight: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
@@ -67,6 +71,7 @@ public struct NativeTrackListConfiguration {
             showAlbumName: true,
             groupByDisc: false,
             showsSectionIndex: showsSectionIndex,
+            topContentInset: topContentInset,
             bottomContentInset: bottomContentInset,
             tableHeaderExtraHeight: tableHeaderExtraHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,

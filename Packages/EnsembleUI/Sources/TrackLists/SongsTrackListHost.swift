@@ -24,6 +24,7 @@ public struct SongsTrackListHost: View {
     private let tableHeaderContent: AnyView?
     private let tableFooterContent: AnyView?
     private let searchTextBinding: Binding<String>?
+    private let onTopOverscrollChange: ((CGFloat) -> Void)?
     private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
 
@@ -40,6 +41,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -50,6 +52,7 @@ public struct SongsTrackListHost: View {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
+        self.onTopOverscrollChange = onTopOverscrollChange
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
@@ -60,6 +63,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -68,6 +72,7 @@ public struct SongsTrackListHost: View {
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
+        self.onTopOverscrollChange = onTopOverscrollChange
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
     }
@@ -77,12 +82,14 @@ public struct SongsTrackListHost: View {
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
+        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
         interactionModel: TrackRowInteractionModel,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -92,6 +99,7 @@ public struct SongsTrackListHost: View {
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                topContentInset: topContentInset,
                 bottomContentInset: bottomContentInset,
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 interactionModel: interactionModel
@@ -99,6 +107,7 @@ public struct SongsTrackListHost: View {
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
             searchTextBinding: searchTextBinding,
+            onTopOverscrollChange: onTopOverscrollChange,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -109,6 +118,7 @@ public struct SongsTrackListHost: View {
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
+        topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         supplementalMetadataWidth: CGFloat? = nil,
         showsSectionIndex: Bool = true,
@@ -116,6 +126,7 @@ public struct SongsTrackListHost: View {
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
+        onTopOverscrollChange: ((CGFloat) -> Void)? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
@@ -125,6 +136,7 @@ public struct SongsTrackListHost: View {
                 currentTrackId: currentTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                topContentInset: topContentInset,
                 bottomContentInset: bottomContentInset,
                 supplementalMetadataWidth: supplementalMetadataWidth,
                 showsSectionIndex: showsSectionIndex,
@@ -133,6 +145,7 @@ public struct SongsTrackListHost: View {
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
             searchTextBinding: searchTextBinding,
+            onTopOverscrollChange: onTopOverscrollChange,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
         )
@@ -169,6 +182,7 @@ public struct SongsTrackListHost: View {
                 currentTrackId: configuration.currentTrackId,
                 availabilityGeneration: configuration.availabilityGeneration,
                 activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+                topContentInset: configuration.topContentInset,
                 bottomContentInset: configuration.bottomContentInset,
                 rowHeight: configuration.rowHeight,
                 tableHeaderContent: tableHeaderContent,
@@ -176,6 +190,7 @@ public struct SongsTrackListHost: View {
                 searchTextBinding: searchTextBinding,
                 interactionModel: configuration.interactionModel,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                onTopOverscrollChange: onTopOverscrollChange,
                 sectionScrollRequestID: sectionScrollRequest?.id,
                 sectionScrollTargetID: sectionScrollRequest?.sectionID,
                 onRemoveFromPlaylist: onRemoveFromPlaylist
@@ -206,6 +221,7 @@ public struct SongsTrackListHost: View {
             availabilityGeneration: configuration.availabilityGeneration,
             activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
             managesOwnScrolling: true,
+            topContentInset: configuration.topContentInset,
             bottomContentInset: configuration.bottomContentInset,
             rowHeight: configuration.rowHeight,
             tableHeaderContent: tableHeaderContent,
@@ -213,6 +229,7 @@ public struct SongsTrackListHost: View {
             searchTextBinding: searchTextBinding,
             interactionModel: configuration.interactionModel,
             supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+            onTopOverscrollChange: onTopOverscrollChange,
             onRemoveFromPlaylist: onRemoveFromPlaylist
         ) { track, index in
             onTrackTap(track, index)
