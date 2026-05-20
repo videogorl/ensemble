@@ -115,7 +115,69 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
 
         let secondArtwork = try XCTUnwrap(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
-        XCTAssertFalse(firstArtwork === secondArtwork)
+        XCTAssertTrue(firstArtwork === secondArtwork)
+
+        await waitUntil("fallback artwork load") {
+            guard let artwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
+                return false
+            }
+            return !(firstArtwork === artwork)
+        }
+    }
+
+    func testBridgeKeepsExistingArtworkUntilNewArtworkLoads() async throws {
+        let firstArtworkURL = try makeTemporaryPNG()
+        let secondArtworkURL = try makeTemporaryPNG()
+        defer {
+            try? FileManager.default.removeItem(at: firstArtworkURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: secondArtworkURL.deletingLastPathComponent())
+        }
+
+        let artworkLoader = MockArtworkLoader(artworkURL: firstArtworkURL)
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-1",
+                title: "Track One",
+                albumRatingKey: "album-1",
+                thumbPath: nil,
+                fallbackThumbPath: "/thumb/album-1",
+                fallbackRatingKey: "album-1"
+            )
+        ))
+
+        await waitUntil("first artwork load") {
+            nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork
+        }
+        let firstArtwork = try XCTUnwrap(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+
+        artworkLoader.artworkURL = secondArtworkURL
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-2",
+                title: "Track Two",
+                albumRatingKey: "album-2",
+                thumbPath: nil,
+                fallbackThumbPath: "/thumb/album-2",
+                fallbackRatingKey: "album-2"
+            )
+        ))
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
+        XCTAssertTrue(firstArtwork === nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+
+        await waitUntil("second artwork load") {
+            guard let artwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
+                return false
+            }
+            return !(firstArtwork === artwork)
+        }
     }
 
     func testBridgeReusesArtworkWhenTracksShareArtworkIdentity() async throws {

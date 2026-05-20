@@ -357,6 +357,9 @@ final class PlaybackNowPlayingBridge {
            artworkRequestKey == nextArtworkRequestKey,
            let artwork {
             artworkForMetadata = artwork
+        } else if hasArtworkPath,
+                  let artwork {
+            artworkForMetadata = artwork
         } else {
             artworkForMetadata = Self.fallbackArtwork(for: track)
             artwork = artworkForMetadata
