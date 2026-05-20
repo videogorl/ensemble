@@ -182,7 +182,7 @@ private struct GenreChip: View {
                 .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
                 .padding(.vertical, EnsembleScaffold.Chip.verticalPadding)
                 .foregroundColor(foregroundColor)
-                .genreChipMaterial(backgroundColor: backgroundColor)
+                .genreChipMaterial(backgroundColor: backgroundColor, tintsGlass: state == .included)
                 .overlay(
                     Capsule()
                         .strokeBorder(borderColor, lineWidth: state == .included ? 0 : EnsembleScaffold.Chip.borderWidth)
@@ -227,11 +227,17 @@ private extension View {
     }
 
     @ViewBuilder
-    func genreChipMaterial(backgroundColor: Color) -> some View {
+    func genreChipMaterial(backgroundColor: Color, tintsGlass: Bool) -> some View {
         if #available(iOS 26, macOS 26, *) {
-            self
-                .clipShape(Capsule())
-                .glassEffect(.regular.interactive(), in: .capsule)
+            if tintsGlass {
+                self
+                    .clipShape(Capsule())
+                    .glassEffect(.regular.tint(backgroundColor).interactive(), in: .capsule)
+            } else {
+                self
+                    .clipShape(Capsule())
+                    .glassEffect(.regular.interactive(), in: .capsule)
+            }
         } else {
             self
                 .background(
