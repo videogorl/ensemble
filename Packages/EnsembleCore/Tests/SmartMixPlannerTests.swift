@@ -107,8 +107,55 @@ final class SmartMixPlannerTests: XCTestCase {
         )
 
         XCTAssertTrue(plan?.tempoMatched ?? false)
-        XCTAssertEqual(plan?.incomingPlaybackRate ?? 0, 120.0 / 123.0, accuracy: 0.0001)
+        XCTAssertEqual(plan?.incomingPlaybackRate ?? 0, 1, accuracy: 0.0001)
+        XCTAssertEqual(plan?.outgoingPlaybackRate ?? 0, 123.0 / 120.0, accuracy: 0.0001)
         XCTAssertEqual(plan?.incomingBeatOffset ?? 0, 0, accuracy: 0.0001)
+    }
+
+    func testPlanUsesIncomingOnlyTempoMatchForModerateConfidence() {
+        let plan = SmartMixPlanner.plan(
+            outgoingDuration: 180,
+            incomingDuration: 200,
+            outgoingAnalysis: SmartMixAnalysis(
+                leadingSilence: 0,
+                trailingSilence: 0,
+                analyzedDuration: 180,
+                outroTempo: tempo(bpm: 120, confidence: 0.75)
+            ),
+            incomingAnalysis: SmartMixAnalysis(
+                leadingSilence: 0,
+                trailingSilence: 0,
+                analyzedDuration: 200,
+                introTempo: tempo(bpm: 123, confidence: 0.75)
+            )
+        )
+
+        XCTAssertTrue(plan?.tempoMatched ?? false)
+        XCTAssertEqual(plan?.incomingPlaybackRate ?? 0, 120.0 / 123.0, accuracy: 0.0001)
+        XCTAssertEqual(plan?.outgoingPlaybackRate ?? 0, 1, accuracy: 0.0001)
+    }
+
+    func testPlanAllowsWiderOutgoingTempoMatchWhenConfidenceIsHigh() {
+        let plan = SmartMixPlanner.plan(
+            outgoingDuration: 180,
+            incomingDuration: 200,
+            outgoingAnalysis: SmartMixAnalysis(
+                leadingSilence: 0,
+                trailingSilence: 0,
+                analyzedDuration: 180,
+                outroTempo: tempo(bpm: 120, confidence: 0.95)
+            ),
+            incomingAnalysis: SmartMixAnalysis(
+                leadingSilence: 0,
+                trailingSilence: 0,
+                analyzedDuration: 200,
+                introTempo: tempo(bpm: 128.4, confidence: 0.95)
+            )
+        )
+
+        XCTAssertTrue(plan?.tempoMatched ?? false)
+        XCTAssertEqual(plan?.incomingPlaybackRate ?? 0, 1, accuracy: 0.0001)
+        XCTAssertEqual(plan?.outgoingPlaybackRate ?? 0, 1.07, accuracy: 0.0001)
     }
 
     func testPlanDisablesTempoMatchForLowConfidence() {
@@ -131,6 +178,7 @@ final class SmartMixPlannerTests: XCTestCase {
 
         XCTAssertFalse(plan?.tempoMatched ?? true)
         XCTAssertEqual(plan?.incomingPlaybackRate, 1)
+        XCTAssertEqual(plan?.outgoingPlaybackRate, 1)
     }
 
     func testPlanDisablesTempoMatchWhenRateIsOutsideSubtleRange() {
@@ -175,6 +223,7 @@ final class SmartMixPlannerTests: XCTestCase {
 
         XCTAssertTrue(plan?.tempoMatched ?? false)
         XCTAssertEqual(plan?.incomingPlaybackRate ?? 0, 1, accuracy: 0.0001)
+        XCTAssertEqual(plan?.outgoingPlaybackRate ?? 0, 1, accuracy: 0.0001)
     }
 
     func testPlanBeatOffsetStaysInsideIntroCutBounds() {

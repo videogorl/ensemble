@@ -591,7 +591,7 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 | Color option | control | Tappable color circle for accent selection | `Circle()` |
 | Playback section | region | Section with playback-related settings | `Section("Playback")` |
 | Autoplay toggle | control | Switch to enable/disable autoplay | `Toggle`, `isAutoplayEnabled` |
-| SmartMix | feature | Per-device Now Playing Queue card mode that trims silence, overlaps adjacent tracks with equal-power fades, subtly filters the outgoing track, and tempo-matches close incoming tracks when confidence is high | `isSmartMixEnabled`, `SmartMixPlanner` |
+| SmartMix | feature | Per-device Now Playing Queue card mode that trims silence, overlaps adjacent tracks with equal-power fades, applies an eased outgoing high-pass sweep, and tempo-matches close tracks when confidence is high | `isSmartMixEnabled`, `SmartMixPlanner` |
 | Audio quality link | control | Navigation to audio quality settings | `Audio Quality` |
 | Connection security link | control | Navigation to connection policy settings | `Connection Security` |
 | Track swipe actions link | control | Navigation to swipe action customization | `Track Swipe Actions` |

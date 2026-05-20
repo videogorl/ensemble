@@ -126,6 +126,7 @@ public final class AudioPlaybackEngine {
         let transitionDuration: TimeInterval
         let skipThreshold: TimeInterval
         let incomingPlaybackRate: Double
+        let outgoingPlaybackRate: Double
         let highPassSweep: SmartMixHighPassSweep?
         let generation: UInt64
         let startedAtWallTime: TimeInterval
@@ -375,7 +376,27 @@ public final class AudioPlaybackEngine {
         guard progress > sweep.startProgress else { return start }
 
         let rampProgress = min(max((progress - sweep.startProgress) / max(0.001, 1 - sweep.startProgress), 0), 1)
-        return start + Float(rampProgress) * (end - start)
+        let easedProgress = smoothStep(rampProgress)
+        return start + Float(easedProgress) * (end - start)
+    }
+
+    static func smartMixTempoRate(
+        progress: Double,
+        targetRate: Double,
+        startProgress: Double = 0.15
+    ) -> Float {
+        guard targetRate.isFinite, targetRate > 0 else { return 1 }
+        let clampedStart = min(max(startProgress, 0), 1)
+        guard progress > clampedStart else { return 1 }
+
+        let rampProgress = min(max((progress - clampedStart) / max(0.001, 1 - clampedStart), 0), 1)
+        let easedProgress = smoothStep(rampProgress)
+        return Float(1 + (targetRate - 1) * easedProgress)
+    }
+
+    private static func smoothStep(_ value: Double) -> Double {
+        let clamped = min(max(value, 0), 1)
+        return clamped * clamped * (3 - 2 * clamped)
     }
 
     // MARK: - Route Change Recovery
@@ -1060,6 +1081,7 @@ public final class AudioPlaybackEngine {
 
         resetSmartMixEffects()
         timePitchNode(for: incomingDeck).rate = Float(plan.incomingPlaybackRate)
+        timePitchNode(for: outgoingDeck).rate = 1
         incomingPlayer.stop()
         setVolume(0, for: incomingDeck)
         setVolume(1, for: outgoingDeck)
@@ -1094,6 +1116,7 @@ public final class AudioPlaybackEngine {
             transitionDuration: plan.transitionDuration,
             skipThreshold: plan.skipToIncomingThreshold,
             incomingPlaybackRate: plan.incomingPlaybackRate,
+            outgoingPlaybackRate: plan.outgoingPlaybackRate,
             highPassSweep: plan.outgoingHighPassSweep,
             generation: myGeneration,
             startedAtWallTime: CACurrentMediaTime()
@@ -1105,6 +1128,7 @@ public final class AudioPlaybackEngine {
             + " transition=\(String(format: "%.1f", plan.transitionDuration))s"
             + " incomingStart=\(String(format: "%.1f", plan.incomingStartTime))s"
             + " rate=\(String(format: "%.3f", plan.incomingPlaybackRate))"
+            + " outgoingRate=\(String(format: "%.3f", plan.outgoingPlaybackRate))"
             + " tempoMatched=\(plan.tempoMatched)"
             + " outgoingDeck=\(outgoingDeck.rawValue)"
             + " incomingDeck=\(incomingDeck.rawValue)"
@@ -1162,6 +1186,7 @@ public final class AudioPlaybackEngine {
         setVolume(Float(cos(progress * .pi / 2)), for: transition.outgoingDeck)
         setVolume(Float(sin(progress * .pi / 2)), for: transition.incomingDeck)
         applySmartMixHighPass(progress: progress, transition: transition)
+        applySmartMixTempoRamp(progress: progress, transition: transition)
 
         if elapsed >= transition.midpoint {
             promoteSmartMixIfNeeded()
@@ -1185,6 +1210,13 @@ public final class AudioPlaybackEngine {
             progress: progress,
             sweep: sweep,
             sampleRate: sampleRate
+        )
+    }
+
+    private func applySmartMixTempoRamp(progress: Double, transition: SmartMixEngineTransition) {
+        timePitchNode(for: transition.outgoingDeck).rate = Self.smartMixTempoRate(
+            progress: progress,
+            targetRate: transition.outgoingPlaybackRate
         )
     }
 
@@ -1235,6 +1267,7 @@ public final class AudioPlaybackEngine {
         setVolume(1, for: transition.incomingDeck)
         playerNode(for: transition.outgoingDeck).stop()
         resetHighPass(for: transition.outgoingDeck)
+        resetTimePitch(for: transition.outgoingDeck)
         resetTimePitch(for: transition.incomingDeck)
         smartMixTransition = nil
 

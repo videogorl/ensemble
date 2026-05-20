@@ -68,6 +68,32 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testSmartMixDefaultHighPassSweepIsStrongerAndEased() {
+        let sweep = SmartMixHighPassSweep.subtle
+
+        XCTAssertEqual(sweep.startFrequency, 90)
+        XCTAssertEqual(sweep.endFrequency, 1_400)
+        XCTAssertEqual(sweep.startProgress, 0.25)
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 0.625, sweep: sweep, sampleRate: 44100),
+            745,
+            accuracy: 0.001
+        )
+    }
+
+    func testSmartMixTempoRateEasesTowardTarget() {
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixTempoRate(progress: 0.05, targetRate: 1.08),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixTempoRate(progress: 1, targetRate: 1.08),
+            1.08,
+            accuracy: 0.0001
+        )
+    }
+
     func testSmartMixFormatsMatchAllowsSampleRateConversionForEquivalentDeckFormats() {
         let stereo = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
         let stereoCopy = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)

@@ -89,9 +89,9 @@ public struct SmartMixHighPassSweep: Equatable, Sendable {
     public let startProgress: Double
 
     public static let subtle = SmartMixHighPassSweep(
-        startFrequency: 80,
-        endFrequency: 700,
-        startProgress: 0.35
+        startFrequency: 90,
+        endFrequency: 1_400,
+        startProgress: 0.25
     )
 
     public init(startFrequency: Float, endFrequency: Float, startProgress: Double) {
@@ -109,6 +109,7 @@ public struct SmartMixPlan: Equatable, Sendable {
     public let skipToIncomingThreshold: TimeInterval
     public let tempoMatched: Bool
     public let incomingPlaybackRate: Double
+    public let outgoingPlaybackRate: Double
     public let incomingBeatOffset: TimeInterval
     public let outgoingHighPassSweep: SmartMixHighPassSweep?
 
@@ -124,6 +125,7 @@ public struct SmartMixPlan: Equatable, Sendable {
         skipToIncomingThreshold: TimeInterval,
         tempoMatched: Bool = false,
         incomingPlaybackRate: Double = 1,
+        outgoingPlaybackRate: Double = 1,
         incomingBeatOffset: TimeInterval = 0,
         outgoingHighPassSweep: SmartMixHighPassSweep? = .subtle
     ) {
@@ -134,6 +136,7 @@ public struct SmartMixPlan: Equatable, Sendable {
         self.skipToIncomingThreshold = skipToIncomingThreshold
         self.tempoMatched = tempoMatched
         self.incomingPlaybackRate = incomingPlaybackRate.isFinite && incomingPlaybackRate > 0 ? incomingPlaybackRate : 1
+        self.outgoingPlaybackRate = outgoingPlaybackRate.isFinite && outgoingPlaybackRate > 0 ? outgoingPlaybackRate : 1
         self.incomingBeatOffset = incomingBeatOffset.isFinite ? incomingBeatOffset : 0
         self.outgoingHighPassSweep = outgoingHighPassSweep
     }
@@ -145,8 +148,11 @@ public enum SmartMixPlanner {
     public static let maximumIntroCut: TimeInterval = 10
     public static let minimumTempoTransitionDuration: TimeInterval = 8
     public static let minimumTempoConfidence: Double = 0.65
-    public static let minimumTempoRate: Double = 0.96
-    public static let maximumTempoRate: Double = 1.04
+    public static let minimumStrongTempoConfidence: Double = 0.82
+    public static let minimumSubtleTempoRate: Double = 0.96
+    public static let maximumSubtleTempoRate: Double = 1.04
+    public static let minimumAssertiveTempoRate: Double = 0.92
+    public static let maximumAssertiveTempoRate: Double = 1.08
 
     public static func plan(
         outgoingDuration: TimeInterval,
@@ -192,6 +198,7 @@ public enum SmartMixPlanner {
             skipToIncomingThreshold: min(5, promotionTime),
             tempoMatched: tempoDecision.matched,
             incomingPlaybackRate: tempoDecision.incomingPlaybackRate,
+            outgoingPlaybackRate: tempoDecision.outgoingPlaybackRate,
             incomingBeatOffset: tempoDecision.beatOffset,
             outgoingHighPassSweep: .subtle
         )
@@ -230,7 +237,7 @@ public enum SmartMixPlanner {
         outgoingTempo: SmartMixTempoAnalysis?,
         incomingTempo: SmartMixTempoAnalysis?,
         tempoMatchingAllowed: Bool = true
-    ) -> (matched: Bool, incomingPlaybackRate: Double, beatOffset: TimeInterval) {
+    ) -> (matched: Bool, incomingPlaybackRate: Double, outgoingPlaybackRate: Double, beatOffset: TimeInterval) {
         tempoDecision(
             outgoingStartTime: outgoingStartTime,
             baseIncomingStartTime: baseIncomingStartTime,
@@ -250,7 +257,7 @@ public enum SmartMixPlanner {
         outgoingTempo: SmartMixTempoAnalysis?,
         incomingTempo: SmartMixTempoAnalysis?,
         tempoMatchingAllowed: Bool
-    ) -> (matched: Bool, incomingPlaybackRate: Double, beatOffset: TimeInterval) {
+    ) -> (matched: Bool, incomingPlaybackRate: Double, outgoingPlaybackRate: Double, beatOffset: TimeInterval) {
         guard tempoMatchingAllowed,
               transitionDuration >= minimumTempoTransitionDuration,
               let outgoingTempo,
@@ -262,14 +269,9 @@ public enum SmartMixPlanner {
               let normalizedIncomingBPM = normalizedIncomingTempo(
                 outgoingBPM: outgoingBPM,
                 incomingBPM: incomingBPM
-              )
+        )
         else {
-            return (false, 1, 0)
-        }
-
-        let rate = outgoingBPM / normalizedIncomingBPM
-        guard rate >= minimumTempoRate, rate <= maximumTempoRate else {
-            return (false, 1, 0)
+            return (false, 1, 1, 0)
         }
 
         let beatOffset = beatAlignedOffset(
@@ -281,7 +283,23 @@ public enum SmartMixPlanner {
             incomingTempo: incomingTempo,
             normalizedIncomingBPM: normalizedIncomingBPM
         )
-        return (true, rate, beatOffset)
+
+        let incomingRate = outgoingBPM / normalizedIncomingBPM
+        let outgoingRate = normalizedIncomingBPM / outgoingBPM
+        let strongConfidence = outgoingTempo.confidence >= minimumStrongTempoConfidence
+            && incomingTempo.confidence >= minimumStrongTempoConfidence
+
+        if strongConfidence,
+           outgoingRate >= minimumAssertiveTempoRate,
+           outgoingRate <= maximumAssertiveTempoRate {
+            return (true, 1, outgoingRate, beatOffset)
+        }
+
+        guard incomingRate >= minimumSubtleTempoRate, incomingRate <= maximumSubtleTempoRate else {
+            return (false, 1, 1, 0)
+        }
+
+        return (true, incomingRate, 1, beatOffset)
     }
 
     private static func beatAlignedOffset(

@@ -844,9 +844,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) else {
             return "tempo-normalization-failed"
         }
-        let rate = outgoingBPM / normalizedIncomingBPM
-        if rate < SmartMixPlanner.minimumTempoRate || rate > SmartMixPlanner.maximumTempoRate {
-            return "rate-out-of-range-\(String(format: "%.3f", rate))"
+        let strongConfidence = outgoingAnalysis.outroTempo.confidence >= SmartMixPlanner.minimumStrongTempoConfidence
+            && incomingAnalysis.introTempo.confidence >= SmartMixPlanner.minimumStrongTempoConfidence
+        if strongConfidence {
+            let outgoingRate = normalizedIncomingBPM / outgoingBPM
+            if outgoingRate < SmartMixPlanner.minimumAssertiveTempoRate
+                || outgoingRate > SmartMixPlanner.maximumAssertiveTempoRate {
+                return "outgoing-rate-out-of-range-\(String(format: "%.3f", outgoingRate))"
+            }
+        } else {
+            let incomingRate = outgoingBPM / normalizedIncomingBPM
+            if incomingRate < SmartMixPlanner.minimumSubtleTempoRate
+                || incomingRate > SmartMixPlanner.maximumSubtleTempoRate {
+                return "incoming-rate-out-of-range-\(String(format: "%.3f", incomingRate))"
+            }
         }
         return "beat-alignment-unavailable"
     }
