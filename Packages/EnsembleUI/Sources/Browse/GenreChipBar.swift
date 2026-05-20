@@ -85,11 +85,14 @@ public struct GenreChipBar: View {
                     GlassEffectContainer(spacing: EnsembleScaffold.Chip.rowSpacing) {
                         chipRow
                     }
+                    .padding(.vertical, GenreChipBarLayout.materialBleed)
                 } else {
                     chipRow
+                        .padding(.vertical, GenreChipBarLayout.materialBleed)
                 }
             }
-            .frame(height: EnsembleScaffold.Chip.barHeight)
+            .genreChipScrollClipping()
+            .frame(height: GenreChipBarLayout.barHeight)
         }
     }
 
@@ -144,6 +147,11 @@ public struct GenreChipBar: View {
             excludedGenres.remove(genre)
         }
     }
+}
+
+private enum GenreChipBarLayout {
+    static let materialBleed = EnsembleDesign.Spacing.chipVertical
+    static let barHeight = EnsembleScaffold.Chip.barHeight + (materialBleed * 2)
 }
 
 // MARK: - Genre Chip State
@@ -209,6 +217,15 @@ private struct GenreChip: View {
 }
 
 private extension View {
+    @ViewBuilder
+    func genreChipScrollClipping() -> some View {
+        if #available(iOS 17, macOS 14, *) {
+            scrollClipDisabled()
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func genreChipMaterial(backgroundColor: Color) -> some View {
         if #available(iOS 26, macOS 26, *) {
