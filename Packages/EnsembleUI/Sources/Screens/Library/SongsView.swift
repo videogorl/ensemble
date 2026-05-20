@@ -256,10 +256,14 @@ public struct SongsView: View {
                 #endif
             } else {
                 #if os(iOS)
-                    // Non-indexed mode: UITableView manages its own scrolling directly.
-                    // No SwiftUI ScrollView wrapper — avoids the fixed-frame height hack
-                    // that was forcing all 1500+ rows to be laid out simultaneously.
-                    unsortedTrackListContent(width: width)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
+                            Section(header: songsGenreChipBar) {
+                                compactSwiftUITrackList
+                            }
+                        }
+                    }
+                    .miniPlayerBottomSpacing()
                 #else
                     VStack(spacing: EnsembleDesign.Spacing.none) {
                         songsGenreChipBar
@@ -489,72 +493,150 @@ public struct SongsView: View {
         .id(section.letter)
     }
 
-    /// Non-indexed mode: self-scrolling UITableView with cell recycling.
+    private var compactSwiftUITrackList: some View {
+        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+            ForEach(Array(libraryVM.filteredTracks.enumerated()), id: \.offset) { index, track in
+                compactSwiftUITrackRow(track, index: index)
+            }
+        }
+        .padding(.vertical)
+    }
+
+    private func compactSwiftUITrackRow(_ track: Track, index: Int) -> some View {
+        Button {
+            playAvailableTrack(track, index: index)
+        } label: {
+            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
+
+                VStack(alignment: .leading, spacing: TrackListLayoutMetrics.primarySecondaryTextSpacing) {
+                    Text(track.title)
+                        .font(EnsembleDesign.Typography.rowPrimary)
+                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                        .lineLimit(1)
+
+                    Text(compactTrackSubtitle(for: track))
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: TrackListLayoutMetrics.rowInterItemSpacing)
+
+                if activeDownloadTrackIdentities.contains(track.sourceScopedID) {
+                    ProgressView()
+                        .controlSize(.small)
+                } else if track.isDownloaded {
+                    Image(systemName: EnsembleDesign.Icon.downloaded)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+
+                if nowPlayingVM.currentTrack?.playbackIdentity == track.playbackIdentity {
+                    Image(systemName: EnsembleDesign.Icon.play)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.accent)
+                } else {
+                    Text(track.formattedDuration)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .monospacedDigit()
+                }
+
+                Menu {
+                    compactTrackContextMenu(for: track)
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.more)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .frame(width: TrackListLayoutMetrics.overflowControlDimension, height: TrackListLayoutMetrics.overflowControlDimension)
+                }
+                .accessibilityLabel("Track Actions")
+            }
+            .frame(height: TrackListLayoutMetrics.defaultRowHeight)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+            .opacity(deps.trackAvailabilityResolver.availability(for: track).shouldDim ? 0.45 : 1)
+            .overlay(alignment: .leading) {
+                if nowPlayingVM.isTrackFavorited(track) {
+                    Image(systemName: EnsembleDesign.Icon.favoriteFilled)
+                        .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
+                        .foregroundColor(EnsembleDesign.Color.favorite)
+                        .offset(x: -EnsembleDesign.Spacing.xs)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            compactTrackContextMenu(for: track)
+        }
+        .overlay(alignment: .bottom) {
+            Divider()
+                .padding(.leading, TrackListLayoutMetrics.contentLeadingInset(showArtwork: true, showTrackNumbers: false))
+        }
+    }
+
+    private func compactTrackSubtitle(for track: Track) -> String {
+        [track.artistName, track.albumName]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func compactTrackContextMenu(for track: Track) -> some View {
+        TrackActionsContextMenu(
+            track: track,
+            nowPlayingVM: nowPlayingVM,
+            context: .library,
+            onAddToPlaylist: {
+                presentPlaylistPicker(with: [track])
+            },
+            onGoToAlbum: {
+                if let albumId = track.albumRatingKey {
+                    navigationCoordinator.push(
+                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
+                }
+            },
+            onGoToArtist: {
+                if let artistId = track.artistRatingKey {
+                    navigationCoordinator.push(
+                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        in: navigationCoordinator.selectedTab
+                    )
+                }
+            },
+            onGetInfo: {
+                libraryItemInfoRequest = .track(track)
+            }
+        )
+    }
+
+    private func playAvailableTrack(_ track: Track, index: Int) {
+        let availability = deps.trackAvailabilityResolver.availability(for: track)
+        guard availability.canPlay else {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "wifi.slash",
+                    title: availability.userMessage ?? "Not available offline",
+                    message: "Download this track before going offline.",
+                    dedupeKey: "songs-offline-track-blocked-\(track.sourceScopedID)"
+                )
+            )
+            return
+        }
+
+        nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+    }
+
+    /// Non-indexed table backend used by non-phone platforms.
     private func unsortedTrackListContent(width: CGFloat? = nil) -> some View {
         #if os(iOS)
-            MediaTrackList(
-                tracks: libraryVM.filteredTracks,
-                showArtwork: true,
-                showTrackNumbers: false,
-                groupByDisc: false,
-                currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                availabilityGeneration: availabilityGeneration,
-                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                managesOwnScrolling: true,
-                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                tableSectionHeaderContent: AnyView(songsGenreChipBar),
-                onPlayNext: { track in
-                    nowPlayingVM.playNext(track)
-                },
-                onPlayLast: { track in
-                    nowPlayingVM.playLast(track)
-                },
-                onAddToPlaylist: { track in
-                    presentPlaylistPicker(with: [track])
-                },
-                onAddToRecentPlaylist: { track in
-                    addToRecentPlaylist(track)
-                },
-                onToggleFavorite: { track in
-                    Task {
-                        await nowPlayingVM.toggleTrackFavorite(track)
-                    }
-                },
-                onGoToAlbum: { track in
-                    if let albumId = track.albumRatingKey {
-                        navigationCoordinator.push(
-                            .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                            in: navigationCoordinator.selectedTab
-                        )
-                    }
-                },
-                onGoToArtist: { track in
-                    if let artistId = track.artistRatingKey {
-                        navigationCoordinator.push(
-                            .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                            in: navigationCoordinator.selectedTab
-                        )
-                    }
-                },
-                onGetInfo: { track in
-                    libraryItemInfoRequest = .track(track)
-                },
-                onShareLink: { track in
-                    ShareActions.shareTrackLink(track, deps: deps)
-                },
-                onShareFile: { track in
-                    ShareActions.shareTrackFile(track, deps: deps)
-                },
-                isTrackFavorited: { track in
-                    nowPlayingVM.isTrackFavorited(track)
-                },
-                canAddToRecentPlaylist: { track in
-                    recentPlaylistTitle(for: track) != nil
-                },
-                recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
-            ) { _, index in
-                nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
-            }
+            EmptyView()
         #else
             SongsTrackListHost(
                 tracks: libraryVM.filteredTracks,
