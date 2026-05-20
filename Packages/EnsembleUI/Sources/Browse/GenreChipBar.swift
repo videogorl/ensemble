@@ -92,7 +92,7 @@ public struct GenreChipBar: View {
                 }
             }
             .genreChipScrollClipping()
-            .genreChipRightFadeMask(width: GenreChipBarLayout.trailingFadeWidth)
+            .genreChipRightFade(width: GenreChipBarLayout.trailingFadeWidth)
             .frame(height: GenreChipBarLayout.barHeight)
         }
     }
@@ -228,19 +228,15 @@ private extension View {
         }
     }
 
-    func genreChipRightFadeMask(width: CGFloat) -> some View {
-        mask {
-            HStack(spacing: EnsembleDesign.Spacing.none) {
-                Rectangle()
-                    .fill(Color.black)
-
-                LinearGradient(
-                    colors: [.black, .clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: width)
-            }
+    func genreChipRightFade(width: CGFloat) -> some View {
+        overlay(alignment: .trailing) {
+            LinearGradient(
+                colors: [.clear, EnsembleDesign.Color.windowSurface],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: width)
+            .allowsHitTesting(false)
         }
     }
 
