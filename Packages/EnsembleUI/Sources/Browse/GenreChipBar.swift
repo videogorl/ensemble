@@ -92,6 +92,7 @@ public struct GenreChipBar: View {
                 }
             }
             .genreChipScrollClipping()
+            .genreChipRightFadeMask(width: GenreChipBarLayout.trailingFadeWidth)
             .frame(height: GenreChipBarLayout.barHeight)
         }
     }
@@ -152,6 +153,7 @@ public struct GenreChipBar: View {
 private enum GenreChipBarLayout {
     static let materialBleed = EnsembleDesign.Spacing.chipVertical
     static let barHeight = EnsembleScaffold.Chip.barHeight + (materialBleed * 2)
+    static let trailingFadeWidth: CGFloat = 44
 }
 
 // MARK: - Genre Chip State
@@ -223,6 +225,22 @@ private extension View {
             scrollClipDisabled()
         } else {
             self
+        }
+    }
+
+    func genreChipRightFadeMask(width: CGFloat) -> some View {
+        mask {
+            HStack(spacing: EnsembleDesign.Spacing.none) {
+                Rectangle()
+                    .fill(Color.black)
+
+                LinearGradient(
+                    colors: [.black, .clear],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: width)
+            }
         }
     }
 
