@@ -93,6 +93,30 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testSmartMixPrimaryHandoffQueuesTransitionEndPosition() {
+        let position = AudioPlaybackEngine.smartMixPrimaryHandoffStartPosition(
+            targetPosition: nil,
+            incomingStartTime: 10,
+            transitionDuration: 10,
+            incomingPlaybackRate: 1,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 20, accuracy: 0.0001)
+    }
+
+    func testSmartMixPrimaryHandoffClampsExplicitTargetPosition() {
+        let position = AudioPlaybackEngine.smartMixPrimaryHandoffStartPosition(
+            targetPosition: 200,
+            incomingStartTime: 10,
+            transitionDuration: 10,
+            incomingPlaybackRate: 1,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 179.95, accuracy: 0.0001)
+    }
+
     func testSmartMixDeckFrameCountSchedulesOnlyHandoffTail() {
         let frames = AudioPlaybackEngine.smartMixDeckFrameCount(
             incomingStartFrame: 441_000,

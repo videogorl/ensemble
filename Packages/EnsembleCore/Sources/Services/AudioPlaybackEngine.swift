@@ -323,6 +323,24 @@ public final class AudioPlaybackEngine {
         elapsed >= max(0, transitionDuration - handoffDuration)
     }
 
+    static func smartMixPrimaryHandoffStartPosition(
+        targetPosition: TimeInterval?,
+        incomingStartTime: TimeInterval,
+        transitionDuration: TimeInterval,
+        incomingPlaybackRate: Double,
+        duration: TimeInterval
+    ) -> TimeInterval {
+        let maxPosition = max(0, duration - 0.05)
+        let target = targetPosition.map { min(max(0, $0), maxPosition) }
+            ?? Self.smartMixIncomingPosition(
+                incomingStartTime: incomingStartTime,
+                elapsed: transitionDuration,
+                incomingPlaybackRate: incomingPlaybackRate,
+                duration: maxPosition
+            )
+        return min(max(0, target), maxPosition)
+    }
+
     // MARK: - Route Change Recovery
 
     /// Capture the last stable playhead before AVAudioEngineConfigurationChange
@@ -1098,11 +1116,7 @@ public final class AudioPlaybackEngine {
         guard let transition = smartMixTransition else { return }
         let elapsed = smartMixTransitionElapsed
         let progress = min(max(elapsed / max(transition.transitionDuration, 0.001), 0), 1)
-        if transition.primaryHandoffGeneration == nil {
-            playerNode.volume = Float(cos(progress * .pi / 2))
-        } else {
-            playerNode.volume = 0
-        }
+        playerNode.volume = Float(cos(progress * .pi / 2))
         smartMixPlayerNode.volume = Float(sin(progress * .pi / 2))
         applySmartMixHighPass(progress: progress, transition: transition)
 
@@ -1165,20 +1179,12 @@ public final class AudioPlaybackEngine {
             return smartMixTransition?.primaryHandoffGeneration != nil
         }
 
-        let elapsed = smartMixTransitionElapsed
-        let remainingUntilTransitionEnd = targetPosition == nil
-            ? max(0, transition.transitionDuration - elapsed)
-            : 0
-        let target = targetPosition.map { min(max(0, $0), max(0, transition.duration - 0.05)) }
-            ?? Self.smartMixIncomingPosition(
-                incomingStartTime: transition.incomingStartTime,
-                elapsed: transition.transitionDuration,
-                incomingPlaybackRate: transition.incomingPlaybackRate,
-                duration: max(0, transition.duration - 0.05)
-            )
-        let startPosition = min(
-            max(0, target - remainingUntilTransitionEnd),
-            max(0, transition.duration - 0.05)
+        let startPosition = Self.smartMixPrimaryHandoffStartPosition(
+            targetPosition: targetPosition,
+            incomingStartTime: transition.incomingStartTime,
+            transitionDuration: transition.transitionDuration,
+            incomingPlaybackRate: transition.incomingPlaybackRate,
+            duration: transition.duration
         )
         let startFrame = transition.contentStartFrame + AVAudioFramePosition(startPosition * transition.sampleRate)
         let contentEnd = transition.contentStartFrame + AVAudioFramePosition(transition.contentFrameCount)
@@ -1187,14 +1193,10 @@ public final class AudioPlaybackEngine {
         scheduleGeneration &+= 1
         let myGeneration = scheduleGeneration
 
-        playerNode.stop()
-        playerTimeBaseOffset = 0
-        seekFrameOffset = AVAudioFramePosition(startPosition * transition.sampleRate)
         scheduledFiles.removeAll()
-        playerNode.volume = 0
-        smartMixPlayerNode.volume = 1
-        resetOutgoingHighPass()
 
+        // Append B to the primary deck FIFO so A can finish naturally. Stopping the
+        // active primary node during the overlap can produce a small audible skip.
         playerNode.scheduleSegment(
             transition.file,
             startingFrame: startFrame,
@@ -1211,7 +1213,9 @@ public final class AudioPlaybackEngine {
                 try engine.start()
                 applyIsolationParameters()
             }
-            playerNode.play()
+            if !playerNode.isPlaying {
+                playerNode.play()
+            }
         } catch {
             scheduleGeneration &+= 1
             playerNode.stop()
@@ -1229,7 +1233,7 @@ public final class AudioPlaybackEngine {
             "[AudioEngine] SmartMix primary handoff prepared"
             + " trackId=\(transition.trackId)"
             + " start=\(String(format: "%.3f", startPosition))s"
-            + " target=\(String(format: "%.3f", target))s"
+            + " target=\(String(format: "%.3f", startPosition))s"
         )
         return true
     }
@@ -1267,10 +1271,16 @@ public final class AudioPlaybackEngine {
         sampleRate = transition.sampleRate
         fileDuration = transition.duration
         scheduledFiles.removeAll()
-        if let handoffStartPosition = transition.primaryHandoffStartPosition {
-            seekFrameOffset = AVAudioFramePosition(handoffStartPosition * transition.sampleRate)
+        let handoffStartPosition = transition.primaryHandoffStartPosition ?? clampedPosition
+        seekFrameOffset = AVAudioFramePosition(handoffStartPosition * transition.sampleRate)
+        if let nodeTime = playerNode.lastRenderTime,
+           let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
+            playerTimeBaseOffset = playerTime.sampleTime
+        } else {
+            playerTimeBaseOffset = 0
         }
-        playerTimeBaseOffset = 0
+        playerNode.volume = 0
+        smartMixPlayerNode.volume = 1
         resetOutgoingHighPass()
         smartMixTransition = nil
 
