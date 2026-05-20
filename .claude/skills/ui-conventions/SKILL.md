@@ -218,6 +218,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Genre Filters
 - Use `GenreFilterHeader` for browse and detail genre filter rows. Do not place `GenreChipBar` directly in screens; the header owns the shared spacing and optional supplementary content such as merged-playlist source chips.
+- Genre chip rows should scroll as ordinary content or native table header content. Do not pin genre chips with `pinnedViews`, sticky overlays, or scroll-offset/safe-area shims.
 
 ## Visual Design
 

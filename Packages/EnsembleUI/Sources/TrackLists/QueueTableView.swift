@@ -439,6 +439,7 @@ public struct QueueTableView: UIViewRepresentable {
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
         private let queueDisplayLimit = 50
+        private let reorderFeedback = UISelectionFeedbackGenerator()
 
         struct QueueSection {
             let type: SectionType
@@ -760,6 +761,7 @@ public struct QueueTableView: UIViewRepresentable {
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory,
                   !isMoreRow(indexPath) else { return [] }
+            reorderFeedback.prepare()
             let item = self.item(at: indexPath)
             let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
             itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
@@ -829,10 +831,11 @@ public struct QueueTableView: UIViewRepresentable {
                 destinationAbsoluteIndex = queueItems.count
             }
             
-            EnsembleLogger.debug("Drag-drop: source '\(sourceItem.track.title)' from \(sourceAbsoluteIndex) to \(destinationAbsoluteIndex)")
-            
-            // Pass item ID + both absolute indices
-            onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)
+            commitQueueMove(
+                itemId: sourceItem.id,
+                sourceIndex: sourceAbsoluteIndex,
+                destinationIndex: destinationAbsoluteIndex
+            )
         }
 
         func isMoreRow(_ indexPath: IndexPath) -> Bool {
@@ -870,7 +873,18 @@ public struct QueueTableView: UIViewRepresentable {
                 destinationAbsoluteIndex = queueItems.count
             }
 
-            onMoveItem(sourceItem.id, sourceAbsoluteIndex, destinationAbsoluteIndex)
+            commitQueueMove(
+                itemId: sourceItem.id,
+                sourceIndex: sourceAbsoluteIndex,
+                destinationIndex: destinationAbsoluteIndex
+            )
+        }
+
+        private func commitQueueMove(itemId: String, sourceIndex: Int, destinationIndex: Int) {
+            guard sourceIndex != destinationIndex else { return }
+            reorderFeedback.selectionChanged()
+            reorderFeedback.prepare()
+            onMoveItem(itemId, sourceIndex, destinationIndex)
         }
     }
 }

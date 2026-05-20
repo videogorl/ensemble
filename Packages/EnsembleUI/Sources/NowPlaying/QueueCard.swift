@@ -1,6 +1,10 @@
 import EnsembleCore
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 /// Right card displaying scrollable queue with pinned header and secondary controls
 /// Includes shuffle, repeat, autoplay buttons relocated from Controls card
 public struct QueueCard: View {
@@ -304,6 +308,7 @@ public struct QueueCard: View {
                         let item = queueItemsToShow[fromOffset]
                         let absoluteFrom = capturedCurrentIndex + 1 + fromOffset
                         let absoluteTo = capturedCurrentIndex + 1 + destination
+                        triggerQueueReorderFeedback()
                         viewModel.moveQueueItem(byId: item.id, from: absoluteFrom, to: absoluteTo)
                     }
                     if hiddenQueueItemCount > 0 {
@@ -376,6 +381,10 @@ public struct QueueCard: View {
                 }
             }
             .padding(.vertical, EnsembleScaffold.UtilityRow.halfRowVerticalPadding)
+        }
+
+        private func triggerQueueReorderFeedback() {
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
         }
 
         /// Context menu for queue items

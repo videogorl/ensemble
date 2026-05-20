@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A background view that uses a heavily blurred version of artwork.
 /// When `preBlurredImage` is provided, it is displayed directly without live
-/// blur/contrast/saturation/brightness modifiers — saving 4 GPU render passes
+/// contrast/saturation/brightness/blur modifiers — saving 4 GPU render passes
 /// on every SwiftUI body evaluation.
 public struct BlurredArtworkBackground: View {
     let image: PlatformImage?
@@ -63,7 +63,7 @@ public struct BlurredArtworkBackground: View {
                 // to avoid QuartzCore "Failed to create WxH image slot" errors.
                 //
                 // When a pre-blurred image is available, display it directly without
-                // live blur/contrast/saturation/brightness — those effects are already
+                // live contrast/saturation/brightness/blur — those effects are already
                 // baked in, saving 4 GPU render passes per body evaluation.
                 let displayImage = preBlurredImage ?? image
                 let isPreBlurred = preBlurredImage != nil
@@ -84,10 +84,10 @@ public struct BlurredArtworkBackground: View {
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .if(!isPreBlurred) { view in
-                            view.blur(radius: blurRadius)
-                                .contrast(contrast)
+                            view.contrast(contrast)
                                 .saturation(saturation)
                                 .brightness(brightness)
+                                .blur(radius: blurRadius)
                         }
                         .opacity(opacity)
                         .id(image) // Use original image identity for cross-fade on track change
@@ -99,10 +99,10 @@ public struct BlurredArtworkBackground: View {
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .if(!isPreBlurred) { view in
-                            view.blur(radius: blurRadius, opaque: true)
-                                .contrast(contrast)
+                            view.contrast(contrast)
                                 .saturation(saturation)
                                 .brightness(brightness)
+                                .blur(radius: blurRadius, opaque: true)
                         }
                         .opacity(opacity)
                         .id(image) // Use original image identity for cross-fade on track change

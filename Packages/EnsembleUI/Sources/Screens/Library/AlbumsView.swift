@@ -209,22 +209,22 @@ public struct AlbumsView: View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none, pinnedViews: [.sectionHeaders]) {
-                        Section(header: albumGenreChipBar) {
-                            if isSortIndexed {
-                                LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                    ForEach(cachedAlbumSections) { section in
-                                        Section(header: sectionHeader(section.letter)) {
-                                            AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
-                                                .id(section.letter)
-                                        }
+                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                        albumGenreChipBar
+
+                        if isSortIndexed {
+                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                ForEach(cachedAlbumSections) { section in
+                                    Section(header: sectionHeader(section.letter)) {
+                                        AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                            .id(section.letter)
                                     }
                                 }
-                                .padding(.vertical)
-                            } else {
-                                AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
-                                    .padding(.vertical)
                             }
+                            .padding(.vertical)
+                        } else {
+                            AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                                .padding(.vertical)
                         }
                     }
                 }

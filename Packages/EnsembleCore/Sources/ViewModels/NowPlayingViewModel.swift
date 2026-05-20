@@ -126,8 +126,8 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     @Published public private(set) var artworkImage: PlatformImage?
-    /// Pre-rendered blurred artwork for NP background — avoids live .blur(80) +
-    /// .contrast(2.0) + .saturation(1.9) + .brightness(-0.05) on every body eval.
+    /// Pre-rendered blurred artwork for NP background — avoids live .contrast(2.0) +
+    /// .saturation(1.9) + .brightness(-0.05) + .blur(80) on every body eval.
     @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
@@ -988,7 +988,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     /// Dispatch background pre-rendering of blurred artwork for NP background.
-    /// Avoids live .blur(80) + .contrast(2.0) + .saturation(1.9) + .brightness(-0.05)
+    /// Avoids live .contrast(2.0) + .saturation(1.9) + .brightness(-0.05) + .blur(80)
     /// on every SwiftUI body evaluation — saves 4 GPU render passes per body eval.
     private func dispatchBlurGeneration(for image: PlatformImage?, trackIdentity: String) {
         blurGenerationTask?.cancel()
@@ -1012,8 +1012,8 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     /// Pre-render blurred artwork using Core Image.
-    /// Applies CIGaussianBlur (radius 40) + CIColorControls (contrast 2.0,
-    /// saturation 1.9, brightness -0.05) to match BlurredArtworkBackground's
+    /// Applies CIColorControls (contrast 2.0, saturation 1.9, brightness -0.05)
+    /// before CIGaussianBlur (radius 40) to match BlurredArtworkBackground's
     /// live SwiftUI modifiers, computed once on a background thread.
     private nonisolated static func generateBlurredImage(from source: PlatformImage) -> PlatformImage? {
         #if os(iOS) || os(tvOS) || os(watchOS)
@@ -1023,25 +1023,26 @@ public final class NowPlayingViewModel: ObservableObject {
                   let ciImage = CIImage(data: tiffData) else { return nil }
         #endif
 
-        // Gaussian blur — radius 40 on the 600px source ≈ 80pt in SwiftUI
-        // when scaled to fit ~375pt screen width
-        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
-        blurFilter.setValue(ciImage, forKey: kCIInputImageKey)
-        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
-
-        guard let blurred = blurFilter.outputImage else { return nil }
-
-        // CIGaussianBlur extends image bounds — crop back to original extent
-        let cropped = blurred.cropped(to: ciImage.extent)
-
-        // Apply contrast/saturation/brightness to match BlurredArtworkBackground defaults
+        // Apply contrast/saturation/brightness before the blur so the final
+        // blurred field is based on the tuned artwork signal.
         guard let colorFilter = CIFilter(name: "CIColorControls") else { return nil }
-        colorFilter.setValue(cropped, forKey: kCIInputImageKey)
+        colorFilter.setValue(ciImage, forKey: kCIInputImageKey)
         colorFilter.setValue(2.0, forKey: kCIInputContrastKey)
         colorFilter.setValue(1.9, forKey: kCIInputSaturationKey)
         colorFilter.setValue(-0.05, forKey: kCIInputBrightnessKey)
 
-        guard let output = colorFilter.outputImage else { return nil }
+        guard let colorAdjusted = colorFilter.outputImage else { return nil }
+
+        // Gaussian blur — radius 40 on the 600px source ≈ 80pt in SwiftUI
+        // when scaled to fit ~375pt screen width.
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
+        blurFilter.setValue(colorAdjusted, forKey: kCIInputImageKey)
+        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
+
+        guard let blurred = blurFilter.outputImage else { return nil }
+
+        // CIGaussianBlur extends image bounds — crop back to original extent.
+        let output = blurred.cropped(to: ciImage.extent)
 
         let context = CIContext(options: [.useSoftwareRenderer: false])
         guard let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
