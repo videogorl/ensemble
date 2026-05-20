@@ -10,7 +10,6 @@ public struct ScrollIndex: View {
     
     @State private var dragLetter: String?
     private let verticalPadding = EnsembleScaffold.ScrollIndex.verticalPadding
-    private let horizontalPadding = EnsembleScaffold.ScrollIndex.horizontalPadding
     private let letterHeight = EnsembleScaffold.ScrollIndex.letterHeight
     private let letterSpacing = EnsembleScaffold.ScrollIndex.letterSpacing
     private let hitTargetWidth = EnsembleScaffold.ScrollIndex.hitTargetWidth
@@ -43,7 +42,7 @@ public struct ScrollIndex: View {
                         Text(letter)
                             .font(EnsembleScaffold.ScrollIndex.letterFont)
                             .foregroundColor(EnsembleDesign.Color.accent)
-                            .frame(width: EnsembleScaffold.ScrollIndex.letterWidth, height: letterHeight)
+                            .frame(width: hitTargetWidth, height: letterHeight, alignment: .trailing)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(letter)
@@ -51,7 +50,6 @@ public struct ScrollIndex: View {
                 }
             }
             .padding(.vertical, verticalPadding)
-            .padding(.horizontal, horizontalPadding)
 
             Color.clear
                 .frame(width: hitTargetWidth, height: indexHeight)
