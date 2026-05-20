@@ -30,6 +30,17 @@ class DeferredLayoutTableView: UITableView {
     }
 }
 
+fileprivate struct MediaTrackGroup {
+    let id: String
+    let title: String?
+    let tracks: [Track]
+    let isIndexable: Bool
+
+    var signature: String {
+        "\(id)|\(title ?? "")|\(tracks.count)|\(isIndexable)"
+    }
+}
+
 // MARK: - Track Table View Cell
 
 public class TrackTableViewCell: UITableViewCell {
@@ -474,6 +485,7 @@ public class TrackTableViewCell: UITableViewCell {
 
 public struct MediaTrackList: UIViewRepresentable {
     let tracks: [Track]
+    let sections: [NativeTrackListSection]?
     let showArtwork: Bool
     let showTrackNumbers: Bool
     let showAlbumName: Bool
@@ -563,6 +575,7 @@ public struct MediaTrackList: UIViewRepresentable {
         onTrackTap: @escaping (Track, Int) -> Void
     ) {
         self.tracks = tracks
+        self.sections = nil
         self.showArtwork = showArtwork
         self.showTrackNumbers = showTrackNumbers
         self.showAlbumName = showAlbumName
@@ -608,6 +621,58 @@ public struct MediaTrackList: UIViewRepresentable {
         )
         self.onTrackTap = onTrackTap
     }
+
+    public init(
+        sections: [NativeTrackListSection],
+        showArtwork: Bool = true,
+        showTrackNumbers: Bool = false,
+        showAlbumName: Bool = true,
+        currentTrackId: String? = nil,
+        availabilityGeneration: UInt64 = 0,
+        activeDownloadTrackIdentities: Set<String> = [],
+        bottomContentInset: CGFloat = 0,
+        rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
+        tableHeaderContent: AnyView? = nil,
+        tableFooterContent: AnyView? = nil,
+        searchTextBinding: Binding<String>? = nil,
+        interactionModel: TrackRowInteractionModel? = nil,
+        supplementalMetadataWidth: CGFloat? = nil,
+        onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
+        onTrackTap: @escaping (Track, Int) -> Void
+    ) {
+        self.tracks = sections.flatMap(\.tracks)
+        self.sections = sections
+        self.showArtwork = showArtwork
+        self.showTrackNumbers = showTrackNumbers
+        self.showAlbumName = showAlbumName
+        self.groupByDisc = false
+        self.currentTrackId = currentTrackId
+        self.availabilityGeneration = availabilityGeneration
+        self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
+        self.managesOwnScrolling = true
+        self.bottomContentInset = bottomContentInset
+        self.rowHeight = rowHeight
+        self.tableHeaderContent = tableHeaderContent
+        self.tableFooterContent = tableFooterContent
+        self.searchTextBinding = searchTextBinding
+        self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.onPlayNext = nil
+        self.onPlayLast = nil
+        self.onAddToPlaylist = nil
+        self.onAddToRecentPlaylist = nil
+        self.onToggleFavorite = nil
+        self.onGoToAlbum = nil
+        self.onGoToArtist = nil
+        self.onGetInfo = nil
+        self.onShareLink = nil
+        self.onShareFile = nil
+        self.onRemoveFromPlaylist = onRemoveFromPlaylist
+        self.isTrackFavorited = nil
+        self.canAddToRecentPlaylist = nil
+        self.recentPlaylistTitle = nil
+        self.interactionModel = interactionModel ?? TrackRowInteractionModel()
+        self.onTrackTap = onTrackTap
+    }
     
     public func makeUIView(context: Context) -> UITableView {
         let tableView: UITableView
@@ -644,6 +709,10 @@ public struct MediaTrackList: UIViewRepresentable {
         // Suppress any default section footer height so the content height stays
         // exactly N × rowHeight with no extra trailing space.
         tableView.sectionFooterHeight = 0
+        tableView.sectionIndexMinimumDisplayRowCount = 1
+        tableView.sectionIndexColor = UIColor(EnsembleDesign.Color.accent)
+        tableView.sectionIndexBackgroundColor = .clear
+        tableView.sectionIndexTrackingBackgroundColor = UIColor.systemFill
 
         // iOS 15 introduced automatic top padding above section headers; suppress it
         // so the content height is exactly N × rowHeight with no leading offset.
@@ -723,11 +792,13 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.contentInset.bottom = bottomContentInset
         }
 
-        let newGroupedTracks = groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)]
+        let newGroupedTracks = makeTrackGroups()
         
         // Check if track list structure changed (additions/removals/reordering)
+        let newGroupSignature = newGroupedTracks.map(\.signature)
         let dataChanged = context.coordinator.tracks.count != tracks.count ||
-            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id }
+            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id } ||
+            context.coordinator.groupSignature != newGroupSignature
 
         // Check if any track's download state changed (localFilePath set or cleared)
         let downloadStateChanged = !dataChanged &&
@@ -744,6 +815,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // Update coordinator state
         context.coordinator.tracks = tracks
         context.coordinator.groupedTracks = newGroupedTracks
+        context.coordinator.groupSignature = newGroupSignature
         context.coordinator.showArtwork = showArtwork
         context.coordinator.showTrackNumbers = showTrackNumbers
         context.coordinator.showAlbumName = showAlbumName
@@ -780,6 +852,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // stale index paths against the new (possibly shorter) data — causing crashes.
         if tableView.window != nil && dataChanged {
             tableView.reloadData()
+            tableView.reloadSectionIndexTitles()
         }
 
         // Update table header view size if needed (e.g., after initial width becomes available).
@@ -875,7 +948,7 @@ public struct MediaTrackList: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(
             tracks: tracks,
-            groupedTracks: groupByDisc ? groupTracksByDisc(tracks) : [(disc: nil, tracks: tracks)],
+            groupedTracks: makeTrackGroups(),
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
             showAlbumName: showAlbumName,
@@ -909,7 +982,26 @@ public struct MediaTrackList: UIViewRepresentable {
         return coordinator
     }
     
-    private func groupTracksByDisc(_ tracks: [Track]) -> [(disc: Int?, tracks: [Track])] {
+    private func makeTrackGroups() -> [MediaTrackGroup] {
+        if let sections {
+            return sections.map { section in
+                MediaTrackGroup(
+                    id: section.id,
+                    title: section.title.isEmpty ? nil : section.title,
+                    tracks: section.tracks,
+                    isIndexable: !section.title.isEmpty
+                )
+            }
+        }
+
+        if groupByDisc {
+            return groupTracksByDisc(tracks)
+        }
+
+        return [MediaTrackGroup(id: "all", title: nil, tracks: tracks, isIndexable: false)]
+    }
+
+    private func groupTracksByDisc(_ tracks: [Track]) -> [MediaTrackGroup] {
         let grouped = Dictionary(grouping: tracks) { $0.discNumber }
         let sortedKeys = grouped.keys.sorted()
         
@@ -917,13 +1009,20 @@ public struct MediaTrackList: UIViewRepresentable {
         let showDiscNumbers = sortedKeys.count > 1
         
         return sortedKeys.map { disc in
-            (disc: showDiscNumbers ? disc : nil, tracks: grouped[disc] ?? [])
+            let title = showDiscNumbers ? "Disc \(disc)" : nil
+            return MediaTrackGroup(
+                id: "disc-\(disc)",
+                title: title,
+                tracks: grouped[disc] ?? [],
+                isIndexable: false
+            )
         }
     }
     
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UISearchResultsUpdating {
         var tracks: [Track]
-        var groupedTracks: [(disc: Int?, tracks: [Track])]
+        fileprivate var groupedTracks: [MediaTrackGroup]
+        var groupSignature: [String]
         var showArtwork: Bool
         var showTrackNumbers: Bool
         var showAlbumName: Bool
@@ -968,9 +1067,9 @@ public struct MediaTrackList: UIViewRepresentable {
         /// Active search binding for UISearchResultsUpdating
         private var activeSearchBinding: Binding<String>?
 
-        init(
+        fileprivate init(
             tracks: [Track],
-            groupedTracks: [(disc: Int?, tracks: [Track])],
+            groupedTracks: [MediaTrackGroup],
             showArtwork: Bool,
             showTrackNumbers: Bool,
             showAlbumName: Bool,
@@ -1003,6 +1102,7 @@ public struct MediaTrackList: UIViewRepresentable {
         ) {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
+            self.groupSignature = groupedTracks.map(\.signature)
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
             self.showAlbumName = showAlbumName
@@ -1088,13 +1188,13 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            guard section < groupedTracks.count, let disc = groupedTracks[section].disc else { return nil }
-            
+            guard section < groupedTracks.count, let title = groupedTracks[section].title else { return nil }
+
             let headerView = UIView()
-            headerView.backgroundColor = .clear
-            
+            headerView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.96)
+
             let label = UILabel()
-            label.text = "Disc \(disc)"
+            label.text = title
             label.font = .systemFont(ofSize: 14, weight: .bold)
             label.textColor = .secondaryLabel
             label.translatesAutoresizingMaskIntoConstraints = false
@@ -1111,7 +1211,26 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
             guard section < groupedTracks.count else { return 0 }
-            return groupedTracks[section].disc != nil ? 40 : 0
+            return groupedTracks[section].title == nil ? 0 : 40
+        }
+
+        public func sectionIndexTitles(for tableView: UITableView) -> [String]? {
+            let titles = groupedTracks.compactMap { group in
+                group.isIndexable ? group.title : nil
+            }
+            return titles.isEmpty ? nil : titles
+        }
+
+        public func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
+            if let section = groupedTracks.firstIndex(where: { $0.isIndexable && $0.title == title }) {
+                return section
+            }
+
+            guard index >= 0, index < groupedTracks.count else {
+                return NSNotFound
+            }
+
+            return index
         }
 
         public func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {

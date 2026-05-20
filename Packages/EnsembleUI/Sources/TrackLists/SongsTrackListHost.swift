@@ -150,67 +150,29 @@ public struct SongsTrackListHost: View {
 
     #if os(iOS)
     private var iOSTrackList: some View {
-        Group {
-            if configuration.showsSectionIndex {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                            if let tableHeaderContent {
-                                tableHeaderContent
-                            }
-
-                            ForEach(sections) { section in
-                                iOSSection(section, allTracks: allTracks)
-                            }
-                        }
-                        .padding(.vertical)
-                    }
-                    .miniPlayerBottomSpacing(configuration.bottomContentInset)
-                    .libraryScrollIndexOverlay {
-                        sectionIndex { sectionID in
-                            proxy.scrollTo(sectionID, anchor: .top)
-                        }
-                    }
-                }
-            } else {
-                MediaTrackList(
-                    tracks: allTracks,
-                    showArtwork: configuration.showArtwork,
-                    showTrackNumbers: configuration.showTrackNumbers,
-                    showAlbumName: configuration.showAlbumName,
-                    groupByDisc: configuration.groupByDisc,
-                    currentTrackId: configuration.currentTrackId,
-                    availabilityGeneration: configuration.availabilityGeneration,
-                    activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
-                    managesOwnScrolling: true,
-                    bottomContentInset: configuration.bottomContentInset,
-                    rowHeight: configuration.rowHeight,
-                    tableHeaderContent: tableHeaderContent,
-                    tableFooterContent: tableFooterContent,
-                    searchTextBinding: searchTextBinding,
-                    interactionModel: configuration.interactionModel,
-                    supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-                    onRemoveFromPlaylist: onRemoveFromPlaylist
-                ) { track, index in
-                    onTrackTap(track, index)
-                }
-            }
-        }
-    }
-
-    private func iOSSection(
-        _ section: NativeTrackListSection,
-        allTracks: [Track]
-    ) -> some View {
-        let height = CGFloat(section.tracks.count) * configuration.rowHeight
-
-        return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            if !section.title.isEmpty {
-                sectionHeader(section.title)
-            }
-
+        if configuration.showsSectionIndex {
             MediaTrackList(
-                tracks: section.tracks,
+                sections: sections,
+                showArtwork: configuration.showArtwork,
+                showTrackNumbers: configuration.showTrackNumbers,
+                showAlbumName: configuration.showAlbumName,
+                currentTrackId: configuration.currentTrackId,
+                availabilityGeneration: configuration.availabilityGeneration,
+                activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+                bottomContentInset: configuration.bottomContentInset,
+                rowHeight: configuration.rowHeight,
+                tableHeaderContent: tableHeaderContent,
+                tableFooterContent: tableFooterContent,
+                searchTextBinding: searchTextBinding,
+                interactionModel: configuration.interactionModel,
+                supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                onRemoveFromPlaylist: onRemoveFromPlaylist
+            ) { track, index in
+                onTrackTap(track, index)
+            }
+        } else {
+            MediaTrackList(
+                tracks: allTracks,
                 showArtwork: configuration.showArtwork,
                 showTrackNumbers: configuration.showTrackNumbers,
                 showAlbumName: configuration.showAlbumName,
@@ -218,15 +180,19 @@ public struct SongsTrackListHost: View {
                 currentTrackId: configuration.currentTrackId,
                 availabilityGeneration: configuration.availabilityGeneration,
                 activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+                managesOwnScrolling: true,
+                bottomContentInset: configuration.bottomContentInset,
                 rowHeight: configuration.rowHeight,
+                tableHeaderContent: tableHeaderContent,
+                tableFooterContent: tableFooterContent,
+                searchTextBinding: searchTextBinding,
                 interactionModel: configuration.interactionModel,
-                supplementalMetadataWidth: configuration.supplementalMetadataWidth
-            ) { track, _ in
-                onTrackTap(track, allTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) ?? 0)
+                supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                onRemoveFromPlaylist: onRemoveFromPlaylist
+            ) { track, index in
+                onTrackTap(track, index)
             }
-            .frame(height: height)
         }
-        .id(section.id)
     }
     #endif
 
@@ -285,17 +251,4 @@ public struct SongsTrackListHost: View {
         }
     }
 
-    private func sectionHeader(_ title: String) -> some View {
-        EnsembleBrowseSectionHeader(title, backgroundColor: platformBackground)
-    }
-
-    private var platformBackground: Color {
-        #if os(macOS)
-        Color(NSColor.windowBackgroundColor)
-        #elseif os(iOS)
-        Color(UIColor.systemBackground)
-        #else
-        Color.clear
-        #endif
-    }
 }
