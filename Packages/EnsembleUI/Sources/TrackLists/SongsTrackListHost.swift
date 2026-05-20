@@ -157,30 +157,32 @@ public struct SongsTrackListHost: View {
                 flatIOSTrackList
             }
         }
-        .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
 
     private var indexedIOSTrackList: some View {
-        MediaTrackList(
-            sections: sections,
-            showArtwork: configuration.showArtwork,
-            showTrackNumbers: configuration.showTrackNumbers,
-            showAlbumName: configuration.showAlbumName,
-            currentTrackId: configuration.currentTrackId,
-            availabilityGeneration: configuration.availabilityGeneration,
-            activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
-            bottomContentInset: configuration.bottomContentInset,
-            rowHeight: configuration.rowHeight,
-            tableHeaderContent: tableHeaderContent,
-            tableFooterContent: tableFooterContent,
-            searchTextBinding: searchTextBinding,
-            interactionModel: configuration.interactionModel,
-            supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-            sectionScrollRequestID: sectionScrollRequest?.id,
-            sectionScrollTargetID: sectionScrollRequest?.sectionID,
-            onRemoveFromPlaylist: onRemoveFromPlaylist
-        ) { track, index in
-            onTrackTap(track, index)
+        ZStack {
+            MediaTrackList(
+                sections: sections,
+                showArtwork: configuration.showArtwork,
+                showTrackNumbers: configuration.showTrackNumbers,
+                showAlbumName: configuration.showAlbumName,
+                currentTrackId: configuration.currentTrackId,
+                availabilityGeneration: configuration.availabilityGeneration,
+                activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+                bottomContentInset: configuration.bottomContentInset,
+                rowHeight: configuration.rowHeight,
+                tableHeaderContent: tableHeaderContent,
+                tableFooterContent: tableFooterContent,
+                searchTextBinding: searchTextBinding,
+                interactionModel: configuration.interactionModel,
+                supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                sectionScrollRequestID: sectionScrollRequest?.id,
+                sectionScrollTargetID: sectionScrollRequest?.sectionID,
+                onRemoveFromPlaylist: onRemoveFromPlaylist
+            ) { track, index in
+                onTrackTap(track, index)
+            }
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
         }
         .libraryScrollIndexOverlay {
             sectionIndex { sectionID in
@@ -215,6 +217,7 @@ public struct SongsTrackListHost: View {
         ) { track, index in
             onTrackTap(track, index)
         }
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
     #endif
 
