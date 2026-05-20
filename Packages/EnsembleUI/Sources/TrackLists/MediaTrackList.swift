@@ -1232,19 +1232,26 @@ public struct MediaTrackList: UIViewRepresentable {
             guard section < groupedTracks.count, let title = groupedTracks[section].title else { return nil }
 
             let headerView = UIView()
-            headerView.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.96)
+            headerView.backgroundColor = .clear
 
             let label = UILabel()
             label.text = title
-            label.font = .systemFont(ofSize: 14, weight: .bold)
-            label.textColor = .secondaryLabel
+            label.font = Self.sectionHeaderFont
+            label.adjustsFontForContentSizeCategory = true
+            label.textColor = UIColor(EnsembleDesign.Color.secondaryText)
             label.translatesAutoresizingMaskIntoConstraints = false
             
             headerView.addSubview(label)
             NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+                label.leadingAnchor.constraint(
+                    equalTo: headerView.leadingAnchor,
+                    constant: EnsembleScaffold.BrowseSectionHeader.horizontalPadding
+                ),
                 label.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-                label.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16)
+                label.trailingAnchor.constraint(
+                    equalTo: headerView.trailingAnchor,
+                    constant: -EnsembleScaffold.BrowseSectionHeader.horizontalPadding
+                )
             ])
             
             return headerView
@@ -1252,7 +1259,15 @@ public struct MediaTrackList: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
             guard section < groupedTracks.count else { return 0 }
-            return groupedTracks[section].title == nil ? 0 : 40
+            return groupedTracks[section].title == nil ? 0 : Self.sectionHeaderHeight
+        }
+
+        private static var sectionHeaderFont: UIFont {
+            UIFont.preferredFont(forTextStyle: .headline)
+        }
+
+        private static var sectionHeaderHeight: CGFloat {
+            ceil(sectionHeaderFont.lineHeight + (EnsembleScaffold.BrowseSectionHeader.verticalPadding * 2))
         }
 
         public func sectionIndexTitles(for tableView: UITableView) -> [String]? {

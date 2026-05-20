@@ -157,7 +157,7 @@ public struct SongsTrackListHost: View {
                 flatIOSTrackList
             }
         }
-        .ignoresSafeArea(.container, edges: .top)
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
     }
 
     private var indexedIOSTrackList: some View {
@@ -182,7 +182,7 @@ public struct SongsTrackListHost: View {
         ) { track, index in
             onTrackTap(track, index)
         }
-        .libraryScrollIndexOverlay(.centered) {
+        .libraryScrollIndexOverlay {
             sectionIndex { sectionID in
                 sectionScrollRequestID += 1
                 sectionScrollRequest = TrackSectionScrollRequest(
