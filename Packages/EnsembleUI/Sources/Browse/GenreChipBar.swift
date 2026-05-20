@@ -231,7 +231,7 @@ private extension View {
         if #available(iOS 26, macOS 26, *) {
             self
                 .clipShape(Capsule())
-                .glassEffect(.regular.tint(backgroundColor).interactive(), in: .capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
         } else {
             self
                 .background(
