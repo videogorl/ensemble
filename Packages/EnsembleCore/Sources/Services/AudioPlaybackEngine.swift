@@ -284,8 +284,7 @@ public final class AudioPlaybackEngine {
 
     static func smartMixFormatsMatch(_ lhs: AVAudioFormat?, _ rhs: AVAudioFormat) -> Bool {
         guard let lhs else { return false }
-        return lhs.sampleRate == rhs.sampleRate
-            && lhs.channelCount == rhs.channelCount
+        return lhs.channelCount == rhs.channelCount
             && lhs.commonFormat == rhs.commonFormat
             && lhs.isInterleaved == rhs.isInterleaved
     }

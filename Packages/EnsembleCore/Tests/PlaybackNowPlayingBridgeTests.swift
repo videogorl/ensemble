@@ -220,6 +220,26 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(PlaybackNowPlayingBridge.repeatMode(for: .one), .one)
     }
 
+    func testRemoteSeekAllowsFreshLargeScrubOnNewTrack() {
+        XCTAssertFalse(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
+            targetPosition: 210,
+            currentTime: 2,
+            trackAge: 2.3,
+            eventTimestamp: 99.9,
+            nowTimestamp: 100
+        ))
+    }
+
+    func testRemoteSeekRejectsLargeCommandFromPreviousTrack() {
+        XCTAssertTrue(PlaybackNowPlayingBridge.shouldRejectRemoteSeekAsStale(
+            targetPosition: 210,
+            currentTime: 2,
+            trackAge: 2.3,
+            eventTimestamp: 96.5,
+            nowTimestamp: 100
+        ))
+    }
+
     private func makeTrack(
         id: String = "track-1",
         title: String = "Track Name",

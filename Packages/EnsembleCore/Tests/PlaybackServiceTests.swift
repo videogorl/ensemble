@@ -68,12 +68,14 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
-    func testSmartMixFormatsMatchOnlyForEquivalentDeckFormats() {
+    func testSmartMixFormatsMatchAllowsSampleRateConversionForEquivalentDeckFormats() {
         let stereo = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
         let stereoCopy = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let stereo48k = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)
         let mono = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)
 
         XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereoCopy!))
+        XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereo48k!))
         XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(stereo, mono!))
         XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(nil, stereo!))
     }
