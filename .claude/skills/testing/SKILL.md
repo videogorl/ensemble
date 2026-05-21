@@ -15,7 +15,7 @@ This is the canonical verification policy. Other skills may add task-specific de
 | Shell/script/tooling change | `bash -n` or equivalent static check, plus a safe dry run or targeted execution. |
 | Package business logic | Affected package tests with `swift test --package-path Packages/<Package>`. |
 | CoreData model/repository | `scripts/compile_coredata_model.sh`, `swift test --package-path Packages/EnsemblePersistence`, and dependent package tests as needed. |
-| UI, navigation, playback, sync workflow, or user-visible bug fix | Affected package tests plus simulator validation of the affected flow. |
+| UI, navigation, playback, sync workflow, or user-visible bug fix | Affected package tests plus visual runtime validation of the affected flow on each touched platform when feasible. Capture screenshots or equivalent UI inspection evidence; if visual validation is blocked, document the blocker and residual risk. |
 | Performance-sensitive SwiftUI/playback/download change | Targeted tests plus simulator/device evidence. Use `scripts/capture_performance_gate.sh` when changing observation, root chrome, Feed launch/refresh, or Downloads queue behavior. |
 | Broad architectural refactor | Tests for new services/repositories, affected package tests, app build, and simulator verification for user-facing paths. |
 
@@ -63,9 +63,11 @@ xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
 Load `simulator-test` when runtime proof is required. Use the iOS Simulator MCP server to install, launch, inspect accessibility output, drive taps/typing/swipes, and capture screenshots/logs.
 
 Typical expectations:
-- Bug fix: reproduce the old path when feasible, then verify the corrected path.
-- New UI: navigate to the surface, exercise key interactions, and confirm visible labels/state.
+- Bug fix: reproduce the old path when feasible, then verify the corrected path visually.
+- New UI: navigate to the surface, exercise key interactions, and confirm visible labels/state with screenshots or accessibility/UI hierarchy evidence.
 - Playback/networking: combine UI interaction with focused log capture.
+
+For macOS-visible UI changes, use the built app with Computer Use, Xcode UI tooling, screenshots, or another direct UI inspection path. A build-only check is not sufficient unless the changed surface cannot be reached because of a documented environment blocker such as missing credentials, unavailable data, or a locked desktop.
 
 ## Test Locations
 

@@ -42,7 +42,7 @@ Start with `git status --short` and preserve unrelated user changes.
 For implementation work:
 - Make the smallest coherent change that satisfies the request.
 - Commit after each logical step when implementing a plan, and always commit before handing work back for manual testing.
-- Follow the canonical verification policy in `testing`. In short: run affected package tests after non-trivial code changes, and use simulator validation for user-visible behavior unless a blocker is documented.
+- Follow the canonical verification policy in `testing`. In short: run affected package tests after non-trivial code changes, and visually validate user-visible behavior with screenshots or equivalent UI inspection unless a blocker is documented.
 
 For bug reports:
 - Ask clarifying questions first when the symptom, trigger, or expected behavior is unclear.

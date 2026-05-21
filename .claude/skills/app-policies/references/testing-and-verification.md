@@ -4,7 +4,7 @@ Load this reference when choosing verification for policy-changing work or chang
 
 ## Policies
 
-- Non-trivial behavior changes require affected package tests. User-visible behavior changes also require simulator validation unless a blocker is documented.
+- Non-trivial behavior changes require affected package tests. User-visible behavior changes also require visual runtime validation on each touched platform when feasible, using screenshots or equivalent UI inspection evidence unless a blocker is documented.
 - Policy changes should be verified in the same logical change as implementation changes.
 - Performance-sensitive SwiftUI, playback, download, Feed launch/refresh, root chrome, and observation changes require targeted tests plus runtime or performance evidence.
 - Plex streaming or playback transport changes require live PMS endpoint checks with `.env` credentials before code changes and targeted playback verification afterward.
@@ -15,7 +15,8 @@ Load this reference when choosing verification for policy-changing work or chang
 ## Owners
 
 - `testing` skill owns canonical verification commands, scope selection, and definition of done.
-- `simulator-test` skill owns simulator launch, UI driving, screenshots, and log capture.
+- `simulator-test` skill owns iOS/iPadOS simulator launch, UI driving, screenshots, and log capture.
+- macOS visual validation is owned by direct app inspection through Computer Use, Xcode UI tooling, screenshots, or an equivalent UI evidence path.
 - `plex-api` skill owns live Plex endpoint probes and endpoint-specific requirements.
 - `app-policies` owns policy-aware expectations and documentation verification.
 
@@ -23,7 +24,8 @@ Load this reference when choosing verification for policy-changing work or chang
 
 - Select the smallest verification set that covers the changed behavior and package ownership.
 - Run package tests for changed Swift packages before full app tests unless the change crosses app-level integration boundaries.
-- Prefer simulator proof for visible UI/playback/refresh/download behavior instead of relying only on unit tests.
+- Prefer visual runtime proof for visible UI/playback/refresh/download behavior instead of relying only on unit tests or builds.
+- Treat build-only verification for user-visible UI changes as incomplete unless the final handoff names the blocker and residual risk.
 - Use `scripts/capture_performance_gate.sh` when changing observation, root chrome, Feed launch/refresh, or Downloads queue behavior.
 - Use `scripts/check_core_warning_budget.sh` for relevant `EnsembleCore` refactors.
 
