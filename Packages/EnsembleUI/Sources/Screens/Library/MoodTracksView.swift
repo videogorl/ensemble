@@ -53,6 +53,7 @@ public struct MoodTracksView: View {
                     }
                     nowPlayingVM.play(tracks: moodTracks, startingAt: index)
                 }
+                .ignoresSafeArea(.container, edges: [.top, .bottom])
                 .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             #else
                 SongsTrackListHost(
