@@ -473,6 +473,17 @@ public struct Mood: Identifiable, Hashable, Sendable, Codable {
         self.title = title
         self.sourceCompositeKey = sourceCompositeKey
     }
+
+    public static func normalizedTitleKey(_ title: String) -> String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+    }
+
+    public static func sourceCompositeKeys(from sourceCompositeKey: String?) -> Set<String> {
+        guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else { return [] }
+        return Set(sourceCompositeKey.split(separator: "|").map(String.init))
+    }
 }
 
 // MARK: - Playlist

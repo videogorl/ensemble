@@ -417,8 +417,9 @@ public final class SearchViewModel: ObservableObject {
     ) -> [Mood] {
         guard !hiddenSourceCompositeKeys.isEmpty else { return moods }
         return moods.filter { mood in
-            guard let sourceKey = mood.sourceCompositeKey else { return true }
-            return !hiddenSourceCompositeKeys.contains(sourceKey)
+            let sourceKeys = moodSourceCompositeKeys(from: mood.sourceCompositeKey)
+            guard !sourceKeys.isEmpty else { return true }
+            return !sourceKeys.isSubset(of: hiddenSourceCompositeKeys)
         }
     }
 
@@ -498,7 +499,7 @@ public final class SearchViewModel: ObservableObject {
 
         // Load cached moods immediately while fresh network fetch runs.
         if let cachedMoods = try? await moodRepository.fetchMoods(), !cachedMoods.isEmpty {
-            unfilteredMoods = cachedMoods
+            unfilteredMoods = Self.mergeMoodsForDisplay(cachedMoods)
             applyVisibilityToExploreContent()
         }
 
@@ -588,29 +589,48 @@ public final class SearchViewModel: ObservableObject {
         unfilteredRecommendedItems = Array(recommendedHubItems.prefix(6))
         applyVisibilityToExploreContent()
 
-        // Fetch moods once per library and dedupe by key.
-        var moodsByKey: [String: Mood] = [:]
+        // Plex mood keys are library-local. Deduplicate browse moods by title,
+        // then resolve each library's key again when opening the mood.
+        var moodsByTitle: [String: Mood] = [:]
+        var moodSourceKeysByTitle: [String: Set<String>] = [:]
         for task in fetchTasks {
             guard !Task.isCancelled else { return }
             do {
                 let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
-                for plexMood in plexMoods where moodsByKey[plexMood.key] == nil {
-                    moodsByKey[plexMood.key] = Mood(
-                        id: plexMood.id,
-                        key: plexMood.key,
-                        title: plexMood.title,
-                        sourceCompositeKey: task.sourceKey
-                    )
+                for plexMood in plexMoods {
+                    let titleKey = Self.normalizedMoodTitleKey(plexMood.title)
+                    guard !titleKey.isEmpty else { continue }
+                    moodSourceKeysByTitle[titleKey, default: []].insert(task.sourceKey)
+
+                    if moodsByTitle[titleKey] == nil {
+                        moodsByTitle[titleKey] = Mood(
+                            id: "mood:\(titleKey)",
+                            key: plexMood.key,
+                            title: plexMood.title,
+                            sourceCompositeKey: task.sourceKey
+                        )
+                    }
                 }
             } catch {
                 EnsembleLogger.debug("⚠️ Failed to fetch moods: \(error)")
             }
         }
 
+        for (titleKey, sourceKeys) in moodSourceKeysByTitle {
+            guard let mood = moodsByTitle[titleKey] else { continue }
+            let mergedSourceKey = Self.mergedMoodSourceCompositeKey(from: sourceKeys)
+            moodsByTitle[titleKey] = Mood(
+                id: mood.id,
+                key: mood.key,
+                title: mood.title,
+                sourceCompositeKey: mergedSourceKey
+            )
+        }
+
         guard !Task.isCancelled else { return }
 
-        if !moodsByKey.isEmpty {
-            let moodsToPublish = moodsByKey.values.sorted {
+        if !moodsByTitle.isEmpty {
+            let moodsToPublish = moodsByTitle.values.sorted {
                 $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
             }
             do {
@@ -621,6 +641,58 @@ public final class SearchViewModel: ObservableObject {
             unfilteredMoods = moodsToPublish
             applyVisibilityToExploreContent()
         }
+    }
+
+    internal nonisolated static func normalizedMoodTitleKey(_ title: String) -> String {
+        Mood.normalizedTitleKey(title)
+    }
+
+    internal nonisolated static func mergedMoodSourceCompositeKey(from sourceKeys: Set<String>) -> String? {
+        let sortedKeys = sourceKeys.sorted()
+        guard !sortedKeys.isEmpty else { return nil }
+        return sortedKeys.joined(separator: "|")
+    }
+
+    internal nonisolated static func moodSourceCompositeKeys(from sourceCompositeKey: String?) -> Set<String> {
+        Mood.sourceCompositeKeys(from: sourceCompositeKey)
+    }
+
+    internal nonisolated static func mergeMoodsForDisplay(_ moods: [Mood]) -> [Mood] {
+        var moodsByTitle: [String: Mood] = [:]
+        var moodSourceKeysByTitle: [String: Set<String>] = [:]
+
+        for mood in moods {
+            let titleKey = normalizedMoodTitleKey(mood.title)
+            guard !titleKey.isEmpty else { continue }
+
+            let sourceKeys = moodSourceCompositeKeys(from: mood.sourceCompositeKey)
+            if sourceKeys.isEmpty {
+                moodSourceKeysByTitle[titleKey, default: []].insert("")
+            } else {
+                moodSourceKeysByTitle[titleKey, default: []].formUnion(sourceKeys)
+            }
+
+            if moodsByTitle[titleKey] == nil {
+                moodsByTitle[titleKey] = Mood(
+                    id: "mood:\(titleKey)",
+                    key: mood.key,
+                    title: mood.title,
+                    sourceCompositeKey: mood.sourceCompositeKey
+                )
+            }
+        }
+
+        return moodsByTitle.map { titleKey, mood in
+            var sourceKeys = moodSourceKeysByTitle[titleKey] ?? []
+            sourceKeys.remove("")
+            return Mood(
+                id: mood.id,
+                key: mood.key,
+                title: mood.title,
+                sourceCompositeKey: mergedMoodSourceCompositeKey(from: sourceKeys)
+            )
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     private func buildExploreFetchTasks() -> [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] {

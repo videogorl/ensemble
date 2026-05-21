@@ -283,8 +283,12 @@ public struct MoodTracksView: View {
         var allTracks: [Track] = []
         var trackMap: [String: Track] = [:]
 
-        // Fetch mood tracks from all enabled libraries
+        // Resolve the selected mood title in each library before loading tracks.
+        // Plex mood keys are library-local, so reusing one library's key across
+        // all libraries can produce empty/error detail pages for duplicate names.
         let accountManager = DependencyContainer.shared.accountManager
+        let targetMoodTitleKey = Mood.normalizedTitleKey(mood.title)
+        let targetSourceKeys = Mood.sourceCompositeKeys(from: mood.sourceCompositeKey)
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -294,11 +298,17 @@ public struct MoodTracksView: View {
 
                 let enabledLibraries = server.libraries.filter { $0.isEnabled }
                 for library in enabledLibraries {
-                    do {
-                        let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: mood.key)
+                    let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
+                    if !targetSourceKeys.isEmpty, !targetSourceKeys.contains(sourceKey) {
+                        continue
+                    }
 
-                        // Create composite key for this track from this library
-                        let sourceKey = "plex:\(account.id):\(server.id):\(library.key)"
+                    do {
+                        let libraryMood = try await client.getMoods(sectionKey: library.key)
+                            .first { Mood.normalizedTitleKey($0.title) == targetMoodTitleKey }
+                        guard let libraryMood else { continue }
+
+                        let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: libraryMood.key)
 
                         for plexTrack in plexTracks {
                             // Create track with explicit sourceKey including plex: prefix
