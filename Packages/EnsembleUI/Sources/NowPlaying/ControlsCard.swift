@@ -540,7 +540,7 @@ public struct ControlsCard: View {
         Button(action: viewModel.togglePlayPause) {
             playPauseButtonLabel
         }
-        .nowPlayingTransportButtonStyle()
+        .nowPlayingPlayPauseButtonStyle()
         .accessibilityLabel(shouldShowPauseIcon ? "Pause" : "Play")
     }
 
@@ -563,7 +563,6 @@ public struct ControlsCard: View {
                 height: EnsembleScaffold.NowPlaying.playPauseGlassControlSize
             )
             .foregroundColor(EnsembleDesign.Color.primaryText)
-            .glassEffect(.regular.interactive(), in: .circle)
         } else {
             legacyPlayPauseButtonLabel
         }
@@ -808,6 +807,20 @@ private extension View {
     func nowPlayingTransportButtonStyle() -> some View {
         #if os(iOS) || os(macOS)
         self.buttonStyle(.borderless)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func nowPlayingPlayPauseButtonStyle() -> some View {
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
+            self.buttonStyle(.glass(.regular.interactive()))
+                .buttonBorderShape(.circle)
+        } else {
+            self.buttonStyle(.borderless)
+        }
         #else
         self
         #endif

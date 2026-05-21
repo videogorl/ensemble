@@ -164,8 +164,6 @@ extension MediaDetailSurface {
             if #available(iOS 26, macOS 26, *) {
                 labelContent
                     .foregroundColor(role.foregroundColor)
-                    .contentShape(Capsule())
-                    .glassEffect(role.glass, in: .capsule)
             } else {
                 labelContent
                     .background(role.backgroundColor)
@@ -258,8 +256,6 @@ extension MediaDetailSurface {
             if #available(iOS 26, macOS 26, *) {
                 content
                     .foregroundColor(role.foregroundColor)
-                    .contentShape(Capsule())
-                    .glassEffect(role.glass, in: .capsule)
             } else {
                 content
                     .background(role.backgroundColor)
@@ -833,7 +829,13 @@ extension View {
         ensembleArtworkShadow()
     }
 
-    func mediaDetailActionButtonStyle(role _: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
-        buttonStyle(.plain)
+    @ViewBuilder
+    func mediaDetailActionButtonStyle(role: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
+        if #available(iOS 26, macOS 26, *) {
+            buttonStyle(.glass(role.glass))
+                .buttonBorderShape(.capsule)
+        } else {
+            buttonStyle(.plain)
+        }
     }
 }
