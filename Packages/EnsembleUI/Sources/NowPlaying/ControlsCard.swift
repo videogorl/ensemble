@@ -274,7 +274,11 @@ public struct ControlsCard: View {
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .ensembleStandardShadow()
                 .padding(.top, layout.artworkTopPadding)
-                .padding(.bottom, layout.artworkBottomPadding + EnsembleDesign.Spacing.xl)
+                .padding(.bottom, layout.artworkBottomPadding)
+
+            Color.clear
+                .frame(minHeight: layout.progressRowMinHeight)
+                .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 Text("Nothing Playing")
@@ -288,13 +292,15 @@ public struct ControlsCard: View {
                     .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
             }
             .frame(maxWidth: .infinity)
-            .padding(.bottom, EnsembleScaffold.NowPlaying.sectionTopPadding)
+            .frame(minHeight: layout.metadataRowMinHeight)
+            .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
+            .padding(.top, layout.metadataTopPadding)
 
             controlsView
                 .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                 .allowsHitTesting(false)
                 .frame(minHeight: layout.primaryControlsRowMinHeight)
-                .padding(.top, EnsembleDesign.Spacing.xxxl)
+                .padding(.top, layout.primaryControlsTopPadding)
 
             Spacer(minLength: EnsembleDesign.Spacing.none)
 

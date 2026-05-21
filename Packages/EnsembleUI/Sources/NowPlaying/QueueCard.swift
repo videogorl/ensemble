@@ -57,7 +57,6 @@ public struct QueueCard: View {
             if shouldRenderContent {
                 // QueueTableView manages its own scrolling so cell recycling remains native.
                 queueListView
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .mask(
                         VStack(spacing: EnsembleDesign.Spacing.none) {
                             // Top fade
@@ -91,6 +90,8 @@ public struct QueueCard: View {
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            Spacer(minLength: EnsembleDesign.Spacing.none) // Push secondary controls to bottom, matching ControlsCard
 
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
