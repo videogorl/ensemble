@@ -562,7 +562,6 @@ public struct ControlsCard: View {
                 width: EnsembleScaffold.NowPlaying.playPauseGlassControlSize,
                 height: EnsembleScaffold.NowPlaying.playPauseGlassControlSize
             )
-            .foregroundColor(EnsembleDesign.Color.primaryText)
         } else {
             legacyPlayPauseButtonLabel
         }
@@ -816,8 +815,9 @@ private extension View {
     func nowPlayingPlayPauseButtonStyle() -> some View {
         #if os(iOS) || os(macOS)
         if #available(iOS 26, macOS 26, *) {
-            self.buttonStyle(.glass(.regular.interactive()))
+            self.buttonStyle(.glassProminent)
                 .buttonBorderShape(.circle)
+                .tint(EnsembleDesign.Color.accent)
         } else {
             self.buttonStyle(.borderless)
         }

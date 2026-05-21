@@ -120,12 +120,12 @@ extension MediaDetailSurface {
 
         @available(iOS 26, macOS 26, *)
         var glass: Glass {
-            switch self {
-            case .primary:
-                return .regular.tint(EnsembleDesign.Color.accent).interactive()
-            case .secondary:
-                return .regular.interactive()
-            }
+            .regular.interactive()
+        }
+
+        @available(iOS 26, macOS 26, *)
+        var isGlassProminent: Bool {
+            self == .primary
         }
     }
 
@@ -163,7 +163,6 @@ extension MediaDetailSurface {
         var body: some View {
             if #available(iOS 26, macOS 26, *) {
                 labelContent
-                    .foregroundColor(role.foregroundColor)
             } else {
                 labelContent
                     .background(role.backgroundColor)
@@ -255,7 +254,6 @@ extension MediaDetailSurface {
         var body: some View {
             if #available(iOS 26, macOS 26, *) {
                 content
-                    .foregroundColor(role.foregroundColor)
             } else {
                 content
                     .background(role.backgroundColor)
@@ -832,8 +830,14 @@ extension View {
     @ViewBuilder
     func mediaDetailActionButtonStyle(role: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
         if #available(iOS 26, macOS 26, *) {
-            buttonStyle(.glass(role.glass))
-                .buttonBorderShape(.capsule)
+            if role.isGlassProminent {
+                buttonStyle(.glassProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(EnsembleDesign.Color.accent)
+            } else {
+                buttonStyle(.glass(role.glass))
+                    .buttonBorderShape(.capsule)
+            }
         } else {
             buttonStyle(.plain)
         }
