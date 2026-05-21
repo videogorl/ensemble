@@ -223,6 +223,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 ### Genre Filters
 - Use `GenreFilterHeader` for browse and detail genre filter rows. Do not place `GenreChipBar` directly in screens; the header owns the shared spacing and optional supplementary content such as merged-playlist source chips.
 - Genre chip rows should scroll as ordinary content or native table header content. Do not pin genre chips with `pinnedViews`, sticky overlays, or scroll-offset/safe-area shims.
+- Liquid Glass genre chips should keep material/shadow clearance inside the `GlassEffectContainer` content, not as padding outside the container, so the glass material is not clipped by the container or native table header.
 
 ## Visual Design
 

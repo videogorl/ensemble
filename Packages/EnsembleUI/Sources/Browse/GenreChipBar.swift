@@ -84,8 +84,8 @@ public struct GenreChipBar: View {
                 if #available(iOS 26, macOS 26, *) {
                     GlassEffectContainer(spacing: EnsembleScaffold.Chip.rowSpacing) {
                         chipRow
+                            .padding(.vertical, GenreChipBarLayout.materialBleed)
                     }
-                    .padding(.vertical, GenreChipBarLayout.materialBleed)
                 } else {
                     chipRow
                         .padding(.vertical, GenreChipBarLayout.materialBleed)
