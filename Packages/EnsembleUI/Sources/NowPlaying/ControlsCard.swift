@@ -11,6 +11,8 @@ struct ControlsCardLayoutMetrics: Equatable {
     let artworkBottomPadding: CGFloat
     let metadataTopPadding: CGFloat
     let primaryControlsTopPadding: CGFloat
+    let secondaryControlsTopPadding: CGFloat
+    let secondaryControlsBottomPadding: CGFloat
     let progressRowMinHeight: CGFloat
     let metadataRowMinHeight: CGFloat
     let primaryControlsRowMinHeight: CGFloat
@@ -28,6 +30,8 @@ struct ControlsCardLayoutMetrics: Equatable {
         let primaryControlsTopPadding = isSpacious
             ? EnsembleDesign.Spacing.xxl
             : EnsembleScaffold.NowPlaying.sectionTopPadding
+        let secondaryControlsTopPadding = EnsembleScaffold.NowPlaying.secondaryControlsTopPadding
+        let secondaryControlsBottomPadding = EnsembleScaffold.NowPlaying.secondaryControlsBottomPadding
         let progressRowMinHeight = EnsembleScaffold.NowPlaying.controlsProgressRowMinHeight
         let metadataRowMinHeight = EnsembleScaffold.NowPlaying.controlsMetadataRowMinHeight
         let primaryControlsRowMinHeight = EnsembleScaffold.NowPlaying.controlsPrimaryRowMinHeight
@@ -40,10 +44,11 @@ struct ControlsCardLayoutMetrics: Equatable {
             + metadataRowMinHeight
             + primaryControlsTopPadding
             + primaryControlsRowMinHeight
+            + secondaryControlsTopPadding
             + secondaryControlsRowMinHeight
             + EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing
             + EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight
-            + EnsembleScaffold.NowPlaying.cardBottomPadding
+            + secondaryControlsBottomPadding
 
         let widthLimit = max(0, size.width)
         let heightLimit = max(0, size.height - reservedHeight)
@@ -59,6 +64,8 @@ struct ControlsCardLayoutMetrics: Equatable {
             artworkBottomPadding: artworkBottomPadding,
             metadataTopPadding: metadataTopPadding,
             primaryControlsTopPadding: primaryControlsTopPadding,
+            secondaryControlsTopPadding: secondaryControlsTopPadding,
+            secondaryControlsBottomPadding: secondaryControlsBottomPadding,
             progressRowMinHeight: progressRowMinHeight,
             metadataRowMinHeight: metadataRowMinHeight,
             primaryControlsRowMinHeight: primaryControlsRowMinHeight,
@@ -245,9 +252,10 @@ public struct ControlsCard: View {
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
                     .frame(minHeight: layout.secondaryControlsRowMinHeight)
+                    .padding(.top, layout.secondaryControlsTopPadding)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
-            .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
+            .padding(.bottom, layout.secondaryControlsBottomPadding)
         }
     }
 
@@ -295,9 +303,10 @@ public struct ControlsCard: View {
                     .frame(minHeight: layout.secondaryControlsRowMinHeight)
                     .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                     .allowsHitTesting(false)
+                    .padding(.top, layout.secondaryControlsTopPadding)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
-            .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
+            .padding(.bottom, layout.secondaryControlsBottomPadding)
         }
     }
 

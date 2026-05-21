@@ -99,7 +99,7 @@ public struct QueueCard: View {
                     .padding(.top, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
-            .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
+            .padding(.bottom, EnsembleScaffold.NowPlaying.secondaryControlsBottomPadding)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
         .task {

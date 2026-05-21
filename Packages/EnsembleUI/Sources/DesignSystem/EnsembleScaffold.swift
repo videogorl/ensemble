@@ -418,7 +418,8 @@ public enum EnsembleScaffold {
         public static let secondaryControlsSpacing: CGFloat = 30
         public static let transportControlsSpacing: CGFloat = 40
         public static let primaryControlsSpacing: CGFloat = 50
-        public static let secondaryControlsTopPadding = EnsembleDesign.Spacing.lg
+        public static let secondaryControlsTopPadding = EnsembleDesign.Spacing.xxl
+        public static let secondaryControlsBottomPadding = EnsembleDesign.Spacing.md
         public static let secondaryControlsStackSpacing = EnsembleDesign.Spacing.sm
         public static let scrubIndicatorSpacing = EnsembleDesign.Spacing.xs
         public static let inactiveControlOpacity = 0.7

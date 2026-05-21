@@ -15,6 +15,8 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(layout.metadataRowMinHeight, EnsembleScaffold.NowPlaying.controlsMetadataRowMinHeight)
         XCTAssertEqual(layout.primaryControlsRowMinHeight, EnsembleScaffold.NowPlaying.controlsPrimaryRowMinHeight)
         XCTAssertEqual(layout.secondaryControlsRowMinHeight, EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight)
+        XCTAssertEqual(layout.secondaryControlsTopPadding, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
+        XCTAssertEqual(layout.secondaryControlsBottomPadding, EnsembleScaffold.NowPlaying.secondaryControlsBottomPadding)
     }
 
     func testControlsCardLayoutCapsArtworkAtContainerWidthWhenHeightAllows() {
