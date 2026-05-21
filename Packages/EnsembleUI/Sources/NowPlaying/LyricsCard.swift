@@ -51,6 +51,10 @@ public struct LyricsCard: View {
                 // Secondary transport controls + page indicator spacing
                 VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                     transportControlsView
+                        .frame(
+                            minHeight: EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight,
+                            alignment: .bottom
+                        )
                         .padding(.top, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
                     Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
                 }

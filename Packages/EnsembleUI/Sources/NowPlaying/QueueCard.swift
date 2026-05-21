@@ -96,6 +96,10 @@ public struct QueueCard: View {
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
+                    .frame(
+                        minHeight: EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight,
+                        alignment: .bottom
+                    )
                     .padding(.top, EnsembleScaffold.NowPlaying.secondaryControlsTopPadding)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }

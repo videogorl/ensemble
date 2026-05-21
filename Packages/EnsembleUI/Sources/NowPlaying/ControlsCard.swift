@@ -251,7 +251,7 @@ public struct ControlsCard: View {
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
-                    .frame(minHeight: layout.secondaryControlsRowMinHeight)
+                    .frame(minHeight: layout.secondaryControlsRowMinHeight, alignment: .bottom)
                     .padding(.top, layout.secondaryControlsTopPadding)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
@@ -300,7 +300,7 @@ public struct ControlsCard: View {
 
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
-                    .frame(minHeight: layout.secondaryControlsRowMinHeight)
+                    .frame(minHeight: layout.secondaryControlsRowMinHeight, alignment: .bottom)
                     .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                     .allowsHitTesting(false)
                     .padding(.top, layout.secondaryControlsTopPadding)
