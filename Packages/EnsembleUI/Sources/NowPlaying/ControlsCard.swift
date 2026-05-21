@@ -432,10 +432,7 @@ public struct ControlsCard: View {
     private var controlsView: some View {
         HStack(spacing: EnsembleScaffold.NowPlaying.primaryControlsSpacing) {
             // Previous
-            Button(action: viewModel.previous) {
-                Image(systemName: EnsembleDesign.Icon.previous)
-                    .font(.system(size: EnsembleScaffold.NowPlaying.primaryControlIconSize))
-            }
+            transportButton(systemName: EnsembleDesign.Icon.previous, action: viewModel.previous)
 
             // Play/Pause — disabled when track isn't yet confirmed playable
             // (e.g. after queue restoration, before server health check completes)
@@ -447,21 +444,31 @@ public struct ControlsCard: View {
             }
 
             // Next
-            Button(action: viewModel.next) {
-                Image(systemName: EnsembleDesign.Icon.forward)
-                    .font(.system(size: EnsembleScaffold.NowPlaying.primaryControlIconSize))
-            }
+            transportButton(systemName: EnsembleDesign.Icon.forward, action: viewModel.next)
         }
         .foregroundColor(EnsembleDesign.Color.primaryText)
         .chromelessMediaControlButton()
         // Removed shadow on controls
     }
 
+    private func transportButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: EnsembleScaffold.NowPlaying.primaryControlIconSize))
+                .frame(
+                    width: EnsembleScaffold.NowPlaying.primaryControlButtonSize,
+                    height: EnsembleScaffold.NowPlaying.primaryControlButtonSize
+                )
+                .contentShape(Circle())
+        }
+        .nowPlayingTransportButtonStyle()
+    }
+
     private var playPauseButton: some View {
         Button(action: viewModel.togglePlayPause) {
             playPauseButtonLabel
         }
-        .nowPlayingPlayPauseButtonStyle()
+        .nowPlayingTransportButtonStyle()
         .accessibilityLabel(shouldShowPauseIcon ? "Pause" : "Play")
     }
 
@@ -726,14 +733,9 @@ public struct ControlsCard: View {
 
 private extension View {
     @ViewBuilder
-    func nowPlayingPlayPauseButtonStyle() -> some View {
+    func nowPlayingTransportButtonStyle() -> some View {
         #if os(iOS)
-        if #available(iOS 26, *) {
-            self
-                .buttonStyle(.plain)
-        } else {
-            self
-        }
+        self.buttonStyle(.plain)
         #else
         self
         #endif

@@ -431,6 +431,7 @@ public enum EnsembleScaffold {
         public static let menuIconSize: CGFloat = 16
         public static let routePickerSize: CGFloat = 24
         public static let primaryControlIconSize: CGFloat = 32
+        public static let primaryControlButtonSize: CGFloat = 56
         public static let playPauseControlIconSize: CGFloat = 85
         public static let playPauseGlassControlSize: CGFloat = 85
         public static let playPauseGlassIconSize: CGFloat = 45
