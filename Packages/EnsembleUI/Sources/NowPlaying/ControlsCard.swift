@@ -815,8 +815,14 @@ private extension View {
     func nowPlayingPlayPauseButtonStyle() -> some View {
         #if os(iOS) || os(macOS)
         if #available(iOS 26, macOS 26, *) {
-            self.buttonStyle(.glass(.regular.interactive()))
-                .buttonBorderShape(.circle)
+            #if os(macOS)
+                self.buttonStyle(.glass(.regular.interactive()))
+                    .buttonBorderShape(.circle)
+                    .tint(EnsembleDesign.Color.primaryText)
+            #else
+                self.buttonStyle(.glass(.regular.interactive()))
+                    .buttonBorderShape(.circle)
+            #endif
         } else {
             self.buttonStyle(.borderless)
         }
