@@ -117,6 +117,16 @@ extension MediaDetailSurface {
                 return EnsembleDesign.Color.primaryText
             }
         }
+
+        @available(iOS 26, macOS 26, *)
+        var glass: Glass {
+            switch self {
+            case .primary:
+                return .regular.tint(EnsembleDesign.Color.accent).interactive()
+            case .secondary:
+                return .regular.interactive()
+            }
+        }
     }
 
     /// Shared Play/Shuffle-style label used by media detail action rows.
@@ -152,21 +162,24 @@ extension MediaDetailSurface {
 
         var body: some View {
             if #available(iOS 26, macOS 26, *) {
-                content
-                    .font(font)
-                    .frame(maxWidth: expands ? .infinity : nil)
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.vertical, verticalPadding)
+                labelContent
+                    .foregroundColor(role.foregroundColor)
+                    .contentShape(Capsule())
+                    .glassEffect(role.glass, in: .capsule)
             } else {
-                content
-                    .font(font)
-                    .frame(maxWidth: expands ? .infinity : nil)
-                    .padding(.horizontal, horizontalPadding)
-                    .padding(.vertical, verticalPadding)
+                labelContent
                     .background(role.backgroundColor)
                     .foregroundColor(role.foregroundColor)
                     .clipShape(Capsule())
             }
+        }
+
+        private var labelContent: some View {
+            content
+                .font(font)
+                .frame(maxWidth: expands ? .infinity : nil)
+                .padding(.horizontal, horizontalPadding)
+                .padding(.vertical, verticalPadding)
         }
 
         private var content: some View {
@@ -244,6 +257,9 @@ extension MediaDetailSurface {
         var body: some View {
             if #available(iOS 26, macOS 26, *) {
                 content
+                    .foregroundColor(role.foregroundColor)
+                    .contentShape(Capsule())
+                    .glassEffect(role.glass, in: .capsule)
             } else {
                 content
                     .background(role.backgroundColor)
@@ -817,29 +833,7 @@ extension View {
         ensembleArtworkShadow()
     }
 
-    func mediaDetailActionButtonStyle(role: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
-        modifier(MediaDetailActionButtonStyleModifier(role: role))
-    }
-}
-
-private struct MediaDetailActionButtonStyleModifier: ViewModifier {
-    let role: MediaDetailSurface<EmptyView>.ActionRole
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26, macOS 26, *) {
-            switch role {
-            case .primary:
-                content
-                    .buttonStyle(.glassProminent)
-                    .tint(EnsembleDesign.Color.accent)
-            case .secondary:
-                content
-                    .buttonStyle(.glass)
-                    .tint(EnsembleDesign.Color.accent)
-            }
-        } else {
-            content
-                .buttonStyle(.plain)
-        }
+    func mediaDetailActionButtonStyle(role _: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
+        buttonStyle(.plain)
     }
 }
