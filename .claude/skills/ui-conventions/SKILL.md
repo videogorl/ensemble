@@ -160,7 +160,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### Button Labels
 
-- Detail-surface playback actions use native Liquid Glass button styles on iOS 26+/macOS 26+ with explicit `.buttonBorderShape(.capsule)` so Play/Shuffle/Radio keep capsule geometry and native press feedback across platforms. Primary actions such as Play use `.glassProminent` with the app accent tint and let the native style own foreground contrast; secondary actions such as Shuffle and Radio use neutral interactive glass. Now Playing's primary play/pause control uses the same prominent native glass path with `.buttonBorderShape(.circle)`. Keep older OS fallbacks routed through the shared action-row owners.
+- Detail-surface playback actions use native Liquid Glass button styles on iOS 26+/macOS 26+ with explicit `.buttonBorderShape(.capsule)` so Play/Shuffle/Radio keep capsule geometry and native press feedback across platforms. Primary actions such as Play use accent-tinted interactive glass with primary foreground text for macOS legibility; secondary actions such as Shuffle and Radio use neutral interactive glass. Now Playing's primary play/pause control uses the same accent-tinted native glass path with `.buttonBorderShape(.circle)`. Keep older OS fallbacks routed through the shared action-row owners.
 
 - **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:
 
