@@ -150,7 +150,7 @@ public struct GenreChipBar: View {
 }
 
 private enum GenreChipBarLayout {
-    static let materialBleed = EnsembleDesign.Spacing.chipVertical
+    static let materialBleed = EnsembleDesign.Spacing.chipVertical + EnsembleDesign.Spacing.xs
     static let barHeight = EnsembleScaffold.Chip.barHeight + (materialBleed * 2)
 }
 
