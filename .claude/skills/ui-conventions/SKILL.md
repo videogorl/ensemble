@@ -160,6 +160,8 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### Button Labels
 
+- Detail-surface playback actions use native Liquid Glass button styles on iOS 26+/macOS 26+: primary actions such as Play use `.glassProminent`, while secondary actions such as Shuffle and Radio use `.glass`. Keep older OS fallbacks capsule-shaped and routed through `MediaDetailSurface` shared action rows.
+
 - **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:
 
 ```swift

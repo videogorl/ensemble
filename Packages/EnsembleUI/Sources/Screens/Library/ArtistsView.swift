@@ -1093,6 +1093,7 @@ public struct ArtistDetailView: View {
             } label: {
                 MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
             }
+            .mediaDetailActionButtonStyle(role: .secondary)
             #if os(macOS)
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
             #endif
@@ -1116,6 +1117,7 @@ public struct ArtistDetailView: View {
             } label: {
                 MediaDetailSurface<EmptyView>.IconActionLabel(systemImage: EnsembleDesign.Icon.radio)
             }
+            .mediaDetailActionButtonStyle(role: .secondary)
             #if os(macOS)
             .help("Artist Radio - Queue all shuffled, enable sonically similar")
             #endif

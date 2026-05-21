@@ -151,18 +151,30 @@ extension MediaDetailSurface {
         }
 
         var body: some View {
+            if #available(iOS 26, macOS 26, *) {
+                content
+                    .font(font)
+                    .frame(maxWidth: expands ? .infinity : nil)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.vertical, verticalPadding)
+            } else {
+                content
+                    .font(font)
+                    .frame(maxWidth: expands ? .infinity : nil)
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.vertical, verticalPadding)
+                    .background(role.backgroundColor)
+                    .foregroundColor(role.foregroundColor)
+                    .clipShape(Capsule())
+            }
+        }
+
+        private var content: some View {
             HStack {
                 Image(systemName: systemImage)
                 Text(title)
                     .lineLimit(1)
             }
-            .font(font)
-            .frame(maxWidth: expands ? .infinity : nil)
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, verticalPadding)
-            .background(role.backgroundColor)
-            .foregroundColor(role.foregroundColor)
-            .cornerRadius(cornerRadius)
         }
     }
 
@@ -186,13 +198,33 @@ extension MediaDetailSurface {
         }
 
         var body: some View {
-            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                content()
+            DetailActionGlassGroup {
+                HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                    content()
+                }
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.bottom, bottomPadding)
             .chromelessMediaControlButton()
             .disabled(isDisabled)
+        }
+    }
+
+    private struct DetailActionGlassGroup<GroupContent: View>: View {
+        @ViewBuilder private let content: () -> GroupContent
+
+        init(@ViewBuilder content: @escaping () -> GroupContent) {
+            self.content = content
+        }
+
+        var body: some View {
+            if #available(iOS 26, macOS 26, *) {
+                GlassEffectContainer(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                    content()
+                }
+            } else {
+                content()
+            }
         }
     }
 
@@ -210,15 +242,23 @@ extension MediaDetailSurface {
         }
 
         var body: some View {
+            if #available(iOS 26, macOS 26, *) {
+                content
+            } else {
+                content
+                    .background(role.backgroundColor)
+                    .foregroundColor(role.foregroundColor)
+                    .clipShape(Capsule())
+            }
+        }
+
+        private var content: some View {
             Image(systemName: systemImage)
                 .font(EnsembleDesign.Typography.actionIcon)
                 .frame(
                     width: EnsembleScaffold.DetailSurface.iconActionDimension,
                     height: EnsembleScaffold.DetailSurface.iconActionDimension
                 )
-                .background(role.backgroundColor)
-                .foregroundColor(role.foregroundColor)
-                .cornerRadius(EnsembleScaffold.DetailSurface.actionCornerRadius)
         }
     }
 
@@ -262,6 +302,7 @@ extension MediaDetailSurface {
                         role: .primary
                     )
                 }
+                .mediaDetailActionButtonStyle(role: .primary)
 
                 Button(action: shuffle) {
                     ActionLabel(
@@ -270,6 +311,7 @@ extension MediaDetailSurface {
                         role: .secondary
                     )
                 }
+                .mediaDetailActionButtonStyle(role: .secondary)
 
                 extraActions()
             }
@@ -304,33 +346,35 @@ extension MediaDetailSurface {
         }
 
         var body: some View {
-            Group {
-                if availableWidth < EnsembleScaffold.DetailSurface.compactWideActionThreshold {
-                    VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                        playButton(
-                            horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
-                            expands: true
-                        )
-                        shuffleButton(
-                            horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
-                            expands: true
-                        )
-                        extraActionRowIfNeeded
-                    }
-                } else if availableWidth < EnsembleScaffold.DetailSurface.stackedWideActionThreshold {
-                    VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                            playButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
-                            shuffleButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
+            DetailActionGlassGroup {
+                Group {
+                    if availableWidth < EnsembleScaffold.DetailSurface.compactWideActionThreshold {
+                        VStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                            playButton(
+                                horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
+                                expands: true
+                            )
+                            shuffleButton(
+                                horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding,
+                                expands: true
+                            )
+                            extraActionRowIfNeeded
                         }
-                        extraActionRowIfNeeded
-                    }
-                } else {
-                    HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                        playButton()
-                        shuffleButton()
-                        if includesExtraActions {
-                            extraActions()
+                    } else if availableWidth < EnsembleScaffold.DetailSurface.stackedWideActionThreshold {
+                        VStack(alignment: .leading, spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                            HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                                playButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
+                                shuffleButton(horizontalPadding: EnsembleScaffold.DetailSurface.compactWideActionHorizontalPadding)
+                            }
+                            extraActionRowIfNeeded
+                        }
+                    } else {
+                        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+                            playButton()
+                            shuffleButton()
+                            if includesExtraActions {
+                                extraActions()
+                            }
                         }
                     }
                 }
@@ -353,6 +397,7 @@ extension MediaDetailSurface {
                     expands: expands
                 )
             }
+            .mediaDetailActionButtonStyle(role: .primary)
         }
 
         private func shuffleButton(
@@ -368,6 +413,7 @@ extension MediaDetailSurface {
                     expands: expands
                 )
             }
+            .mediaDetailActionButtonStyle(role: .secondary)
         }
 
         @ViewBuilder
@@ -419,6 +465,7 @@ extension MediaDetailSurface {
                         cornerRadius: EnsembleScaffold.DetailSurface.compactActionCornerRadius
                     )
                 }
+                .mediaDetailActionButtonStyle(role: .primary)
 
                 Button(action: shuffle) {
                     ActionLabel(
@@ -430,6 +477,7 @@ extension MediaDetailSurface {
                         cornerRadius: EnsembleScaffold.DetailSurface.compactActionCornerRadius
                     )
                 }
+                .mediaDetailActionButtonStyle(role: .secondary)
             }
         }
     }
@@ -767,5 +815,31 @@ extension MediaDetailSurface {
 extension View {
     func mediaDetailArtworkShadow() -> some View {
         ensembleArtworkShadow()
+    }
+
+    func mediaDetailActionButtonStyle(role: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
+        modifier(MediaDetailActionButtonStyleModifier(role: role))
+    }
+}
+
+private struct MediaDetailActionButtonStyleModifier: ViewModifier {
+    let role: MediaDetailSurface<EmptyView>.ActionRole
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, macOS 26, *) {
+            switch role {
+            case .primary:
+                content
+                    .buttonStyle(.glassProminent)
+                    .tint(EnsembleDesign.Color.accent)
+            case .secondary:
+                content
+                    .buttonStyle(.glass)
+                    .tint(EnsembleDesign.Color.accent)
+            }
+        } else {
+            content
+                .buttonStyle(.plain)
+        }
     }
 }

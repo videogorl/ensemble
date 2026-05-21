@@ -914,6 +914,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             } label: {
                 radioButtonLabel
             }
+            .mediaDetailActionButtonStyle(role: .secondary)
             #if os(macOS)
             .help("Album Radio - Queue all shuffled, enable sonically similar")
             #endif
