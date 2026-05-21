@@ -472,7 +472,7 @@ public struct ControlsCard: View {
             ZStack {
                 if showLoadingIndicator {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .progressViewStyle(CircularProgressViewStyle(tint: EnsembleDesign.Color.primaryText))
                         .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
                 } else {
                     Image(systemName: shouldShowPauseIcon ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
@@ -483,7 +483,8 @@ public struct ControlsCard: View {
                 width: EnsembleScaffold.NowPlaying.playPauseGlassControlSize,
                 height: EnsembleScaffold.NowPlaying.playPauseGlassControlSize
             )
-            .foregroundColor(.white)
+            .foregroundColor(EnsembleDesign.Color.primaryText)
+            .glassEffect(.regular.interactive(), in: .circle)
         } else {
             legacyPlayPauseButtonLabel
         }
@@ -729,8 +730,7 @@ private extension View {
         #if os(iOS)
         if #available(iOS 26, *) {
             self
-                .buttonStyle(.glassProminent)
-                .tint(EnsembleDesign.Color.accent)
+                .buttonStyle(.plain)
         } else {
             self
         }
