@@ -816,9 +816,8 @@ private extension View {
         #if os(iOS) || os(macOS)
         if #available(iOS 26, macOS 26, *) {
             #if os(macOS)
-                self.buttonStyle(.glass(.regular.interactive()))
+                self.buttonStyle(.glass(.regular.tint(nil).interactive()))
                     .buttonBorderShape(.circle)
-                    .tint(EnsembleDesign.Color.primaryText)
             #else
                 self.buttonStyle(.glass(.regular.interactive()))
                     .buttonBorderShape(.circle)
