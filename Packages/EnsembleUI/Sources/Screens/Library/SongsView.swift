@@ -217,23 +217,21 @@ public struct SongsView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #else
-                    VStack(spacing: EnsembleDesign.Spacing.none) {
-                        songsGenreChipBar
-
-                        SongsTrackListHost(
-                            sections: largeScreenTrackSections,
-                            currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                            availabilityGeneration: availabilityGeneration,
-                            activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                            bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                            supplementalMetadataWidth: width,
-                            showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-                            interactionModel: largeScreenTrackInteractionModel
-                        ) { track, _ in
-                            playTrack(track)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SongsTrackListHost(
+                        sections: largeScreenTrackSections,
+                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        availabilityGeneration: availabilityGeneration,
+                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                        bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                        usesDynamicTableHeaderHeight: true,
+                        supplementalMetadataWidth: width,
+                        showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
+                        interactionModel: largeScreenTrackInteractionModel,
+                        tableHeaderContent: songsGenreChipTableHeader
+                    ) { track, _ in
+                        playTrack(track)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #endif
             } else {
                 #if os(iOS)
@@ -251,10 +249,7 @@ public struct SongsView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 #else
-                    VStack(spacing: EnsembleDesign.Spacing.none) {
-                        songsGenreChipBar
-                        unsortedTrackListContent(width: width)
-                    }
+                    unsortedTrackListContent(width: width)
                 #endif
             }
         }
@@ -281,6 +276,17 @@ public struct SongsView: View {
     }
 
     private func largeScreenSongBrowserView(width: CGFloat) -> some View {
+        #if os(macOS)
+        Group {
+            if libraryVM.trackSortOption == .title {
+                largeScreenIndexedSongList(width: width, tableHeaderContent: songsGenreChipTableHeader)
+            } else {
+                largeScreenFlatSongList(width: width, tableHeaderContent: songsGenreChipTableHeader)
+            }
+        }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
+        #else
         VStack(spacing: EnsembleDesign.Spacing.none) {
             songsGenreChipBar
 
@@ -292,32 +298,37 @@ public struct SongsView: View {
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
+        #endif
     }
 
-    private func largeScreenIndexedSongList(width: CGFloat) -> some View {
+    private func largeScreenIndexedSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
         SongsTrackListHost(
             sections: largeScreenTrackSections,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
+            usesDynamicTableHeaderHeight: tableHeaderContent != nil,
             supplementalMetadataWidth: width,
             showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
-            interactionModel: largeScreenTrackInteractionModel
+            interactionModel: largeScreenTrackInteractionModel,
+            tableHeaderContent: tableHeaderContent
         ) { track, _ in
             playTrack(track)
         }
     }
 
-    private func largeScreenFlatSongList(width: CGFloat) -> some View {
+    private func largeScreenFlatSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
         SongsTrackListHost(
             tracks: libraryVM.filteredTracks,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
+            usesDynamicTableHeaderHeight: tableHeaderContent != nil,
             supplementalMetadataWidth: width,
-            interactionModel: largeScreenTrackInteractionModel
+            interactionModel: largeScreenTrackInteractionModel,
+            tableHeaderContent: tableHeaderContent
         ) { track, _ in
             playTrack(track)
         }
@@ -438,8 +449,10 @@ public struct SongsView: View {
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
+                usesDynamicTableHeaderHeight: true,
                 supplementalMetadataWidth: width,
-                interactionModel: largeScreenTrackInteractionModel
+                interactionModel: largeScreenTrackInteractionModel,
+                tableHeaderContent: songsGenreChipTableHeader
             ) { track, _ in
                 playTrack(track)
             }

@@ -16,6 +16,7 @@ public struct NativeTrackListConfiguration {
     public var topContentInset: CGFloat
     public var bottomContentInset: CGFloat
     public var tableHeaderExtraHeight: CGFloat
+    public var usesDynamicTableHeaderHeight: Bool
     public var supplementalMetadataWidth: CGFloat?
     public var currentTrackId: String?
     public var availabilityGeneration: UInt64
@@ -32,6 +33,7 @@ public struct NativeTrackListConfiguration {
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         tableHeaderExtraHeight: CGFloat = 0,
+        usesDynamicTableHeaderHeight: Bool = false,
         supplementalMetadataWidth: CGFloat? = nil,
         currentTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
@@ -47,6 +49,7 @@ public struct NativeTrackListConfiguration {
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.tableHeaderExtraHeight = tableHeaderExtraHeight
+        self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.currentTrackId = currentTrackId
         self.availabilityGeneration = availabilityGeneration
@@ -61,6 +64,7 @@ public struct NativeTrackListConfiguration {
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         tableHeaderExtraHeight: CGFloat = 0,
+        usesDynamicTableHeaderHeight: Bool = false,
         supplementalMetadataWidth: CGFloat? = nil,
         showsSectionIndex: Bool = false,
         interactionModel: TrackRowInteractionModel
@@ -74,6 +78,7 @@ public struct NativeTrackListConfiguration {
             topContentInset: topContentInset,
             bottomContentInset: bottomContentInset,
             tableHeaderExtraHeight: tableHeaderExtraHeight,
+            usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
             currentTrackId: currentTrackId,
             availabilityGeneration: availabilityGeneration,

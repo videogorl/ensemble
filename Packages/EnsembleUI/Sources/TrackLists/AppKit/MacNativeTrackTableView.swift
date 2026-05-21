@@ -17,6 +17,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let activeDownloadTrackIdentities: Set<String>
     let bottomContentInset: CGFloat
     let tableHeaderExtraHeight: CGFloat
+    let usesDynamicTableHeaderHeight: Bool
     let supplementalMetadataWidth: CGFloat?
     let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
@@ -98,6 +99,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         context.coordinator.bottomContentInset = bottomContentInset
         context.coordinator.tableHeaderExtraHeight = tableHeaderExtraHeight
+        context.coordinator.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
         context.coordinator.rowHeight = rowHeight
         context.coordinator.interactionModel = interactionModel
@@ -141,6 +143,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: bottomContentInset,
             tableHeaderExtraHeight: tableHeaderExtraHeight,
+            usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
             rowHeight: rowHeight,
             interactionModel: interactionModel,
@@ -166,6 +169,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var activeDownloadTrackIdentities: Set<String>
         var bottomContentInset: CGFloat
         var tableHeaderExtraHeight: CGFloat
+        var usesDynamicTableHeaderHeight: Bool
         var supplementalMetadataWidth: CGFloat?
         var rowHeight: CGFloat
         var interactionModel: TrackRowInteractionModel
@@ -191,6 +195,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             activeDownloadTrackIdentities: Set<String>,
             bottomContentInset: CGFloat,
             tableHeaderExtraHeight: CGFloat,
+            usesDynamicTableHeaderHeight: Bool,
             supplementalMetadataWidth: CGFloat?,
             rowHeight: CGFloat,
             interactionModel: TrackRowInteractionModel,
@@ -212,6 +217,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.bottomContentInset = bottomContentInset
             self.tableHeaderExtraHeight = tableHeaderExtraHeight
+            self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
             self.supplementalMetadataWidth = supplementalMetadataWidth
             self.rowHeight = rowHeight
             self.interactionModel = interactionModel
@@ -467,6 +473,10 @@ struct MacNativeTrackTableView: NSViewRepresentable {
 
         private func headerHeight(for rootView: AnyView, in tableView: NSTableView) -> CGFloat {
             let width = effectiveTableWidth(tableView)
+            if usesDynamicTableHeaderHeight {
+                return hostingHeight(for: headerRootView(rootView, width: width), width: width)
+            }
+
             let wideHeaderHeight = MacNativeTrackTableView.deterministicWideHeaderHeight(
                 tableHeaderExtraHeight: tableHeaderExtraHeight
             )
@@ -478,6 +488,10 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         }
 
         private func shouldInvalidateHeaderHeight(in tableView: NSTableView, row: Int) -> Bool {
+            if usesDynamicTableHeaderHeight {
+                return true
+            }
+
             let width = effectiveTableWidth(tableView)
             guard width >= EnsembleScaffold.DetailSurface.wideHeaderThreshold else {
                 return true
