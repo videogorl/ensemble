@@ -21,6 +21,9 @@ public struct QueueCard: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var lastPlaylistTargetID: String?
+    #if os(macOS)
+    @State private var macOSDraggingQueueItemID: String?
+    #endif
     private let queueDisplayLimit = 50
 
     public init(
@@ -301,15 +304,27 @@ public struct QueueCard: View {
                             .contentShape(Rectangle())
                             .onTapGesture { viewModel.playFromQueue(at: capturedCurrentIndex + 1 + index) }
                             .contextMenu { queueContextMenu(for: item, at: capturedCurrentIndex + 1 + index) }
-                    }
-                    .onMove { source, destination in
-                        guard let fromOffset = source.first,
-                              queueItemsToShow.indices.contains(fromOffset) else { return }
-                        let item = queueItemsToShow[fromOffset]
-                        let absoluteFrom = capturedCurrentIndex + 1 + fromOffset
-                        let absoluteTo = capturedCurrentIndex + 1 + destination
-                        triggerQueueReorderFeedback()
-                        viewModel.moveQueueItem(byId: item.id, from: absoluteFrom, to: absoluteTo)
+                            .onDrag {
+                                macOSDraggingQueueItemID = item.id
+                                return NSItemProvider(object: item.id as NSString)
+                            }
+                            .onDrop(
+                                of: [.text],
+                                delegate: MacOSQueueDropDelegate(
+                                    targetItemID: item.id,
+                                    visibleItems: queueItemsToShow,
+                                    queueOffset: capturedCurrentIndex + 1,
+                                    draggingItemID: $macOSDraggingQueueItemID,
+                                    onMove: { itemID, sourceIndex, destinationIndex in
+                                        triggerQueueReorderFeedback()
+                                        viewModel.moveQueueItem(
+                                            byId: itemID,
+                                            from: sourceIndex,
+                                            to: destinationIndex
+                                        )
+                                    }
+                                )
+                            )
                     }
                     if hiddenQueueItemCount > 0 {
                         Text("\(hiddenQueueItemCount) more songs")
@@ -385,6 +400,42 @@ public struct QueueCard: View {
 
         private func triggerQueueReorderFeedback() {
             NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        }
+
+        private struct MacOSQueueDropDelegate: DropDelegate {
+            let targetItemID: String
+            let visibleItems: [QueueItem]
+            let queueOffset: Int
+            @Binding var draggingItemID: String?
+            let onMove: (String, Int, Int) -> Void
+
+            func dropEntered(info _: DropInfo) {
+                guard let sourceItemID = draggingItemID,
+                      sourceItemID != targetItemID,
+                      let sourceVisibleIndex = visibleItems.firstIndex(where: { $0.id == sourceItemID }),
+                      let targetVisibleIndex = visibleItems.firstIndex(where: { $0.id == targetItemID })
+                else { return }
+
+                let destinationVisibleIndex = targetVisibleIndex > sourceVisibleIndex ? targetVisibleIndex + 1 : targetVisibleIndex
+
+                onMove(
+                    sourceItemID,
+                    queueOffset + sourceVisibleIndex,
+                    queueOffset + destinationVisibleIndex
+                )
+            }
+
+            func dropUpdated(info _: DropInfo) -> DropProposal? {
+                guard draggingItemID != nil else {
+                    return DropProposal(operation: .cancel)
+                }
+                return DropProposal(operation: .move)
+            }
+
+            func performDrop(info _: DropInfo) -> Bool {
+                draggingItemID = nil
+                return true
+            }
         }
 
         /// Context menu for queue items
