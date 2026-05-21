@@ -474,8 +474,8 @@ public struct ControlsCard: View {
 
     @ViewBuilder
     private var playPauseButtonLabel: some View {
-        #if os(iOS)
-        if #available(iOS 26, *) {
+        #if os(iOS) || os(macOS)
+        if #available(iOS 26, macOS 26, *) {
             ZStack {
                 if showLoadingIndicator {
                     ProgressView()
@@ -734,7 +734,7 @@ public struct ControlsCard: View {
 private extension View {
     @ViewBuilder
     func nowPlayingTransportButtonStyle() -> some View {
-        #if os(iOS)
+        #if os(iOS) || os(macOS)
         self.buttonStyle(.borderless)
         #else
         self
