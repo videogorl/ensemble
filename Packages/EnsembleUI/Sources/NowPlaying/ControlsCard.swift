@@ -439,26 +439,7 @@ public struct ControlsCard: View {
 
             // Play/Pause — disabled when track isn't yet confirmed playable
             // (e.g. after queue restoration, before server health check completes)
-            Button(action: viewModel.togglePlayPause) {
-                ZStack {
-                    if showLoadingIndicator {
-                        Image(systemName: EnsembleDesign.Icon.playCircleFilled)
-                            .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
-                            .opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity)
-
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: EnsembleDesign.Color.primaryText))
-                            .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
-                    } else {
-                        // During loading/buffering, hold the last settled icon to prevent
-                        // the pause→play flicker when skipping tracks
-                        let showPause = playbackProjection.isPlaying ||
-                            ((playbackProjection.playbackState == .loading || playbackProjection.playbackState == .buffering) && wasPlayingBeforeTransition)
-                        Image(systemName: showPause ? EnsembleDesign.Icon.pauseCircleFilled : EnsembleDesign.Icon.playCircleFilled)
-                            .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
-                    }
-                }
-            }
+            playPauseButton
             .disabled(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable)
             .opacity(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable ? 0.4 : 1.0)
             .task(id: playbackProjection.playbackState) {
@@ -474,6 +455,63 @@ public struct ControlsCard: View {
         .foregroundColor(EnsembleDesign.Color.primaryText)
         .chromelessMediaControlButton()
         // Removed shadow on controls
+    }
+
+    private var playPauseButton: some View {
+        Button(action: viewModel.togglePlayPause) {
+            playPauseButtonLabel
+        }
+        .nowPlayingPlayPauseButtonStyle()
+        .accessibilityLabel(shouldShowPauseIcon ? "Pause" : "Play")
+    }
+
+    @ViewBuilder
+    private var playPauseButtonLabel: some View {
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            ZStack {
+                if showLoadingIndicator {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
+                } else {
+                    Image(systemName: shouldShowPauseIcon ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                        .font(.system(size: EnsembleScaffold.NowPlaying.playPauseGlassIconSize, weight: .semibold))
+                }
+            }
+            .frame(
+                width: EnsembleScaffold.NowPlaying.playPauseGlassControlSize,
+                height: EnsembleScaffold.NowPlaying.playPauseGlassControlSize
+            )
+            .foregroundColor(.white)
+        } else {
+            legacyPlayPauseButtonLabel
+        }
+        #else
+        legacyPlayPauseButtonLabel
+        #endif
+    }
+
+    private var legacyPlayPauseButtonLabel: some View {
+        ZStack {
+            if showLoadingIndicator {
+                Image(systemName: EnsembleDesign.Icon.playCircleFilled)
+                    .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
+                    .opacity(EnsembleScaffold.NowPlaying.lyricFutureOpacity)
+
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: EnsembleDesign.Color.primaryText))
+                    .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
+            } else {
+                Image(systemName: shouldShowPauseIcon ? EnsembleDesign.Icon.pauseCircleFilled : EnsembleDesign.Icon.playCircleFilled)
+                    .font(.system(size: EnsembleScaffold.NowPlaying.playPauseControlIconSize))
+            }
+        }
+    }
+
+    private var shouldShowPauseIcon: Bool {
+        playbackProjection.isPlaying ||
+            ((playbackProjection.playbackState == .loading || playbackProjection.playbackState == .buffering) && wasPlayingBeforeTransition)
     }
 
     // MARK: - Secondary Controls
@@ -682,5 +720,22 @@ public struct ControlsCard: View {
         default:
             return ("Fine Scrubbing", EnsembleScaffold.NowPlaying.scrubFineRate)
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func nowPlayingPlayPauseButtonStyle() -> some View {
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            self
+                .buttonStyle(.glassProminent)
+                .tint(EnsembleDesign.Color.accent)
+        } else {
+            self
+        }
+        #else
+        self
+        #endif
     }
 }
