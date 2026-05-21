@@ -265,6 +265,13 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return false
         }
 
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let view = tableView.makeView(withIdentifier: .nonClippingRow, owner: self) as? MacNativeTrackRowView
+                ?? MacNativeTrackRowView()
+            view.identifier = .nonClippingRow
+            return view
+        }
+
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
             guard row < rows.count else { return rowHeight }
             if case .section = rows[row] { return 40 }
@@ -553,17 +560,35 @@ private final class MacNativeContextMenuTableView: NSTableView {
     }
 }
 
+private final class MacNativeTrackRowView: NSTableRowView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        clipsToBounds = false
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        clipsToBounds = false
+    }
+}
+
 private final class MacNativeTrackHostingCell: NSTableCellView {
     private var hostingView: NSHostingView<AnyView>?
 
     func configure(rootView: AnyView) {
+        clipsToBounds = false
+        layer?.masksToBounds = false
         if let hostingView {
+            hostingView.clipsToBounds = false
+            hostingView.layer?.masksToBounds = false
             hostingView.rootView = rootView
         } else {
             let hostingView = NSHostingView(rootView: rootView)
             hostingView.translatesAutoresizingMaskIntoConstraints = false
             hostingView.wantsLayer = true
+            hostingView.clipsToBounds = false
             hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+            hostingView.layer?.masksToBounds = false
             addSubview(hostingView)
             NSLayoutConstraint.activate([
                 hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -943,5 +968,6 @@ private extension NSUserInterfaceItemIdentifier {
     static let hostingRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.HostingRow")
     static let sectionHeader = NSUserInterfaceItemIdentifier("SongsTrackListHost.SectionHeader")
     static let bottomSpacer = NSUserInterfaceItemIdentifier("SongsTrackListHost.BottomSpacer")
+    static let nonClippingRow = NSUserInterfaceItemIdentifier("SongsTrackListHost.NonClippingRow")
 }
 #endif
