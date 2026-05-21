@@ -735,7 +735,7 @@ private extension View {
     @ViewBuilder
     func nowPlayingTransportButtonStyle() -> some View {
         #if os(iOS)
-        self.buttonStyle(.plain)
+        self.buttonStyle(.borderless)
         #else
         self
         #endif
