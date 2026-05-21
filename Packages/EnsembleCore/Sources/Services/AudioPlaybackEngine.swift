@@ -148,6 +148,9 @@ public final class AudioPlaybackEngine {
     /// avoid any playerNode property access that could cause priority inversion
     /// with the audio render thread.
     let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+    /// Last user-visible playhead. Unlike `seekFrameOffset`, this is playback
+    /// truth when CoreAudio render timing disappears during route changes.
+    private var durablePlaybackPosition: TimeInterval = 0
     private var timeUpdateTimer: DispatchSourceTimer?
     /// Dedicated queue for time updates. Uses wall-clock estimation (CACurrentMediaTime)
     /// instead of playerNode.lastRenderTime to avoid priority inversion between the
@@ -407,13 +410,11 @@ public final class AudioPlaybackEngine {
         guard currentFile != nil else { return }
 
         let renderClockPosition = currentRenderClockPosition()
-        let observedPosition = currentTimeSubject.value
-        let fallbackPosition = Self.resolvedPlaybackPosition(
-            renderSampleTime: nil,
-            playerTimeBaseOffset: playerTimeBaseOffset,
-            seekFrameOffset: seekFrameOffset,
-            sampleRate: sampleRate
-        )
+        if let renderClockPosition {
+            updateDurablePlaybackPosition(renderClockPosition, publish: false)
+        }
+        let observedPosition = durablePlaybackPosition
+        let fallbackPosition = durablePlaybackPosition
         let position = Self.resolvedPreparedRouteRecoveryPosition(
             renderClockPosition: renderClockPosition,
             observedPosition: observedPosition,
@@ -440,7 +441,7 @@ public final class AudioPlaybackEngine {
         let livePosition = currentTime()
         let position = Self.resolvedRouteRecoveryPosition(
             livePosition: livePosition,
-            observedPosition: pendingRouteRecoveryPosition ?? currentTimeSubject.value,
+            observedPosition: pendingRouteRecoveryPosition ?? durablePlaybackPosition,
             duration: fileDuration,
             preferredSnapshot: pendingRouteRecoveryPosition
         )
@@ -504,7 +505,7 @@ public final class AudioPlaybackEngine {
                 engine.stop()
             }
 
-            currentTimeSubject.send(position)
+            updateDurablePlaybackPosition(position)
 
             EnsembleLogger.debug("[AudioEngine] Route change recovery complete (wasActive=\(wasActive))")
         } catch {
@@ -803,7 +804,7 @@ public final class AudioPlaybackEngine {
             startTimeUpdates(from: position)
         }
 
-        currentTimeSubject.send(position)
+        updateDurablePlaybackPosition(position)
     }
 
     /// Apply AUSoundIsolation parameters based on current isIsolationActive state.
@@ -917,6 +918,7 @@ public final class AudioPlaybackEngine {
         fileDuration = Double(contentFrames) / sampleRate
         seekFrameOffset = 0
         playerTimeBaseOffset = 0
+        updateDurablePlaybackPosition(0)
 
         // Clear any previously scheduled gapless files
         scheduleGeneration &+= 1
@@ -1234,7 +1236,7 @@ public final class AudioPlaybackEngine {
         seekFrameOffset = AVAudioFramePosition(incomingPosition * transition.sampleRate)
         playerTimeBaseOffset = 0
         captureWallTimeBase(position: incomingPosition)
-        currentTimeSubject.send(incomingPosition)
+        updateDurablePlaybackPosition(incomingPosition)
         onSmartMixPromote?(transition.trackId)
         EnsembleLogger.debug("[AudioEngine] SmartMix promoted trackId=\(transition.trackId)")
     }
@@ -1273,7 +1275,7 @@ public final class AudioPlaybackEngine {
 
         wasPlaying = true
         startTimeUpdates(from: clampedPosition)
-        currentTimeSubject.send(clampedPosition)
+        updateDurablePlaybackPosition(clampedPosition)
 
         EnsembleLogger.debug(
             "[AudioEngine] SmartMix deck handoff complete"
@@ -1499,7 +1501,7 @@ public final class AudioPlaybackEngine {
         }
         wasPlaying = true
         startTimeUpdates(from: resumePosition)
-        currentTimeSubject.send(resumePosition)
+        updateDurablePlaybackPosition(resumePosition)
         EnsembleLogger.debug("[AudioEngine] Resumed")
     }
 
@@ -1520,7 +1522,7 @@ public final class AudioPlaybackEngine {
         currentContentFrameCount = 0
         pendingRouteRecoveryPosition = nil
         scheduledFiles.removeAll()
-        currentTimeSubject.send(0)
+        updateDurablePlaybackPosition(0)
         EnsembleLogger.debug("[AudioEngine] Stopped")
     }
 
@@ -1576,7 +1578,7 @@ public final class AudioPlaybackEngine {
         }
 
         // Update time immediately for responsive UI
-        currentTimeSubject.send(time)
+        updateDurablePlaybackPosition(time)
         EnsembleLogger.debug("[AudioEngine] Seeked to \(String(format: "%.1f", time))s")
     }
 
@@ -1585,17 +1587,16 @@ public final class AudioPlaybackEngine {
     /// Compute current playback time from player node render position.
     func currentTime() -> TimeInterval {
         if smartMixTransition?.promoted == true {
-            return currentSmartMixIncomingTime()
+            return updateDurablePlaybackPosition(currentSmartMixIncomingTime(), publish: false)
         }
         guard let renderClockPosition = currentRenderClockPosition() else {
-            return Self.resolvedPlaybackPosition(
-                renderSampleTime: nil,
-                playerTimeBaseOffset: playerTimeBaseOffset,
-                seekFrameOffset: seekFrameOffset,
-                sampleRate: sampleRate
+            return Self.resolvedCurrentPlaybackPosition(
+                renderClockPosition: nil,
+                durablePlaybackPosition: durablePlaybackPosition,
+                duration: fileDuration
             )
         }
-        return renderClockPosition
+        return updateDurablePlaybackPosition(renderClockPosition, publish: false)
     }
 
     /// Returns the current playhead from AVAudioPlayerNode's live render clock.
@@ -1635,7 +1636,7 @@ public final class AudioPlaybackEngine {
             let base = self.timeBase
             let elapsed = CACurrentMediaTime() - base.wallTime
             let estimated = min(base.position + elapsed, base.duration)
-            self.currentTimeSubject.send(max(0, estimated))
+            self.updateDurablePlaybackPosition(max(0, estimated))
         }
         timer.resume()
         timeUpdateTimer = timer
@@ -1648,11 +1649,23 @@ public final class AudioPlaybackEngine {
     ///   position is already known (seek, play) to avoid calling currentTime()
     ///   which accesses playerNode.lastRenderTime.
     private func captureWallTimeBase(position: TimeInterval? = nil) {
+        let basePosition = position ?? currentTime()
         timeBase = TimeBase(
             wallTime: CACurrentMediaTime(),
-            position: position ?? currentTime(),
+            position: basePosition,
             duration: fileDuration
         )
+        updateDurablePlaybackPosition(basePosition, publish: false)
+    }
+
+    @discardableResult
+    private func updateDurablePlaybackPosition(_ position: TimeInterval, publish: Bool = true) -> TimeInterval {
+        let clamped = Self.clampedPlaybackPosition(position, duration: fileDuration)
+        durablePlaybackPosition = clamped
+        if publish {
+            currentTimeSubject.send(clamped)
+        }
+        return clamped
     }
 
     /// Stop periodic time updates.
@@ -1668,15 +1681,28 @@ public final class AudioPlaybackEngine {
     private func snapshotPlaybackPositionBeforeStopping() -> TimeInterval {
         let position = Self.resolvedRouteRecoveryPosition(
             livePosition: currentTime(),
-            observedPosition: currentTimeSubject.value,
-            duration: fileDuration
+            observedPosition: durablePlaybackPosition,
+            duration: fileDuration,
+            preferredSnapshot: pendingRouteRecoveryPosition
         )
         seekFrameOffset = AVAudioFramePosition(position * sampleRate)
         playerTimeBaseOffset = 0
         captureWallTimeBase(position: position)
-        currentTimeSubject.send(position)
+        updateDurablePlaybackPosition(position)
         pendingRouteRecoveryPosition = nil
         return position
+    }
+
+    static func resolvedCurrentPlaybackPosition(
+        renderClockPosition: TimeInterval?,
+        durablePlaybackPosition: TimeInterval,
+        duration: TimeInterval
+    ) -> TimeInterval {
+        if let renderClockPosition {
+            return clampedPlaybackPosition(renderClockPosition, duration: duration)
+        }
+
+        return clampedPlaybackPosition(durablePlaybackPosition, duration: duration)
     }
 
     static func resolvedRouteRecoveryPosition(
@@ -1728,6 +1754,12 @@ public final class AudioPlaybackEngine {
         }
 
         return min(max(fallbackPosition, 0), upperBound)
+    }
+
+    private static func clampedPlaybackPosition(_ position: TimeInterval, duration: TimeInterval) -> TimeInterval {
+        let lowerBounded = max(position, 0)
+        guard duration > 0 else { return lowerBounded }
+        return min(lowerBounded, duration)
     }
 
     static func resolvedPlaybackPosition(
@@ -1785,7 +1817,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
 
             onTrackAdvance?(next.trackId)
-            currentTimeSubject.send(0)
+            updateDurablePlaybackPosition(0)
         } else {
             // Queue exhausted
             wasPlaying = false
@@ -1831,7 +1863,7 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
 
             onTrackAdvance?(next.trackId)
-            currentTimeSubject.send(0)
+            updateDurablePlaybackPosition(0)
         } else {
             // No more files
             wasPlaying = false

@@ -25,6 +25,26 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
     }
 
+    func testCurrentPlaybackPositionUsesDurablePlayheadWhenRenderClockIsUnavailable() {
+        let time = AudioPlaybackEngine.resolvedCurrentPlaybackPosition(
+            renderClockPosition: nil,
+            durablePlaybackPosition: 132.4,
+            duration: 274.2
+        )
+
+        XCTAssertEqual(time, 132.4, accuracy: 0.0001)
+    }
+
+    func testCurrentPlaybackPositionClampsDurablePlayheadToDuration() {
+        let time = AudioPlaybackEngine.resolvedCurrentPlaybackPosition(
+            renderClockPosition: nil,
+            durablePlaybackPosition: 288.0,
+            duration: 274.2
+        )
+
+        XCTAssertEqual(time, 274.2, accuracy: 0.0001)
+    }
+
     func testInstrumentalModeUsesLargeRenderSlicesForIsolationHeadroom() {
         XCTAssertEqual(AudioPlaybackEngine.instrumentalIsolationMaxFramesToRender, 8192)
         XCTAssertGreaterThan(AudioPlaybackEngine.instrumentalIsolationPreferredIOBufferDuration, 0.12)
