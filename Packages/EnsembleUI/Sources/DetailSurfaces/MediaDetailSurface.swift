@@ -130,7 +130,22 @@ extension MediaDetailSurface {
 
         @available(iOS 26, macOS 26, *)
         var glassForegroundColor: Color {
-            EnsembleDesign.Color.primaryText
+            switch self {
+            case .primary:
+                return EnsembleDesign.Color.onAccent
+            case .secondary:
+                return EnsembleDesign.Color.primaryText
+            }
+        }
+
+        @available(iOS 26, macOS 26, *)
+        var buttonTint: Color? {
+            switch self {
+            case .primary:
+                return EnsembleDesign.Color.accent
+            case .secondary:
+                return nil
+            }
         }
     }
 
@@ -837,8 +852,14 @@ extension View {
     @ViewBuilder
     func mediaDetailActionButtonStyle(role: MediaDetailSurface<EmptyView>.ActionRole) -> some View {
         if #available(iOS 26, macOS 26, *) {
-            buttonStyle(.glass(role.glass))
-                .buttonBorderShape(.capsule)
+            if let buttonTint = role.buttonTint {
+                buttonStyle(.glass(role.glass))
+                    .buttonBorderShape(.capsule)
+                    .tint(buttonTint)
+            } else {
+                buttonStyle(.glass(role.glass))
+                    .buttonBorderShape(.capsule)
+            }
         } else {
             buttonStyle(.plain)
         }

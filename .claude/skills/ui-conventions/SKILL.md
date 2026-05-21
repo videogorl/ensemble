@@ -160,7 +160,9 @@ if #available(iOS 16.0, macOS 13.0, *) {
 
 ### Button Labels
 
-- Detail-surface playback actions use native Liquid Glass button styles on iOS 26+/macOS 26+ with explicit `.buttonBorderShape(.capsule)` so Play/Shuffle/Radio keep capsule geometry and native press feedback across platforms. Primary actions such as Play use accent-tinted interactive glass with primary foreground text for macOS legibility; secondary actions such as Shuffle and Radio use neutral interactive glass. Now Playing's primary play/pause control uses the same accent-tinted native glass path with `.buttonBorderShape(.circle)`. Keep older OS fallbacks routed through the shared action-row owners.
+- Detail-surface playback actions use native Liquid Glass button styles on iOS 26+/macOS 26+ with explicit `.buttonBorderShape(.capsule)` so Play/Shuffle/Radio keep capsule geometry and native press feedback across platforms. Primary actions such as Play use accent-tinted interactive glass plus the native tint environment with white foreground text/icons on both iOS and macOS. Secondary actions such as Shuffle and Radio use neutral interactive glass. Now Playing's primary play/pause control uses native glass with `.buttonBorderShape(.circle)`: accent-tinted interactive glass on iOS and `.glassProminent` with the app tint on macOS, both with white icons. Keep older OS fallbacks routed through the shared action-row owners.
+
+- Do not wrap Liquid Glass control groups in `.chromelessMediaControlButton()` on macOS. That helper applies `.buttonStyle(.plain)` and will suppress native glass rendering and press interaction. Apply borderless/plain styling only to the specific non-glass controls that need it.
 
 - **Buttons that open a sheet or modal must end with an ellipsis (`…`)** — this is the Apple HIG convention signalling that the action requires further input before completing:
 
