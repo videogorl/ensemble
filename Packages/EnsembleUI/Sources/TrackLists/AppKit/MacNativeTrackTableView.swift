@@ -595,7 +595,7 @@ private final class MacNativeTrackSectionCell: NSTableCellView {
 
     private func setup() {
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.9).cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         titleField.font = .systemFont(
             ofSize: TrackListLayoutMetrics.nativeMacSectionHeaderFontSize,
             weight: .semibold
