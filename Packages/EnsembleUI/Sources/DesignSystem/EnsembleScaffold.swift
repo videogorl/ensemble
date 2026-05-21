@@ -453,6 +453,10 @@ public enum EnsembleScaffold {
         public static let scrubHalfRate = 0.5
         public static let scrubQuarterRate = 0.25
         public static let scrubFineRate = 0.1
+        public static let controlsProgressRowMinHeight: CGFloat = 48
+        public static let controlsMetadataRowMinHeight: CGFloat = 88
+        public static let controlsPrimaryRowMinHeight = playPauseGlassControlSize
+        public static let controlsSecondaryRowMinHeight: CGFloat = 36
         public static let loadingIndicatorDelayNanoseconds: UInt64 = 300_000_000
         public static let auroraActiveContentMaxWidth: CGFloat = 670
         public static let viewportContentMaxWidth: CGFloat = 1024

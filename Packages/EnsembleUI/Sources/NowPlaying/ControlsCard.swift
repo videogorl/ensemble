@@ -5,6 +5,68 @@ import SwiftUI
     import UIKit
 #endif
 
+struct ControlsCardLayoutMetrics: Equatable {
+    let artworkSize: CGFloat
+    let artworkTopPadding: CGFloat
+    let artworkBottomPadding: CGFloat
+    let metadataTopPadding: CGFloat
+    let primaryControlsTopPadding: CGFloat
+    let progressRowMinHeight: CGFloat
+    let metadataRowMinHeight: CGFloat
+    let primaryControlsRowMinHeight: CGFloat
+    let secondaryControlsRowMinHeight: CGFloat
+
+    static func resolve(for size: CGSize) -> ControlsCardLayoutMetrics {
+        let isSpacious = size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
+        let artworkTopPadding = EnsembleScaffold.NowPlaying.cardBottomPadding
+        let artworkBottomPadding = isSpacious
+            ? EnsembleScaffold.NowPlaying.emptyVerticalPadding
+            : EnsembleScaffold.NowPlaying.cardBottomPadding
+        let metadataTopPadding = isSpacious
+            ? EnsembleScaffold.NowPlaying.sectionTopPadding
+            : EnsembleScaffold.NowPlaying.compactSectionTopPadding
+        let primaryControlsTopPadding = isSpacious
+            ? EnsembleDesign.Spacing.xxl
+            : EnsembleScaffold.NowPlaying.sectionTopPadding
+        let progressRowMinHeight = EnsembleScaffold.NowPlaying.controlsProgressRowMinHeight
+        let metadataRowMinHeight = EnsembleScaffold.NowPlaying.controlsMetadataRowMinHeight
+        let primaryControlsRowMinHeight = EnsembleScaffold.NowPlaying.controlsPrimaryRowMinHeight
+        let secondaryControlsRowMinHeight = EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight
+
+        let reservedHeight = artworkTopPadding
+            + artworkBottomPadding
+            + progressRowMinHeight
+            + metadataTopPadding
+            + metadataRowMinHeight
+            + primaryControlsTopPadding
+            + primaryControlsRowMinHeight
+            + secondaryControlsRowMinHeight
+            + EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing
+            + EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight
+            + EnsembleScaffold.NowPlaying.cardBottomPadding
+
+        let widthLimit = max(0, size.width)
+        let heightLimit = max(0, size.height - reservedHeight)
+        let maximumArtworkSize = min(
+            widthLimit,
+            heightLimit,
+            EnsembleScaffold.NowPlaying.artworkMaxDimension
+        )
+
+        return ControlsCardLayoutMetrics(
+            artworkSize: maximumArtworkSize,
+            artworkTopPadding: artworkTopPadding,
+            artworkBottomPadding: artworkBottomPadding,
+            metadataTopPadding: metadataTopPadding,
+            primaryControlsTopPadding: primaryControlsTopPadding,
+            progressRowMinHeight: progressRowMinHeight,
+            metadataRowMinHeight: metadataRowMinHeight,
+            primaryControlsRowMinHeight: primaryControlsRowMinHeight,
+            secondaryControlsRowMinHeight: secondaryControlsRowMinHeight
+        )
+    }
+}
+
 /// Center card displaying artwork, scrubber, playback controls, and secondary controls
 /// Extracts and refines existing NowPlayingView controls into standalone card
 public struct ControlsCard: View {
@@ -145,15 +207,12 @@ public struct ControlsCard: View {
 
     private func contentView(track: Track, geometry: GeometryProxy) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            // Dynamic artwork sizing for small screens
-            let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
-            let maxHeight = geometry.size.height * EnsembleScaffold.NowPlaying.artworkMaxHeightRatio
-            let artworkSize = min(maxWidth, maxHeight, EnsembleScaffold.NowPlaying.artworkMaxDimension)
-            let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
+            let layout = ControlsCardLayoutMetrics.resolve(for: geometry.size)
+            let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
 
             // Artwork
             ArtworkView(track: track, size: .medium, cornerRadius: artworkCornerRadius, isResponsive: true)
-                .frame(width: artworkSize, height: artworkSize)
+                .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                 .contrast(1.1)
@@ -161,33 +220,31 @@ public struct ControlsCard: View {
                 .ifLet(namespace, animationID) { view, ns, id in
                     view.matchedGeometryEffect(id: id, in: ns)
                 }
-                .padding(.top, EnsembleScaffold.NowPlaying.cardBottomPadding)
-                .padding(.bottom, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
-                    ? EnsembleScaffold.NowPlaying.emptyVerticalPadding
-                    : EnsembleScaffold.NowPlaying.cardBottomPadding)
+                .padding(.top, layout.artworkTopPadding)
+                .padding(.bottom, layout.artworkBottomPadding)
 
             // Scrubber/waveform
             progressView(track: track)
+                .frame(minHeight: layout.progressRowMinHeight)
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
             // Track metadata
             trackMetadataView(track: track)
+                .frame(minHeight: layout.metadataRowMinHeight, alignment: .topLeading)
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
-                .padding(.top, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
-                    ? EnsembleScaffold.NowPlaying.sectionTopPadding
-                    : EnsembleScaffold.NowPlaying.compactSectionTopPadding)
+                .padding(.top, layout.metadataTopPadding)
 
             // Primary playback controls
             controlsView
-                .padding(.top, geometry.size.height > EnsembleScaffold.NowPlaying.spaciousHeightThreshold
-                    ? EnsembleDesign.Spacing.xxl
-                    : EnsembleScaffold.NowPlaying.sectionTopPadding)
+                .frame(minHeight: layout.primaryControlsRowMinHeight)
+                .padding(.top, layout.primaryControlsTopPadding)
 
             Spacer(minLength: EnsembleDesign.Spacing.none)
 
             // Secondary controls + spacing for fixed page indicator
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
+                    .frame(minHeight: layout.secondaryControlsRowMinHeight)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)
             }
             .padding(.bottom, EnsembleScaffold.NowPlaying.cardBottomPadding)
@@ -196,10 +253,8 @@ public struct ControlsCard: View {
 
     private func emptyStateView(geometry: GeometryProxy) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            let maxWidth = geometry.size.width - EnsembleScaffold.NowPlaying.emptyIconSize
-            let maxHeight = geometry.size.height * EnsembleScaffold.NowPlaying.artworkMaxHeightRatio
-            let artworkSize = min(maxWidth, maxHeight, EnsembleScaffold.NowPlaying.artworkMaxDimension)
-            let artworkCornerRadius = ArtworkCornerRadius.square(for: artworkSize)
+            let layout = ControlsCardLayoutMetrics.resolve(for: geometry.size)
+            let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
 
             RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
                 .fill(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkFillOpacity))
@@ -208,10 +263,10 @@ public struct ControlsCard: View {
                         .font(EnsembleDesign.Typography.emptyStateIcon)
                         .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkIconOpacity))
                 )
-                .frame(width: artworkSize, height: artworkSize)
+                .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .ensembleStandardShadow()
-                .padding(.top, EnsembleScaffold.NowPlaying.emptyVerticalPadding)
-                .padding(.bottom, EnsembleScaffold.NowPlaying.emptyVerticalPadding + EnsembleDesign.Spacing.xl)
+                .padding(.top, layout.artworkTopPadding)
+                .padding(.bottom, layout.artworkBottomPadding + EnsembleDesign.Spacing.xl)
 
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 Text("Nothing Playing")
@@ -230,12 +285,14 @@ public struct ControlsCard: View {
             controlsView
                 .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                 .allowsHitTesting(false)
+                .frame(minHeight: layout.primaryControlsRowMinHeight)
                 .padding(.top, EnsembleDesign.Spacing.xxxl)
 
             Spacer(minLength: EnsembleDesign.Spacing.none)
 
             VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
                 secondaryControlsView
+                    .frame(minHeight: layout.secondaryControlsRowMinHeight)
                     .opacity(EnsembleScaffold.NowPlaying.disabledControlsOpacity)
                     .allowsHitTesting(false)
                 Spacer().frame(height: EnsembleScaffold.NowPlaying.pageIndicatorReservedHeight)

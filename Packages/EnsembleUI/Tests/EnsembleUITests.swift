@@ -7,6 +7,22 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testControlsCardLayoutShrinksArtworkBeforeControlRows() {
+        let layout = ControlsCardLayoutMetrics.resolve(for: CGSize(width: 320, height: 520))
+
+        XCTAssertLessThan(layout.artworkSize, 160)
+        XCTAssertEqual(layout.progressRowMinHeight, EnsembleScaffold.NowPlaying.controlsProgressRowMinHeight)
+        XCTAssertEqual(layout.metadataRowMinHeight, EnsembleScaffold.NowPlaying.controlsMetadataRowMinHeight)
+        XCTAssertEqual(layout.primaryControlsRowMinHeight, EnsembleScaffold.NowPlaying.controlsPrimaryRowMinHeight)
+        XCTAssertEqual(layout.secondaryControlsRowMinHeight, EnsembleScaffold.NowPlaying.controlsSecondaryRowMinHeight)
+    }
+
+    func testControlsCardLayoutCapsArtworkAtContainerWidthWhenHeightAllows() {
+        let layout = ControlsCardLayoutMetrics.resolve(for: CGSize(width: 360, height: 900))
+
+        XCTAssertEqual(layout.artworkSize, 360)
+    }
+
     func testChordIconFallsBackForOlderSymbolSets() {
         XCTAssertEqual(
             EnsembleDesign.Icon.chordIconName(modernSymbolSetAvailable: false),
