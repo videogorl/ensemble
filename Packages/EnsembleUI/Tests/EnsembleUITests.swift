@@ -36,6 +36,17 @@ final class EnsembleUITests: XCTestCase {
         )
     }
 
+    func testSmartMixIconFallsBackForOlderSymbolSets() {
+        XCTAssertEqual(
+            EnsembleDesign.Icon.smartMixIconName(modernSymbolSetAvailable: false),
+            "sparkles"
+        )
+        XCTAssertEqual(
+            EnsembleDesign.Icon.smartMixIconName(modernSymbolSetAvailable: true),
+            "circle.dotted.and.circle"
+        )
+    }
+
     func testChordLineSegmentsPreserveManualReturnsBeforeWrapping() {
         let line = LyricsLine(
             timestamp: 12,
