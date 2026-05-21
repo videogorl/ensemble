@@ -283,12 +283,18 @@ public struct MoodTracksView: View {
         var allTracks: [Track] = []
         var trackMap: [String: Track] = [:]
 
-        // Resolve the selected mood title in each library before loading tracks.
-        // Plex mood keys are library-local, so reusing one library's key across
-        // all libraries can produce empty/error detail pages for duplicate names.
+        // Plex mood keys are library-local. Prefer the key captured while building
+        // the merged mood list, then fall back to title resolution for older caches.
         let accountManager = DependencyContainer.shared.accountManager
         let targetMoodTitleKey = Mood.normalizedTitleKey(mood.title)
-        let targetSourceKeys = Mood.sourceCompositeKeys(from: mood.sourceCompositeKey)
+        let targetReferences = Mood.sourceReferences(from: mood.sourceCompositeKey)
+        let targetSourceKeys = Set(targetReferences.map(\.sourceCompositeKey))
+        var cachedMoodKeysBySource: [String: String] = [:]
+        for reference in targetReferences {
+            if let moodKey = reference.moodKey {
+                cachedMoodKeysBySource[reference.sourceCompositeKey] = moodKey
+            }
+        }
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -304,11 +310,17 @@ public struct MoodTracksView: View {
                     }
 
                     do {
-                        let libraryMood = try await client.getMoods(sectionKey: library.key)
-                            .first { Mood.normalizedTitleKey($0.title) == targetMoodTitleKey }
-                        guard let libraryMood else { continue }
+                        let moodKey: String
+                        if let cachedMoodKey = cachedMoodKeysBySource[sourceKey] {
+                            moodKey = cachedMoodKey
+                        } else {
+                            let libraryMood = try await client.getMoods(sectionKey: library.key)
+                                .first { Mood.normalizedTitleKey($0.title) == targetMoodTitleKey }
+                            guard let libraryMood else { continue }
+                            moodKey = libraryMood.key
+                        }
 
-                        let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: libraryMood.key)
+                        let plexTracks = try await client.getTracksByMood(sectionKey: library.key, moodKey: moodKey)
 
                         for plexTrack in plexTracks {
                             // Create track with explicit sourceKey including plex: prefix

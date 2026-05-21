@@ -467,6 +467,13 @@ public struct Mood: Identifiable, Hashable, Sendable, Codable {
     public let title: String
     public let sourceCompositeKey: String?
 
+    public struct SourceReference: Hashable, Sendable {
+        public let sourceCompositeKey: String
+        public let moodKey: String?
+    }
+
+    private static let sourceReferenceSeparator = "#moodKey="
+
     public init(id: String, key: String, title: String, sourceCompositeKey: String? = nil) {
         self.id = id
         self.key = key
@@ -481,8 +488,30 @@ public struct Mood: Identifiable, Hashable, Sendable, Codable {
     }
 
     public static func sourceCompositeKeys(from sourceCompositeKey: String?) -> Set<String> {
+        Set(sourceReferences(from: sourceCompositeKey).map(\.sourceCompositeKey))
+    }
+
+    public static func sourceReference(sourceCompositeKey: String, moodKey: String?) -> String {
+        guard let moodKey, !moodKey.isEmpty else { return sourceCompositeKey }
+        return "\(sourceCompositeKey)\(sourceReferenceSeparator)\(moodKey)"
+    }
+
+    public static func sourceReferences(from sourceCompositeKey: String?) -> [SourceReference] {
         guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else { return [] }
-        return Set(sourceCompositeKey.split(separator: "|").map(String.init))
+        return sourceCompositeKey.split(separator: "|").compactMap { rawPart in
+            let part = String(rawPart)
+            guard !part.isEmpty else { return nil }
+            if let separatorRange = part.range(of: sourceReferenceSeparator) {
+                let sourceKey = String(part[..<separatorRange.lowerBound])
+                let moodKey = String(part[separatorRange.upperBound...])
+                guard !sourceKey.isEmpty else { return nil }
+                return SourceReference(
+                    sourceCompositeKey: sourceKey,
+                    moodKey: moodKey.isEmpty ? nil : moodKey
+                )
+            }
+            return SourceReference(sourceCompositeKey: part, moodKey: nil)
+        }
     }
 }
 

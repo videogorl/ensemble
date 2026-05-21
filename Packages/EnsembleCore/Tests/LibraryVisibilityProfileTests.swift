@@ -125,13 +125,19 @@ final class LibraryVisibilityProfileTests: XCTestCase {
                 id: "mood-1",
                 key: "/library/sections/1/mood/11",
                 title: "Acerbic",
-                sourceCompositeKey: "plex:a:s:one"
+                sourceCompositeKey: Mood.sourceReference(
+                    sourceCompositeKey: "plex:a:s:one",
+                    moodKey: "/library/sections/1/mood/11"
+                )
             ),
             Mood(
                 id: "mood-2",
                 key: "/library/sections/2/mood/42",
                 title: "acerbic",
-                sourceCompositeKey: "plex:a:s:two"
+                sourceCompositeKey: Mood.sourceReference(
+                    sourceCompositeKey: "plex:a:s:two",
+                    moodKey: "/library/sections/2/mood/42"
+                )
             ),
         ])
 
@@ -140,6 +146,19 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         XCTAssertEqual(
             SearchViewModel.moodSourceCompositeKeys(from: merged[0].sourceCompositeKey),
             ["plex:a:s:one", "plex:a:s:two"]
+        )
+        XCTAssertEqual(
+            Dictionary(
+                uniqueKeysWithValues: SearchViewModel
+                    .moodSourceReferences(from: merged[0].sourceCompositeKey)
+                    .compactMap { reference in
+                        reference.moodKey.map { (reference.sourceCompositeKey, $0) }
+                    }
+            ),
+            [
+                "plex:a:s:one": "/library/sections/1/mood/11",
+                "plex:a:s:two": "/library/sections/2/mood/42",
+            ]
         )
     }
 

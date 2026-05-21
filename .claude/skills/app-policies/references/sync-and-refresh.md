@@ -28,7 +28,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Use `HomeHubLoader` or `BackgroundRefreshCoordinator` for Feed refresh. Do not create `HomeViewModel` only to refresh background data.
 - Keep cached rows visible during refresh after a screen has shown content; mark stale/loading locally rather than blanking the surface.
 - Filter cached source rows against enabled sources before publishing browse state.
-- Mood browse rows are display categories keyed by normalized title. Plex mood keys are library-local, so merge duplicate mood titles across sources for display and resolve the current library's mood key when loading a mood detail page.
+- Mood browse rows are display categories keyed by normalized title. Plex mood keys are library-local, so merge duplicate mood titles across sources for display and carry per-source mood keys when available. Mood detail pages should use the cached per-source key first and only refetch/resolve the current library's mood key when cached metadata is missing or stale.
 - Keep WebSocket event handling idempotent and safe to miss.
 
 ## Verification

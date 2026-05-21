@@ -589,10 +589,10 @@ public final class SearchViewModel: ObservableObject {
         unfilteredRecommendedItems = Array(recommendedHubItems.prefix(6))
         applyVisibilityToExploreContent()
 
-        // Plex mood keys are library-local. Deduplicate browse moods by title,
-        // then resolve each library's key again when opening the mood.
+        // Plex mood keys are library-local. Deduplicate browse moods by title and
+        // carry each source's resolved key so detail pages can skip refetching moods.
         var moodsByTitle: [String: Mood] = [:]
-        var moodSourceKeysByTitle: [String: Set<String>] = [:]
+        var moodSourceReferencesByTitle: [String: [String: String]] = [:]
         for task in fetchTasks {
             guard !Task.isCancelled else { return }
             do {
@@ -600,7 +600,7 @@ public final class SearchViewModel: ObservableObject {
                 for plexMood in plexMoods {
                     let titleKey = Self.normalizedMoodTitleKey(plexMood.title)
                     guard !titleKey.isEmpty else { continue }
-                    moodSourceKeysByTitle[titleKey, default: []].insert(task.sourceKey)
+                    moodSourceReferencesByTitle[titleKey, default: [:]][task.sourceKey] = plexMood.key
 
                     if moodsByTitle[titleKey] == nil {
                         moodsByTitle[titleKey] = Mood(
@@ -616,9 +616,9 @@ public final class SearchViewModel: ObservableObject {
             }
         }
 
-        for (titleKey, sourceKeys) in moodSourceKeysByTitle {
+        for (titleKey, sourceReferences) in moodSourceReferencesByTitle {
             guard let mood = moodsByTitle[titleKey] else { continue }
-            let mergedSourceKey = Self.mergedMoodSourceCompositeKey(from: sourceKeys)
+            let mergedSourceKey = Self.mergedMoodSourceCompositeKey(from: sourceReferences)
             moodsByTitle[titleKey] = Mood(
                 id: mood.id,
                 key: mood.key,
@@ -653,23 +653,37 @@ public final class SearchViewModel: ObservableObject {
         return sortedKeys.joined(separator: "|")
     }
 
+    internal nonisolated static func mergedMoodSourceCompositeKey(from sourceMoodKeys: [String: String]) -> String? {
+        let references = sourceMoodKeys
+            .sorted { $0.key < $1.key }
+            .map { Mood.sourceReference(sourceCompositeKey: $0.key, moodKey: $0.value) }
+        guard !references.isEmpty else { return nil }
+        return references.joined(separator: "|")
+    }
+
     internal nonisolated static func moodSourceCompositeKeys(from sourceCompositeKey: String?) -> Set<String> {
         Mood.sourceCompositeKeys(from: sourceCompositeKey)
     }
 
+    internal nonisolated static func moodSourceReferences(from sourceCompositeKey: String?) -> [Mood.SourceReference] {
+        Mood.sourceReferences(from: sourceCompositeKey)
+    }
+
     internal nonisolated static func mergeMoodsForDisplay(_ moods: [Mood]) -> [Mood] {
         var moodsByTitle: [String: Mood] = [:]
-        var moodSourceKeysByTitle: [String: Set<String>] = [:]
+        var moodSourceReferencesByTitle: [String: [String: String?]] = [:]
 
         for mood in moods {
             let titleKey = normalizedMoodTitleKey(mood.title)
             guard !titleKey.isEmpty else { continue }
 
-            let sourceKeys = moodSourceCompositeKeys(from: mood.sourceCompositeKey)
-            if sourceKeys.isEmpty {
-                moodSourceKeysByTitle[titleKey, default: []].insert("")
+            let sourceReferences = moodSourceReferences(from: mood.sourceCompositeKey)
+            if sourceReferences.isEmpty {
+                moodSourceReferencesByTitle[titleKey, default: [:]][""] = nil
             } else {
-                moodSourceKeysByTitle[titleKey, default: []].formUnion(sourceKeys)
+                for reference in sourceReferences {
+                    moodSourceReferencesByTitle[titleKey, default: [:]][reference.sourceCompositeKey] = reference.moodKey
+                }
             }
 
             if moodsByTitle[titleKey] == nil {
@@ -683,13 +697,16 @@ public final class SearchViewModel: ObservableObject {
         }
 
         return moodsByTitle.map { titleKey, mood in
-            var sourceKeys = moodSourceKeysByTitle[titleKey] ?? []
-            sourceKeys.remove("")
+            let sourceReferences = moodSourceReferencesByTitle[titleKey] ?? [:]
+            let mergedReferences = sourceReferences
+                .filter { !$0.key.isEmpty }
+                .sorted { $0.key < $1.key }
+                .map { Mood.sourceReference(sourceCompositeKey: $0.key, moodKey: $0.value) }
             return Mood(
                 id: mood.id,
                 key: mood.key,
                 title: mood.title,
-                sourceCompositeKey: mergedMoodSourceCompositeKey(from: sourceKeys)
+                sourceCompositeKey: mergedReferences.isEmpty ? nil : mergedReferences.joined(separator: "|")
             )
         }
         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
