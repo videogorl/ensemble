@@ -43,7 +43,7 @@ Dependency flow is one-way:
 - `SyncCoordinator` is the sync facade. Keep provider lookup, refresh orchestration, playlist refresh, network lifecycle, and endpoint synchronization in focused collaborators instead of growing the facade.
 - `PlaybackService` is the playback facade. Queue mutation and transport side effects stay there; audio session, queue persistence, launch/recovery policy, file cache, prefetch, now-playing metadata, reporting, settings observation, system-media donations, and transport resolution belong in focused collaborators.
 - `OfflineDownloadService` remains the target/queue source of truth. Platform events route through the offline background coordinator, not directly from app delegates into queue workers.
-- `ExternalDeviceSyncService` owns macOS-only external device sync orchestration. Keep iPod database parsing/writes behind `IPodDatabaseAdapting`, durable device/object maps in `EnsemblePersistence`, and Plex mutations routed through existing mutation workflows.
+- `ExternalDeviceSyncService` owns macOS-only external device sync orchestration. Keep iPod database parsing/writes behind `IPodDatabaseAdapting`, durable device/object maps in `EnsemblePersistence`, Plex mutations routed through existing mutation workflows, and helper detection separate from UI copy.
 - `NavigationCoordinator` is scene/window-scoped for user navigation. Do not route user-driven navigation through a shared singleton coordinator that would mirror iPad/macOS windows.
 - Shared workflows own cross-screen business rules: playlist mutation, metadata mutation, pin mutation, download mutation, drag/drop playlist resolution, track actions, media filtering, and Siri playback execution.
 

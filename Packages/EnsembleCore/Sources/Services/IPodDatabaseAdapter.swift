@@ -1,10 +1,13 @@
 import Foundation
 
 public enum IPodDatabaseAdapterError: LocalizedError, Equatable {
+    case unavailable
     case unsupported(String)
 
     public var errorDescription: String? {
         switch self {
+        case .unavailable:
+            return "iPod sync is unavailable."
         case .unsupported(let message):
             return message
         }
@@ -12,28 +15,66 @@ public enum IPodDatabaseAdapterError: LocalizedError, Equatable {
 }
 
 public protocol IPodDatabaseAdapting: Sendable {
+    func canAccessDatabase() async -> Bool
     func readLibrary(device: IPodDeviceSnapshot) async throws -> IPodLibrarySnapshot
     func commitAdditiveSync(device: IPodDeviceSnapshot) async throws -> ExternalDeviceSyncSummary
 }
 
-/// Placeholder boundary for the libgpod/helper implementation.
+public struct ExternalIPodHelperLocator: Sendable {
+    public let candidateURLs: [URL]
+    private let isExecutableFile: @Sendable (URL) -> Bool
+
+    public init(
+        candidateURLs: [URL] = Self.defaultCandidateURLs(),
+        isExecutableFile: @escaping @Sendable (URL) -> Bool = { url in
+            FileManager.default.isExecutableFile(atPath: url.path)
+        }
+    ) {
+        self.candidateURLs = candidateURLs
+        self.isExecutableFile = isExecutableFile
+    }
+
+    public func installedHelperURL() -> URL? {
+        candidateURLs.first { isExecutableFile($0) }
+    }
+
+    public static func defaultCandidateURLs(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+        let appRelativePath = "Ensemble iPod Helper.app/Contents/MacOS/Ensemble iPod Helper"
+        return [
+            URL(fileURLWithPath: "/Applications").appendingPathComponent(appRelativePath),
+            homeDirectory.appendingPathComponent("Applications").appendingPathComponent(appRelativePath)
+        ]
+    }
+}
+
+/// Boundary for a separately distributed classic iPod helper.
 ///
-/// Classic iPods require database writes, not plain file copies. This adapter keeps
-/// that native dependency isolated so Ensemble can ship the mapped-only sync planner
-/// and UI while hardware-backed libgpod integration is added behind one seam.
-public struct UnsupportedIPodDatabaseAdapter: IPodDatabaseAdapting {
-    public init() {}
+/// Classic iPods require database writes, not plain file copies. The Mac App Store
+/// app keeps that native/libgpod dependency outside the bundle and exposes sync
+/// only when the separate helper is already installed.
+public struct ExternalIPodHelperAdapter: IPodDatabaseAdapting {
+    private let locator: ExternalIPodHelperLocator
+
+    public init(locator: ExternalIPodHelperLocator = ExternalIPodHelperLocator()) {
+        self.locator = locator
+    }
+
+    public func canAccessDatabase() async -> Bool {
+        locator.installedHelperURL() != nil
+    }
 
     public func readLibrary(device: IPodDeviceSnapshot) async throws -> IPodLibrarySnapshot {
-        throw IPodDatabaseAdapterError.unsupported(
-            "Classic iPod database access requires the libgpod helper."
-        )
+        guard await canAccessDatabase() else {
+            throw IPodDatabaseAdapterError.unavailable
+        }
+        throw IPodDatabaseAdapterError.unsupported("iPod sync is unavailable.")
     }
 
     public func commitAdditiveSync(device: IPodDeviceSnapshot) async throws -> ExternalDeviceSyncSummary {
-        throw IPodDatabaseAdapterError.unsupported(
-            "Classic iPod database writes require the libgpod helper."
-        )
+        guard await canAccessDatabase() else {
+            throw IPodDatabaseAdapterError.unavailable
+        }
+        throw IPodDatabaseAdapterError.unsupported("iPod sync is unavailable.")
     }
 }
 

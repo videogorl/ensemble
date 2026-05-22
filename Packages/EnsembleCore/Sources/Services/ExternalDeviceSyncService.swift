@@ -16,13 +16,14 @@ public final class ExternalDeviceSyncService: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let planner: ExternalDeviceSyncPlanner
     private var activeSnapshots: [String: IPodDeviceSnapshot] = [:]
+    private var databaseAccessAvailable = false
     private var monitorTask: Task<Void, Never>?
     private var autoSyncedThisSession = Set<String>()
 
     public init(
         repository: ExternalDeviceSyncRepositoryProtocol,
         discovery: IPodDeviceDiscovering = MountedIPodDeviceDiscovery(),
-        adapter: IPodDatabaseAdapting = UnsupportedIPodDatabaseAdapter(),
+        adapter: IPodDatabaseAdapting = ExternalIPodHelperAdapter(),
         mutationCoordinator: MutationCoordinator,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
@@ -57,6 +58,15 @@ public final class ExternalDeviceSyncService: ObservableObject {
     }
 
     public func refreshMountedDevices(syncDiscoveredDevices: Bool = false) async {
+        databaseAccessAvailable = await adapter.canAccessDatabase()
+        guard databaseAccessAvailable else {
+            activeSnapshots = [:]
+            if !devices.isEmpty {
+                devices = []
+            }
+            return
+        }
+
         let snapshots = await discovery.discoverMountedDevices()
         activeSnapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.deviceID, $0) })
 
@@ -105,9 +115,19 @@ public final class ExternalDeviceSyncService: ObservableObject {
     }
 
     public func reloadDevices() async {
+        guard databaseAccessAvailable else {
+            if !devices.isEmpty {
+                devices = []
+            }
+            return
+        }
+
         do {
             let records = try await repository.fetchDevices()
-            let mapped = records.map(ExternalDevice.init(record:))
+            let activeDeviceIDs = Set(activeSnapshots.keys)
+            let mapped = records
+                .map(ExternalDevice.init(record:))
+                .filter { activeDeviceIDs.contains($0.id) }
             if mapped != devices {
                 devices = mapped
             }

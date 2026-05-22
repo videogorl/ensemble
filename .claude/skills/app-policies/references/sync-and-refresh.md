@@ -14,6 +14,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Siri media index and context refresh are part of freshness work where relevant and must stay source-scoped.
 - macOS external device sync is automatic, additive, and mapped-only. Classic iPod imports may apply only data that maps to persisted Plex track or playlist identities; unmapped ratings, play counts, playlist members, files, and metadata are discarded from sync processing.
 - External device export must never delete unmanaged iPod content. PMS remains responsible for sync audio transcoding; Ensemble downloads the server-produced file and writes it through the iPod database adapter.
+- The Mac App Store app treats classic iPod sync as a latent capability. Do not show the Devices section or helper-install copy unless a compatible separately installed iPod helper is detected.
 
 ## Owners
 
@@ -35,6 +36,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Keep WebSocket event handling idempotent and safe to miss.
 - Read iPod play-count/rating/playlist return data before any write, apply only positive mapped play deltas, and checkpoint imported counts so reconnects do not duplicate Plex scrobbles.
 - Keep iPod database access isolated behind `IPodDatabaseAdapting`; Swift sync logic consumes normalized DTOs and must not depend directly on libgpod/GLib details.
+- Detect the external iPod helper before discovering or publishing devices. Missing helper state should remain silent in Ensemble UI; helper distribution and instructions belong outside the App Store app.
 
 ## Verification
 
