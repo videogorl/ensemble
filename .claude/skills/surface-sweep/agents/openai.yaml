@@ -1,0 +1,4 @@
+interface:
+  display_name: "Surface Sweep"
+  short_description: "Visually walk every Ensemble app surface."
+  default_prompt: "Use $surface-sweep to visually touch every reachable Ensemble surface on iPhone, iPad, and macOS, then report screenshots, blockers, and findings."
