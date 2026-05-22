@@ -17,6 +17,10 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.albums)
         )
         XCTAssertEqual(
+            SidebarSelection.selection(for: .albumDetail(Self.album()), fallback: nil),
+            .library(.albums)
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .playlist(id: "playlist", sourceKey: "server/library"), fallback: nil),
             .playlist(id: "playlist", sourceKey: "server/library")
         )
@@ -234,5 +238,13 @@ final class NavigationRootHelperTests: XCTestCase {
 
         XCTAssertEqual(coordinator.artistsPath, path)
         XCTAssertEqual(binding.wrappedValue, path)
+    }
+
+    func testConcreteAlbumDetailDestinationTargetsAlbums() {
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
+    }
+
+    private static func album() -> Album {
+        Album(id: "album", key: "/library/metadata/album", title: "Album", artistName: "Artist")
     }
 }

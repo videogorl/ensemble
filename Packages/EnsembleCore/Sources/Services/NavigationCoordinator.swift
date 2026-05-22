@@ -39,6 +39,7 @@ public final class NavigationCoordinator: ObservableObject {
         case displayArtist(id: String)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
+        case albumDetail(Album)
         case playlist(id: String, sourceKey: String?)
         case mergedPlaylist(title: String, isSmart: Bool)
         case moodTracks(mood: Mood)
@@ -93,7 +94,7 @@ public final class NavigationCoordinator: ObservableObject {
             return .artists
         case .artist:
             return .artists
-        case .album:
+        case .album, .albumDetail:
             return .albums
         case .playlist, .mergedPlaylist:
             return .playlists

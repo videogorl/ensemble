@@ -26,7 +26,7 @@ public enum SidebarSelection: Hashable {
         switch destination {
         case .displayArtist, .artist:
             return .library(.artists)
-        case .album:
+        case .album, .albumDetail:
             return .library(.albums)
         case .playlist(let id, let sourceKey):
             return .playlist(id: id, sourceKey: sourceKey)

@@ -65,6 +65,8 @@ struct NavigationDestinationFactory {
             ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .album(let id, let sourceKey):
             AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        case .albumDetail(let album):
+            AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
         case .playlist(let id, let sourceKey):
             PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
         case .mergedPlaylist(let title, let isSmart):
