@@ -30,10 +30,9 @@ struct ArtworkDetailBackground: View {
                 image: image,
                 topDimming: colorScheme == .dark ? 0.1 : 0.05,
                 bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
-                overlayColor: backgroundOverlayColor
+                overlayColor: backgroundOverlayColor,
+                animatesImageChanges: false
             )
-            .id(backgroundImageIdentity)
-            .transition(.opacity)
 
             // Keep the same legibility wash used by MediaDetailView across all
             // detail-style screens so the artwork glow remains visible.
@@ -54,19 +53,12 @@ struct ArtworkDetailBackground: View {
         )
         .frame(height: height)
         .artworkBackgroundExtensionEffect()
-        .animation(
-            .easeInOut(duration: EnsembleScaffold.DetailSurface.backgroundFadeDuration),
-            value: backgroundImageIdentity
-        )
     }
 
     private var backgroundOverlayColor: Color {
         colorScheme == .dark ? .black : EnsembleDesign.Color.windowSurface
     }
 
-    private var backgroundImageIdentity: ObjectIdentifier? {
-        image.map(ObjectIdentifier.init)
-    }
 }
 
 private extension View {

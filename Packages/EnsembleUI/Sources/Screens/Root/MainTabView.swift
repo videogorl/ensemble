@@ -1240,13 +1240,40 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func pinnedDetailRootView(id: String, sourceKey: String?, type: PinnedItemType) -> some View {
-        switch type {
-        case .album:
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .artist:
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .playlist:
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        if let resolvedPin = resolvedPin(id: id, sourceKey: sourceKey, type: type) {
+            switch resolvedPin {
+            case .album(let album, _):
+                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+            case .artist(let artist, _):
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+            case .playlist(let playlist, _):
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+            case .mergedPlaylist(let displayPlaylist, _):
+                MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
+            }
+        } else {
+            switch type {
+            case .album:
+                AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            case .artist:
+                ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            case .playlist:
+                PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            }
+        }
+    }
+
+    private func resolvedPin(id: String, sourceKey: String?, type: PinnedItemType) -> ResolvedPin? {
+        let identity = PinnedItem.sourceScopedID(id: id, sourceKey: sourceKey)
+        return pinnedVM.resolvedPins.first { pin in
+            switch pin {
+            case let .album(_, pinnedItem),
+                 let .artist(_, pinnedItem),
+                 let .playlist(_, pinnedItem):
+                return pinnedItem.type == type && pinnedItem.sourceScopedID == identity
+            case let .mergedPlaylist(_, pinnedItems):
+                return type == .playlist && pinnedItems.contains { $0.sourceScopedID == identity }
+            }
         }
     }
 
