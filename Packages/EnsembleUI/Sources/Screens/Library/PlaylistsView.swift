@@ -475,18 +475,10 @@ public struct PlaylistsView: View {
             },
             detail: { displayPlaylist in
                 if displayPlaylist.isMerged {
-                    MergedPlaylistDetailLoader(
-                        title: displayPlaylist.title,
-                        isSmart: displayPlaylist.isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
+                    MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
                     .id(displayPlaylist.id)
                 } else {
-                    PlaylistDetailLoader(
-                        playlistId: displayPlaylist.primaryPlaylist.id,
-                        playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
-                        nowPlayingVM: nowPlayingVM
-                    )
+                    PlaylistDetailView(playlist: displayPlaylist.primaryPlaylist, nowPlayingVM: nowPlayingVM)
                     .id(displayPlaylist.id)
                 }
             },
@@ -965,7 +957,8 @@ public struct PlaylistDetailView: View {
                         onPlayLast: {
                             nowPlayingVM.playLast(viewModel.filteredTracks)
                         }
-                    )
+                    ),
+                    holdsInitialReveal: true
                 )
             }
         }
@@ -1100,7 +1093,7 @@ public struct PlaylistDetailView: View {
         // Ensure tracks load even when starting in edit mode (where MediaDetailView
         // isn't mounted and its .task { loadTracks() } never fires).
         .task {
-            if viewModel.tracks.isEmpty {
+            if isEditingPlaylist && viewModel.tracks.isEmpty {
                 await viewModel.loadTracks()
             }
         }

@@ -68,6 +68,7 @@ public struct MergedPlaylistDetailView: View {
                     nowPlayingVM.playLast(viewModel.filteredTracks)
                 }
             ),
+            holdsInitialReveal: true,
             // Pin/unpin ALL constituent playlists as a batch
             customPinAction: { isPinned in
                 let dp = viewModel.displayPlaylist
