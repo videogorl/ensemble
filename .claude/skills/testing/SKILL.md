@@ -64,7 +64,7 @@ Load `simulator-test` when runtime proof is required. Use the iOS Simulator MCP 
 
 Typical expectations:
 - Bug fix: reproduce the old path when feasible, then verify the corrected path visually.
-- New UI: navigate to the surface, exercise key interactions, and confirm visible labels/state with screenshots or accessibility/UI hierarchy evidence.
+- New UI: navigate to the surface, exercise key interactions, including representative row swipe actions when the surface exposes swipeable rows, and confirm visible labels/state with screenshots or accessibility/UI hierarchy evidence.
 - Playback/networking: combine UI interaction with focused log capture.
 
 For macOS-visible UI changes, use the built app with Computer Use, Xcode UI tooling, screenshots, or another direct UI inspection path. A build-only check is not sufficient unless the changed surface cannot be reached because of a documented environment blocker such as missing credentials, unavailable data, or a locked desktop.

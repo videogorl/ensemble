@@ -11,6 +11,7 @@ Use this checklist for broad visual sweeps. Data-dependent rows can vary by test
 - Refresh: pull-to-refresh or View > Refresh / refresh command on Feed and major library screens.
 - Search chrome: focus, type query, clear, submit, navigate result if data exists.
 - Context menus: track, album, artist, playlist, queue row, mini-player ellipsis. Cancel destructive actions.
+- Swipe actions: on iOS/iPadOS, reveal and cancel representative row swipe actions for tracks, playlists, downloads, pending mutations, and settings rows where available; confirm destructive actions show a confirmation or are intentionally non-destructive before canceling.
 - Sheets/popovers/alerts: sort/filter, hub order, add to playlist, edit metadata, get info, share, text input, delete confirmation. Capture and dismiss.
 - Mini-player: visible/resting state, play/pause, next/previous if enabled, swipe/expand on iOS, menu/popover on iPad/macOS.
 - Now Playing: controls, queue, lyrics, info panels, repeat/shuffle/radio/autoplay where visible, dismissal/back path.
@@ -25,7 +26,7 @@ Primary default tabs:
 - More: Songs, Albums, Genres, Favorites, Downloads, Edit Tabs.
 
 More-routed library screens:
-- Songs: genre chips, indexed scroll if visible, sort/filter sheet, track row context menu, row tap/play path.
+- Songs: genre chips, indexed scroll if visible, sort/filter sheet, track row context menu, row swipe actions, row tap/play path.
 - Albums: grid/list, sort/filter sheet, album detail, metadata/get-info sheet if available.
 - Genres: genre list, genre detail, track list.
 - Favorites: favorite tracks/albums/artists/playlists sections or empty state, filter sheet.
@@ -49,6 +50,7 @@ Regular-width behavior:
 - Detail column placeholder or selected detail.
 - Browse-list/detail splits inside Artists, Playlists, Genres.
 - Sort/filter sheets and popovers from toolbar.
+- Representative iPad row swipe actions in Songs, Playlists, Favorites, Downloads, and Pending Mutations where data exists.
 - Now Playing wide sheet: controls plus Queue/Lyrics/Info detail panel.
 - Drag/drop smoke where safe: start a drag from a track/album/playlist and cancel before dropping unless the user requested mutation coverage.
 
@@ -83,6 +85,7 @@ Compare these surfaces after platform sweeps:
 - Feed toolbar/edit affordance.
 - Sort/filter affordances on Songs, Albums, Artists, Favorites, and details.
 - Track list row actions across iPhone UIKit table, iPad table, and macOS AppKit table.
+- iOS/iPadOS swipe actions compared against macOS context-menu equivalents.
 - Playlist creation/editing flows.
 - Profile and Downloads utility layout.
 - Now Playing panels and mini-player action menus.
