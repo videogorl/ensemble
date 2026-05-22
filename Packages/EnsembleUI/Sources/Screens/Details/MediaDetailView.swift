@@ -770,38 +770,70 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         await MainActor.run {
             self.currentLoadPath = path
         }
-        
-        if let url = await deps.artworkLoader.artworkURLAsync(
+
+        guard let url = await deps.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
             ratingKey: headerData.ratingKey,
             fallbackPath: nil,  // No fallback for album/artist/playlist detail views
             fallbackRatingKey: nil,
             size: 600
-        ) {
-            let request = ImageRequest(url: url)
-            
-            // Try synchronous cache lookup first
-            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                await MainActor.run {
-                    if self.currentLoadPath == path {
-                        self.artworkImage = cachedImage.image
-                    }
-                }
-                return
-            }
-            
-            // Load asynchronously if not cached
-            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                await MainActor.run {
-                    // Only update if this is still the current path
-                    if self.currentLoadPath == path {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            self.artworkImage = uiImage
-                        }
-                    }
+        ) else {
+            return
+        }
+
+        let request = ImageRequest(url: url)
+
+        // Try synchronous cache lookup first
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            await MainActor.run {
+                if self.currentLoadPath == path {
+                    self.artworkImage = cachedImage.image
                 }
             }
+            return
+        }
+
+        await loadLowResolutionArtworkSeed(path: path, sourceKey: sourceKey)
+
+        // Load asynchronously if not cached
+        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+            await MainActor.run {
+                // Only update if this is still the current path
+                if self.currentLoadPath == path {
+                    self.artworkImage = uiImage
+                }
+            }
+        }
+    }
+
+    private func loadLowResolutionArtworkSeed(path: String, sourceKey: String?) async {
+        guard let url = await deps.artworkLoader.artworkURLAsync(
+            for: path,
+            sourceKey: sourceKey,
+            ratingKey: headerData.ratingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            size: ArtworkSize.thumbnail.rawValue
+        ) else {
+            return
+        }
+
+        let request = ImageRequest(url: url)
+        let seedImage: PlatformImage?
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
+            seedImage = cachedImage
+        } else {
+            seedImage = try? await ImagePipeline.shared.image(for: request)
+        }
+
+        guard let seedImage else {
+            return
+        }
+
+        await MainActor.run {
+            guard self.currentLoadPath == path, self.artworkImage == nil else { return }
+            self.artworkImage = seedImage
         }
     }
 
@@ -846,15 +878,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             platformHeaderArtwork(artworkImage)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         } else {
-            ArtworkView(
-                path: headerData.artworkPath,
-                sourceKey: headerData.sourceKey,
-                ratingKey: headerData.ratingKey,
-                size: .medium,
-                cornerRadius: artworkCornerRadius
-            )
+            headerArtworkPlaceholder
             .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         }
+    }
+
+    private var headerArtworkPlaceholder: some View {
+        let frameSize = ArtworkSize.medium.cgSize
+        let iconSize = frameSize.width * 0.3
+
+        return ZStack {
+            EnsembleDesign.Color.placeholderArtwork
+
+            Image(systemName: EnsembleDesign.Icon.musicNote)
+                .font(.system(size: iconSize))
+                .foregroundColor(EnsembleDesign.Color.placeholderArtworkIcon)
+        }
+        .frame(width: frameSize.width, height: frameSize.height)
     }
 
     @ViewBuilder
