@@ -57,7 +57,7 @@ public struct AuroraVisualizationView: View {
     /// Whether the aurora should pause rendering (e.g. Now Playing sheet covers it)
     private let isPaused: Bool
 
-    /// When true, reduces to 1 glow pass at 15fps to conserve battery
+    /// When true, reduces to 1 glow pass at 15fps to conserve battery.
     private let isLowPowerMode: Bool
 
     /// Whether the aurora is allowed to intentionally bleed beyond its host bounds.
@@ -67,7 +67,7 @@ public struct AuroraVisualizationView: View {
 
     /// True on A9 (dual-core) and other ≤2-core devices.
     /// Stored once at init time — processorCount never changes at runtime,
-    /// and drawAurora() runs at 15-30fps so we don't want ProcessInfo on the hot path.
+    /// and drawAurora() runs on the hot path so we don't want ProcessInfo there.
     private let isLowCoreDevice: Bool
 
     public init(
@@ -102,9 +102,9 @@ public struct AuroraVisualizationView: View {
         return playbackState != .playing
     }
 
-    /// Frame rate: 30fps normal, 15fps in Low Power Mode or on ≤2-core devices (A9/A10).
+    /// Frame rate: 30fps normal, 15fps in Low Power Mode.
     private var frameInterval: Double {
-        isLowPowerMode || isLowCoreDevice ? 1.0 / 15.0 : 1.0 / 30.0
+        isLowPowerMode ? 1.0 / 15.0 : 1.0 / 30.0
     }
 
     private var usesLowCostSurfaceTier: Bool {
