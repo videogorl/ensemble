@@ -169,6 +169,7 @@ public struct RootView: View {
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
+    @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
@@ -263,6 +264,7 @@ public struct RootView: View {
             .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
             .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
             .environment(\.artworkDetailBackgroundContinuity, artworkDetailBackgroundContinuity)
+            .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
             .environmentObject(navigationCoordinator)
             .accentColor(settingsManager.accentColor.color)
             .onAppear {

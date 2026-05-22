@@ -5,6 +5,21 @@ import Nuke
 import UIKit
 #endif
 
+final class ArtistDetailArtworkContinuityStore: ObservableObject {
+    var lastImage: PlatformImage?
+}
+
+private struct ArtistDetailArtworkContinuityKey: EnvironmentKey {
+    static let defaultValue = ArtistDetailArtworkContinuityStore()
+}
+
+extension EnvironmentValues {
+    var artistDetailArtworkContinuity: ArtistDetailArtworkContinuityStore {
+        get { self[ArtistDetailArtworkContinuityKey.self] }
+        set { self[ArtistDetailArtworkContinuityKey.self] = newValue }
+    }
+}
+
 public struct ArtistsView: View {
     public enum PresentationMode {
         case compactRoot
@@ -474,6 +489,94 @@ private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
     }
 }
 
+private struct CrossfadingArtistArtworkImage<Fallback: View>: View {
+    let image: PlatformImage?
+    @ViewBuilder let fallback: () -> Fallback
+
+    @State private var currentImage: PlatformImage?
+    @State private var previousImage: PlatformImage?
+    @State private var currentOpacity = 1.0
+    @State private var transitionID = UUID()
+
+    init(image: PlatformImage?, @ViewBuilder fallback: @escaping () -> Fallback) {
+        self.image = image
+        self.fallback = fallback
+        self._currentImage = State(initialValue: image)
+    }
+
+    var body: some View {
+        ZStack {
+            if currentImage == nil, previousImage == nil {
+                fallback()
+            }
+
+            if let previousImage {
+                platformImage(previousImage)
+            }
+
+            if let currentImage {
+                platformImage(currentImage)
+                    .opacity(currentOpacity)
+            }
+        }
+        .task(id: imageIdentity) {
+            await updateImage()
+        }
+    }
+
+    private var imageIdentity: ObjectIdentifier? {
+        image.map(ObjectIdentifier.init)
+    }
+
+    @ViewBuilder
+    private func platformImage(_ image: PlatformImage) -> some View {
+        #if os(macOS)
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+        #else
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+        #endif
+    }
+
+    @MainActor
+    private func updateImage() async {
+        guard currentImage.map(ObjectIdentifier.init) != imageIdentity else {
+            return
+        }
+
+        guard let image else {
+            return
+        }
+
+        let transitionID = UUID()
+        self.transitionID = transitionID
+        previousImage = currentImage
+        currentImage = image
+        currentOpacity = previousImage == nil ? 1 : 0
+
+        guard previousImage != nil else {
+            return
+        }
+
+        await Task.yield()
+
+        withAnimation(.easeInOut(duration: EnsembleScaffold.DetailSurface.backgroundFadeDuration)) {
+            currentOpacity = 1
+        }
+
+        let delay = UInt64(EnsembleScaffold.DetailSurface.backgroundFadeDuration * 1_000_000_000)
+        try? await Task.sleep(nanoseconds: delay)
+
+        guard !Task.isCancelled, self.transitionID == transitionID else {
+            return
+        }
+        previousImage = nil
+    }
+}
+
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     @StateObject private var mergedViewModel: MergedArtistDetailViewModel
@@ -493,6 +596,8 @@ public struct ArtistDetailView: View {
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: PlatformImage?
+    @State private var continuityArtworkImage: PlatformImage?
+    @State private var artworkLoadUnavailable = false
     @State private var currentArtworkLoadIdentity: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
@@ -500,6 +605,7 @@ public struct ArtistDetailView: View {
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
+    @Environment(\.artistDetailArtworkContinuity) private var artistArtworkContinuity
     @Environment(\.openURL) private var openURL
 
     public init(
@@ -580,6 +686,9 @@ public struct ArtistDetailView: View {
                 await mergedViewModel.load()
             }
             _ = await (artworkLoad, albumsLoad, tracksLoad, detailLoad)
+        }
+        .task(id: artworkImageIdentity) {
+            updateArtworkContinuity()
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
@@ -705,37 +814,47 @@ public struct ArtistDetailView: View {
 
         await MainActor.run {
             currentArtworkLoadIdentity = loadIdentity
+            artworkLoadUnavailable = false
         }
 
         await loadCachedArtworkSeed(for: artist, loadIdentity: loadIdentity)
 
-        if let url = await dependencies.artworkLoader.artworkURLAsync(
+        guard let url = await dependencies.artworkLoader.artworkURLAsync(
             for: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
             size: 600
-        ) {
-            let request = ImageRequest(url: url)
-
-            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                let heroImage = Self.artistHeroImage(from: cachedImage.image)
-                await MainActor.run {
-                    guard currentArtworkLoadIdentity == loadIdentity else { return }
-                    artworkImage = heroImage
-                }
-                return
+        ) else {
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkLoadUnavailable = true
             }
+            return
+        }
 
-            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                let heroImage = Self.artistHeroImage(from: uiImage)
-                await MainActor.run {
-                    guard currentArtworkLoadIdentity == loadIdentity else { return }
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        self.artworkImage = heroImage
-                    }
-                }
+        let request = ImageRequest(url: url)
+
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            let heroImage = Self.artistHeroImage(from: cachedImage.image)
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkImage = heroImage
+            }
+            return
+        }
+
+        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+            let heroImage = Self.artistHeroImage(from: uiImage)
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkImage = heroImage
+            }
+        } else {
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkLoadUnavailable = artworkImage == nil
             }
         }
     }
@@ -762,6 +881,35 @@ public struct ArtistDetailView: View {
             guard currentArtworkLoadIdentity == loadIdentity, artworkImage == nil else { return }
             artworkImage = heroImage
         }
+    }
+
+    private var displayedArtworkImage: PlatformImage? {
+        if artworkImage == nil, artworkLoadUnavailable || !hasArtworkCandidate {
+            return nil
+        }
+        return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
+    }
+
+    private var artworkImageIdentity: ObjectIdentifier? {
+        artworkImage.map(ObjectIdentifier.init)
+    }
+
+    private var hasArtworkCandidate: Bool {
+        viewModel.artist.thumbPath?.isEmpty == false || viewModel.artist.fallbackThumbPath?.isEmpty == false
+    }
+
+    private func updateArtworkContinuity() {
+        guard let artworkImage else {
+            if continuityArtworkImage == nil {
+                continuityArtworkImage = artistArtworkContinuity.lastImage
+            }
+            return
+        }
+
+        if continuityArtworkImage.map(ObjectIdentifier.init) != ObjectIdentifier(artworkImage) {
+            continuityArtworkImage = artworkImage
+        }
+        artistArtworkContinuity.lastImage = artworkImage
     }
 
     private static func artistHeroImage(from image: PlatformImage) -> PlatformImage {
@@ -904,25 +1052,13 @@ public struct ArtistDetailView: View {
     }
 
     private var wideArtistArtwork: some View {
-        ZStack {
-            if let artworkImage {
-                #if os(macOS)
-                Image(nsImage: artworkImage)
-                    .resizable()
-                    .scaledToFill()
-                #else
-                Image(uiImage: artworkImage)
-                    .resizable()
-                    .scaledToFill()
-                #endif
-            } else {
-                ArtworkView(
-                    artist: viewModel.artist,
-                    size: .medium,
-                    cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
-                    isResponsive: true
-                )
-            }
+        CrossfadingArtistArtworkImage(image: displayedArtworkImage) {
+            ArtworkView(
+                artist: viewModel.artist,
+                size: .medium,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
+                isResponsive: true
+            )
         }
         .frame(
             width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
@@ -1030,27 +1166,17 @@ public struct ArtistDetailView: View {
             let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
             ZStack(alignment: .bottom) {
-                // Artist artwork — uses artworkImage directly instead of ArtworkView
-                // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
-                // which prevent the image from covering the full banner width on macOS.
-                Group {
-                    if let img = artworkImage {
-                        #if os(macOS)
-                        Image(nsImage: img)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geometry.size.width, height: artworkHeight)
-                        #else
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geometry.size.width, height: artworkHeight)
-                        #endif
-                    } else {
-                        EnsembleScaffold.ArtistDetail.placeholderArtworkColor
-                            .frame(width: geometry.size.width, height: artworkHeight)
-                    }
+                // The resolved hero image fills the banner directly; ArtworkView is
+                // only the unresolved fallback so it doesn't constrain the final image.
+                CrossfadingArtistArtworkImage(image: displayedArtworkImage) {
+                    ArtworkView(
+                        artist: viewModel.artist,
+                        size: .large,
+                        cornerRadius: 0,
+                        isResponsive: true
+                    )
                 }
+                .frame(width: geometry.size.width, height: artworkHeight)
                 .clipped()
                 .mask(
                     LinearGradient(
