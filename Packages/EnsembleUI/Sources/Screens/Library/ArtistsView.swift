@@ -497,7 +497,6 @@ public struct ArtistDetailView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
-    @State private var isInitialContentVisible = false
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
@@ -573,20 +572,14 @@ public struct ArtistDetailView: View {
             updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task {
-            isInitialContentVisible = false
             async let artworkLoad: () = loadArtworkImage()
-            await viewModel.loadAlbums()
-            await viewModel.loadTracks()
-            await viewModel.loadArtistDetail()
+            async let albumsLoad: () = viewModel.loadAlbums()
+            async let tracksLoad: () = viewModel.loadTracks()
+            async let detailLoad: () = viewModel.loadArtistDetail()
             if displayArtist.isMerged {
                 await mergedViewModel.load()
             }
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.16)) {
-                isInitialContentVisible = true
-            }
-            _ = await artworkLoad
+            _ = await (artworkLoad, albumsLoad, tracksLoad, detailLoad)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
@@ -595,59 +588,49 @@ public struct ArtistDetailView: View {
         GeometryReader { geometry in
             let containerWidth = geometry.size.width
 
-            ZStack(alignment: .top) {
-                ScrollView {
-                    VStack(spacing: EnsembleDesign.Spacing.none) {
-                        artistHeader(containerWidth: containerWidth)
+            ScrollView {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
+                    artistHeader(containerWidth: containerWidth)
 
-                        if displayArtist.isMerged {
-                            if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
-                                ProgressView()
-                                    .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                            } else if !mergedViewModel.sourceSections.isEmpty {
-                                mergedSourceSections
-                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                            }
-                        } else {
-                            // Albums Section
-                            if viewModel.isLoading && viewModel.albums.isEmpty {
-                                ProgressView()
-                                    .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                            } else if !viewModel.albums.isEmpty {
-                                albumsSection
-                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                            }
-
-                            // Favorited Tracks (4+ stars)
-                            if !viewModel.favoritedTracks.isEmpty {
-                                favoritedTracksSection
-                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                            }
+                    if displayArtist.isMerged {
+                        if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
+                            ProgressView()
+                                .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                        } else if !mergedViewModel.sourceSections.isEmpty {
+                            mergedSourceSections
+                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                         }
-
-                        // About section (quick facts + bio + Wikipedia)
-                        if hasAboutContent {
-                            aboutSection
-                                .padding(.horizontal)
+                    } else {
+                        // Albums Section
+                        if viewModel.isLoading && viewModel.albums.isEmpty {
+                            ProgressView()
+                                .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                        } else if !viewModel.albums.isEmpty {
+                            albumsSection
                                 .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                         }
 
-                        // Related Artists (only those in user's library)
-                        if !viewModel.resolvedSimilarArtists.isEmpty {
-                            relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
+                        // Favorited Tracks (4+ stars)
+                        if !viewModel.favoritedTracks.isEmpty {
+                            favoritedTracksSection
                                 .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                         }
                     }
-                    .frame(maxWidth: .infinity)
-                }
-                .opacity(isInitialContentVisible ? 1 : 0)
-                .allowsHitTesting(isInitialContentVisible)
 
-                if !isInitialContentVisible {
-                    ProgressView()
-                        .padding(.top, EnsembleScaffold.ArtistDetail.wideHeaderTopPadding)
-                        .frame(maxWidth: .infinity)
+                    // About section (quick facts + bio + Wikipedia)
+                    if hasAboutContent {
+                        aboutSection
+                            .padding(.horizontal)
+                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                    }
+
+                    // Related Artists (only those in user's library)
+                    if !viewModel.resolvedSimilarArtists.isEmpty {
+                        relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
+                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                    }
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }

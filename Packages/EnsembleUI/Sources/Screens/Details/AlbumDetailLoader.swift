@@ -52,17 +52,20 @@ struct AlbumDetailLoader: View {
     private func loadAlbum() async {
         EnsembleLogger.debug("💿 AlbumDetailLoader: loading album \(albumId)")
         do {
-            guard let cdAlbum = try await deps.libraryRepository.fetchAlbum(
+            async let albumFetch = deps.libraryRepository.fetchAlbum(
                 ratingKey: albumId,
                 sourceCompositeKey: albumSourceKey
-            ) else {
+            )
+            async let trackFetch = loadCachedTracks(albumId: albumId, sourceKey: albumSourceKey)
+
+            guard let cdAlbum = try await albumFetch else {
                 finishLoading(album: nil, initialTracks: nil, error: nil)
                 EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
                 return
             }
 
             let loadedAlbum = Album(from: cdAlbum)
-            let loadedTracks = await loadInitialTracks(for: loadedAlbum)
+            let loadedTracks = await trackFetch
             finishLoading(album: loadedAlbum, initialTracks: loadedTracks, error: nil)
         } catch {
             finishLoading(album: nil, initialTracks: nil, error: error)
@@ -70,28 +73,21 @@ struct AlbumDetailLoader: View {
         EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
     }
 
-    private func loadInitialTracks(for album: Album) async -> [Track]? {
+    private func loadCachedTracks(albumId: String, sourceKey: String?) async -> [Track]? {
         do {
             let cachedTracks: [Track]
-            if let sourceKey = album.sourceCompositeKey {
+            if let sourceKey {
                 cachedTracks = try await deps.libraryRepository
-                    .fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey)
+                    .fetchTracks(forAlbum: albumId, sourceCompositeKey: sourceKey)
                     .map { Track(from: $0) }
             } else {
                 cachedTracks = try await deps.libraryRepository
-                    .fetchTracks(forAlbum: album.id)
+                    .fetchTracks(forAlbum: albumId)
                     .map { Track(from: $0) }
             }
-
-            if !cachedTracks.isEmpty || album.trackCount == 0 {
-                return cachedTracks
-            }
-
-            if let sourceKey = album.sourceCompositeKey {
-                return try await deps.syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
-            }
+            return cachedTracks.isEmpty ? nil : cachedTracks
         } catch {
-            EnsembleLogger.debug("💿 AlbumDetailLoader: initial track load failed for \(album.id): \(error.localizedDescription)")
+            EnsembleLogger.debug("💿 AlbumDetailLoader: cached track load failed for \(albumId): \(error.localizedDescription)")
         }
 
         return nil

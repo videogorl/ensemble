@@ -957,8 +957,7 @@ public struct PlaylistDetailView: View {
                         onPlayLast: {
                             nowPlayingVM.playLast(viewModel.filteredTracks)
                         }
-                    ),
-                    holdsInitialReveal: true
+                    )
                 )
             }
         }

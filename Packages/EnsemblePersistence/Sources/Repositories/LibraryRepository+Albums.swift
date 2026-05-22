@@ -42,6 +42,8 @@ extension LibraryRepository {
                 } else {
                     request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
                 }
+                request.fetchLimit = 1
+                request.relationshipKeyPathsForPrefetching = ["artist"]
                 do {
                     let album = try context.fetch(request).first
                     continuation.resume(returning: album)

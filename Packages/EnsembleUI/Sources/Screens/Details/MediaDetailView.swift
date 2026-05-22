@@ -71,8 +71,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
     let additionalFooterContent: AnyView?
-    let holdsInitialReveal: Bool
-    let initialRevealPreparation: (() async -> Void)?
+    let supplementalLoad: (() async -> Void)?
     /// Custom pin/unpin action for merged playlists (pins all constituents).
     /// When nil, the default single-item pin behavior is used.
     let customPinAction: ((Bool) -> Void)?
@@ -88,7 +87,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
-    @State private var isInitialContentVisible = false
     @State private var trackPendingDeletion: Track?
     @State private var isConfirmingTrackDelete = false
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
@@ -117,8 +115,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
         additionalFooterContent: AnyView? = nil,
-        holdsInitialReveal: Bool = false,
-        initialRevealPreparation: (() async -> Void)? = nil,
+        supplementalLoad: (() async -> Void)? = nil,
         customPinAction: ((Bool) -> Void)? = nil,
         customIsPinned: ((Set<String>) -> Bool)? = nil
     ) {
@@ -135,8 +132,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
         self.additionalFooterContent = additionalFooterContent
-        self.holdsInitialReveal = holdsInitialReveal
-        self.initialRevealPreparation = initialRevealPreparation
+        self.supplementalLoad = supplementalLoad
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
 
@@ -721,27 +717,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             contentBleedsUnderTopChrome: true,
             contentBleedsUnderBottomChrome: true
         ) {
-            ZStack(alignment: .top) {
-                detailContent
-                    .opacity(isHeldContentVisible ? 1 : 0)
-                    .allowsHitTesting(isHeldContentVisible)
-
-                if !isHeldContentVisible {
-                    ProgressView()
-                        .padding(.top, tableHeaderTopPadding)
-                        .frame(maxWidth: .infinity)
-                }
-            }
+            detailContent
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-    }
-
-    private var isHeldContentVisible: Bool {
-        !holdsInitialReveal || isInitialContentVisible
     }
 
     @ViewBuilder
@@ -764,23 +746,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func runInitialLoads() async {
-        if holdsInitialReveal {
-            isInitialContentVisible = false
-        }
-
         async let trackLoad: () = loadTracksIfNeeded()
         async let artworkLoad: () = loadHeaderArtworkIfNeeded()
-        if let initialRevealPreparation {
-            await initialRevealPreparation()
+        if let supplementalLoad {
+            await supplementalLoad()
         }
         _ = await (trackLoad, artworkLoad)
-
-        guard holdsInitialReveal, !Task.isCancelled else { return }
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        guard !Task.isCancelled else { return }
-        withAnimation(.easeInOut(duration: 0.16)) {
-            isInitialContentVisible = true
-        }
     }
 
     private func loadTracksIfNeeded() async {

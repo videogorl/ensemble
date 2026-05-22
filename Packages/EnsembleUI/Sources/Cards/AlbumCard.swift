@@ -164,63 +164,25 @@ public struct AlbumGrid: View {
     public var body: some View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
             ForEach(albums, id: \.sourceScopedID) { album in
-                if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(
-                        value: NavigationCoordinator.Destination.album(
-                            id: album.id,
-                            sourceKey: album.sourceCompositeKey
-                        )
-                    ) {
-                        AlbumCard(album: album, layout: layout)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        AlbumActionsContextMenu(
-                            album: album,
-                            nowPlayingVM: nowPlayingVM,
-                            presentPlaylistPicker: { tracks, title in
-                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                            },
-                            onGetInfo: {
-                                libraryItemInfoRequest = .album(album)
-                            },
-                            onEditMetadata: {
-                                presentAlbumMetadataEditor(album)
-                            },
-                            onDelete: {
-                                pendingAlbumDeletion = album
-                            }
-                        )
-                    }
-                } else {
-                    // iOS 15 fallback
-                    NavigationLink {
-                        AlbumDetailLoader(
-                            albumId: album.id,
-                            albumSourceKey: album.sourceCompositeKey,
-                            nowPlayingVM: nowPlayingVM
-                        )
+                if let onAlbumTap {
+                    Button {
+                        onAlbumTap(album)
                     } label: {
                         AlbumCard(album: album, layout: layout)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        AlbumActionsContextMenu(
-                            album: album,
-                            nowPlayingVM: nowPlayingVM,
-                            presentPlaylistPicker: { tracks, title in
-                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                            },
-                            onGetInfo: {
-                                libraryItemInfoRequest = .album(album)
-                            },
-                            onEditMetadata: {
-                                presentAlbumMetadataEditor(album)
-                            },
-                            onDelete: {
-                                pendingAlbumDeletion = album
-                            }
-                        )
+                        albumContextMenu(for: album)
+                    }
+                } else {
+                    NavigationLink {
+                        AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                    } label: {
+                        AlbumCard(album: album, layout: layout)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        albumContextMenu(for: album)
                     }
                 }
             }
@@ -261,6 +223,26 @@ public struct AlbumGrid: View {
                 Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
             }
         }
+    }
+
+    @ViewBuilder
+    private func albumContextMenu(for album: Album) -> some View {
+        AlbumActionsContextMenu(
+            album: album,
+            nowPlayingVM: nowPlayingVM,
+            presentPlaylistPicker: { tracks, title in
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+            },
+            onGetInfo: {
+                libraryItemInfoRequest = .album(album)
+            },
+            onEditMetadata: {
+                presentAlbumMetadataEditor(album)
+            },
+            onDelete: {
+                pendingAlbumDeletion = album
+            }
+        )
     }
 
     private func presentAlbumMetadataEditor(_ album: Album) {

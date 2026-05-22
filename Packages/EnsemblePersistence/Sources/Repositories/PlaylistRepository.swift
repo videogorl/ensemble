@@ -227,6 +227,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     // Prefer the freshest copy if multiple servers share a rating key.
                     request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
                 }
+                request.fetchLimit = 1
                 request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                 do {
                     let playlist = try context.fetch(request).first

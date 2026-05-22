@@ -70,38 +70,20 @@ public struct PlaylistRow: View {
         if let onTap {
             playlistRowContent
                 .onTapGesture(perform: onTap)
-        } else if #available(iOS 16.0, macOS 13.0, *) {
-            if isDisabled {
-                playlistRowContent
-            } else {
-                NavigationLink(value: navigationDestination) {
-                    playlistRowContent
-                }
-                .buttonStyle(.plain)
-            }
         } else {
-            // iOS 15 fallback
             Group {
                 if isDisabled {
                     playlistRowContent
                 } else if displayPlaylist.isMerged {
                     NavigationLink {
-                        MergedPlaylistDetailLoader(
-                            title: displayPlaylist.title,
-                            isSmart: displayPlaylist.isSmart,
-                            nowPlayingVM: nowPlayingVM
-                        )
+                        MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
                     } label: {
                         playlistRowContent
                     }
                     .buttonStyle(.plain)
                 } else {
                     NavigationLink {
-                        PlaylistDetailLoader(
-                            playlistId: displayPlaylist.primaryPlaylist.id,
-                            playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
-                            nowPlayingVM: nowPlayingVM
-                        )
+                        PlaylistDetailView(playlist: displayPlaylist.primaryPlaylist, nowPlayingVM: nowPlayingVM)
                     } label: {
                         playlistRowContent
                     }
@@ -109,17 +91,6 @@ public struct PlaylistRow: View {
                 }
             }
         }
-    }
-
-    /// Navigation destination for iOS 16+ value-based NavigationLink
-    private var navigationDestination: NavigationCoordinator.Destination {
-        if displayPlaylist.isMerged {
-            return .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
-        }
-        return .playlist(
-            id: displayPlaylist.primaryPlaylist.id,
-            sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey
-        )
     }
 
     private var playlistRowContent: some View {

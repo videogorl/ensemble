@@ -322,8 +322,7 @@ public struct AlbumDetailView: View {
                 }
             ),
             additionalFooterContent: AnyView(albumMetadataFooter),
-            holdsInitialReveal: true,
-            initialRevealPreparation: {
+            supplementalLoad: {
                 await viewModel.loadAlbumDetail()
                 await viewModel.loadRelatedAlbums()
                 await viewModel.loadSimilarAlbums()
