@@ -321,7 +321,13 @@ public struct AlbumDetailView: View {
                     nowPlayingVM.playLast(viewModel.filteredTracks)
                 }
             ),
-            additionalFooterContent: AnyView(albumMetadataFooter)
+            additionalFooterContent: AnyView(albumMetadataFooter),
+            holdsInitialReveal: true,
+            initialRevealPreparation: {
+                await viewModel.loadAlbumDetail()
+                await viewModel.loadRelatedAlbums()
+                await viewModel.loadSimilarAlbums()
+            }
         )
         .sheet(item: $metadataEditorRequest) { request in
             TextInputView(
@@ -366,11 +372,6 @@ public struct AlbumDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
-        }
-        .task {
-            await viewModel.loadAlbumDetail()
-            await viewModel.loadRelatedAlbums()
-            await viewModel.loadSimilarAlbums()
         }
     }
 

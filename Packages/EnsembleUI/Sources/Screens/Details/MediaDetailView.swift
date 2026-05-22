@@ -71,6 +71,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
     let additionalFooterContent: AnyView?
+    let holdsInitialReveal: Bool
+    let initialRevealPreparation: (() async -> Void)?
     /// Custom pin/unpin action for merged playlists (pins all constituents).
     /// When nil, the default single-item pin behavior is used.
     let customPinAction: ((Bool) -> Void)?
@@ -86,6 +88,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+    @State private var isInitialContentVisible = false
     @State private var trackPendingDeletion: Track?
     @State private var isConfirmingTrackDelete = false
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
@@ -114,6 +117,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
         additionalFooterContent: AnyView? = nil,
+        holdsInitialReveal: Bool = false,
+        initialRevealPreparation: (() async -> Void)? = nil,
         customPinAction: ((Bool) -> Void)? = nil,
         customIsPinned: ((Set<String>) -> Bool)? = nil
     ) {
@@ -130,6 +135,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
         self.additionalFooterContent = additionalFooterContent
+        self.holdsInitialReveal = holdsInitialReveal
+        self.initialRevealPreparation = initialRevealPreparation
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
 
@@ -217,12 +224,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             )
         }
         .task {
-            if !viewModel.hasLoadedTracks {
-                await viewModel.loadTracks()
-            }
-            if let path = headerData.artworkPath {
-                await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
-            }
+            await runInitialLoads()
         }
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
@@ -719,27 +721,78 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             contentBleedsUnderTopChrome: true,
             contentBleedsUnderBottomChrome: true
         ) {
-            #if os(iOS)
-            // Always use MediaTrackList (UITableView), even with 0 tracks.
-            // Loading/empty indicators are shown via tableFooterContent.
-            // This keeps the header (genre chips + artwork + buttons) in a single
-            // code path with consistent safe area handling. The table uses UIKit's
-            // automatic top content inset so rows can pass under transparent toolbar
-            // chrome without a SwiftUI spacer or titlebar compensation shim.
-            tracksSection
-            #else
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                tracksSection
-                Spacer(minLength: EnsembleDesign.Spacing.none)
+            ZStack(alignment: .top) {
+                detailContent
+                    .opacity(isHeldContentVisible ? 1 : 0)
+                    .allowsHitTesting(isHeldContentVisible)
+
+                if !isHeldContentVisible {
+                    ProgressView()
+                        .padding(.top, tableHeaderTopPadding)
+                        .frame(maxWidth: .infinity)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            #endif
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    private var isHeldContentVisible: Bool {
+        !holdsInitialReveal || isInitialContentVisible
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        #if os(iOS)
+        // Always use MediaTrackList (UITableView), even with 0 tracks.
+        // Loading/empty indicators are shown via tableFooterContent.
+        // This keeps the header (genre chips + artwork + buttons) in a single
+        // code path with consistent safe area handling. The table uses UIKit's
+        // automatic top content inset so rows can pass under transparent toolbar
+        // chrome without a SwiftUI spacer or titlebar compensation shim.
+        tracksSection
+        #else
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            tracksSection
+            Spacer(minLength: EnsembleDesign.Spacing.none)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #endif
+    }
+
+    private func runInitialLoads() async {
+        if holdsInitialReveal {
+            isInitialContentVisible = false
+        }
+
+        async let trackLoad: () = loadTracksIfNeeded()
+        async let artworkLoad: () = loadHeaderArtworkIfNeeded()
+        if let initialRevealPreparation {
+            await initialRevealPreparation()
+        }
+        _ = await (trackLoad, artworkLoad)
+
+        guard holdsInitialReveal, !Task.isCancelled else { return }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard !Task.isCancelled else { return }
+        withAnimation(.easeInOut(duration: 0.16)) {
+            isInitialContentVisible = true
+        }
+    }
+
+    private func loadTracksIfNeeded() async {
+        if !viewModel.hasLoadedTracks {
+            await viewModel.loadTracks()
+        }
+    }
+
+    private func loadHeaderArtworkIfNeeded() async {
+        if let path = headerData.artworkPath {
+            await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
+        }
     }
 
     private func loadArtworkImage(path: String, sourceKey: String?) async {
@@ -818,6 +871,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
             CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: artworkCornerRadius)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+        } else if let artworkImage {
+            platformHeaderArtwork(artworkImage)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         } else {
             ArtworkView(
                 path: headerData.artworkPath,
@@ -828,6 +884,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         }
+    }
+
+    @ViewBuilder
+    private func platformHeaderArtwork(_ image: PlatformImage) -> some View {
+        #if os(macOS)
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: ArtworkSize.medium.cgSize.width, height: ArtworkSize.medium.cgSize.height)
+        #else
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: ArtworkSize.medium.cgSize.width, height: ArtworkSize.medium.cgSize.height)
+        #endif
     }
 
     private func headerMetadata(alignment: HorizontalAlignment) -> some View {
