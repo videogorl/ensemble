@@ -1,7 +1,7 @@
 import EnsembleCore
 import SwiftUI
 
-enum NowPlayingPanelPage: Int {
+enum NowPlayingPanelPage: Int, CaseIterable {
     case queue = 0
     case controls = 1
     case lyrics = 2
@@ -15,6 +15,16 @@ enum NowPlayingPanelPage: Int {
     /// complete panels before SwiftUI commits the new selection at the midpoint.
     func shouldRenderContent(currentPage: Int, isAlwaysVisible: Bool = false) -> Bool {
         isAlwaysVisible || abs(currentPage - rawValue) <= 1
+    }
+
+    static func detailPage(for currentPage: Int) -> NowPlayingPanelPage {
+        if currentPage == NowPlayingPanelPage.info.rawValue {
+            return .info
+        }
+        if currentPage == NowPlayingPanelPage.lyrics.rawValue {
+            return .lyrics
+        }
+        return .queue
     }
 }
 
@@ -35,21 +45,15 @@ public struct NowPlayingCarousel: View {
     public var body: some View {
         ZStack(alignment: .bottom) {
             TabView(selection: $currentPage) {
-                // Page 0: Queue (swipe left from center)
-                QueueCard(viewModel: viewModel, currentPage: $currentPage)
-                    .tag(0)
-
-                // Page 1: Controls (center, default)
-                ControlsCard(viewModel: viewModel, currentPage: $currentPage)
-                    .tag(1)
-
-                // Page 2: Lyrics (swipe right from center)
-                LyricsCard(viewModel: viewModel, currentPage: $currentPage, isLowPowerMode: powerStateMonitor.isLowPowerMode)
-                    .tag(2)
-
-                // Page 3: Info (far right)
-                InfoCard(viewModel: viewModel, currentPage: $currentPage)
-                    .tag(3)
+                ForEach(NowPlayingPanelPage.allCases, id: \.rawValue) { page in
+                    NowPlayingPanelCard(
+                        page: page,
+                        viewModel: viewModel,
+                        currentPage: $currentPage,
+                        isLowPowerMode: powerStateMonitor.isLowPowerMode
+                    )
+                    .tag(page.rawValue)
+                }
             }
             #if os(iOS)
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide native page dots
