@@ -24,7 +24,7 @@ Load the smallest relevant set of skills before non-trivial work:
 | `common-tasks` | Adding ViewModels, views, CoreData entities, hubs, music sources, playlist mutations, sync triggers, downloads, or Siri flows |
 | `testing` | Writing tests, making non-trivial code changes, or deciding verification scope |
 | `simulator-test` | Validating user-visible behavior in the running app |
-| `surface-sweep` | Visually touching every reachable iPhone, iPad, and macOS app surface with repeatable screenshot/accessibility evidence |
+| `surface-sweep` | Agent-run visual sweeps of every reachable iPhone, iPad, and macOS app surface with screenshots, logs, repro steps, findings, and fix reports |
 | `known-issues` | Investigating bugs, planning around active limitations, or touching fragile areas |
 | `plex-api` | Implementing or debugging Plex API, streaming, playback tracking, playlists, hubs, search, or sync endpoints |
 

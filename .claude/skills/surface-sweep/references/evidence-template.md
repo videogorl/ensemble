@@ -1,6 +1,6 @@
 # Surface Sweep Evidence Template
 
-Use this structure for the final notes file in the artifact root, usually `surface-sweep-notes.md`.
+Use this structure for the final notes file in the artifact root, usually `surface-sweep-notes.md`. Pair it with `fix-report.json` when findings need agent follow-up.
 
 ```markdown
 # Ensemble Surface Sweep
@@ -33,9 +33,21 @@ Artifact root:
 
 ## Findings
 
-| Severity | Platform | Surface | Evidence | Notes |
-|---|---|---|---|---|
-| P1/P2/P3 | | | | |
+| ID | Severity | Confidence | Platform | Surface | Evidence | Fix report section |
+|---|---|---|---|---|---|---|
+| SWEEP-001 | P1/P2/P3 | High/Medium/Low | | | | |
+
+## Repro Index
+
+| ID | Repro route | Screenshots | UI dumps | Logs | Verification after fix |
+|---|---|---|---|---|---|
+| SWEEP-001 | | | | | |
+
+## Runner Reports
+
+- iPhone:
+- iPad:
+- macOS:
 
 ## iPhone Checklist
 
@@ -110,4 +122,11 @@ Artifact root:
 - Clear cache/data:
 - Mass download mutations:
 - Credential submission:
+
+## Generated Fix Report
+
+- JSON path:
+- Markdown path:
+- Findings promoted:
+- Needs recheck:
 ```
