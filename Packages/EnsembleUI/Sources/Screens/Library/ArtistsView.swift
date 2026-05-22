@@ -493,6 +493,7 @@ public struct ArtistDetailView: View {
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: PlatformImage?
+    @State private var currentArtworkLoadIdentity: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
@@ -572,13 +573,14 @@ public struct ArtistDetailView: View {
             updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task {
+            async let artworkLoad: () = loadArtworkImage()
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
             await viewModel.loadArtistDetail()
             if displayArtist.isMerged {
                 await mergedViewModel.load()
             }
-            await loadArtworkImage()
+            _ = await artworkLoad
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
@@ -696,23 +698,67 @@ public struct ArtistDetailView: View {
     }
     
     private func loadArtworkImage() async {
+        let artist = viewModel.artist
+        let loadIdentity = artist.sourceScopedID
+
+        await MainActor.run {
+            currentArtworkLoadIdentity = loadIdentity
+        }
+
+        await loadCachedArtworkSeed(for: artist, loadIdentity: loadIdentity)
+
         if let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: viewModel.artist.thumbPath,
-            sourceKey: viewModel.artist.sourceCompositeKey,
-            ratingKey: viewModel.artist.id,
-            fallbackPath: viewModel.artist.fallbackThumbPath,
-            fallbackRatingKey: viewModel.artist.fallbackRatingKey,
+            for: artist.thumbPath,
+            sourceKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
             size: 600
         ) {
             let request = ImageRequest(url: url)
+
+            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                let heroImage = Self.artistHeroImage(from: cachedImage.image)
+                await MainActor.run {
+                    guard currentArtworkLoadIdentity == loadIdentity else { return }
+                    artworkImage = heroImage
+                }
+                return
+            }
+
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                 let heroImage = Self.artistHeroImage(from: uiImage)
                 await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.5)) {
+                    guard currentArtworkLoadIdentity == loadIdentity else { return }
+                    withAnimation(.easeInOut(duration: 0.2)) {
                         self.artworkImage = heroImage
                     }
                 }
             }
+        }
+    }
+
+    private func loadCachedArtworkSeed(for artist: Artist, loadIdentity: String) async {
+        guard let url = await dependencies.artworkLoader.artworkURLAsync(
+            for: artist.thumbPath,
+            sourceKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
+            size: ArtworkSize.thumbnail.rawValue
+        ) else {
+            return
+        }
+
+        let request = ImageRequest(url: url)
+        guard let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) else {
+            return
+        }
+
+        let heroImage = Self.artistHeroImage(from: cachedImage.image)
+        await MainActor.run {
+            guard currentArtworkLoadIdentity == loadIdentity, artworkImage == nil else { return }
+            artworkImage = heroImage
         }
     }
 

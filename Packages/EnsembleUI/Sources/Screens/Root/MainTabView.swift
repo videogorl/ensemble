@@ -152,7 +152,10 @@ public struct MainTabView: View {
                     reconcileInitialTabSelection()
                     didSetInitialTab = true
                 }
-                await libraryVM.refresh()
+                async let libraryRefresh: () = libraryVM.refresh()
+                async let searchExploreLoad: () = searchVM.loadExploreContentIfNeeded()
+                async let pinsLoad: () = pinnedVM.loadPinnedItems()
+                _ = await (libraryRefresh, searchExploreLoad, pinsLoad)
             }
             // Observation-extracted receivers — update @State only when specific values change,
             // avoiding full root view invalidation from singleton objectWillChange.
