@@ -241,6 +241,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         case airPlay
     }
 
+    enum PreviousNavigationTarget: Equatable {
+        case seekToZero
+        case queueIndex(Int)
+        case historyIndex(Int)
+    }
+
     struct NetworkTransitionDecision: Equatable {
         let shouldRefreshConnection: Bool
         let shouldAutoHealQueue: Bool
@@ -257,8 +263,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let conservativeModeDuration: TimeInterval = PlaybackRecoveryPolicy.conservativeModeDuration
     static let recoveryCooldown: TimeInterval = PlaybackRecoveryPolicy.recoveryCooldown
     static let bufferedSeekGateDuration: TimeInterval = 3
+    static let previousRestartThreshold: TimeInterval = 3
     static let prefetchThrottleDuration: TimeInterval = PlaybackRecoveryPolicy.prefetchThrottleDuration
     static let minUnexpectedPauseInterval: TimeInterval = PlaybackRecoveryPolicy.minUnexpectedPauseInterval
+
+    static func previousNavigationTarget(
+        currentTime: TimeInterval,
+        currentQueueIndex: Int,
+        playbackHistoryCount: Int
+    ) -> PreviousNavigationTarget {
+        if currentTime > previousRestartThreshold {
+            return .seekToZero
+        }
+        if currentQueueIndex > 0 {
+            return .queueIndex(currentQueueIndex - 1)
+        }
+        if playbackHistoryCount > 0 {
+            return .historyIndex(playbackHistoryCount - 1)
+        }
+        return .seekToZero
+    }
 
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
@@ -3185,24 +3209,31 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func previous() {
+        let target = Self.previousNavigationTarget(
+            currentTime: currentTime,
+            currentQueueIndex: currentQueueIndex,
+            playbackHistoryCount: playbackHistory.count
+        )
+
         if playbackState == .paused {
             Task { @MainActor in
-                self.navigateToPreviousQueueItemWhilePaused()
+                self.navigateToPreviousItemWhilePaused(target)
             }
             return
         }
 
-        // If more than 3 seconds in, restart current track
-        if currentTime > 3 {
+        switch target {
+        case .seekToZero:
             seek(to: 0)
-            return
+        case let .queueIndex(index):
+            navigateToPreviousQueueItemWhilePlaying(at: index)
+        case let .historyIndex(index):
+            navigateToPreviousHistoryItemWhilePlaying(at: index)
         }
+    }
 
-        // Go to previous item in queue (don't reinject history items)
-        guard currentQueueIndex > 0 else {
-            seek(to: 0)
-            return
-        }
+    private func navigateToPreviousQueueItemWhilePlaying(at index: Int) {
+        guard queue.indices.contains(index), index < currentQueueIndex else { return }
         resetHandoffForUserPlaybackIntent()
 
         // Cancel any in-progress skip transition
@@ -3226,7 +3257,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             playbackHistory.removeLast()
         }
 
-        currentQueueIndex -= 1
+        currentQueueIndex = index
 
         // Push previous track info to lock screen with rate=1.0
         if currentQueueIndex >= 0, currentQueueIndex < queue.count {
@@ -3239,6 +3270,49 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard let self else { return }
             guard !Task.isCancelled else { return }
             await self.playCurrentQueueItem(caller: "previous()")
+            guard !Task.isCancelled else { return }
+            self.savePlaybackState()
+            await self.checkAndRefreshAutoplayQueue()
+        }
+    }
+
+    private func navigateToPreviousHistoryItemWhilePlaying(at historyIndex: Int) {
+        guard playbackHistory.indices.contains(historyIndex) else {
+            seek(to: 0)
+            return
+        }
+        resetHandoffForUserPlaybackIntent()
+
+        skipTransitionTask?.cancel()
+        skipTransitionTask = nil
+
+        isSkipTransitionInProgress = true
+        armSkipTransitionSafety()
+        audioEngine?.clearScheduledFiles()
+        audioEngine?.pause()
+        playbackState = .loading
+
+        let historyItem = playbackHistory[historyIndex]
+        let trackId = historyItem.track.playbackIdentity
+        if let existingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) {
+            playbackHistory.removeSubrange(historyIndex...)
+            currentQueueIndex = existingIndex
+        } else {
+            playbackHistory.remove(at: historyIndex)
+            let insertPosition = max(0, currentQueueIndex)
+            queue.insert(historyItem, at: insertPosition)
+            currentQueueIndex = insertPosition
+        }
+
+        isNavigatingBackward = true
+        currentTrack = queue[currentQueueIndex].track
+        updatePlaybackTimes(rawTime: 0)
+        pushNowPlayingForSkipTransition()
+
+        skipTransitionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            await self.playCurrentQueueItem(caller: "previous-history")
             guard !Task.isCancelled else { return }
             self.savePlaybackState()
             await self.checkAndRefreshAutoplayQueue()
@@ -3258,17 +3332,49 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
-    private func navigateToPreviousQueueItemWhilePaused() {
-        guard currentQueueIndex > 0 else {
+    private func navigateToPreviousItemWhilePaused(_ target: PreviousNavigationTarget) {
+        switch target {
+        case .seekToZero:
             seek(to: 0)
-            return
+        case let .queueIndex(index):
+            navigateToPreviousQueueItemWhilePaused(at: index)
+        case let .historyIndex(index):
+            navigateToPreviousHistoryItemWhilePaused(at: index)
         }
+    }
 
+    @MainActor
+    private func navigateToPreviousQueueItemWhilePaused(at index: Int) {
+        guard queue.indices.contains(index), index < currentQueueIndex else { return }
         resetHandoffForUserPlaybackIntent()
         if !playbackHistory.isEmpty {
             playbackHistory.removeLast()
         }
-        selectQueueItemWhilePaused(at: currentQueueIndex - 1, caller: "previous-paused")
+        selectQueueItemWhilePaused(at: index, caller: "previous-paused")
+    }
+
+    @MainActor
+    private func navigateToPreviousHistoryItemWhilePaused(at historyIndex: Int) {
+        guard playbackHistory.indices.contains(historyIndex) else {
+            seek(to: 0)
+            return
+        }
+        resetHandoffForUserPlaybackIntent()
+
+        let historyItem = playbackHistory[historyIndex]
+        let trackId = historyItem.track.playbackIdentity
+        let targetIndex: Int
+        if let existingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) {
+            playbackHistory.removeSubrange(historyIndex...)
+            targetIndex = existingIndex
+        } else {
+            playbackHistory.remove(at: historyIndex)
+            targetIndex = max(0, currentQueueIndex)
+            queue.insert(historyItem, at: targetIndex)
+        }
+
+        isNavigatingBackward = true
+        selectQueueItemWhilePaused(at: targetIndex, caller: "previous-history-paused")
     }
 
     @MainActor

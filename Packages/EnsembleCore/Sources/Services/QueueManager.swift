@@ -191,9 +191,10 @@ public final class QueueManager {
             return .seekToZero
         }
 
-        // Can't go further back
+        // Prefer the queue index when available, otherwise fall back to the
+        // recorded history item that makes the Previous command enabled.
         guard currentQueueIndex > 0 else {
-            return .seekToZero
+            return playFromHistory(at: playbackHistory.count - 1) ?? .seekToZero
         }
 
         // Set flag to prevent recording to history when navigating backward

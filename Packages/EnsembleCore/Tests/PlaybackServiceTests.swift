@@ -603,6 +603,39 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testPreviousNavigationRestartsAfterThreshold() {
+        XCTAssertEqual(
+            PlaybackService.previousNavigationTarget(
+                currentTime: 5,
+                currentQueueIndex: 2,
+                playbackHistoryCount: 2
+            ),
+            .seekToZero
+        )
+    }
+
+    func testPreviousNavigationUsesQueueIndexBeforeThreshold() {
+        XCTAssertEqual(
+            PlaybackService.previousNavigationTarget(
+                currentTime: 1,
+                currentQueueIndex: 2,
+                playbackHistoryCount: 2
+            ),
+            .queueIndex(1)
+        )
+    }
+
+    func testPreviousNavigationUsesHistoryAtQueueStartBeforeThreshold() {
+        XCTAssertEqual(
+            PlaybackService.previousNavigationTarget(
+                currentTime: 1,
+                currentQueueIndex: 0,
+                playbackHistoryCount: 2
+            ),
+            .historyIndex(1)
+        )
+    }
+
     func testBaseBufferingProfileForWifiUsesLowLatencyAndDepthOne() {
         let profile = PlaybackService.baseBufferingProfile(for: .online(.wifi))
         XCTAssertFalse(profile.waitsToMinimizeStalling)

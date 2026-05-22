@@ -233,6 +233,27 @@ final class QueueNavigationTests: XCTestCase {
         }
     }
 
+    func testPreviousAtStartUsesHistoryWhenUnder3Seconds() {
+        let qm = QueueManager()
+        let previous = makeTrack("previous", title: "Previous Track")
+        let current = makeTrack("current", title: "Current Track")
+        qm._setQueueState(
+            queue: [QueueItem(track: current)],
+            currentIndex: 0,
+            history: [QueueItem(track: previous)]
+        )
+
+        let action = qm.previous(currentTime: 0.5)
+
+        if case .playIndex(let index) = action {
+            XCTAssertEqual(index, 0)
+            XCTAssertEqual(qm.currentTrack?.id, previous.id)
+            XCTAssertTrue(qm.playbackHistory.isEmpty)
+        } else {
+            XCTFail("Expected .playIndex for the most recent history item, got \(action)")
+        }
+    }
+
     func testNextThenPreviousDoesNotDuplicateHistory() {
         let qm = QueueManager()
         qm.setQueue(tracks: makeAlbumTracks(count: 5), startingAt: 0)
