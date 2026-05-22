@@ -172,8 +172,13 @@ public struct RootView: View {
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var isSoftwareKeyboardVisible = false
+    @State private var isRootNavigationSettling = false
+    @State private var rootNavigationSettlingTask: Task<Void, Never>?
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
+    #if os(macOS)
+    private static let rootNavigationSettlingNanoseconds: UInt64 = 700_000_000
+    #endif
 
     private var auroraAboveContent: Bool {
         #if os(iOS)
@@ -212,6 +217,7 @@ public struct RootView: View {
                         playbackService: DependencyContainer.shared.playbackService,
                         consumer: .rootBackdrop,
                         accentColor: EnsembleDesign.Color.accent,
+                        isPaused: isRootNavigationSettling,
                         isLowPowerMode: isLowPowerMode,
                         activeContentMaxWidth: 670
                     )
@@ -227,6 +233,7 @@ public struct RootView: View {
                         playbackService: DependencyContainer.shared.playbackService,
                         consumer: .rootBackdrop,
                         accentColor: EnsembleDesign.Color.accent,
+                        isPaused: isRootNavigationSettling,
                         isLowPowerMode: isLowPowerMode,
                         activeContentMaxWidth: 670
                     )
@@ -272,6 +279,7 @@ public struct RootView: View {
             .onDisappear {
                 NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
                 NavigationCoordinator.clearActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+                cancelRootNavigationSettling()
             }
             .onChange(of: scenePhase) { phase in
                 if phase == .active {
@@ -285,6 +293,11 @@ public struct RootView: View {
             .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
                 isLowPowerMode = newValue
             }
+            #if os(macOS)
+            .onReceive(navigationCoordinator.$selectedTab.dropFirst().removeDuplicates()) { _ in
+                beginRootNavigationSettling()
+            }
+            #endif
             #if canImport(UIKit)
             .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
                 if newValue != isSoftwareKeyboardVisible {
@@ -371,6 +384,39 @@ public struct RootView: View {
         UINavigationBar.appearance().compactAppearance = navAppearance
         UITabBar.appearance().standardAppearance = tabBarAppearance
         UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+        #endif
+    }
+
+    private func beginRootNavigationSettling() {
+        #if os(macOS)
+        guard settingsManager.auroraVisualizationEnabled && showsRootBackgroundAurora else {
+            return
+        }
+
+        rootNavigationSettlingTask?.cancel()
+
+        if !isRootNavigationSettling {
+            isRootNavigationSettling = true
+        }
+
+        rootNavigationSettlingTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: Self.rootNavigationSettlingNanoseconds)
+            } catch {
+                return
+            }
+
+            isRootNavigationSettling = false
+            rootNavigationSettlingTask = nil
+        }
+        #endif
+    }
+
+    private func cancelRootNavigationSettling() {
+        #if os(macOS)
+        rootNavigationSettlingTask?.cancel()
+        rootNavigationSettlingTask = nil
+        isRootNavigationSettling = false
         #endif
     }
 
