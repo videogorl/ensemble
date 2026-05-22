@@ -4,7 +4,7 @@ import SwiftUI
 /// Home screen displaying dynamic content hubs from Plex servers
 /// Hubs include Recently Added, Recently Played, Most Played, etc.
 public struct HomeView: View {
-    @StateObject private var viewModel: HomeViewModel
+    @ObservedObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @State private var profileBackgroundImage: PlatformImage?
@@ -14,8 +14,8 @@ public struct HomeView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
+    public init(nowPlayingVM: NowPlayingViewModel, viewModel: HomeViewModel? = nil) {
+        self.viewModel = viewModel ?? DependencyContainer.shared.makeHomeViewModel()
         self.nowPlayingVM = nowPlayingVM
     }
 

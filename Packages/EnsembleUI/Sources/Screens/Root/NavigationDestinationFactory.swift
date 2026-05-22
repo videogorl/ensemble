@@ -8,7 +8,9 @@ struct NavigationDestinationFactory {
         for tab: TabItem,
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
+        homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
+        pinnedVM: PinnedViewModel? = nil,
         isMoreRoot: Bool = false
     ) -> some View {
         if isMoreRoot {
@@ -19,7 +21,7 @@ struct NavigationDestinationFactory {
         } else {
             switch tab {
             case .home:
-                HomeView(nowPlayingVM: nowPlayingVM)
+                HomeView(nowPlayingVM: nowPlayingVM, viewModel: homeVM)
             case .songs:
                 SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .artists:
@@ -33,7 +35,7 @@ struct NavigationDestinationFactory {
             case .favorites:
                 FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
             case .search:
-                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM)
+                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM, pinnedVM: pinnedVM)
             case .downloads:
                 DownloadsView(nowPlayingVM: nowPlayingVM)
             case .settings:
@@ -48,7 +50,9 @@ struct NavigationDestinationFactory {
         for destination: NavigationCoordinator.Destination,
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
-        searchVM: SearchViewModel
+        homeVM: HomeViewModel? = nil,
+        searchVM: SearchViewModel,
+        pinnedVM: PinnedViewModel? = nil
     ) -> some View {
         switch destination {
         case .displayArtist(let id):
@@ -72,7 +76,9 @@ struct NavigationDestinationFactory {
                 for: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
-                searchVM: searchVM
+                homeVM: homeVM,
+                searchVM: searchVM,
+                pinnedVM: pinnedVM
             )
         }
     }

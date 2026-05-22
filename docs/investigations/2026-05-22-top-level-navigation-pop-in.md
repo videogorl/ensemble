@@ -44,6 +44,27 @@ Do not mitigate by reducing Aurora cadence or pausing the root backdrop during n
 4. Seed display projections synchronously when raw cached library arrays are assigned, then use background/debounced pipelines only for subsequent expensive recomputation.
 5. Make top-level views gate visible content on the same display projection they render, or keep the previous non-empty projection visible while recomputing.
 
+## First Fix Pass
+
+The first code pass addressed the lowest-risk churn:
+
+- `MainTabView` and `SidebarView` now own stable `HomeViewModel` and `PinnedViewModel` instances and pass them into destination content.
+- `HomeView` observes the root-owned `HomeViewModel`, so returning to Feed no longer creates a fresh cached-hub restore task.
+- `SearchView` observes the root-owned `PinnedViewModel`.
+- The unused `SearchView` `LibraryViewModel` was removed, eliminating a second library model with its own sync/account/download observers.
+
+This does not yet move album/artist section caches out of recreated view state, and it does not yet change `LibraryViewModel`'s delayed display projection pipeline.
+
+## Second Fix Pass
+
+The second code pass removed another view-local projection:
+
+- `LibraryViewModel` now publishes `artistSections` and `albumSections` with the same Combine pipelines that publish `displayArtists` and `filteredAlbums`.
+- `ArtistsView` and `AlbumsView` now render the model-owned sections directly.
+- The previous `.task(id:)` section recomputation in `ArtistsView` and `AlbumsView` was removed, so navigating back to those top-level views no longer starts from an empty local section cache while the view waits for a detached task to repopulate it.
+
+Remaining delayed projections are intentional search/filter debounces in `LibraryViewModel`. If top-level pop-in persists after this pass, the next target is seeding those display projections synchronously when raw cached arrays are assigned, then letting the debounced background pipelines handle subsequent filter/search changes.
+
 ## Verification Needed
 
 After the structural fix, verify on macOS with audio actively playing:

@@ -5,8 +5,7 @@ public struct SearchView: View {
     @StateObject private var viewModel: SearchViewModel
     let nowPlayingVM: NowPlayingViewModel
     @FocusState private var isSearchFieldFocused: Bool
-    @StateObject private var libraryVM: LibraryViewModel
-    @StateObject private var pinnedVM: PinnedViewModel
+    @ObservedObject private var pinnedVM: PinnedViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var isPinnedExpanded = false
     @State private var isEditingPins = false
@@ -31,14 +30,17 @@ public struct SearchView: View {
     @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.dependencies) private var deps
 
-    public init(nowPlayingVM: NowPlayingViewModel, viewModel: SearchViewModel? = nil) {
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        viewModel: SearchViewModel? = nil,
+        pinnedVM: PinnedViewModel? = nil
+    ) {
         let container = DependencyContainer.shared
         accountManager = container.accountManager
         syncCoordinator = container.syncCoordinator
         _viewModel = StateObject(wrappedValue: viewModel ?? container.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
-        _libraryVM = StateObject(wrappedValue: container.makeLibraryViewModel())
-        _pinnedVM = StateObject(wrappedValue: container.makePinnedViewModel())
+        self.pinnedVM = pinnedVM ?? container.makePinnedViewModel()
         _hasAnySources = State(initialValue: container.accountManager.hasAnySources)
         _isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
         _hasEnabledLibrariesState = State(

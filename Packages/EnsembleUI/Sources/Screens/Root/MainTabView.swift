@@ -9,7 +9,9 @@ import AppKit
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
+    @StateObject private var homeVM: HomeViewModel
     @StateObject private var searchVM: SearchViewModel
+    @StateObject private var pinnedVM: PinnedViewModel
     private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
@@ -51,7 +53,9 @@ public struct MainTabView: View {
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
+        self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
+        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
     }
 
     private var showsPhoneAuroraOverlay: Bool {
@@ -354,7 +358,9 @@ public struct MainTabView: View {
             for: tab,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
+            homeVM: homeVM,
             searchVM: searchVM,
+            pinnedVM: pinnedVM,
             isMoreRoot: isMoreRoot
         )
         .auroraBackgroundSupport()
@@ -371,7 +377,9 @@ public struct MainTabView: View {
             for: destination,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            searchVM: searchVM
+            homeVM: homeVM,
+            searchVM: searchVM,
+            pinnedVM: pinnedVM
         )
         .environment(\.showsProfileToolbar, false)
     }
@@ -512,6 +520,7 @@ public struct SidebarView: View {
 
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
+    @StateObject private var homeVM: HomeViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
@@ -557,6 +566,7 @@ public struct SidebarView: View {
     public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
+        self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -1332,7 +1342,9 @@ public struct SidebarView: View {
                     for: tab,
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
-                    searchVM: searchVM
+                    homeVM: homeVM,
+                    searchVM: searchVM,
+                    pinnedVM: pinnedVM
                 )
             }
         }
@@ -1771,7 +1783,9 @@ public struct SidebarView: View {
             for: destination,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            searchVM: searchVM
+            homeVM: homeVM,
+            searchVM: searchVM,
+            pinnedVM: pinnedVM
         )
     }
 }

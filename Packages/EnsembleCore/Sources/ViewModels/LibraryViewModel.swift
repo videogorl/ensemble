@@ -42,6 +42,8 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var filteredAlbums: [Album] = []
     @Published public private(set) var filteredGenres: [Genre] = []
     @Published public private(set) var trackSections: [TrackSection] = []
+    @Published public private(set) var artistSections: [ArtistSection] = []
+    @Published public private(set) var albumSections: [AlbumSection] = []
 
     // Available genres for chip bar filtering (derived from albums/tracks)
     @Published public private(set) var availableAlbumGenres: [String] = []
@@ -204,20 +206,24 @@ public final class LibraryViewModel: ObservableObject {
         // Artists — include albums for genre filtering (artist genres derived from album genres)
         Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
             .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
-            .map { artists, sortOption, filterOptions, albums -> ([Artist], [DisplayArtist]) in
+            .map { artists, sortOption, filterOptions, albums -> ([Artist], [DisplayArtist], [ArtistSection]) in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
-                return (filtered, DisplayArtist.group(filtered))
+                let display = DisplayArtist.group(filtered)
+                let sections = sortOption == .name ? LibraryViewModel.computeArtistSections(from: display) : []
+                return (filtered, display, sections)
             }
             .removeDuplicates { old, new in
-                guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
+                guard old.0.count == new.0.count, old.1.count == new.1.count, old.2.count == new.2.count else { return false }
                 return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
                     && zip(old.1, new.1).allSatisfy { $0.id == $1.id }
+                    && LibraryViewModel.artistSectionsEqual(old.2, new.2)
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] filtered, display in
+            .sink { [weak self] filtered, display, sections in
                 self?.filteredArtists = filtered
                 self?.displayArtists = display
+                self?.artistSections = sections
             }
             .store(in: &cancellables)
 
@@ -226,16 +232,22 @@ public final class LibraryViewModel: ObservableObject {
         // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
             .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
-            .map { albums, sortOption, filterOptions -> [Album] in
+            .map { albums, sortOption, filterOptions -> ([Album], [AlbumSection]) in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
-                return LibraryViewModel.filterAlbums(sorted, with: filterOptions)
+                let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions)
+                let sections = LibraryViewModel.computeAlbumSections(from: filtered, sortOption: sortOption)
+                return (filtered, sections)
             }
             .removeDuplicates { old, new in
-                guard old.count == new.count else { return false }
-                return zip(old, new).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
+                guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
+                return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
+                    && LibraryViewModel.albumSectionsEqual(old.1, new.1)
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.filteredAlbums = $0 }
+            .sink { [weak self] filtered, sections in
+                self?.filteredAlbums = filtered
+                self?.albumSections = sections
+            }
             .store(in: &cancellables)
 
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
@@ -309,6 +321,48 @@ public final class LibraryViewModel: ObservableObject {
                 if right.letter == "#" { return false }
                 return left.letter < right.letter
             }
+    }
+
+    private static func computeArtistSections(from artists: [DisplayArtist]) -> [ArtistSection] {
+        let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
+        return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
+    private static func computeAlbumSections(from albums: [Album], sortOption: AlbumSortOption) -> [AlbumSection] {
+        let groupingKey: (Album) -> String
+        switch sortOption {
+        case .title:
+            groupingKey = { $0.title.indexingLetter }
+        case .artist:
+            groupingKey = { ($0.artistName ?? "").indexingLetter }
+        case .albumArtist:
+            groupingKey = { ($0.albumArtist ?? "").indexingLetter }
+        default:
+            return []
+        }
+
+        let grouped = Dictionary(grouping: albums, by: groupingKey)
+        return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
+    private static func artistSectionsEqual(_ old: [ArtistSection], _ new: [ArtistSection]) -> Bool {
+        guard old.count == new.count else { return false }
+        for (oldSection, newSection) in zip(old, new) {
+            guard oldSection.letter == newSection.letter, oldSection.artists.count == newSection.artists.count else { return false }
+            guard zip(oldSection.artists, newSection.artists).allSatisfy({ $0.id == $1.id }) else { return false }
+        }
+        return true
+    }
+
+    private static func albumSectionsEqual(_ old: [AlbumSection], _ new: [AlbumSection]) -> Bool {
+        guard old.count == new.count else { return false }
+        for (oldSection, newSection) in zip(old, new) {
+            guard oldSection.letter == newSection.letter, oldSection.albums.count == newSection.albums.count else { return false }
+            guard zip(oldSection.albums, newSection.albums).allSatisfy({ $0.id == $1.id }) else { return false }
+        }
+        return true
     }
 
     private func setupFilterPersistence() {
@@ -481,6 +535,8 @@ public final class LibraryViewModel: ObservableObject {
         if !filteredTracks.isEmpty { filteredTracks = [] }
         if !filteredGenres.isEmpty { filteredGenres = [] }
         if !trackSections.isEmpty { trackSections = [] }
+        if !artistSections.isEmpty { artistSections = [] }
+        if !albumSections.isEmpty { albumSections = [] }
         if !availableAlbumGenres.isEmpty { availableAlbumGenres = [] }
         if !availableTrackGenres.isEmpty { availableTrackGenres = [] }
         if !availableArtistGenres.isEmpty { availableArtistGenres = [] }
@@ -781,6 +837,18 @@ public final class LibraryViewModel: ObservableObject {
     public struct TrackSection: Identifiable {
         public let letter: String
         public let tracks: [Track]
+        public var id: String { letter }
+    }
+
+    public struct ArtistSection: Identifiable {
+        public let letter: String
+        public let artists: [DisplayArtist]
+        public var id: String { letter }
+    }
+
+    public struct AlbumSection: Identifiable {
+        public let letter: String
+        public let albums: [Album]
         public var id: String { letter }
     }
 

@@ -9,8 +9,6 @@ public struct AlbumsView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
-    // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
-    @State private var cachedAlbumSections: [AlbumSection] = []
 
     public init(
         libraryVM: LibraryViewModel,
@@ -63,11 +61,6 @@ public struct AlbumsView: View {
     }
 
     public var body: some View {
-        let sectionInput = AlbumSectionComputationInput(
-            albums: libraryVM.filteredAlbums,
-            sortOption: libraryVM.albumSortOption
-        )
-
         Group {
             if libraryVM.isLoading && libraryVM.albums.isEmpty {
                 loadingView
@@ -103,9 +96,6 @@ public struct AlbumsView: View {
                 albumFilterButton
                 albumSortMenu
             }
-        }
-        .task(id: sectionInput) {
-            await updateAlbumSections(for: sectionInput)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -148,54 +138,6 @@ public struct AlbumsView: View {
         }
     }
 
-    private struct AlbumSection: Identifiable, Sendable {
-        let letter: String
-        let albums: [Album]
-        var id: String { letter }
-    }
-
-    private struct AlbumSectionComputationInput: Equatable, Sendable {
-        let albums: [Album]
-        let sortOption: AlbumSortOption
-    }
-
-    private func updateAlbumSections(for input: AlbumSectionComputationInput) async {
-        let newSections = await Task.detached(priority: .userInitiated) {
-            Self.computeAlbumSections(albums: input.albums, sortOption: input.sortOption)
-        }.value
-
-        guard !Task.isCancelled else { return }
-        guard !Self.sectionsEqual(cachedAlbumSections, newSections) else { return }
-        cachedAlbumSections = newSections
-    }
-
-    nonisolated private static func computeAlbumSections(albums: [Album], sortOption: AlbumSortOption) -> [AlbumSection] {
-        let groupingKey: (Album) -> String = { album in
-            switch sortOption {
-            case .title: return album.title.indexingLetter
-            case .artist: return (album.artistName ?? "").indexingLetter
-            case .albumArtist: return (album.albumArtist ?? "").indexingLetter
-            default: return ""
-            }
-        }
-
-        let grouped = Dictionary(grouping: albums, by: groupingKey)
-        return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
-            .sorted { $0.letter < $1.letter }
-    }
-
-    /// Fast equality check by letter + album IDs (avoids full Album equality)
-    nonisolated private static func sectionsEqual(_ a: [AlbumSection], _ b: [AlbumSection]) -> Bool {
-        guard a.count == b.count else { return false }
-        for (sa, sb) in zip(a, b) {
-            guard sa.letter == sb.letter, sa.albums.count == sb.albums.count else { return false }
-            for (aa, ab) in zip(sa.albums, sb.albums) {
-                guard aa.id == ab.id else { return false }
-            }
-        }
-        return true
-    }
-
     private var isSortIndexed: Bool {
         switch libraryVM.albumSortOption {
         case .title, .artist, .albumArtist:
@@ -214,7 +156,7 @@ public struct AlbumsView: View {
 
                         if isSortIndexed {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedAlbumSections) { section in
+                                ForEach(libraryVM.albumSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
                                             .id(section.letter)
@@ -232,7 +174,7 @@ public struct AlbumsView: View {
                 .libraryScrollIndexOverlay {
                     if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
                         ScrollIndex(
-                            letters: cachedAlbumSections.map { $0.letter },
+                            letters: libraryVM.albumSections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)

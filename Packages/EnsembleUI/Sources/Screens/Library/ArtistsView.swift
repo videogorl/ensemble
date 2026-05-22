@@ -17,8 +17,6 @@ public struct ArtistsView: View {
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
-    // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
-    @State private var cachedArtistSections: [ArtistSection] = []
     @State private var localSelectedArtist: DisplayArtist?
 
     public init(
@@ -34,8 +32,6 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
-        let sectionInput = ArtistSectionComputationInput(artists: libraryVM.displayArtists)
-
         Group {
             if libraryVM.isLoading && libraryVM.artists.isEmpty {
                 loadingView
@@ -62,9 +58,6 @@ public struct ArtistsView: View {
         }
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
-        }
-        .task(id: sectionInput) {
-            await updateArtistSections(for: sectionInput)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -169,7 +162,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedArtistSections) { section in
+                                ForEach(libraryVM.artistSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         ForEach(section.artists) { displayArtist in
                                             artistSelectionRow(displayArtist)
@@ -193,7 +186,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: cachedArtistSections.map { $0.letter },
+                            letters: libraryVM.artistSections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -244,44 +237,6 @@ public struct ArtistsView: View {
         }
     }
 
-    private struct ArtistSection: Identifiable, Sendable {
-        let letter: String
-        let artists: [DisplayArtist]
-        var id: String { letter }
-    }
-
-    private struct ArtistSectionComputationInput: Equatable, Sendable {
-        let artists: [DisplayArtist]
-    }
-
-    private func updateArtistSections(for input: ArtistSectionComputationInput) async {
-        let newSections = await Task.detached(priority: .userInitiated) {
-            Self.computeArtistSections(artists: input.artists)
-        }.value
-
-        guard !Task.isCancelled else { return }
-        guard !Self.sectionsEqual(cachedArtistSections, newSections) else { return }
-        cachedArtistSections = newSections
-    }
-
-    nonisolated private static func computeArtistSections(artists: [DisplayArtist]) -> [ArtistSection] {
-        let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
-        return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
-            .sorted { $0.letter < $1.letter }
-    }
-
-    /// Fast equality check by letter + artist IDs (avoids full Artist equality)
-    nonisolated private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
-        guard a.count == b.count else { return false }
-        for (sa, sb) in zip(a, b) {
-            guard sa.letter == sb.letter, sa.artists.count == sb.artists.count else { return false }
-            for (aa, ab) in zip(sa.artists, sb.artists) {
-                guard aa.id == ab.id else { return false }
-            }
-        }
-        return true
-    }
-
     private var artistListView: some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
@@ -291,7 +246,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedArtistSections) { section in
+                                ForEach(libraryVM.artistSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         DisplayArtistGrid(
                                             artists: section.artists,
@@ -315,7 +270,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: cachedArtistSections.map { $0.letter },
+                            letters: libraryVM.artistSections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
