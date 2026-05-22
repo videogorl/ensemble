@@ -93,37 +93,20 @@ public struct ArtistGrid: View {
     public var body: some View {
         LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
             ForEach(artists, id: \.sourceScopedID) { artist in
-                if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
-                        artistCardContent(artist)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        ArtistActionsContextMenu(
-                            artist: artist,
-                            nowPlayingVM: nowPlayingVM,
-                            onEditMetadata: {
-                                presentArtistMetadataEditor(artist)
-                            }
-                        )
-                    }
-                } else {
-                    // iOS 15 fallback: using legacy NavigationLink for nested navigation support
-                    NavigationLink {
-                        ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
-                    } label: {
-                        artistCardContent(artist)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        ArtistActionsContextMenu(
-                            artist: artist,
-                            nowPlayingVM: nowPlayingVM,
-                            onEditMetadata: {
-                                presentArtistMetadataEditor(artist)
-                            }
-                        )
-                    }
+                NavigationLink {
+                    ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    artistCardContent(artist)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    ArtistActionsContextMenu(
+                        artist: artist,
+                        nowPlayingVM: nowPlayingVM,
+                        onEditMetadata: {
+                            presentArtistMetadataEditor(artist)
+                        }
+                    )
                 }
             }
         }

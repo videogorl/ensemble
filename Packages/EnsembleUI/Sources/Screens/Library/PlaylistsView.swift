@@ -933,7 +933,8 @@ public struct PlaylistDetailView: View {
                         GenreFilterHeader(
                             availableGenres: viewModel.availableGenres,
                             selectedGenres: $viewModel.filterOptions.selectedGenres,
-                            excludedGenres: $viewModel.filterOptions.excludedGenres
+                            excludedGenres: $viewModel.filterOptions.excludedGenres,
+                            reservesEmptySpace: true
                         )
                     ),
                     playlistMenuActions: PlaylistDetailMenuActions(

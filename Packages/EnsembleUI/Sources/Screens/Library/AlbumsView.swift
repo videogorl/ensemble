@@ -573,28 +573,12 @@ public struct AlbumDetailView: View {
 
     @ViewBuilder
     private func albumCardLink(for scrollAlbum: Album) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationLink(
-                value: NavigationCoordinator.Destination.album(
-                    id: scrollAlbum.id,
-                    sourceKey: scrollAlbum.sourceCompositeKey
-                )
-            ) {
-                AlbumCard(album: scrollAlbum, layout: .shelf)
-            }
-            .buttonStyle(.plain)
-        } else {
-            NavigationLink {
-                AlbumDetailLoader(
-                    albumId: scrollAlbum.id,
-                    albumSourceKey: scrollAlbum.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
-            } label: {
-                AlbumCard(album: scrollAlbum, layout: .shelf)
-            }
-            .buttonStyle(.plain)
+        NavigationLink {
+            AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
+        } label: {
+            AlbumCard(album: scrollAlbum, layout: .shelf)
         }
+        .buttonStyle(.plain)
     }
 
     private var moreByArtistSection: some View {

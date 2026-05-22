@@ -39,7 +39,8 @@ public struct MergedPlaylistDetailView: View {
                 GenreFilterHeader(
                     availableGenres: viewModel.availableGenres,
                     selectedGenres: $viewModel.filterOptions.selectedGenres,
-                    excludedGenres: $viewModel.filterOptions.excludedGenres
+                    excludedGenres: $viewModel.filterOptions.excludedGenres,
+                    reservesEmptySpace: true
                 ) {
                     // Source server chips — shows which servers this merge pulls from
                     if !viewModel.sourceServerNames.isEmpty {

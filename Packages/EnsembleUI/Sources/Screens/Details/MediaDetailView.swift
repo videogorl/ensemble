@@ -1135,7 +1135,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var macTableHeaderExtraHeight: CGFloat {
-        genreChipContent == nil ? 0 : EnsembleScaffold.Chip.barHeight + (EnsembleDesign.Spacing.sm * 2)
+        genreChipContent == nil ? 0 : GenreChipBar.reservedHeight + (tableHeaderTopContentVerticalPadding * 2)
     }
 
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {
