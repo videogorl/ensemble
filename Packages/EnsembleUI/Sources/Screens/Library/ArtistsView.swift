@@ -489,14 +489,11 @@ private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
     }
 }
 
-private struct CrossfadingArtistArtworkImage<Fallback: View>: View {
+private struct StableArtistArtworkImage<Fallback: View>: View {
     let image: PlatformImage?
     @ViewBuilder let fallback: () -> Fallback
 
     @State private var currentImage: PlatformImage?
-    @State private var previousImage: PlatformImage?
-    @State private var currentOpacity = 1.0
-    @State private var transitionID = UUID()
 
     init(image: PlatformImage?, @ViewBuilder fallback: @escaping () -> Fallback) {
         self.image = image
@@ -506,21 +503,16 @@ private struct CrossfadingArtistArtworkImage<Fallback: View>: View {
 
     var body: some View {
         ZStack {
-            if currentImage == nil, previousImage == nil {
+            if currentImage == nil {
                 fallback()
-            }
-
-            if let previousImage {
-                platformImage(previousImage)
             }
 
             if let currentImage {
                 platformImage(currentImage)
-                    .opacity(currentOpacity)
             }
         }
         .task(id: imageIdentity) {
-            await updateImage()
+            updateImage()
         }
     }
 
@@ -541,8 +533,7 @@ private struct CrossfadingArtistArtworkImage<Fallback: View>: View {
         #endif
     }
 
-    @MainActor
-    private func updateImage() async {
+    private func updateImage() {
         guard currentImage.map(ObjectIdentifier.init) != imageIdentity else {
             return
         }
@@ -551,29 +542,7 @@ private struct CrossfadingArtistArtworkImage<Fallback: View>: View {
             return
         }
 
-        let transitionID = UUID()
-        self.transitionID = transitionID
-        previousImage = currentImage
         currentImage = image
-        currentOpacity = previousImage == nil ? 1 : 0
-
-        guard previousImage != nil else {
-            return
-        }
-
-        await Task.yield()
-
-        withAnimation(.easeInOut(duration: EnsembleScaffold.DetailSurface.backgroundFadeDuration)) {
-            currentOpacity = 1
-        }
-
-        let delay = UInt64(EnsembleScaffold.DetailSurface.backgroundFadeDuration * 1_000_000_000)
-        try? await Task.sleep(nanoseconds: delay)
-
-        guard !Task.isCancelled, self.transitionID == transitionID else {
-            return
-        }
-        previousImage = nil
     }
 }
 
@@ -1052,7 +1021,7 @@ public struct ArtistDetailView: View {
     }
 
     private var wideArtistArtwork: some View {
-        CrossfadingArtistArtworkImage(image: displayedArtworkImage) {
+        StableArtistArtworkImage(image: displayedArtworkImage) {
             ArtworkView(
                 artist: viewModel.artist,
                 size: .medium,
@@ -1168,7 +1137,7 @@ public struct ArtistDetailView: View {
             ZStack(alignment: .bottom) {
                 // The resolved hero image fills the banner directly; ArtworkView is
                 // only the unresolved fallback so it doesn't constrain the final image.
-                CrossfadingArtistArtworkImage(image: displayedArtworkImage) {
+                StableArtistArtworkImage(image: displayedArtworkImage) {
                     ArtworkView(
                         artist: viewModel.artist,
                         size: .large,
