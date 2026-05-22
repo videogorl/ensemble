@@ -4,7 +4,7 @@ import SwiftUI
 /// Home screen displaying dynamic content hubs from Plex servers
 /// Hubs include Recently Added, Recently Played, Most Played, etc.
 public struct HomeView: View {
-    @StateObject private var viewModel: HomeViewModel
+    @ObservedObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @State private var profileBackgroundImage: PlatformImage?
@@ -14,8 +14,8 @@ public struct HomeView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    public init(nowPlayingVM: NowPlayingViewModel) {
-        _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
+    public init(nowPlayingVM: NowPlayingViewModel, viewModel: HomeViewModel? = nil) {
+        self.viewModel = viewModel ?? DependencyContainer.shared.makeHomeViewModel()
         self.nowPlayingVM = nowPlayingVM
     }
 
@@ -316,12 +316,7 @@ struct HubItemCard: View {
                 Button(action: handleTrackTap) {
                     cardContent
                 }
-            } else if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: destination) {
-                    cardContent
-                }
             } else {
-                // iOS 15 fallback
                 NavigationLink {
                     destinationView
                 } label: {
@@ -377,36 +372,39 @@ struct HubItemCard: View {
         }
     }
 
-    private var destination: NavigationCoordinator.Destination? {
-        switch item.type {
-        case "album": return .album(id: item.id, sourceKey: item.sourceCompositeKey)
-        case "artist": return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
-        case "playlist": return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
-        default: return nil
-        }
-    }
-
     @ViewBuilder
     private var destinationView: some View {
         switch item.type {
         case "album":
-            AlbumDetailLoader(
-                albumId: item.id,
-                albumSourceKey: item.sourceCompositeKey,
-                nowPlayingVM: nowPlayingVM
-            )
+            if let album = item.album {
+                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+            } else {
+                AlbumDetailLoader(
+                    albumId: item.id,
+                    albumSourceKey: item.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+            }
         case "artist":
-            ArtistDetailLoader(
-                artistId: item.id,
-                artistSourceKey: item.sourceCompositeKey,
-                nowPlayingVM: nowPlayingVM
-            )
+            if let artist = item.artist {
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+            } else {
+                ArtistDetailLoader(
+                    artistId: item.id,
+                    artistSourceKey: item.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+            }
         case "playlist":
-            PlaylistDetailLoader(
-                playlistId: item.id,
-                playlistSourceKey: item.sourceCompositeKey,
-                nowPlayingVM: nowPlayingVM
-            )
+            if let playlist = item.playlist {
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+            } else {
+                PlaylistDetailLoader(
+                    playlistId: item.id,
+                    playlistSourceKey: item.sourceCompositeKey,
+                    nowPlayingVM: nowPlayingVM
+                )
+            }
         default:
             EmptyView()
         }

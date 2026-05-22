@@ -475,18 +475,10 @@ public struct PlaylistsView: View {
             },
             detail: { displayPlaylist in
                 if displayPlaylist.isMerged {
-                    MergedPlaylistDetailLoader(
-                        title: displayPlaylist.title,
-                        isSmart: displayPlaylist.isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
+                    MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
                     .id(displayPlaylist.id)
                 } else {
-                    PlaylistDetailLoader(
-                        playlistId: displayPlaylist.primaryPlaylist.id,
-                        playlistSourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
-                        nowPlayingVM: nowPlayingVM
-                    )
+                    PlaylistDetailView(playlist: displayPlaylist.primaryPlaylist, nowPlayingVM: nowPlayingVM)
                     .id(displayPlaylist.id)
                 }
             },
@@ -941,7 +933,8 @@ public struct PlaylistDetailView: View {
                         GenreFilterHeader(
                             availableGenres: viewModel.availableGenres,
                             selectedGenres: $viewModel.filterOptions.selectedGenres,
-                            excludedGenres: $viewModel.filterOptions.excludedGenres
+                            excludedGenres: $viewModel.filterOptions.excludedGenres,
+                            reservesEmptySpace: true
                         )
                     ),
                     playlistMenuActions: PlaylistDetailMenuActions(
@@ -1100,7 +1093,7 @@ public struct PlaylistDetailView: View {
         // Ensure tracks load even when starting in edit mode (where MediaDetailView
         // isn't mounted and its .task { loadTracks() } never fires).
         .task {
-            if viewModel.tracks.isEmpty {
+            if isEditingPlaylist && viewModel.tracks.isEmpty {
                 await viewModel.loadTracks()
             }
         }
@@ -1183,8 +1176,10 @@ public struct PlaylistDetailView: View {
             metadataParts.append("Smart Playlist")
         }
         
-        if !viewModel.tracks.isEmpty {
-            metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
+        let displayedTrackCount = viewModel.tracks.isEmpty ? playlist.trackCount : viewModel.tracks.count
+        if displayedTrackCount > 0 {
+            let duration = viewModel.tracks.isEmpty ? playlist.formattedDuration : viewModel.totalDuration
+            metadataParts.append("\(displayedTrackCount) songs, \(duration)")
         }
         
         return MediaHeaderData(

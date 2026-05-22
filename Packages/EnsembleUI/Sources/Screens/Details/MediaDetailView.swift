@@ -71,6 +71,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
     let additionalFooterContent: AnyView?
+    let supplementalLoad: (() async -> Void)?
     /// Custom pin/unpin action for merged playlists (pins all constituents).
     /// When nil, the default single-item pin behavior is used.
     let customPinAction: ((Bool) -> Void)?
@@ -114,6 +115,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
         additionalFooterContent: AnyView? = nil,
+        supplementalLoad: (() async -> Void)? = nil,
         customPinAction: ((Bool) -> Void)? = nil,
         customIsPinned: ((Set<String>) -> Bool)? = nil
     ) {
@@ -130,6 +132,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
         self.additionalFooterContent = additionalFooterContent
+        self.supplementalLoad = supplementalLoad
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
 
@@ -217,12 +220,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             )
         }
         .task {
-            if !viewModel.hasLoadedTracks {
-                await viewModel.loadTracks()
-            }
-            if let path = headerData.artworkPath {
-                await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
-            }
+            await runInitialLoads()
         }
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
@@ -719,21 +717,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             contentBleedsUnderTopChrome: true,
             contentBleedsUnderBottomChrome: true
         ) {
-            #if os(iOS)
-            // Always use MediaTrackList (UITableView), even with 0 tracks.
-            // Loading/empty indicators are shown via tableFooterContent.
-            // This keeps the header (genre chips + artwork + buttons) in a single
-            // code path with consistent safe area handling. The table uses UIKit's
-            // automatic top content inset so rows can pass under transparent toolbar
-            // chrome without a SwiftUI spacer or titlebar compensation shim.
-            tracksSection
-            #else
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                tracksSection
-                Spacer(minLength: EnsembleDesign.Spacing.none)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            #endif
+            detailContent
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         .navigationTitle("")
@@ -742,42 +726,114 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         #endif
     }
 
+    @ViewBuilder
+    private var detailContent: some View {
+        #if os(iOS)
+        // Always use MediaTrackList (UITableView), even with 0 tracks.
+        // Loading/empty indicators are shown via tableFooterContent.
+        // This keeps the header (genre chips + artwork + buttons) in a single
+        // code path with consistent safe area handling. The table uses UIKit's
+        // automatic top content inset so rows can pass under transparent toolbar
+        // chrome without a SwiftUI spacer or titlebar compensation shim.
+        tracksSection
+        #else
+        VStack(spacing: EnsembleDesign.Spacing.none) {
+            tracksSection
+            Spacer(minLength: EnsembleDesign.Spacing.none)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #endif
+    }
+
+    private func runInitialLoads() async {
+        async let trackLoad: () = loadTracksIfNeeded()
+        async let artworkLoad: () = loadHeaderArtworkIfNeeded()
+        if let supplementalLoad {
+            await supplementalLoad()
+        }
+        _ = await (trackLoad, artworkLoad)
+    }
+
+    private func loadTracksIfNeeded() async {
+        if !viewModel.hasLoadedTracks {
+            await viewModel.loadTracks()
+        }
+    }
+
+    private func loadHeaderArtworkIfNeeded() async {
+        if let path = headerData.artworkPath {
+            await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
+        }
+    }
+
     private func loadArtworkImage(path: String, sourceKey: String?) async {
         await MainActor.run {
             self.currentLoadPath = path
         }
-        
-        if let url = await deps.artworkLoader.artworkURLAsync(
+
+        guard let url = await deps.artworkLoader.artworkURLAsync(
             for: path,
             sourceKey: sourceKey,
             ratingKey: headerData.ratingKey,
             fallbackPath: nil,  // No fallback for album/artist/playlist detail views
             fallbackRatingKey: nil,
             size: 600
-        ) {
-            let request = ImageRequest(url: url)
-            
-            // Try synchronous cache lookup first
-            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                await MainActor.run {
-                    if self.currentLoadPath == path {
-                        self.artworkImage = cachedImage.image
-                    }
-                }
-                return
-            }
-            
-            // Load asynchronously if not cached
-            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                await MainActor.run {
-                    // Only update if this is still the current path
-                    if self.currentLoadPath == path {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            self.artworkImage = uiImage
-                        }
-                    }
+        ) else {
+            return
+        }
+
+        let request = ImageRequest(url: url)
+
+        // Try synchronous cache lookup first
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            await MainActor.run {
+                if self.currentLoadPath == path {
+                    self.artworkImage = cachedImage.image
                 }
             }
+            return
+        }
+
+        await loadLowResolutionArtworkSeed(path: path, sourceKey: sourceKey)
+
+        // Load asynchronously if not cached
+        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+            await MainActor.run {
+                // Only update if this is still the current path
+                if self.currentLoadPath == path {
+                    self.artworkImage = uiImage
+                }
+            }
+        }
+    }
+
+    private func loadLowResolutionArtworkSeed(path: String, sourceKey: String?) async {
+        guard let url = await deps.artworkLoader.artworkURLAsync(
+            for: path,
+            sourceKey: sourceKey,
+            ratingKey: headerData.ratingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            size: ArtworkSize.thumbnail.rawValue
+        ) else {
+            return
+        }
+
+        let request = ImageRequest(url: url)
+        let seedImage: PlatformImage?
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
+            seedImage = cachedImage
+        } else {
+            seedImage = try? await ImagePipeline.shared.image(for: request)
+        }
+
+        guard let seedImage else {
+            return
+        }
+
+        await MainActor.run {
+            guard self.currentLoadPath == path, self.artworkImage == nil else { return }
+            self.artworkImage = seedImage
         }
     }
 
@@ -818,16 +874,42 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
             CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: artworkCornerRadius)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
+        } else if let artworkImage {
+            platformHeaderArtwork(artworkImage)
+                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         } else {
-            ArtworkView(
-                path: headerData.artworkPath,
-                sourceKey: headerData.sourceKey,
-                ratingKey: headerData.ratingKey,
-                size: .medium,
-                cornerRadius: artworkCornerRadius
-            )
+            headerArtworkPlaceholder
             .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         }
+    }
+
+    private var headerArtworkPlaceholder: some View {
+        let frameSize = ArtworkSize.medium.cgSize
+        let iconSize = frameSize.width * 0.3
+
+        return ZStack {
+            EnsembleDesign.Color.placeholderArtwork
+
+            Image(systemName: EnsembleDesign.Icon.musicNote)
+                .font(.system(size: iconSize))
+                .foregroundColor(EnsembleDesign.Color.placeholderArtworkIcon)
+        }
+        .frame(width: frameSize.width, height: frameSize.height)
+    }
+
+    @ViewBuilder
+    private func platformHeaderArtwork(_ image: PlatformImage) -> some View {
+        #if os(macOS)
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: ArtworkSize.medium.cgSize.width, height: ArtworkSize.medium.cgSize.height)
+        #else
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: ArtworkSize.medium.cgSize.width, height: ArtworkSize.medium.cgSize.height)
+        #endif
     }
 
     private func headerMetadata(alignment: HorizontalAlignment) -> some View {
@@ -1093,7 +1175,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var macTableHeaderExtraHeight: CGFloat {
-        genreChipContent == nil ? 0 : EnsembleScaffold.Chip.barHeight + (EnsembleDesign.Spacing.sm * 2)
+        genreChipContent == nil ? 0 : GenreChipBar.reservedHeight + (tableHeaderTopContentVerticalPadding * 2)
     }
 
     private var macDiscTrackGroups: [(disc: Int?, tracks: [(offset: Int, element: Track)])] {

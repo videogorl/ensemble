@@ -9,17 +9,20 @@ public struct GenreFilterHeader<Supplementary: View>: View {
     let availableGenres: [String]
     @Binding var selectedGenres: Set<String>
     @Binding var excludedGenres: Set<String>
+    let reservesEmptySpace: Bool
     let supplementary: Supplementary
 
     public init(
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
         excludedGenres: Binding<Set<String>>,
+        reservesEmptySpace: Bool = false,
         @ViewBuilder supplementary: () -> Supplementary
     ) {
         self.availableGenres = availableGenres
         self._selectedGenres = selectedGenres
         self._excludedGenres = excludedGenres
+        self.reservesEmptySpace = reservesEmptySpace
         self.supplementary = supplementary()
     }
 
@@ -29,7 +32,8 @@ public struct GenreFilterHeader<Supplementary: View>: View {
             GenreChipBar(
                 availableGenres: availableGenres,
                 selectedGenres: $selectedGenres,
-                excludedGenres: $excludedGenres
+                excludedGenres: $excludedGenres,
+                reservesEmptySpace: reservesEmptySpace
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -40,12 +44,14 @@ public extension GenreFilterHeader where Supplementary == EmptyView {
     init(
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
-        excludedGenres: Binding<Set<String>>
+        excludedGenres: Binding<Set<String>>,
+        reservesEmptySpace: Bool = false
     ) {
         self.init(
             availableGenres: availableGenres,
             selectedGenres: selectedGenres,
-            excludedGenres: excludedGenres
+            excludedGenres: excludedGenres,
+            reservesEmptySpace: reservesEmptySpace
         ) {
             EmptyView()
         }
@@ -61,17 +67,22 @@ public struct GenreChipBar: View {
     let availableGenres: [String]
     @Binding var selectedGenres: Set<String>
     @Binding var excludedGenres: Set<String>
+    let reservesEmptySpace: Bool
 
     public init(
         availableGenres: [String],
         selectedGenres: Binding<Set<String>>,
-        excludedGenres: Binding<Set<String>>
+        excludedGenres: Binding<Set<String>>,
+        reservesEmptySpace: Bool = false
     ) {
         // Filter out any empty/whitespace-only genre names
         self.availableGenres = availableGenres.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         self._selectedGenres = selectedGenres
         self._excludedGenres = excludedGenres
+        self.reservesEmptySpace = reservesEmptySpace
     }
+
+    static let reservedHeight = GenreChipBarLayout.barHeight
 
     /// Whether any genre chips are active (included or excluded)
     private var hasActiveChips: Bool {
@@ -93,6 +104,9 @@ public struct GenreChipBar: View {
             }
             .genreChipScrollClipping()
             .frame(height: GenreChipBarLayout.barHeight)
+        } else if reservesEmptySpace {
+            Color.clear
+                .frame(height: GenreChipBarLayout.barHeight)
         }
     }
 

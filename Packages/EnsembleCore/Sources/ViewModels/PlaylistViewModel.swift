@@ -651,6 +651,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         if let initialTracks {
             self.tracks = initialTracks
             self.hasLoadedTracks = true
+        } else {
+            self.isLoading = true
         }
         self.playlistRepository = playlistRepository
         self.libraryRepository = libraryRepository

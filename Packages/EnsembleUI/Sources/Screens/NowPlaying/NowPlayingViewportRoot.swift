@@ -179,15 +179,12 @@ struct NowPlayingViewportRoot: View {
 
     @ViewBuilder
     private var singlePanel: some View {
-        if viewModel.currentPage == 1 {
-            ControlsCard(viewModel: viewModel, currentPage: $viewModel.currentPage)
-        } else {
-            NowPlayingDetailPanel(
-                viewModel: viewModel,
-                currentPage: $viewModel.currentPage,
-                isLowPowerMode: powerStateMonitor.isLowPowerMode
-            )
-        }
+        NowPlayingPanelCard(
+            page: NowPlayingPanelPage(rawValue: viewModel.currentPage) ?? .queue,
+            viewModel: viewModel,
+            currentPage: $viewModel.currentPage,
+            isLowPowerMode: powerStateMonitor.isLowPowerMode
+        )
     }
 
     private func singlePanelWidth(for geometry: GeometryProxy) -> CGFloat {

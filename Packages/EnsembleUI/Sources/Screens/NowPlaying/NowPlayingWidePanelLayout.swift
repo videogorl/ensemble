@@ -52,7 +52,13 @@ struct NowPlayingWidePanelLayout: View {
             header
 
             HStack(alignment: .top, spacing: EnsembleScaffold.NowPlaying.viewportInnerSpacing) {
-                ControlsCard(viewModel: viewModel, currentPage: $currentPage, isAlwaysVisible: true)
+                NowPlayingPanelCard(
+                    page: .controls,
+                    viewModel: viewModel,
+                    currentPage: $currentPage,
+                    isLowPowerMode: powerStateMonitor.isLowPowerMode,
+                    isAlwaysVisible: true
+                )
                     .frame(width: panelWidth(for: geometry))
                     .frame(maxHeight: .infinity, alignment: .topLeading)
 
@@ -99,13 +105,7 @@ struct NowPlayingWidePanelLayout: View {
     private var panelSelection: Binding<Int> {
         Binding(
             get: {
-                if currentPage == NowPlayingPanelPage.info.rawValue {
-                    return NowPlayingPanelPage.info.rawValue
-                }
-                if currentPage == NowPlayingPanelPage.lyrics.rawValue {
-                    return NowPlayingPanelPage.lyrics.rawValue
-                }
-                return NowPlayingPanelPage.queue.rawValue
+                NowPlayingPanelPage.detailPage(for: currentPage).rawValue
             },
             set: { newValue in
                 currentPage = newValue

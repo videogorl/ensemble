@@ -5,6 +5,21 @@ import Nuke
 import UIKit
 #endif
 
+final class ArtistDetailArtworkContinuityStore: ObservableObject {
+    var lastImage: PlatformImage?
+}
+
+private struct ArtistDetailArtworkContinuityKey: EnvironmentKey {
+    static let defaultValue = ArtistDetailArtworkContinuityStore()
+}
+
+extension EnvironmentValues {
+    var artistDetailArtworkContinuity: ArtistDetailArtworkContinuityStore {
+        get { self[ArtistDetailArtworkContinuityKey.self] }
+        set { self[ArtistDetailArtworkContinuityKey.self] = newValue }
+    }
+}
+
 public struct ArtistsView: View {
     public enum PresentationMode {
         case compactRoot
@@ -17,8 +32,6 @@ public struct ArtistsView: View {
     private let externalSelectedArtist: Binding<DisplayArtist?>?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
-    // Cached section grouping — avoids O(n log n) recomputation on every body re-eval
-    @State private var cachedArtistSections: [ArtistSection] = []
     @State private var localSelectedArtist: DisplayArtist?
 
     public init(
@@ -34,8 +47,6 @@ public struct ArtistsView: View {
     }
 
     public var body: some View {
-        let sectionInput = ArtistSectionComputationInput(artists: libraryVM.displayArtists)
-
         Group {
             if libraryVM.isLoading && libraryVM.artists.isEmpty {
                 loadingView
@@ -62,9 +73,6 @@ public struct ArtistsView: View {
         }
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
-        }
-        .task(id: sectionInput) {
-            await updateArtistSections(for: sectionInput)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -169,7 +177,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedArtistSections) { section in
+                                ForEach(libraryVM.artistSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         ForEach(section.artists) { displayArtist in
                                             artistSelectionRow(displayArtist)
@@ -193,7 +201,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: cachedArtistSections.map { $0.letter },
+                            letters: libraryVM.artistSections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -244,44 +252,6 @@ public struct ArtistsView: View {
         }
     }
 
-    private struct ArtistSection: Identifiable, Sendable {
-        let letter: String
-        let artists: [DisplayArtist]
-        var id: String { letter }
-    }
-
-    private struct ArtistSectionComputationInput: Equatable, Sendable {
-        let artists: [DisplayArtist]
-    }
-
-    private func updateArtistSections(for input: ArtistSectionComputationInput) async {
-        let newSections = await Task.detached(priority: .userInitiated) {
-            Self.computeArtistSections(artists: input.artists)
-        }.value
-
-        guard !Task.isCancelled else { return }
-        guard !Self.sectionsEqual(cachedArtistSections, newSections) else { return }
-        cachedArtistSections = newSections
-    }
-
-    nonisolated private static func computeArtistSections(artists: [DisplayArtist]) -> [ArtistSection] {
-        let grouped = Dictionary(grouping: artists) { $0.name.indexingLetter }
-        return grouped.map { ArtistSection(letter: $0.key, artists: $0.value) }
-            .sorted { $0.letter < $1.letter }
-    }
-
-    /// Fast equality check by letter + artist IDs (avoids full Artist equality)
-    nonisolated private static func sectionsEqual(_ a: [ArtistSection], _ b: [ArtistSection]) -> Bool {
-        guard a.count == b.count else { return false }
-        for (sa, sb) in zip(a, b) {
-            guard sa.letter == sb.letter, sa.artists.count == sb.artists.count else { return false }
-            for (aa, ab) in zip(sa.artists, sb.artists) {
-                guard aa.id == ab.id else { return false }
-            }
-        }
-        return true
-    }
-
     private var artistListView: some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
@@ -291,7 +261,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(cachedArtistSections) { section in
+                                ForEach(libraryVM.artistSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         DisplayArtistGrid(
                                             artists: section.artists,
@@ -315,7 +285,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: cachedArtistSections.map { $0.letter },
+                            letters: libraryVM.artistSections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -519,6 +489,63 @@ private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
     }
 }
 
+private struct StableArtistArtworkImage<Fallback: View>: View {
+    let image: PlatformImage?
+    @ViewBuilder let fallback: () -> Fallback
+
+    @State private var currentImage: PlatformImage?
+
+    init(image: PlatformImage?, @ViewBuilder fallback: @escaping () -> Fallback) {
+        self.image = image
+        self.fallback = fallback
+        self._currentImage = State(initialValue: image)
+    }
+
+    var body: some View {
+        ZStack {
+            if currentImage == nil {
+                fallback()
+            }
+
+            if let currentImage {
+                platformImage(currentImage)
+            }
+        }
+        .task(id: imageIdentity) {
+            updateImage()
+        }
+    }
+
+    private var imageIdentity: ObjectIdentifier? {
+        image.map(ObjectIdentifier.init)
+    }
+
+    @ViewBuilder
+    private func platformImage(_ image: PlatformImage) -> some View {
+        #if os(macOS)
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+        #else
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+        #endif
+    }
+
+    private func updateImage() {
+        guard currentImage.map(ObjectIdentifier.init) != imageIdentity else {
+            return
+        }
+
+        guard let image else {
+            return
+        }
+
+        currentImage = image
+    }
+}
+
 public struct ArtistDetailView: View {
     @StateObject private var viewModel: ArtistDetailViewModel
     @StateObject private var mergedViewModel: MergedArtistDetailViewModel
@@ -538,13 +565,16 @@ public struct ArtistDetailView: View {
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: PlatformImage?
+    @State private var continuityArtworkImage: PlatformImage?
+    @State private var artworkLoadUnavailable = false
+    @State private var currentArtworkLoadIdentity: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
-    @State private var artistHeaderWidth: CGFloat = 0
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
+    @Environment(\.artistDetailArtworkContinuity) private var artistArtworkContinuity
     @Environment(\.openURL) private var openURL
 
     public init(
@@ -617,62 +647,69 @@ public struct ArtistDetailView: View {
             updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task {
-            await viewModel.loadAlbums()
-            await viewModel.loadTracks()
-            await viewModel.loadArtistDetail()
+            async let artworkLoad: () = loadArtworkImage()
+            async let albumsLoad: () = viewModel.loadAlbums()
+            async let tracksLoad: () = viewModel.loadTracks()
+            async let detailLoad: () = viewModel.loadArtistDetail()
             if displayArtist.isMerged {
                 await mergedViewModel.load()
             }
-            await loadArtworkImage()
+            _ = await (artworkLoad, albumsLoad, tracksLoad, detailLoad)
+        }
+        .task(id: artworkImageIdentity) {
+            updateArtworkContinuity()
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
     private var artistDetailScrollContent: some View {
-        ScrollView {
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                artistHeader
+        GeometryReader { geometry in
+            let containerWidth = geometry.size.width
 
-                if displayArtist.isMerged {
-                    if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
-                        ProgressView()
-                            .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                    } else if !mergedViewModel.sourceSections.isEmpty {
-                        mergedSourceSections
+            ScrollView {
+                VStack(spacing: EnsembleDesign.Spacing.none) {
+                    artistHeader(containerWidth: containerWidth)
+
+                    if displayArtist.isMerged {
+                        if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
+                            ProgressView()
+                                .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                        } else if !mergedViewModel.sourceSections.isEmpty {
+                            mergedSourceSections
+                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                        }
+                    } else {
+                        // Albums Section
+                        if viewModel.isLoading && viewModel.albums.isEmpty {
+                            ProgressView()
+                                .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                        } else if !viewModel.albums.isEmpty {
+                            albumsSection
+                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                        }
+
+                        // Favorited Tracks (4+ stars)
+                        if !viewModel.favoritedTracks.isEmpty {
+                            favoritedTracksSection
+                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                        }
+                    }
+
+                    // About section (quick facts + bio + Wikipedia)
+                    if hasAboutContent {
+                        aboutSection
+                            .padding(.horizontal)
                             .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                     }
-                } else {
-                    // Albums Section
-                    if viewModel.isLoading && viewModel.albums.isEmpty {
-                        ProgressView()
-                            .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                    } else if !viewModel.albums.isEmpty {
-                        albumsSection
-                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                    }
 
-                    // Favorited Tracks (4+ stars)
-                    if !viewModel.favoritedTracks.isEmpty {
-                        favoritedTracksSection
+                    // Related Artists (only those in user's library)
+                    if !viewModel.resolvedSimilarArtists.isEmpty {
+                        relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
                             .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                     }
                 }
-
-                // About section (quick facts + bio + Wikipedia)
-                if hasAboutContent {
-                    aboutSection
-                        .padding(.horizontal)
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
-
-                // Related Artists (only those in user's library)
-                if !viewModel.resolvedSimilarArtists.isEmpty {
-                    relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
-            .background(MeasuredWidthReader(onChange: updateArtistHeaderWidth))
         }
     }
 
@@ -741,24 +778,107 @@ public struct ArtistDetailView: View {
     }
     
     private func loadArtworkImage() async {
-        if let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: viewModel.artist.thumbPath,
-            sourceKey: viewModel.artist.sourceCompositeKey,
-            ratingKey: viewModel.artist.id,
-            fallbackPath: viewModel.artist.fallbackThumbPath,
-            fallbackRatingKey: viewModel.artist.fallbackRatingKey,
+        let artist = viewModel.artist
+        let loadIdentity = artist.sourceScopedID
+
+        await MainActor.run {
+            currentArtworkLoadIdentity = loadIdentity
+            artworkLoadUnavailable = false
+        }
+
+        await loadCachedArtworkSeed(for: artist, loadIdentity: loadIdentity)
+
+        guard let url = await dependencies.artworkLoader.artworkURLAsync(
+            for: artist.thumbPath,
+            sourceKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
             size: 600
-        ) {
-            let request = ImageRequest(url: url)
-            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                let heroImage = Self.artistHeroImage(from: uiImage)
-                await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.5)) {
-                        self.artworkImage = heroImage
-                    }
-                }
+        ) else {
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkLoadUnavailable = true
+            }
+            return
+        }
+
+        let request = ImageRequest(url: url)
+
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            let heroImage = Self.artistHeroImage(from: cachedImage.image)
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkImage = heroImage
+            }
+            return
+        }
+
+        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+            let heroImage = Self.artistHeroImage(from: uiImage)
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkImage = heroImage
+            }
+        } else {
+            await MainActor.run {
+                guard currentArtworkLoadIdentity == loadIdentity else { return }
+                artworkLoadUnavailable = artworkImage == nil
             }
         }
+    }
+
+    private func loadCachedArtworkSeed(for artist: Artist, loadIdentity: String) async {
+        guard let url = await dependencies.artworkLoader.artworkURLAsync(
+            for: artist.thumbPath,
+            sourceKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
+            size: ArtworkSize.thumbnail.rawValue
+        ) else {
+            return
+        }
+
+        let request = ImageRequest(url: url)
+        guard let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) else {
+            return
+        }
+
+        let heroImage = Self.artistHeroImage(from: cachedImage.image)
+        await MainActor.run {
+            guard currentArtworkLoadIdentity == loadIdentity, artworkImage == nil else { return }
+            artworkImage = heroImage
+        }
+    }
+
+    private var displayedArtworkImage: PlatformImage? {
+        if artworkImage == nil, artworkLoadUnavailable || !hasArtworkCandidate {
+            return nil
+        }
+        return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
+    }
+
+    private var artworkImageIdentity: ObjectIdentifier? {
+        artworkImage.map(ObjectIdentifier.init)
+    }
+
+    private var hasArtworkCandidate: Bool {
+        viewModel.artist.thumbPath?.isEmpty == false || viewModel.artist.fallbackThumbPath?.isEmpty == false
+    }
+
+    private func updateArtworkContinuity() {
+        guard let artworkImage else {
+            if continuityArtworkImage == nil {
+                continuityArtworkImage = artistArtworkContinuity.lastImage
+            }
+            return
+        }
+
+        if continuityArtworkImage.map(ObjectIdentifier.init) != ObjectIdentifier(artworkImage) {
+            continuityArtworkImage = artworkImage
+        }
+        artistArtworkContinuity.lastImage = artworkImage
     }
 
     private static func artistHeroImage(from image: PlatformImage) -> PlatformImage {
@@ -851,23 +971,24 @@ public struct ArtistDetailView: View {
 
     // MARK: - Hero Banner
 
-    private var artistHeader: some View {
+    @ViewBuilder
+    private func artistHeader(containerWidth: CGFloat) -> some View {
         Group {
-            if usesWideArtistHeader {
+            if usesWideArtistHeader(containerWidth: containerWidth) {
                 wideArtistHeader
             } else {
-                compactArtistHeader
+                compactArtistHeader(containerWidth: containerWidth)
             }
         }
     }
 
-    private var usesWideArtistHeader: Bool {
-        artistHeaderWidth >= EnsembleScaffold.ArtistDetail.wideHeaderThreshold
+    private func usesWideArtistHeader(containerWidth: CGFloat) -> Bool {
+        containerWidth >= EnsembleScaffold.ArtistDetail.wideHeaderThreshold
     }
 
-    private var compactArtistHeader: some View {
+    private func compactArtistHeader(containerWidth: CGFloat) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            heroBanner
+            heroBanner(containerWidth: containerWidth)
 
             compactActionButtons
                 .padding(.top, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
@@ -876,18 +997,7 @@ public struct ArtistDetailView: View {
 
     private var wideArtistHeader: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
-            ArtworkView(
-                artist: viewModel.artist,
-                size: .medium,
-                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
-                isResponsive: true
-            )
-            .frame(
-                width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
-                height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
-            )
-            .clipShape(Circle())
-            .ensembleArtworkShadow()
+            wideArtistArtwork
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
                 Text(viewModel.artist.name)
@@ -910,8 +1020,29 @@ public struct ArtistDetailView: View {
         .padding(.bottom, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
     }
 
+    private var wideArtistArtwork: some View {
+        StableArtistArtworkImage(image: displayedArtworkImage) {
+            ArtworkView(
+                artist: viewModel.artist,
+                size: .medium,
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
+                isResponsive: true
+            )
+        }
+        .frame(
+            width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
+            height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
+        )
+        .clipShape(Circle())
+        .ensembleArtworkShadow()
+    }
+
     private var artistStatsLine: some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+            if !hasArtistStatsContent {
+                Text(" ")
+                    .hidden()
+            }
             if displayArtist.isMerged {
                 Text("\(displayArtist.artists.count) sources")
             }
@@ -932,28 +1063,46 @@ public struct ArtistDetailView: View {
         .foregroundColor(EnsembleDesign.Color.secondaryText)
     }
 
-    @ViewBuilder
-    private var artistHeaderFacts: some View {
-        if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
-            VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.factsSpacing) {
-                if let country = detail.country {
-                    Text(country)
-                }
-                if !detail.genres.isEmpty {
-                    Text(detail.genres.prefix(3).joined(separator: ", "))
-                } else if !detail.styles.isEmpty {
-                    Text(detail.styles.prefix(3).joined(separator: ", "))
-                }
-            }
-            .font(EnsembleDesign.Typography.stateMessage)
-            .foregroundColor(EnsembleDesign.Color.secondaryText)
-            .lineLimit(1)
-        }
+    private var hasArtistStatsContent: Bool {
+        displayArtist.isMerged || !detailAlbums.isEmpty || !detailTracks.isEmpty
     }
 
-    private func updateArtistHeaderWidth(_ newWidth: CGFloat) {
-        if abs(artistHeaderWidth - newWidth) > 1 {
-            artistHeaderWidth = newWidth
+    private var artistHeaderFacts: some View {
+        let factLines = artistHeaderFactLines
+
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.factsSpacing) {
+            artistHeaderFactLine(factLines.primary)
+            artistHeaderFactLine(factLines.secondary)
+        }
+        .font(EnsembleDesign.Typography.stateMessage)
+        .foregroundColor(EnsembleDesign.Color.secondaryText)
+        .lineLimit(1)
+    }
+
+    private var artistHeaderFactLines: (primary: String?, secondary: String?) {
+        guard let detail = viewModel.artistDetail, hasQuickFacts(detail) else {
+            return (nil, nil)
+        }
+
+        let secondary: String?
+        if !detail.genres.isEmpty {
+            secondary = detail.genres.prefix(3).joined(separator: ", ")
+        } else if !detail.styles.isEmpty {
+            secondary = detail.styles.prefix(3).joined(separator: ", ")
+        } else {
+            secondary = nil
+        }
+
+        return (detail.country, secondary)
+    }
+
+    @ViewBuilder
+    private func artistHeaderFactLine(_ text: String?) -> some View {
+        if let text, !text.isEmpty {
+            Text(text)
+        } else {
+            Text(" ")
+                .hidden()
         }
     }
 
@@ -963,9 +1112,9 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private var compactHeroHeight: CGFloat {
-        if artistHeaderWidth > 0 {
-            return artistHeaderWidth
+    private func compactHeroHeight(containerWidth: CGFloat) -> CGFloat {
+        if containerWidth > 0 {
+            return containerWidth
         }
 
         #if os(iOS)
@@ -975,7 +1124,7 @@ public struct ArtistDetailView: View {
         #endif
     }
 
-    private var heroBanner: some View {
+    private func heroBanner(containerWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             let bannerHeight = geometry.size.height
             // Detect overscroll: when the banner's top in global coords is > 0,
@@ -986,27 +1135,17 @@ public struct ArtistDetailView: View {
             let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
             ZStack(alignment: .bottom) {
-                // Artist artwork — uses artworkImage directly instead of ArtworkView
-                // to avoid ArtworkView's internal 800x800 maxWidth/maxHeight constraints
-                // which prevent the image from covering the full banner width on macOS.
-                Group {
-                    if let img = artworkImage {
-                        #if os(macOS)
-                        Image(nsImage: img)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geometry.size.width, height: artworkHeight)
-                        #else
-                        Image(uiImage: img)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: geometry.size.width, height: artworkHeight)
-                        #endif
-                    } else {
-                        EnsembleScaffold.ArtistDetail.placeholderArtworkColor
-                            .frame(width: geometry.size.width, height: artworkHeight)
-                    }
+                // The resolved hero image fills the banner directly; ArtworkView is
+                // only the unresolved fallback so it doesn't constrain the final image.
+                StableArtistArtworkImage(image: displayedArtworkImage) {
+                    ArtworkView(
+                        artist: viewModel.artist,
+                        size: .large,
+                        cornerRadius: 0,
+                        isResponsive: true
+                    )
                 }
+                .frame(width: geometry.size.width, height: artworkHeight)
                 .clipped()
                 .mask(
                     LinearGradient(
@@ -1060,7 +1199,7 @@ public struct ArtistDetailView: View {
                 value: isHeroPastToolbar
             )
         }
-        .frame(height: compactHeroHeight)
+        .frame(height: compactHeroHeight(containerWidth: containerWidth))
         .frame(maxWidth: .infinity)
     }
 
@@ -1257,19 +1396,12 @@ public struct ArtistDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists, id: \.sourceScopedID) { artist in
-                        if #available(iOS 16.0, macOS 13.0, *) {
-                            NavigationLink(value: NavigationCoordinator.Destination.artist(id: artist.id, sourceKey: artist.sourceCompositeKey)) {
-                                similarArtistCard(artist: artist)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            NavigationLink {
-                                ArtistDetailLoader(artistId: artist.id, artistSourceKey: artist.sourceCompositeKey, nowPlayingVM: nowPlayingVM)
-                            } label: {
-                                similarArtistCard(artist: artist)
-                            }
-                            .buttonStyle(.plain)
+                        NavigationLink {
+                            ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                        } label: {
+                            similarArtistCard(artist: artist)
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal)

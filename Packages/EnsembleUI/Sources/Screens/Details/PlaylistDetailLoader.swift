@@ -1,4 +1,5 @@
 import EnsembleCore
+import EnsemblePersistence
 import SwiftUI
 
 struct PlaylistDetailLoader: View {
@@ -55,7 +56,7 @@ struct PlaylistDetailLoader: View {
     @MainActor
     private func loadPlaylist() async {
         do {
-            guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
+            guard let cdPlaylist = try await loadPlaylistMetadata(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
             ) else {
@@ -64,11 +65,24 @@ struct PlaylistDetailLoader: View {
             }
 
             let loadedPlaylist = Playlist(from: cdPlaylist)
-            let loadedTracks = cdPlaylist.tracksArray.map { Track(from: $0) }
-            finishLoading(playlist: loadedPlaylist, initialTracks: loadedTracks, error: nil)
+            finishLoading(playlist: loadedPlaylist, initialTracks: nil, error: nil)
         } catch {
             finishLoading(playlist: nil, initialTracks: nil, error: error)
         }
+    }
+
+    private func loadPlaylistMetadata(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
+        let playlists: [CDPlaylist]
+        if let sourceCompositeKey {
+            playlists = try await deps.playlistRepository.fetchPlaylists(sourceCompositeKey: sourceCompositeKey)
+        } else {
+            playlists = try await deps.playlistRepository.fetchPlaylists()
+        }
+
+        return playlists
+            .filter { $0.ratingKey == ratingKey }
+            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+            .first
     }
 
     @MainActor

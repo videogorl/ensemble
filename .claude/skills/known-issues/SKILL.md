@@ -13,6 +13,12 @@ No unresolved critical issues are currently documented.
 
 ## Active Limitations
 
+### Top-Level Navigation Pop-In During Playback
+
+- **Area:** `SidebarView`, `HomeView`, `LibraryViewModel`, `AlbumsView`, `ArtistsView`, `SearchView`, `FavoritesView`
+- **Status:** macOS sidebar navigation can show an intermediate empty/chrome-only state and may coincide with CoreAudio overload while music plays. Current evidence points to top-level subtree replacement plus delayed display projections/view-local caches, not Aurora cadence.
+- **Rule:** Keep Aurora at 30fps unless Low Power Mode is active. Fix the pop-in by preserving or root-owning display-ready state, removing unused view-local models, and seeding display projections synchronously instead of pausing/reducing the root backdrop during navigation.
+
 ### macOS 26 Feed Toolbar Liquid Glass Sampling
 
 - **Area:** `HomeView`, `CollapsingToolbar`, `ArtworkDetailBackground`

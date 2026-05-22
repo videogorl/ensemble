@@ -35,7 +35,7 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     @MainActor func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority, throttled: Bool) async
 
     /// Activate a loaded timeline as the current display source.
-    /// Starts the adaptive display timer when a visualization surface is visible.
+    /// Starts the 30Hz display timer.
     @MainActor func activateTimeline(for trackId: String)
 
     /// Activate a timeline at a known playback position.
@@ -66,7 +66,7 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Restart the display timer when the app foregrounds, if music was actively playing.
     @MainActor func exitBackground()
 
-    /// Whether aurora visualization is enabled. When false, the display timer
+    /// Whether aurora visualization is enabled. When false, the 30Hz display timer
     /// is not started, saving CPU on low-end devices.
     @MainActor var visualizationEnabled: Bool { get set }
 
@@ -207,11 +207,6 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private let bandCount = 24
     private let fftSize = 1024
     private let highTargetFPS: Double = 30.0
-    private let lowCostTargetFPS: Double = 15.0
-    private let lowCostVisualizationConsumers: Set<VisualizationConsumer> = [
-        .phoneOverlay,
-        .rootBackdrop
-    ]
 
     // MARK: - Display State
 
@@ -235,7 +230,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// Which timeline is currently being displayed
     private var activeTrackId: String?
 
-    /// Adaptive display timer
+    /// 30Hz display timer
     private var displayTimer: Timer?
     private var activeDisplayFPS: Double?
 
@@ -249,7 +244,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private var isPaused: Bool = false
 
     /// Whether the aurora visualizer is enabled in settings.
-    /// When false, the display timer is not started — saving significant CPU
+    /// When false, the 30Hz display timer is not started — saving significant CPU
     /// on dual-core devices (A9). Synced from PlaybackService's UserDefaults observer.
     public var visualizationEnabled: Bool = true {
         didSet {
@@ -487,10 +482,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     private var desiredDisplayFPS: Double? {
         guard !visibleVisualizationConsumers.isEmpty else { return nil }
 
-        if visibleVisualizationConsumers.isSubset(of: lowCostVisualizationConsumers) {
-            return lowCostTargetFPS
-        }
-
+        // Keep Aurora visually responsive at 30Hz. Main-thread pressure is managed
+        // by coalescing no-op band publishes and moving surface shaping off the
+        // SwiftUI receive path, not by reducing the visualizer cadence.
         return highTargetFPS
     }
 

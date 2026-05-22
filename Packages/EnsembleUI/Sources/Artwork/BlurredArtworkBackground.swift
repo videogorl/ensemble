@@ -17,6 +17,7 @@ public struct BlurredArtworkBackground: View {
     let bottomDimming: Double
     let shouldIgnoreSafeArea: Bool
     let overlayColor: Color
+    let animatesImageChanges: Bool
 
     public init(
         image: PlatformImage?,
@@ -29,7 +30,8 @@ public struct BlurredArtworkBackground: View {
         topDimming: Double = 0.1,
         bottomDimming: Double = 0.5,
         shouldIgnoreSafeArea: Bool = true,
-        overlayColor: Color = .black
+        overlayColor: Color = .black,
+        animatesImageChanges: Bool = true
     ) {
         self.image = image
         self.preBlurredImage = preBlurredImage
@@ -42,6 +44,7 @@ public struct BlurredArtworkBackground: View {
         self.bottomDimming = bottomDimming
         self.shouldIgnoreSafeArea = shouldIgnoreSafeArea
         self.overlayColor = overlayColor
+        self.animatesImageChanges = animatesImageChanges
     }
     
     public var body: some View {
@@ -57,8 +60,6 @@ public struct BlurredArtworkBackground: View {
     private var content: some View {
         GeometryReader { geometry in
             ZStack {
-                // Use a ZStack with .id() and .transition(.opacity) to ensure a smooth cross-fade
-                // when the image changes. DO NOT REMOVE THIS - it prevents jarring swaps.
                 // Guard against zero-sized geometry during layout/animation passes
                 // to avoid QuartzCore "Failed to create WxH image slot" errors.
                 //
@@ -90,8 +91,10 @@ public struct BlurredArtworkBackground: View {
                                 .blur(radius: blurRadius)
                         }
                         .opacity(opacity)
-                        .id(image) // Use original image identity for cross-fade on track change
-                        .transition(.opacity)
+                        .optionalArtworkTransition(
+                            id: image.map(ObjectIdentifier.init),
+                            isEnabled: animatesImageChanges
+                        )
                     #else
                     Image(uiImage: displayImage)
                         .resizable()
@@ -105,8 +108,10 @@ public struct BlurredArtworkBackground: View {
                                 .blur(radius: blurRadius, opaque: true)
                         }
                         .opacity(opacity)
-                        .id(image) // Use original image identity for cross-fade on track change
-                        .transition(.opacity)
+                        .optionalArtworkTransition(
+                            id: image.map(ObjectIdentifier.init),
+                            isEnabled: animatesImageChanges
+                        )
                     #endif
 
                     // Saturation gradient (desaturates bottom slightly)
@@ -133,6 +138,19 @@ public struct BlurredArtworkBackground: View {
                 }
             }
             .clipped()
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func optionalArtworkTransition(id: ObjectIdentifier?, isEnabled: Bool) -> some View {
+        if isEnabled {
+            self
+                .id(id)
+                .transition(.opacity)
+        } else {
+            self
         }
     }
 }

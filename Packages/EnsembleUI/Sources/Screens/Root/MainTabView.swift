@@ -9,7 +9,9 @@ import AppKit
 public struct MainTabView: View {
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
+    @StateObject private var homeVM: HomeViewModel
     @StateObject private var searchVM: SearchViewModel
+    @StateObject private var pinnedVM: PinnedViewModel
     private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
@@ -51,7 +53,9 @@ public struct MainTabView: View {
     public init(nowPlayingVM: NowPlayingViewModel) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
+        self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
+        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
     }
 
     private var showsPhoneAuroraOverlay: Bool {
@@ -148,7 +152,10 @@ public struct MainTabView: View {
                     reconcileInitialTabSelection()
                     didSetInitialTab = true
                 }
-                await libraryVM.refresh()
+                async let libraryRefresh: () = libraryVM.refresh()
+                async let searchExploreLoad: () = searchVM.loadExploreContentIfNeeded()
+                async let pinsLoad: () = pinnedVM.loadPinnedItems()
+                _ = await (libraryRefresh, searchExploreLoad, pinsLoad)
             }
             // Observation-extracted receivers — update @State only when specific values change,
             // avoiding full root view invalidation from singleton objectWillChange.
@@ -354,7 +361,9 @@ public struct MainTabView: View {
             for: tab,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
+            homeVM: homeVM,
             searchVM: searchVM,
+            pinnedVM: pinnedVM,
             isMoreRoot: isMoreRoot
         )
         .auroraBackgroundSupport()
@@ -371,7 +380,9 @@ public struct MainTabView: View {
             for: destination,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            searchVM: searchVM
+            homeVM: homeVM,
+            searchVM: searchVM,
+            pinnedVM: pinnedVM
         )
         .environment(\.showsProfileToolbar, false)
     }
@@ -512,6 +523,7 @@ public struct SidebarView: View {
 
     @StateObject private var libraryVM: LibraryViewModel
     private let nowPlayingVM: NowPlayingViewModel
+    @StateObject private var homeVM: HomeViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
@@ -558,6 +570,7 @@ public struct SidebarView: View {
     public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
+        self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
@@ -1255,13 +1268,40 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func pinnedDetailRootView(id: String, sourceKey: String?, type: PinnedItemType) -> some View {
-        switch type {
-        case .album:
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .artist:
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-        case .playlist:
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+        if let resolvedPin = resolvedPin(id: id, sourceKey: sourceKey, type: type) {
+            switch resolvedPin {
+            case .album(let album, _):
+                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+            case .artist(let artist, _):
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+            case .playlist(let playlist, _):
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+            case .mergedPlaylist(let displayPlaylist, _):
+                MergedPlaylistDetailView(displayPlaylist: displayPlaylist, nowPlayingVM: nowPlayingVM)
+            }
+        } else {
+            switch type {
+            case .album:
+                AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            case .artist:
+                ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            case .playlist:
+                PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            }
+        }
+    }
+
+    private func resolvedPin(id: String, sourceKey: String?, type: PinnedItemType) -> ResolvedPin? {
+        let identity = PinnedItem.sourceScopedID(id: id, sourceKey: sourceKey)
+        return pinnedVM.resolvedPins.first { pin in
+            switch pin {
+            case let .album(_, pinnedItem),
+                 let .artist(_, pinnedItem),
+                 let .playlist(_, pinnedItem):
+                return pinnedItem.type == type && pinnedItem.sourceScopedID == identity
+            case let .mergedPlaylist(_, pinnedItems):
+                return type == .playlist && pinnedItems.contains { $0.sourceScopedID == identity }
+            }
         }
     }
 
@@ -1360,7 +1400,9 @@ public struct SidebarView: View {
                     for: tab,
                     libraryVM: libraryVM,
                     nowPlayingVM: nowPlayingVM,
-                    searchVM: searchVM
+                    homeVM: homeVM,
+                    searchVM: searchVM,
+                    pinnedVM: pinnedVM
                 )
             }
         }
@@ -1799,7 +1841,9 @@ public struct SidebarView: View {
             for: destination,
             libraryVM: libraryVM,
             nowPlayingVM: nowPlayingVM,
-            searchVM: searchVM
+            homeVM: homeVM,
+            searchVM: searchVM,
+            pinnedVM: pinnedVM
         )
     }
 }
