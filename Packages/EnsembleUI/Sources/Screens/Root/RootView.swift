@@ -420,11 +420,29 @@ public struct RootView: View {
             return .hidden
         }
 
+        let resolvedFrame: CGRect
+        let resolvedBottomPadding: CGFloat
+        if usesStableRootMiniPlayerAnchor {
+            resolvedFrame = rootBounds
+            resolvedBottomPadding = TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0)
+        } else {
+            resolvedFrame = visibleFrame
+            resolvedBottomPadding = registration.bottomPadding
+        }
+
         return RootChromeLayout(
-            frame: visibleFrame,
-            bottomPadding: registration.bottomPadding,
+            frame: resolvedFrame,
+            bottomPadding: resolvedBottomPadding,
             showsMiniPlayer: registration.showsMiniPlayer
         )
+    }
+
+    private var usesStableRootMiniPlayerAnchor: Bool {
+        #if os(iOS)
+        return UIDevice.current.userInterfaceIdiom == .pad
+        #else
+        return false
+        #endif
     }
 
     fileprivate var supportsViewportNowPlayingPresentation: Bool {

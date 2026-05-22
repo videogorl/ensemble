@@ -592,6 +592,10 @@ public struct ControlsCard: View {
             ((playbackProjection.playbackState == .loading || playbackProjection.playbackState == .buffering) && wasPlayingBeforeTransition)
     }
 
+    private var hasCurrentTrack: Bool {
+        playbackProjection.currentTrack != nil
+    }
+
     // MARK: - Secondary Controls
 
     private var secondaryControlsView: some View {
@@ -609,6 +613,8 @@ public struct ControlsCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(ratingProjection.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
             }
+            .disabled(!hasCurrentTrack)
+            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
 
             // Add to Playlist
             Button {
@@ -623,6 +629,8 @@ public struct ControlsCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
+            .disabled(!hasCurrentTrack)
+            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
 
             // More menu with navigation, sharing, and quick add
             Menu {
@@ -688,6 +696,8 @@ public struct ControlsCard: View {
             .transaction { transaction in
                 transaction.animation = nil
             }
+            .disabled(!hasCurrentTrack)
+            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
         }
         .chromelessMediaControlButton()
         .chromelessMediaControlMenu()

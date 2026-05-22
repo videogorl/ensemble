@@ -87,7 +87,7 @@ public struct LibraryItemInfoView: View {
                 if let year = album.year, year > 0 {
                     infoRow(label: "Year", value: String(year))
                 }
-                infoRow(label: "Tracks", value: String(album.trackCount))
+                infoRow(label: "Tracks", value: String(albumTrackCount(for: album)))
                 optionalRow(label: "Duration", value: formatDuration(viewModel.aggregateDuration))
                 optionalRow(label: "Added", value: formatDate(album.dateAdded))
 
@@ -163,6 +163,13 @@ public struct LibraryItemInfoView: View {
         case .playlist(let playlist):
             return playlist.isSmart ? "Smart Playlist" : "Playlist"
         }
+    }
+
+    private func albumTrackCount(for album: Album) -> Int {
+        LibraryItemInfoViewModel.resolvedAlbumTrackCount(
+            albumTrackCount: album.trackCount,
+            fetchedTrackCount: viewModel.aggregateTrackCount
+        )
     }
 
     private func infoSection<Content: View>(

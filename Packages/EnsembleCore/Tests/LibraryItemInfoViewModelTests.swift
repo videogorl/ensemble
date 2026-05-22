@@ -57,6 +57,26 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
         )
     }
 
+    func testResolvedAlbumTrackCountPrefersFetchedTracksWhenAvailable() {
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.resolvedAlbumTrackCount(
+                albumTrackCount: 0,
+                fetchedTrackCount: 9
+            ),
+            9
+        )
+    }
+
+    func testResolvedAlbumTrackCountFallsBackToAlbumMetadata() {
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.resolvedAlbumTrackCount(
+                albumTrackCount: 12,
+                fetchedTrackCount: nil
+            ),
+            12
+        )
+    }
+
     private func decodePlexTrack(ratingKey: String, filePath: String) throws -> PlexTrack {
         let escapedPath = filePath
             .replacingOccurrences(of: "\\", with: "\\\\")

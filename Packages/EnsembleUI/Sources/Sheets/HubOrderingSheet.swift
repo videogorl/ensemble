@@ -9,6 +9,7 @@ public struct HubOrderingSheet: View {
     @ObservedObject var viewModel: HomeViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @State private var reorderedHubs: [Hub] = []
+    @State private var isConfirmingReset = false
 
     public init(viewModel: HomeViewModel) {
         self.viewModel = viewModel
@@ -30,8 +31,8 @@ public struct HubOrderingSheet: View {
         ) {
             hubList
         } footer: {
-            Button("Reset") {
-                handleReset()
+            Button("Reset…", role: .destructive) {
+                requestReset()
             }
 
             Button("Done") {
@@ -47,6 +48,9 @@ public struct HubOrderingSheet: View {
         }
         .onChange(of: viewModel.editableHubs) { newValue in
             reorderedHubs = newValue
+        }
+        .resetOrderConfirmation(isPresented: $isConfirmingReset) {
+            handleReset()
         }
     }
     #endif
@@ -72,6 +76,9 @@ public struct HubOrderingSheet: View {
         }
         .onChange(of: viewModel.editableHubs) { newValue in
             reorderedHubs = newValue
+        }
+        .resetOrderConfirmation(isPresented: $isConfirmingReset) {
+            handleReset()
         }
     }
 
@@ -174,8 +181,8 @@ public struct HubOrderingSheet: View {
     private var toolbarContent: some ToolbarContent {
         #if os(iOS)
         ToolbarItem(placement: .navigationBarLeading) {
-            Button("Reset") {
-                handleReset()
+            Button("Reset…") {
+                requestReset()
             }
             .foregroundColor(EnsembleDesign.Color.destructive)
         }
@@ -188,8 +195,8 @@ public struct HubOrderingSheet: View {
         }
         #else
         ToolbarItem(placement: .cancellationAction) {
-            Button("Reset") {
-                handleReset()
+            Button("Reset…", role: .destructive) {
+                requestReset()
             }
         }
 
@@ -205,6 +212,10 @@ public struct HubOrderingSheet: View {
 
     private func moveHub(from source: IndexSet, to destination: Int) {
         reorderedHubs.move(fromOffsets: source, toOffset: destination)
+    }
+
+    private func requestReset() {
+        isConfirmingReset = true
     }
 
     private func handleReset() {
@@ -288,5 +299,25 @@ public struct HubOrderingSheet: View {
         guard title.count > prefix.count else { return nil }
         let remainder = title.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
         return remainder.isEmpty ? nil : remainder
+    }
+}
+
+private extension View {
+    func resetOrderConfirmation(
+        isPresented: Binding<Bool>,
+        onReset: @escaping () -> Void
+    ) -> some View {
+        confirmationDialog(
+            "Reset Home Screen Order?",
+            isPresented: isPresented,
+            titleVisibility: .visible
+        ) {
+            Button("Reset Order", role: .destructive) {
+                onReset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This restores the default Home Screen section order.")
+        }
     }
 }

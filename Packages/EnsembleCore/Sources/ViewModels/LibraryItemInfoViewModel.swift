@@ -13,6 +13,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
     @Published public private(set) var originalFileInfo: AudioFileInfo?
     @Published public private(set) var originalFolderPath: String?
     @Published public private(set) var aggregateDuration: TimeInterval?
+    @Published public private(set) var aggregateTrackCount: Int?
     @Published public private(set) var isLoading = false
 
     public let request: LibraryItemInfoRequest
@@ -46,7 +47,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         defer { isLoading = false }
 
         async let fileInfo = loadOriginalFileInfo()
-        async let duration = loadAggregateDuration()
+        async let aggregate = loadAggregateMetadata()
 
         let resolvedFileInfo = await fileInfo
         let resolvedFolderPath: String?
@@ -58,7 +59,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         case .playlist:
             resolvedFolderPath = nil
         }
-        let resolvedDuration = await duration
+        let resolvedAggregate = await aggregate
 
         if originalFileInfo != resolvedFileInfo {
             originalFileInfo = resolvedFileInfo
@@ -66,8 +67,11 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         if originalFolderPath != resolvedFolderPath {
             originalFolderPath = resolvedFolderPath
         }
-        if aggregateDuration != resolvedDuration {
-            aggregateDuration = resolvedDuration
+        if aggregateDuration != resolvedAggregate.duration {
+            aggregateDuration = resolvedAggregate.duration
+        }
+        if aggregateTrackCount != resolvedAggregate.trackCount {
+            aggregateTrackCount = resolvedAggregate.trackCount
         }
     }
 
@@ -104,12 +108,17 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         }
     }
 
-    private func loadAggregateDuration() async -> TimeInterval? {
+    private func loadAggregateMetadata() async -> AggregateMetadata {
         switch request {
         case .track(let track):
-            return track.duration > 0 ? track.duration : nil
+            return AggregateMetadata(
+                duration: track.duration > 0 ? track.duration : nil,
+                trackCount: nil
+            )
         case .album(let album):
-            guard let sourceKey = album.sourceCompositeKey else { return nil }
+            guard let sourceKey = album.sourceCompositeKey else {
+                return AggregateMetadata(duration: nil, trackCount: nil)
+            }
             let tracks = try? await libraryRepository.fetchTracks(
                 forAlbum: album.id,
                 sourceCompositeKey: sourceKey
@@ -117,19 +126,32 @@ public final class LibraryItemInfoViewModel: ObservableObject {
             let duration = tracks?.reduce(TimeInterval(0)) {
                 $0 + Self.persistedTrackDurationSeconds($1.duration)
             } ?? 0
-            return duration > 0 ? duration : nil
+            return AggregateMetadata(
+                duration: duration > 0 ? duration : nil,
+                trackCount: tracks?.count
+            )
         case .playlist(let playlist):
             guard let cdPlaylist = try? await playlistRepository.fetchPlaylist(
                 ratingKey: playlist.id,
                 sourceCompositeKey: playlist.sourceCompositeKey
             ) else {
-                return playlist.duration > 0 ? playlist.duration : nil
+                return AggregateMetadata(
+                    duration: playlist.duration > 0 ? playlist.duration : nil,
+                    trackCount: nil
+                )
             }
             let duration = cdPlaylist.tracksArray.reduce(TimeInterval(0)) {
                 $0 + Self.persistedTrackDurationSeconds($1.duration)
             }
-            return duration > 0 ? duration : (playlist.duration > 0 ? playlist.duration : nil)
+            return AggregateMetadata(
+                duration: duration > 0 ? duration : (playlist.duration > 0 ? playlist.duration : nil),
+                trackCount: nil
+            )
         }
+    }
+
+    public static func resolvedAlbumTrackCount(albumTrackCount: Int, fetchedTrackCount: Int?) -> Int {
+        fetchedTrackCount ?? albumTrackCount
     }
 
     static func persistedTrackDurationSeconds(_ durationMilliseconds: Int64) -> TimeInterval {
@@ -202,4 +224,9 @@ public final class LibraryItemInfoViewModel: ObservableObject {
 
         return SourceContext(serverName: server.name, libraryName: libraryName)
     }
+}
+
+private struct AggregateMetadata: Equatable {
+    let duration: TimeInterval?
+    let trackCount: Int?
 }
