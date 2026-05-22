@@ -497,7 +497,7 @@ public struct ArtistDetailView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
-    @State private var artistHeaderWidth: CGFloat = 0
+    @State private var isInitialContentVisible = false
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
@@ -573,6 +573,7 @@ public struct ArtistDetailView: View {
             updateArtistPinState(pinnedItems: pinnedItems)
         }
         .task {
+            isInitialContentVisible = false
             async let artworkLoad: () = loadArtworkImage()
             await viewModel.loadAlbums()
             await viewModel.loadTracks()
@@ -580,56 +581,74 @@ public struct ArtistDetailView: View {
             if displayArtist.isMerged {
                 await mergedViewModel.load()
             }
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.16)) {
+                isInitialContentVisible = true
+            }
             _ = await artworkLoad
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
     }
 
     private var artistDetailScrollContent: some View {
-        ScrollView {
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                artistHeader
+        GeometryReader { geometry in
+            let containerWidth = geometry.size.width
 
-                if displayArtist.isMerged {
-                    if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
-                        ProgressView()
-                            .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                    } else if !mergedViewModel.sourceSections.isEmpty {
-                        mergedSourceSections
-                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                    }
-                } else {
-                    // Albums Section
-                    if viewModel.isLoading && viewModel.albums.isEmpty {
-                        ProgressView()
-                            .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
-                    } else if !viewModel.albums.isEmpty {
-                        albumsSection
-                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                    }
+            ZStack(alignment: .top) {
+                ScrollView {
+                    VStack(spacing: EnsembleDesign.Spacing.none) {
+                        artistHeader(containerWidth: containerWidth)
 
-                    // Favorited Tracks (4+ stars)
-                    if !viewModel.favoritedTracks.isEmpty {
-                        favoritedTracksSection
-                            .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                        if displayArtist.isMerged {
+                            if mergedViewModel.isLoading && mergedViewModel.sourceSections.isEmpty {
+                                ProgressView()
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                            } else if !mergedViewModel.sourceSections.isEmpty {
+                                mergedSourceSections
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
+                        } else {
+                            // Albums Section
+                            if viewModel.isLoading && viewModel.albums.isEmpty {
+                                ProgressView()
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
+                            } else if !viewModel.albums.isEmpty {
+                                albumsSection
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
+
+                            // Favorited Tracks (4+ stars)
+                            if !viewModel.favoritedTracks.isEmpty {
+                                favoritedTracksSection
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
+                        }
+
+                        // About section (quick facts + bio + Wikipedia)
+                        if hasAboutContent {
+                            aboutSection
+                                .padding(.horizontal)
+                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                        }
+
+                        // Related Artists (only those in user's library)
+                        if !viewModel.resolvedSimilarArtists.isEmpty {
+                            relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
+                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                        }
                     }
+                    .frame(maxWidth: .infinity)
                 }
+                .opacity(isInitialContentVisible ? 1 : 0)
+                .allowsHitTesting(isInitialContentVisible)
 
-                // About section (quick facts + bio + Wikipedia)
-                if hasAboutContent {
-                    aboutSection
-                        .padding(.horizontal)
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
-                }
-
-                // Related Artists (only those in user's library)
-                if !viewModel.resolvedSimilarArtists.isEmpty {
-                    relatedArtistsSection(artists: viewModel.resolvedSimilarArtists)
-                        .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                if !isInitialContentVisible {
+                    ProgressView()
+                        .padding(.top, EnsembleScaffold.ArtistDetail.wideHeaderTopPadding)
+                        .frame(maxWidth: .infinity)
                 }
             }
-            .frame(maxWidth: .infinity)
-            .background(MeasuredWidthReader(onChange: updateArtistHeaderWidth))
         }
     }
 
@@ -852,23 +871,24 @@ public struct ArtistDetailView: View {
 
     // MARK: - Hero Banner
 
-    private var artistHeader: some View {
+    @ViewBuilder
+    private func artistHeader(containerWidth: CGFloat) -> some View {
         Group {
-            if usesWideArtistHeader {
+            if usesWideArtistHeader(containerWidth: containerWidth) {
                 wideArtistHeader
             } else {
-                compactArtistHeader
+                compactArtistHeader(containerWidth: containerWidth)
             }
         }
     }
 
-    private var usesWideArtistHeader: Bool {
-        artistHeaderWidth >= EnsembleScaffold.ArtistDetail.wideHeaderThreshold
+    private func usesWideArtistHeader(containerWidth: CGFloat) -> Bool {
+        containerWidth >= EnsembleScaffold.ArtistDetail.wideHeaderThreshold
     }
 
-    private var compactArtistHeader: some View {
+    private func compactArtistHeader(containerWidth: CGFloat) -> some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
-            heroBanner
+            heroBanner(containerWidth: containerWidth)
 
             compactActionButtons
                 .padding(.top, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
@@ -877,18 +897,7 @@ public struct ArtistDetailView: View {
 
     private var wideArtistHeader: some View {
         HStack(alignment: .center, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
-            ArtworkView(
-                artist: viewModel.artist,
-                size: .medium,
-                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
-                isResponsive: true
-            )
-            .frame(
-                width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
-                height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
-            )
-            .clipShape(Circle())
-            .ensembleArtworkShadow()
+            wideArtistArtwork
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
                 Text(viewModel.artist.name)
@@ -911,8 +920,41 @@ public struct ArtistDetailView: View {
         .padding(.bottom, EnsembleScaffold.ArtistDetail.compactActionTopPadding)
     }
 
+    private var wideArtistArtwork: some View {
+        ZStack {
+            if let artworkImage {
+                #if os(macOS)
+                Image(nsImage: artworkImage)
+                    .resizable()
+                    .scaledToFill()
+                #else
+                Image(uiImage: artworkImage)
+                    .resizable()
+                    .scaledToFill()
+                #endif
+            } else {
+                ArtworkView(
+                    artist: viewModel.artist,
+                    size: .medium,
+                    cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.medium.cgSize.width),
+                    isResponsive: true
+                )
+            }
+        }
+        .frame(
+            width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
+            height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
+        )
+        .clipShape(Circle())
+        .ensembleArtworkShadow()
+    }
+
     private var artistStatsLine: some View {
         HStack(spacing: EnsembleScaffold.UtilityRow.rowSpacing) {
+            if !hasArtistStatsContent {
+                Text(" ")
+                    .hidden()
+            }
             if displayArtist.isMerged {
                 Text("\(displayArtist.artists.count) sources")
             }
@@ -933,28 +975,46 @@ public struct ArtistDetailView: View {
         .foregroundColor(EnsembleDesign.Color.secondaryText)
     }
 
-    @ViewBuilder
-    private var artistHeaderFacts: some View {
-        if let detail = viewModel.artistDetail, hasQuickFacts(detail) {
-            VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.factsSpacing) {
-                if let country = detail.country {
-                    Text(country)
-                }
-                if !detail.genres.isEmpty {
-                    Text(detail.genres.prefix(3).joined(separator: ", "))
-                } else if !detail.styles.isEmpty {
-                    Text(detail.styles.prefix(3).joined(separator: ", "))
-                }
-            }
-            .font(EnsembleDesign.Typography.stateMessage)
-            .foregroundColor(EnsembleDesign.Color.secondaryText)
-            .lineLimit(1)
-        }
+    private var hasArtistStatsContent: Bool {
+        displayArtist.isMerged || !detailAlbums.isEmpty || !detailTracks.isEmpty
     }
 
-    private func updateArtistHeaderWidth(_ newWidth: CGFloat) {
-        if abs(artistHeaderWidth - newWidth) > 1 {
-            artistHeaderWidth = newWidth
+    private var artistHeaderFacts: some View {
+        let factLines = artistHeaderFactLines
+
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.factsSpacing) {
+            artistHeaderFactLine(factLines.primary)
+            artistHeaderFactLine(factLines.secondary)
+        }
+        .font(EnsembleDesign.Typography.stateMessage)
+        .foregroundColor(EnsembleDesign.Color.secondaryText)
+        .lineLimit(1)
+    }
+
+    private var artistHeaderFactLines: (primary: String?, secondary: String?) {
+        guard let detail = viewModel.artistDetail, hasQuickFacts(detail) else {
+            return (nil, nil)
+        }
+
+        let secondary: String?
+        if !detail.genres.isEmpty {
+            secondary = detail.genres.prefix(3).joined(separator: ", ")
+        } else if !detail.styles.isEmpty {
+            secondary = detail.styles.prefix(3).joined(separator: ", ")
+        } else {
+            secondary = nil
+        }
+
+        return (detail.country, secondary)
+    }
+
+    @ViewBuilder
+    private func artistHeaderFactLine(_ text: String?) -> some View {
+        if let text, !text.isEmpty {
+            Text(text)
+        } else {
+            Text(" ")
+                .hidden()
         }
     }
 
@@ -964,9 +1024,9 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private var compactHeroHeight: CGFloat {
-        if artistHeaderWidth > 0 {
-            return artistHeaderWidth
+    private func compactHeroHeight(containerWidth: CGFloat) -> CGFloat {
+        if containerWidth > 0 {
+            return containerWidth
         }
 
         #if os(iOS)
@@ -976,7 +1036,7 @@ public struct ArtistDetailView: View {
         #endif
     }
 
-    private var heroBanner: some View {
+    private func heroBanner(containerWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             let bannerHeight = geometry.size.height
             // Detect overscroll: when the banner's top in global coords is > 0,
@@ -1061,7 +1121,7 @@ public struct ArtistDetailView: View {
                 value: isHeroPastToolbar
             )
         }
-        .frame(height: compactHeroHeight)
+        .frame(height: compactHeroHeight(containerWidth: containerWidth))
         .frame(maxWidth: .infinity)
     }
 
