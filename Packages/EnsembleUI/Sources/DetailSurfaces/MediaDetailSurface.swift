@@ -57,7 +57,8 @@ struct MediaDetailSurface<Content: View>: View {
                 image: artworkImage,
                 height: backgroundHeight,
                 darkLegibilityOpacity: darkLegibilityOpacity,
-                lightLegibilityOpacity: lightLegibilityOpacity
+                lightLegibilityOpacity: lightLegibilityOpacity,
+                usesNavigationContinuity: true
             )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
