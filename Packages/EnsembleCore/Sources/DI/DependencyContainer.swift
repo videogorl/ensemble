@@ -29,6 +29,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let moodRepository: MoodRepositoryProtocol
     public let downloadManager: DownloadManagerProtocol
     public let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
+    public let externalDeviceSyncRepository: ExternalDeviceSyncRepositoryProtocol
     public let artworkDownloadManager: ArtworkDownloadManagerProtocol
 
     // MARK: - Services
@@ -58,6 +59,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let offlineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     public let offlineDownloadService: OfflineDownloadService
     public let downloadMutationWorkflow: DownloadMutationWorkflow
+    public let externalDeviceSyncService: ExternalDeviceSyncService
     public let lyricsService: LyricsService
     public let mutationCoordinator: MutationCoordinator
     public let playlistMutationWorkflow: PlaylistMutationWorkflow
@@ -118,6 +120,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let moodRepository: MoodRepositoryProtocol
         let downloadManager: DownloadManagerProtocol
         let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
+        let externalDeviceSyncRepository: ExternalDeviceSyncRepositoryProtocol
         let artworkDownloadManager: ArtworkDownloadManagerProtocol
         let pendingMutationRepository: PendingMutationRepository
         let settingsManager: SettingsManager
@@ -163,6 +166,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let offlineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinator
         let offlineDownloadService: OfflineDownloadService
         let downloadMutationWorkflow: DownloadMutationWorkflow
+        let externalDeviceSyncService: ExternalDeviceSyncService
         let mutationCoordinator: MutationCoordinator
         let playlistMutationWorkflow: PlaylistMutationWorkflow
         let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
@@ -207,6 +211,7 @@ public final class DependencyContainer: @unchecked Sendable {
         moodRepository = core.moodRepository
         downloadManager = core.downloadManager
         offlineDownloadTargetRepository = core.offlineDownloadTargetRepository
+        externalDeviceSyncRepository = core.externalDeviceSyncRepository
         artworkDownloadManager = core.artworkDownloadManager
         settingsManager = core.settingsManager
         navigationCoordinator = core.navigationCoordinator
@@ -293,6 +298,7 @@ public final class DependencyContainer: @unchecked Sendable {
         offlineBackgroundExecutionCoordinator = mutation.offlineBackgroundExecutionCoordinator
         offlineDownloadService = mutation.offlineDownloadService
         downloadMutationWorkflow = mutation.downloadMutationWorkflow
+        externalDeviceSyncService = mutation.externalDeviceSyncService
         mutationCoordinator = mutation.mutationCoordinator
         playlistMutationWorkflow = mutation.playlistMutationWorkflow
         trackRatingMutationWorkflow = mutation.trackRatingMutationWorkflow
@@ -351,6 +357,7 @@ public final class DependencyContainer: @unchecked Sendable {
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
             offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
+            externalDeviceSyncRepository: ExternalDeviceSyncRepository(coreDataStack: coreDataStack),
             artworkDownloadManager: ArtworkDownloadManager(),
             pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
             settingsManager: MainActor.assumeIsolated { SettingsManager() },
@@ -518,6 +525,14 @@ public final class DependencyContainer: @unchecked Sendable {
         let downloadMutationWorkflow = MainActor.assumeIsolated {
             DownloadMutationWorkflow(mutator: offlineDownloadService)
         }
+        let externalDeviceSyncService = MainActor.assumeIsolated {
+            ExternalDeviceSyncService(
+                repository: core.externalDeviceSyncRepository,
+                mutationCoordinator: mutationCoordinator,
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository
+            )
+        }
         let playlistMutationWorkflow = MainActor.assumeIsolated {
             PlaylistMutationWorkflow(mutator: mutationCoordinator)
         }
@@ -560,6 +575,7 @@ public final class DependencyContainer: @unchecked Sendable {
             offlineBackgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
             offlineDownloadService: offlineDownloadService,
             downloadMutationWorkflow: downloadMutationWorkflow,
+            externalDeviceSyncService: externalDeviceSyncService,
             mutationCoordinator: mutationCoordinator,
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,

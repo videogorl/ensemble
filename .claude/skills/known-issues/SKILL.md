@@ -80,6 +80,12 @@ No unresolved critical issues are currently documented.
 - **Status:** Core filtering seams exist, but user-facing selector/editor UI is not shipped.
 - **Rule:** Visibility profiles hide/show browse content only; they do not change sync enablement.
 
+### Classic iPod Sync Requires Helper Integration
+
+- **Area:** `ExternalDeviceSyncService`, `IPodDatabaseAdapting`, `Packages/EnsembleUI/Sources/Screens/Devices/`
+- **Status:** Ensemble can discover mounted disk-style iPods and has mapped-only sync planning, persistence, and macOS UI scaffolding. Actual iPod database reads/writes remain blocked until a libgpod-backed helper or adapter is shipped.
+- **Rule:** Keep sync behavior additive and Plex-authoritative. Do not import unmapped iPod data, fuzzy-match orphan files, or bypass PMS transcoding while filling in the helper/export implementation.
+
 ## Watchlist
 
 ### AirPlay Glitch During Health Probes

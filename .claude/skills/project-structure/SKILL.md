@@ -62,6 +62,9 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 - New UI screen/component: `Packages/EnsembleUI/Sources/Screens/`, `.../Components/`, `.../NowPlaying/`, or an existing feature folder.
 - Library item Get Info UI lives in `Packages/EnsembleUI/Sources/Screens/Library/`; its request model lives in `Packages/EnsembleCore/Sources/Models/` and its ViewModel in `Packages/EnsembleCore/Sources/ViewModels/`.
 - New CoreData entity: `Packages/EnsemblePersistence/Sources/CoreData/`
+- New external device/iPod sync persistence: `Packages/EnsemblePersistence/Sources/ExternalDevices/`
+- New external device/iPod sync service, adapter, or planner: `Packages/EnsembleCore/Sources/Services/`
+- New external device/iPod sync UI: `Packages/EnsembleUI/Sources/Screens/Devices/`
 - New API endpoint logic: the matching `PlexAPIClient+*.swift` file in `Packages/EnsembleAPI/Sources/Client/`.
 - New test: the owning package's `Tests/` directory.
 - Long investigation or resolved issue: `docs/investigations/`.

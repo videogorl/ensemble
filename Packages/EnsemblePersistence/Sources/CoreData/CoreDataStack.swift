@@ -139,6 +139,9 @@ public final class CoreDataStack: @unchecked Sendable {
         guard trackEntity.propertiesByName["streamId"] != nil else {
             return false
         }
+        guard model.entitiesByName["CDExternalDeviceSyncMap"]?.propertiesByName["lastImportedPlayCount"] != nil else {
+            return false
+        }
         return model.entitiesByName["CDHomeFeedSnapshot"]?.propertiesByName["hubs"] != nil
     }
 }

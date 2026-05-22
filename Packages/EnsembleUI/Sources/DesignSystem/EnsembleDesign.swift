@@ -178,6 +178,7 @@ public enum EnsembleDesign {
         public static let failure = "xmark.octagon.fill"
         public static let externalLink = "arrow.up.forward.app"
         public static let externalLinkSquare = "arrow.up.right.square"
+        public static let externalDevice = "externaldrive"
         public static let favorite = "heart"
         public static let favoriteFilled = "heart.fill"
         public static let favoriteRemove = "heart.slash"

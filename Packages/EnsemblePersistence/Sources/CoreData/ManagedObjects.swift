@@ -309,6 +309,77 @@ extension CDOfflineDownloadMembership {
     }
 }
 
+// MARK: - CDExternalDevice
+
+@objc(CDExternalDevice)
+public class CDExternalDevice: NSManagedObject {
+    @NSManaged public var deviceID: String
+    @NSManaged public var displayName: String?
+    @NSManaged public var modelIdentifier: String?
+    @NSManaged public var mountPath: String?
+    @NSManaged public var totalCapacity: Int64
+    @NSManaged public var freeCapacity: Int64
+    @NSManaged public var isSupported: Bool
+    @NSManaged public var supportMessage: String?
+    @NSManaged public var automaticSyncEnabled: Bool
+    @NSManaged public var lastSeenAt: Date?
+    @NSManaged public var lastSyncAt: Date?
+}
+
+extension CDExternalDevice {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDExternalDevice> {
+        return NSFetchRequest<CDExternalDevice>(entityName: "CDExternalDevice")
+    }
+}
+
+// MARK: - CDExternalDeviceSyncMap
+
+@objc(CDExternalDeviceSyncMap)
+public class CDExternalDeviceSyncMap: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var kind: String
+    @NSManaged public var deviceID: String
+    @NSManaged public var ipodPersistentID: String?
+    @NSManaged public var ipodPath: String?
+    @NSManaged public var ipodName: String?
+    @NSManaged public var plexRatingKey: String?
+    @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var lastImportedPlayCount: Int32
+    @NSManaged public var lastImportedRating: Int16
+    @NSManaged public var lastImportedAt: Date?
+    @NSManaged public var updatedAt: Date?
+}
+
+extension CDExternalDeviceSyncMap {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDExternalDeviceSyncMap> {
+        return NSFetchRequest<CDExternalDeviceSyncMap>(entityName: "CDExternalDeviceSyncMap")
+    }
+}
+
+// MARK: - CDExternalDeviceSyncRun
+
+@objc(CDExternalDeviceSyncRun)
+public class CDExternalDeviceSyncRun: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var deviceID: String
+    @NSManaged public var startedAt: Date?
+    @NSManaged public var finishedAt: Date?
+    @NSManaged public var status: String?
+    @NSManaged public var importedRatings: Int32
+    @NSManaged public var importedPlays: Int32
+    @NSManaged public var importedPlaylists: Int32
+    @NSManaged public var exportedTracks: Int32
+    @NSManaged public var exportedPlaylists: Int32
+    @NSManaged public var discardedItems: Int32
+    @NSManaged public var errorMessage: String?
+}
+
+extension CDExternalDeviceSyncRun {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDExternalDeviceSyncRun> {
+        return NSFetchRequest<CDExternalDeviceSyncRun>(entityName: "CDExternalDeviceSyncRun")
+    }
+}
+
 extension CDDownload {
     @nonobjc public class func fetchRequest() -> NSFetchRequest<CDDownload> {
         return NSFetchRequest<CDDownload>(entityName: "CDDownload")
