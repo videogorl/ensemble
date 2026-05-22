@@ -1175,8 +1175,10 @@ public struct PlaylistDetailView: View {
             metadataParts.append("Smart Playlist")
         }
         
-        if !viewModel.tracks.isEmpty {
-            metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
+        let displayedTrackCount = viewModel.tracks.isEmpty ? playlist.trackCount : viewModel.tracks.count
+        if displayedTrackCount > 0 {
+            let duration = viewModel.tracks.isEmpty ? playlist.formattedDuration : viewModel.totalDuration
+            metadataParts.append("\(displayedTrackCount) songs, \(duration)")
         }
         
         return MediaHeaderData(

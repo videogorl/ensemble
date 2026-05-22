@@ -485,40 +485,20 @@ public struct SearchView: View {
                     }
                 }
             } else if let playlist = item.playlist {
-                if #available(iOS 16.0, macOS 13.0, *) {
-                    NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
-                        PlaylistCard(playlist: playlist)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        PlaylistActionsContextMenu(
-                            playlist: playlist,
-                            nowPlayingVM: nowPlayingVM,
-                            onGetInfo: {
-                                libraryItemInfoRequest = .playlist(playlist)
-                            }
-                        )
-                    }
-                } else {
-                    NavigationLink {
-                        PlaylistDetailLoader(
-                            playlistId: playlist.id,
-                            playlistSourceKey: playlist.sourceCompositeKey,
-                            nowPlayingVM: nowPlayingVM
-                        )
-                    } label: {
-                        PlaylistCard(playlist: playlist)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        PlaylistActionsContextMenu(
-                            playlist: playlist,
-                            nowPlayingVM: nowPlayingVM,
-                            onGetInfo: {
-                                libraryItemInfoRequest = .playlist(playlist)
-                            }
-                        )
-                    }
+                NavigationLink {
+                    PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                } label: {
+                    PlaylistCard(playlist: playlist)
+                }
+                .buttonStyle(.plain)
+                .contextMenu {
+                    PlaylistActionsContextMenu(
+                        playlist: playlist,
+                        nowPlayingVM: nowPlayingVM,
+                        onGetInfo: {
+                            libraryItemInfoRequest = .playlist(playlist)
+                        }
+                    )
                 }
             }
         }
@@ -746,46 +726,22 @@ public struct SearchView: View {
                 .disabled(isEditingPins)
             }
         case let .playlist(playlist, _):
-            if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
-                    PlaylistCard(playlist: playlist)
-                }
-                .buttonStyle(.plain)
-                .disabled(isEditingPins)
-            } else {
-                NavigationLink {
-                    PlaylistDetailLoader(
-                        playlistId: playlist.id,
-                        playlistSourceKey: playlist.sourceCompositeKey,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                } label: {
-                    PlaylistCard(playlist: playlist)
-                }
-                .buttonStyle(.plain)
-                .disabled(isEditingPins)
+            NavigationLink {
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+            } label: {
+                PlaylistCard(playlist: playlist)
             }
+            .buttonStyle(.plain)
+            .disabled(isEditingPins)
         case let .mergedPlaylist(dp, _):
             // Navigate to merged playlist detail — shows composite artwork and aggregated info
-            if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.mergedPlaylist(title: dp.title, isSmart: dp.isSmart)) {
-                    DisplayPlaylistCard(displayPlaylist: dp)
-                }
-                .buttonStyle(.plain)
-                .disabled(isEditingPins)
-            } else {
-                NavigationLink {
-                    MergedPlaylistDetailLoader(
-                        title: dp.title,
-                        isSmart: dp.isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                } label: {
-                    DisplayPlaylistCard(displayPlaylist: dp)
-                }
-                .buttonStyle(.plain)
-                .disabled(isEditingPins)
+            NavigationLink {
+                MergedPlaylistDetailView(displayPlaylist: dp, nowPlayingVM: nowPlayingVM)
+            } label: {
+                DisplayPlaylistCard(displayPlaylist: dp)
             }
+            .buttonStyle(.plain)
+            .disabled(isEditingPins)
         }
     }
 
@@ -923,46 +879,23 @@ public struct SearchView: View {
                     count: viewModel.playlistResults.count,
                     items: Array(viewModel.playlistResults.prefix(5))
                 ) { playlist in
-                    if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)) {
-                            CompactPlaylistRow(playlist: playlist)
-                        }
-                        .buttonStyle(.plain)
-                        .simultaneousGesture(TapGesture().onEnded {
-                            handleSearchResultNavigation()
-                        })
-                        .contextMenu {
-                            PlaylistActionsContextMenu(
-                                playlist: playlist,
-                                nowPlayingVM: nowPlayingVM,
-                                onGetInfo: {
-                                    libraryItemInfoRequest = .playlist(playlist)
-                                }
-                            )
-                        }
-                    } else {
-                        NavigationLink {
-                            PlaylistDetailLoader(
-                                playlistId: playlist.id,
-                                playlistSourceKey: playlist.sourceCompositeKey,
-                                nowPlayingVM: nowPlayingVM
-                            )
-                        } label: {
-                            CompactPlaylistRow(playlist: playlist)
-                        }
-                        .buttonStyle(.plain)
-                        .simultaneousGesture(TapGesture().onEnded {
-                            handleSearchResultNavigation()
-                        })
-                        .contextMenu {
-                            PlaylistActionsContextMenu(
-                                playlist: playlist,
-                                nowPlayingVM: nowPlayingVM,
-                                onGetInfo: {
-                                    libraryItemInfoRequest = .playlist(playlist)
-                                }
-                            )
-                        }
+                    NavigationLink {
+                        PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+                    } label: {
+                        CompactPlaylistRow(playlist: playlist)
+                    }
+                    .buttonStyle(.plain)
+                    .simultaneousGesture(TapGesture().onEnded {
+                        handleSearchResultNavigation()
+                    })
+                    .contextMenu {
+                        PlaylistActionsContextMenu(
+                            playlist: playlist,
+                            nowPlayingVM: nowPlayingVM,
+                            onGetInfo: {
+                                libraryItemInfoRequest = .playlist(playlist)
+                            }
+                        )
                     }
                 }
             }
