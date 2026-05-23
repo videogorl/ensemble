@@ -153,8 +153,13 @@ private struct RootMiniPlayerOverlay: View {
             .offset(x: layout.frame.minX, y: layout.frame.minY)
             .offset(x: layout.horizontalOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .animation(rootChromeLayoutAnimation, value: layout)
             .transition(.identity)
         }
+    }
+
+    private var rootChromeLayoutAnimation: Animation {
+        .easeInOut(duration: 0.25)
     }
 
     private var appearanceAnimation: Animation {
