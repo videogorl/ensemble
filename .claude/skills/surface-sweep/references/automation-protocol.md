@@ -84,11 +84,16 @@ Mark an issue when any of these are visible or logged:
 - Blank, chrome-only, or partially populated screen after navigation settles.
 - Overlapping/clipped text, controls, toolbar items, mini-player, or keyboard.
 - Wrong platform chrome, missing sidebar/tab/back control, or stale toolbar/search state.
+- Mini-player remains in an old coordinate space, overlaps content, jumps during navigation/sidebar changes, or leaves unreachable final rows.
 - Tap/click does nothing, opens the wrong surface, or cannot be dismissed.
+- Contextual navigation such as "Go to Artist/Album/Playlist" opens the wrong route, loses back/sidebar selection, or fails from Feed/Search/media detail/Now Playing/Queue/History.
+- Add-to-playlist opens an empty/broken picker, completes an unintended mutation, or cannot be canceled.
 - Actionable controls missing usable accessibility labels.
 - Empty/error states without a recovery action when one should exist.
 - Destructive actions without a confirmation step.
 - Layout failure after rotation, sidebar collapse, or macOS resize.
+- Appearance changes such as aurora or accent color fail to propagate, leave stale colors/materials, or cannot be restored.
+- Long-list/scroll boundary failures: final row obscured, Queue bottom unreachable, History inaccessible, lyrics blur/highlighting wrong during scroll, sticky chips/headers misaligned, or genre filters leave stale rows.
 - Loading state never resolves when local data should be available.
 - Error/toast/log message appears during ordinary navigation.
 - Noticeable stutter, repeated redraw, audio interruption, or CPU/log storm during a simple interaction.

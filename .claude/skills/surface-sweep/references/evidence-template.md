@@ -53,37 +53,47 @@ Artifact root:
 
 - [ ] Cold launch/root chrome
 - [ ] Feed
+- [ ] Feed contextual actions/navigation
 - [ ] Artists
 - [ ] Playlists
 - [ ] Search
 - [ ] More
-- [ ] Songs
+- [ ] Songs genre chips, filters, and bottom scroll
 - [ ] Albums
 - [ ] Genres
-- [ ] Favorites
+- [ ] Favorites sorting/filtering
 - [ ] Downloads
 - [ ] Profile
-- [ ] Mini-player
-- [ ] Now Playing
+- [ ] Add-to-playlist sheets
+- [ ] Go-to contextual navigation
+- [ ] Mini-player spacing/position
+- [ ] Now Playing controls/queue/history/lyrics/info
+- [ ] Lyrics scroll/blur behavior where available
+- [ ] Aurora/accent propagation and restoration
 - [ ] StageFlow/landscape where available
 
 ## iPad Checklist
 
 - [ ] Cold launch/root chrome
-- [ ] Sidebar
+- [ ] Sidebar root/detail collapse-expand
 - [ ] Search
 - [ ] Feed
-- [ ] Songs
+- [ ] Songs genre chips, filters, and bottom scroll
 - [ ] Artists
 - [ ] Albums
 - [ ] Genres
-- [ ] Favorites
+- [ ] Favorites sorting/filtering
 - [ ] Playlists
 - [ ] Pins/smart playlists where available
 - [ ] Downloads
 - [ ] Profile
-- [ ] Mini-player
-- [ ] Now Playing wide sheet
+- [ ] Add-to-playlist popovers/sheets
+- [ ] Go-to contextual navigation
+- [ ] Mini-player root/detail/sidebar spacing
+- [ ] Now Playing wide sheet controls/queue/history/lyrics/info
+- [ ] Queue bottom and History panel
+- [ ] Lyrics scroll/blur behavior where available
+- [ ] Aurora/accent propagation and restoration
 - [ ] Regular-width sheets/popovers
 
 ## macOS Checklist
@@ -96,7 +106,7 @@ Artifact root:
 - [ ] Artists
 - [ ] Albums
 - [ ] Genres
-- [ ] Favorites
+- [ ] Favorites sorting/filtering
 - [ ] Playlists
 - [ ] Pins/smart playlists where available
 - [ ] Downloads
@@ -104,8 +114,13 @@ Artifact root:
 - [ ] Music source detail
 - [ ] Add Plex Account
 - [ ] Logs/settings subviews
-- [ ] Mini-player
-- [ ] Now Playing viewport
+- [ ] Add-to-playlist windows/sheets
+- [ ] Go-to contextual navigation
+- [ ] Mini-player spacing/position and resize
+- [ ] Now Playing viewport controls/queue/history/lyrics/info
+- [ ] Queue bottom and History panel
+- [ ] Lyrics scroll/blur behavior where available
+- [ ] Aurora/accent propagation and restoration
 - [ ] App/View/Playback menus
 - [ ] Window resizing
 

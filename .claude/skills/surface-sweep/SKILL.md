@@ -60,6 +60,8 @@ Keep runners read-only against source files. They may create artifacts under the
 - Use Computer Use for macOS visible interaction when no narrower macOS UI tool is available. Follow the Computer Use confirmation policy for risky UI actions.
 - For each screen, capture at least one screenshot plus either an accessibility dump, visible UI description, or concise notes. For suspected issues, capture the before/after state, exact navigation path, and nearby logs.
 - Touch every command path that is safe: toolbar buttons, search, sort/filter sheets, row context menus, mini-player actions, Now Playing panels, profile/download/settings drill-downs, and non-destructive alerts.
+- Exercise scroll and state boundaries, not just first-screen snapshots: scroll long lists to the bottom and back, open secondary tabs/panels, toggle sidebars, resize/rotate where supported, and verify root chrome remains correctly positioned.
+- Treat appearance and preference propagation as first-class coverage: toggle aurora, change accent color, and change safe reversible sort/filter settings, then confirm visible surfaces update and restore the original settings before handoff.
 - For destructive or expensive actions, open the menu/dialog when useful, capture the confirmation UI, then cancel. Do not perform the destructive final action unless the user explicitly asked for it.
 - Restore toggles/settings that were changed only for coverage. Prefer observing existing toggle state over changing it when the control itself is already visible.
 - Keep data-dependent coverage honest: if there are no playlists, pins, downloads, lyrics, queue items, or search results, record the blocker instead of inventing coverage.
