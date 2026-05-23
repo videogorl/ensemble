@@ -1171,9 +1171,7 @@ public struct SidebarView: View {
                     )
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost(
-                        priority: max(navigationCoordinator.pathSnapshot(for: .playlists).count, 1)
-                    ) {
+                    detailChromeRegistrationHost {
                         destinationView(for: destination)
                     }
                 }
@@ -1194,9 +1192,7 @@ public struct SidebarView: View {
                     )
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost(
-                        priority: max(navigationCoordinator.pathSnapshot(for: .playlists).count, 1)
-                    ) {
+                    detailChromeRegistrationHost {
                         destinationView(for: destination)
                     }
                 }
@@ -1227,9 +1223,7 @@ public struct SidebarView: View {
                     pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost(
-                        priority: max(pinnedDetailPath.count, 1)
-                    ) {
+                    detailChromeRegistrationHost {
                         destinationView(for: destination)
                     }
                 }
@@ -1279,39 +1273,46 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private func detailColumnNavigationHost<Content: View>(
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        GeometryReader { proxy in
+            content()
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .background(
+                    RootChromeFrameRegistrationView(
+                        bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                            safeAreaBottom: proxy.safeAreaInsets.bottom
+                        ),
+                        contentLeadingInset: proxy.safeAreaInsets.leading,
+                        centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
+                        showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
+                        priority: 10_000
+                    )
+                )
+        }
+    }
+
+    /// Keep pushed detail content from registering transient navigation-transition frames.
+    /// The stable detail-column host owns root chrome registration.
+    @ViewBuilder
+    private func detailChromeRegistrationHost<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// Register the currently visible detail/root screen with the root chrome layer.
-    /// This keeps the shared mini player anchored to the live content frame even
-    /// while NavigationSplitView collapses or expands around a pushed destination.
-    @ViewBuilder
-    private func detailChromeRegistrationHost<Content: View>(
-        priority: Int = 0,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        let registeredContent = content()
-        GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                registeredContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-            .background(
-                RootChromeFrameRegistrationView(
-                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
-                        safeAreaBottom: proxy.safeAreaInsets.bottom
-                    ),
-                    contentLeadingInset: proxy.safeAreaInsets.leading,
-                    showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
-                    priority: priority
-                )
-            )
+    private var isSidebarCollapsedForRootChrome: Bool {
+        #if os(iOS)
+        switch columnVisibility {
+        case .detailOnly:
+            return true
+        default:
+            return false
         }
+        #else
+        return false
+        #endif
     }
 
     @ViewBuilder
@@ -1379,8 +1380,9 @@ public struct SidebarView: View {
                             safeAreaBottom: proxy.safeAreaInsets.bottom
                         ),
                         contentLeadingInset: proxy.safeAreaInsets.leading,
+                        centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
                         showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
-                        priority: 10_000
+                        priority: 20_000
                     )
                 )
         }
@@ -1404,9 +1406,7 @@ public struct SidebarView: View {
             }
         }
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-            detailChromeRegistrationHost(
-                priority: max(navigationCoordinator.pathSnapshot(for: tab).count, 1)
-            ) {
+            detailChromeRegistrationHost {
                 destinationView(for: destination)
             }
         }

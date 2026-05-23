@@ -27,6 +27,7 @@ struct RootChromeRegistration {
     let bounds: Anchor<CGRect>?
     let bottomPadding: CGFloat
     let contentLeadingInset: CGFloat
+    let centersInRootHorizontalSpace: Bool
     let showsMiniPlayer: Bool
     let priority: Int
 
@@ -34,6 +35,7 @@ struct RootChromeRegistration {
         bounds: nil,
         bottomPadding: 0,
         contentLeadingInset: 0,
+        centersInRootHorizontalSpace: false,
         showsMiniPlayer: false,
         priority: .min
     )
@@ -55,6 +57,10 @@ struct RootChromeLayout: Equatable {
     var hasRenderableFrame: Bool {
         frame.width > 0 && frame.height > 0
     }
+
+    var horizontalAnchor: CGFloat {
+        frame.midX + horizontalOffset
+    }
 }
 
 private struct RootChromeRegistrationPreferenceKey: PreferenceKey {
@@ -71,6 +77,7 @@ private struct RootChromeRegistrationPreferenceKey: PreferenceKey {
 struct RootChromeFrameRegistrationView: View {
     let bottomPadding: CGFloat
     var contentLeadingInset: CGFloat = 0
+    var centersInRootHorizontalSpace = false
     let showsMiniPlayer: Bool
     let priority: Int
 
@@ -83,6 +90,7 @@ struct RootChromeFrameRegistrationView: View {
                 bounds: bounds,
                 bottomPadding: bottomPadding,
                 contentLeadingInset: contentLeadingInset,
+                centersInRootHorizontalSpace: centersInRootHorizontalSpace,
                 showsMiniPlayer: showsMiniPlayer,
                 priority: priority
             )
@@ -153,7 +161,7 @@ private struct RootMiniPlayerOverlay: View {
             .offset(x: layout.frame.minX, y: layout.frame.minY)
             .offset(x: layout.horizontalOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(rootChromeLayoutAnimation, value: layout)
+            .animation(rootChromeLayoutAnimation, value: layout.horizontalAnchor)
             .transition(.identity)
         }
     }
@@ -438,7 +446,8 @@ public struct RootView: View {
             horizontalOffset: rootChromeHorizontalOffset(
                 for: visibleFrame,
                 rootBounds: rootBounds,
-                contentLeadingInset: registration.contentLeadingInset
+                contentLeadingInset: registration.contentLeadingInset,
+                centersInRootHorizontalSpace: registration.centersInRootHorizontalSpace
             ),
             showsMiniPlayer: registration.showsMiniPlayer
         )
@@ -447,11 +456,19 @@ public struct RootView: View {
     private func rootChromeHorizontalOffset(
         for visibleFrame: CGRect,
         rootBounds: CGRect,
-        contentLeadingInset: CGFloat
+        contentLeadingInset: CGFloat,
+        centersInRootHorizontalSpace: Bool
     ) -> CGFloat {
         #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .pad,
-              visibleFrame.minX <= 1 else {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            return 0
+        }
+
+        if centersInRootHorizontalSpace {
+            return rootBounds.midX - visibleFrame.midX
+        }
+
+        guard visibleFrame.minX <= 1 else {
             return 0
         }
 
