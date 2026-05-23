@@ -33,9 +33,15 @@ Artifact root:
 
 ## Findings
 
-| ID | Severity | Confidence | Platform | Surface | Evidence | Fix report section |
-|---|---|---|---|---|---|---|
-| SWEEP-001 | P1/P2/P3 | High/Medium/Low | | | | |
+| ID | Severity | Confidence | Policy status | Platform | Surface | Evidence | Fix report section |
+|---|---|---|---|---|---|---|---|
+| SWEEP-001 | P1/P2/P3 | High/Medium/Low | matches/contradicts/missing/unclear | | | | |
+
+## Policy Review
+
+| ID | Status | Policy reference | Platform/surface | Observation | Follow-up |
+|---|---|---|---|---|---|
+| POLICY-001 | Contradiction/Missing/Unclear | `app-policies/references/...` or `missing` | | | |
 
 ## Repro Index
 

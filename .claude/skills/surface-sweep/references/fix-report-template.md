@@ -53,6 +53,13 @@ Write `fix-report.json` for agents first. Optionally also write `surface-sweep-f
       "suspected_area": "",
       "source_files": [],
       "search_terms": [],
+      "policy": {
+        "status": "matches_policy|contradicts_policy|missing_policy|policy_unclear|not_policy_relevant",
+        "references": [],
+        "discrepancy": "",
+        "missing_policy": "",
+        "recommended_policy_update": ""
+      },
       "root_cause_hypothesis": "",
       "fix_hint": "",
       "verification_steps": []
@@ -78,6 +85,42 @@ Write `fix-report.json` for agents first. Optionally also write `surface-sweep-f
       "residual_risk": ""
     }
   ],
+  "policy_review": {
+    "discrepancies": [
+      {
+        "id": "POLICY-001",
+        "platforms": [],
+        "surface": "",
+        "policy_reference": "",
+        "policy_expectation": "",
+        "observed_behavior": "",
+        "evidence": [],
+        "recommended_follow_up": ""
+      }
+    ],
+    "missing_policy": [
+      {
+        "id": "POLICY-MISSING-001",
+        "platforms": [],
+        "surface": "",
+        "observed_behavior": "",
+        "why_policy_is_needed": "",
+        "suggested_reference": "",
+        "evidence": []
+      }
+    ],
+    "unclear_policy": [
+      {
+        "id": "POLICY-UNCLEAR-001",
+        "platforms": [],
+        "surface": "",
+        "policy_reference": "",
+        "ambiguity": "",
+        "suggested_clarification": "",
+        "evidence": []
+      }
+    ]
+  },
   "risky_actions_not_completed": []
 }
 ```
@@ -133,6 +176,13 @@ Evidence:
 - Log excerpt:
 - Runner report:
 
+Policy:
+- Status:
+- Reference:
+- Expected by policy:
+- Discrepancy or missing policy:
+- Recommended policy update:
+
 Likely owner:
 - Package/target:
 - Files:
@@ -167,6 +217,20 @@ Suggested recheck route:
 | Platform | Surface | Blocker | What would unblock it |
 |---|---|---|---|
 | | | | |
+
+## Policy Review
+
+### Policy Discrepancies
+
+| ID | Platform(s) | Surface | Policy reference | Observation | Follow-up |
+|---|---|---|---|---|---|
+| POLICY-001 | | | | | |
+
+### Missing Or Unclear Policies
+
+| ID | Platform(s) | Surface | Status | Suggested reference/update |
+|---|---|---|---|---|
+| POLICY-MISSING-001 | | | Missing/Unclear | |
 ```
 
 ## Quality Bar
@@ -176,6 +240,7 @@ Each promoted finding must have:
 - at least one visual or accessibility artifact,
 - log excerpt when the symptom is timing, state, playback, sync, download, or crash related,
 - likely owner files or search terms,
+- policy status with reference, discrepancy, or missing-policy note,
 - fix strategy and post-fix verification.
 - matching entry in `fix-report.json`.
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "Surface Sweep"
-  short_description: "Agent-run visual sweep and fix report."
-  default_prompt: "Use $surface-sweep to run an agent-orchestrated visual sweep of every reachable Ensemble surface on iPhone, iPad, and macOS, then produce screenshots, blockers, findings, repro steps, logs, and an agent-readable fix report."
+  short_description: "Agent-run visual sweep, policy audit, and fix report."
+  default_prompt: "Use $surface-sweep to run an agent-orchestrated visual sweep of every reachable Ensemble surface on iPhone, iPad, and macOS. Compare behavior against app policies, note discrepancies or missing policies, then produce screenshots, blockers, findings, repro steps, logs, and an agent-readable fix report."

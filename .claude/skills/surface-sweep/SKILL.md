@@ -7,7 +7,7 @@ description: "Use when the user asks to visually test, touch, automate, or walk 
 
 Run this skill when asked to touch every visible surface of Ensemble, automate a broad visual regression pass, or generate a fix-oriented issue report from live iPhone/iPad/macOS UI inspection.
 
-This is a runtime verification workflow, not a unit-test replacement. It should usually be loaded with `testing`; load `simulator-test` for iOS/iPadOS, and use Computer Use or Xcode/macOS UI tooling for macOS. Load `known-issues` when classifying findings, and `app-policies` only when the sweep is tied to behavior policy changes.
+This is a runtime verification workflow, not a unit-test replacement. It should usually be loaded with `testing`; load `simulator-test` for iOS/iPadOS, and use Computer Use or Xcode/macOS UI tooling for macOS. Load `app-policies` for policy comparison during sweeps, and load `known-issues` when classifying findings.
 
 ## Scope
 
@@ -65,6 +65,7 @@ Keep runners read-only against source files. They may create artifacts under the
 - For destructive or expensive actions, open the menu/dialog when useful, capture the confirmation UI, then cancel. Do not perform the destructive final action unless the user explicitly asked for it.
 - Restore toggles/settings that were changed only for coverage. Prefer observing existing toggle state over changing it when the control itself is already visible.
 - Keep data-dependent coverage honest: if there are no playlists, pins, downloads, lyrics, queue items, or search results, record the blocker instead of inventing coverage.
+- Compare observed behavior against the relevant `app-policies` references. Record contradictions as policy discrepancies and record missing policy coverage when a behavior is important but not covered by a policy.
 
 ## Issue Loop
 
@@ -72,8 +73,9 @@ Every suspected issue gets a short closed loop before it becomes a finding:
 1. Reproduce it once from a clean nearby state.
 2. Capture screenshot/accessibility/log evidence.
 3. Inspect the likely owning source files with `rg` and focused reads.
-4. Classify severity and confidence.
-5. Write an agent-readable JSON finding with suspected files, root-cause hypothesis, patch strategy, and verification commands.
+4. Compare the observed behavior against the relevant `app-policies` reference. If no relevant policy exists, record the missing policy gap.
+5. Classify severity and confidence.
+6. Write an agent-readable JSON finding with suspected files, policy status, root-cause hypothesis, patch strategy, and verification commands.
 
 Use [fix-report-template.md](references/fix-report-template.md) for both `fix-report.json` and the optional Markdown companion. If the issue cannot be reproduced, record it under `needs_recheck` instead of promoted `findings`.
 
@@ -97,6 +99,7 @@ Minimum final handoff:
 - artifact root,
 - completed surfaces,
 - blocked surfaces with exact reason,
+- policy discrepancies or missing policy coverage,
 - visual defects or regressions with screenshot/log paths,
 - `fix-report.json` path with per-issue reproduction steps and suspected code owners,
 - risky actions intentionally not completed.
