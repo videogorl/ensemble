@@ -39,6 +39,35 @@ public enum LibraryItemInfoRequest: Identifiable, Equatable, Sendable {
         }
     }
 
+    public var artworkRatingKey: String? {
+        switch self {
+        case .track(let track):
+            return track.thumbPath?.isEmpty == false ? track.id : track.fallbackRatingKey
+        case .album(let album):
+            return album.id
+        case .playlist(let playlist):
+            return playlist.id
+        }
+    }
+
+    public var artworkFallbackPath: String? {
+        switch self {
+        case .track(let track):
+            return track.fallbackThumbPath
+        case .album, .playlist:
+            return nil
+        }
+    }
+
+    public var artworkFallbackRatingKey: String? {
+        switch self {
+        case .track(let track):
+            return track.fallbackRatingKey
+        case .album, .playlist:
+            return nil
+        }
+    }
+
     public var sourceCompositeKey: String? {
         switch self {
         case .track(let track):

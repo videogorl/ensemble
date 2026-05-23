@@ -1375,7 +1375,6 @@ public struct MediaTrackList: UIViewRepresentable {
         // MARK: - Swipe Actions
 
         public func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-            guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
             let configured = settingsManager.trackSwipeLayout.leading
             let actions = swipeActions(from: configured, track: track)
@@ -1387,7 +1386,6 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-            guard UIDevice.current.userInterfaceIdiom == .phone else { return nil }
             guard let track = track(at: indexPath) else { return nil }
             let configured = settingsManager.trackSwipeLayout.trailing
             let actions = swipeActions(from: configured, track: track)

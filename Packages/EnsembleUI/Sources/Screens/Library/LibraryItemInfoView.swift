@@ -47,8 +47,11 @@ public struct LibraryItemInfoView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: EnsembleDesign.Spacing.md) {
             ArtworkView(
-                path: viewModel.request.artworkPath,
+                path: viewModel.resolvedArtworkPath,
                 sourceKey: viewModel.request.sourceCompositeKey,
+                ratingKey: viewModel.resolvedArtworkRatingKey,
+                fallbackPath: viewModel.request.artworkFallbackPath,
+                fallbackRatingKey: viewModel.request.artworkFallbackRatingKey,
                 size: .card,
                 isResponsive: true
             )

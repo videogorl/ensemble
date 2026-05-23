@@ -26,12 +26,14 @@ extension EnvironmentValues {
 struct RootChromeRegistration {
     let bounds: Anchor<CGRect>?
     let bottomPadding: CGFloat
+    let contentLeadingInset: CGFloat
     let showsMiniPlayer: Bool
     let priority: Int
 
     static let hidden = RootChromeRegistration(
         bounds: nil,
         bottomPadding: 0,
+        contentLeadingInset: 0,
         showsMiniPlayer: false,
         priority: .min
     )
@@ -40,11 +42,13 @@ struct RootChromeRegistration {
 struct RootChromeLayout: Equatable {
     let frame: CGRect
     let bottomPadding: CGFloat
+    let horizontalOffset: CGFloat
     let showsMiniPlayer: Bool
 
     static let hidden = RootChromeLayout(
         frame: .zero,
         bottomPadding: 0,
+        horizontalOffset: 0,
         showsMiniPlayer: false
     )
 
@@ -66,6 +70,7 @@ private struct RootChromeRegistrationPreferenceKey: PreferenceKey {
 
 struct RootChromeFrameRegistrationView: View {
     let bottomPadding: CGFloat
+    var contentLeadingInset: CGFloat = 0
     let showsMiniPlayer: Bool
     let priority: Int
 
@@ -77,6 +82,7 @@ struct RootChromeFrameRegistrationView: View {
             RootChromeRegistration(
                 bounds: bounds,
                 bottomPadding: bottomPadding,
+                contentLeadingInset: contentLeadingInset,
                 showsMiniPlayer: showsMiniPlayer,
                 priority: priority
             )
@@ -145,6 +151,7 @@ private struct RootMiniPlayerOverlay: View {
                 alignment: .bottom
             )
             .offset(x: layout.frame.minX, y: layout.frame.minY)
+            .offset(x: layout.horizontalOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .transition(.identity)
         }
@@ -420,28 +427,41 @@ public struct RootView: View {
             return .hidden
         }
 
-        let resolvedFrame: CGRect
-        let resolvedBottomPadding: CGFloat
-        if usesStableRootMiniPlayerAnchor {
-            resolvedFrame = rootBounds
-            resolvedBottomPadding = TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0)
-        } else {
-            resolvedFrame = visibleFrame
-            resolvedBottomPadding = registration.bottomPadding
-        }
-
         return RootChromeLayout(
-            frame: resolvedFrame,
-            bottomPadding: resolvedBottomPadding,
+            frame: visibleFrame,
+            bottomPadding: registration.bottomPadding,
+            horizontalOffset: rootChromeHorizontalOffset(
+                for: visibleFrame,
+                rootBounds: rootBounds,
+                contentLeadingInset: registration.contentLeadingInset
+            ),
             showsMiniPlayer: registration.showsMiniPlayer
         )
     }
 
-    private var usesStableRootMiniPlayerAnchor: Bool {
+    private func rootChromeHorizontalOffset(
+        for visibleFrame: CGRect,
+        rootBounds: CGRect,
+        contentLeadingInset: CGFloat
+    ) -> CGFloat {
         #if os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .pad
+        guard UIDevice.current.userInterfaceIdiom == .pad,
+              visibleFrame.minX <= 1 else {
+            return 0
+        }
+
+        let missingLeadingOffset = rootBounds.width - visibleFrame.width
+        if missingLeadingOffset > 1 {
+            return missingLeadingOffset
+        }
+
+        guard contentLeadingInset > 0 else {
+            return 0
+        }
+
+        return contentLeadingInset / 2
         #else
-        return false
+        return 0
         #endif
     }
 

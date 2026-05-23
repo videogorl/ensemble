@@ -14,9 +14,19 @@ public final class LibraryItemInfoViewModel: ObservableObject {
     @Published public private(set) var originalFolderPath: String?
     @Published public private(set) var aggregateDuration: TimeInterval?
     @Published public private(set) var aggregateTrackCount: Int?
+    @Published public private(set) var aggregateArtworkPath: String?
+    @Published public private(set) var aggregateArtworkRatingKey: String?
     @Published public private(set) var isLoading = false
 
     public let request: LibraryItemInfoRequest
+
+    public var resolvedArtworkPath: String? {
+        aggregateArtworkPath ?? request.artworkPath
+    }
+
+    public var resolvedArtworkRatingKey: String? {
+        aggregateArtworkRatingKey ?? request.artworkRatingKey
+    }
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
@@ -73,6 +83,12 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         if aggregateTrackCount != resolvedAggregate.trackCount {
             aggregateTrackCount = resolvedAggregate.trackCount
         }
+        if aggregateArtworkPath != resolvedAggregate.artworkPath {
+            aggregateArtworkPath = resolvedAggregate.artworkPath
+        }
+        if aggregateArtworkRatingKey != resolvedAggregate.artworkRatingKey {
+            aggregateArtworkRatingKey = resolvedAggregate.artworkRatingKey
+        }
     }
 
     private func loadOriginalFileInfo() async -> AudioFileInfo? {
@@ -113,11 +129,13 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         case .track(let track):
             return AggregateMetadata(
                 duration: track.duration > 0 ? track.duration : nil,
-                trackCount: nil
+                trackCount: nil,
+                artworkPath: nil,
+                artworkRatingKey: nil
             )
         case .album(let album):
             guard let sourceKey = album.sourceCompositeKey else {
-                return AggregateMetadata(duration: nil, trackCount: nil)
+                return AggregateMetadata(duration: nil, trackCount: nil, artworkPath: nil, artworkRatingKey: nil)
             }
             let tracks = try? await libraryRepository.fetchTracks(
                 forAlbum: album.id,
@@ -126,9 +144,24 @@ public final class LibraryItemInfoViewModel: ObservableObject {
             let duration = tracks?.reduce(TimeInterval(0)) {
                 $0 + Self.persistedTrackDurationSeconds($1.duration)
             } ?? 0
+            let artworkFallback = tracks?.first {
+                $0.thumbPath?.isEmpty == false || $0.album?.thumbPath?.isEmpty == false
+            }
             return AggregateMetadata(
                 duration: duration > 0 ? duration : nil,
-                trackCount: tracks?.count
+                trackCount: tracks?.count,
+                artworkPath: Self.resolvedAlbumArtworkPath(
+                    albumThumbPath: album.thumbPath,
+                    fetchedTrackArtworkPath: artworkFallback?.thumbPath,
+                    fetchedTrackFallbackPath: artworkFallback?.album?.thumbPath
+                ),
+                artworkRatingKey: Self.resolvedAlbumArtworkRatingKey(
+                    albumThumbPath: album.thumbPath,
+                    albumRatingKey: album.id,
+                    fetchedTrackArtworkPath: artworkFallback?.thumbPath,
+                    fetchedTrackRatingKey: artworkFallback?.ratingKey,
+                    fetchedTrackFallbackRatingKey: artworkFallback?.album?.ratingKey
+                )
             )
         case .playlist(let playlist):
             guard let cdPlaylist = try? await playlistRepository.fetchPlaylist(
@@ -137,7 +170,9 @@ public final class LibraryItemInfoViewModel: ObservableObject {
             ) else {
                 return AggregateMetadata(
                     duration: playlist.duration > 0 ? playlist.duration : nil,
-                    trackCount: nil
+                    trackCount: nil,
+                    artworkPath: nil,
+                    artworkRatingKey: nil
                 )
             }
             let duration = cdPlaylist.tracksArray.reduce(TimeInterval(0)) {
@@ -145,13 +180,45 @@ public final class LibraryItemInfoViewModel: ObservableObject {
             }
             return AggregateMetadata(
                 duration: duration > 0 ? duration : (playlist.duration > 0 ? playlist.duration : nil),
-                trackCount: nil
+                trackCount: nil,
+                artworkPath: nil,
+                artworkRatingKey: nil
             )
         }
     }
 
     public static func resolvedAlbumTrackCount(albumTrackCount: Int, fetchedTrackCount: Int?) -> Int {
         fetchedTrackCount ?? albumTrackCount
+    }
+
+    public static func resolvedAlbumArtworkPath(
+        albumThumbPath: String?,
+        fetchedTrackArtworkPath: String?,
+        fetchedTrackFallbackPath: String?
+    ) -> String? {
+        if albumThumbPath?.isEmpty == false {
+            return albumThumbPath
+        }
+        if fetchedTrackArtworkPath?.isEmpty == false {
+            return fetchedTrackArtworkPath
+        }
+        return fetchedTrackFallbackPath?.isEmpty == false ? fetchedTrackFallbackPath : nil
+    }
+
+    public static func resolvedAlbumArtworkRatingKey(
+        albumThumbPath: String?,
+        albumRatingKey: String,
+        fetchedTrackArtworkPath: String?,
+        fetchedTrackRatingKey: String?,
+        fetchedTrackFallbackRatingKey: String?
+    ) -> String? {
+        if albumThumbPath?.isEmpty == false {
+            return albumRatingKey
+        }
+        if fetchedTrackArtworkPath?.isEmpty == false {
+            return fetchedTrackRatingKey
+        }
+        return fetchedTrackFallbackRatingKey ?? albumRatingKey
     }
 
     static func persistedTrackDurationSeconds(_ durationMilliseconds: Int64) -> TimeInterval {
@@ -229,4 +296,6 @@ public final class LibraryItemInfoViewModel: ObservableObject {
 private struct AggregateMetadata: Equatable {
     let duration: TimeInterval?
     let trackCount: Int?
+    let artworkPath: String?
+    let artworkRatingKey: String?
 }

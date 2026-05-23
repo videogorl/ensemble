@@ -1306,6 +1306,7 @@ public struct SidebarView: View {
                     bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     ),
+                    contentLeadingInset: proxy.safeAreaInsets.leading,
                     showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
                     priority: priority
                 )
@@ -1346,7 +1347,9 @@ public struct SidebarView: View {
         ) {
             sidebarColumn
         } detail: {
-            detailContainerView
+            detailColumnRootChromeRegistrationHost {
+                detailContainerView
+            }
                 .macEditorToolbarRoleIfAvailable()
         }
         .navigationSplitViewStyle(.balanced)
@@ -1354,11 +1357,33 @@ public struct SidebarView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarColumn
         } detail: {
-            detailContainerView
+            detailColumnRootChromeRegistrationHost {
+                detailContainerView
+            }
                 .macEditorToolbarRoleIfAvailable()
         }
         .navigationSplitViewStyle(.balanced)
         #endif
+    }
+
+    @ViewBuilder
+    private func detailColumnRootChromeRegistrationHost<Content: View>(
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        GeometryReader { proxy in
+            content()
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .background(
+                    RootChromeFrameRegistrationView(
+                        bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                            safeAreaBottom: proxy.safeAreaInsets.bottom
+                        ),
+                        contentLeadingInset: proxy.safeAreaInsets.leading,
+                        showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
+                        priority: 10_000
+                    )
+                )
+        }
     }
 
     /// Sidebar section content with navigation destinations registered for path-based push

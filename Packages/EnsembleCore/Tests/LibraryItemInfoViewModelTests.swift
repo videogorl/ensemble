@@ -77,6 +77,30 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
         )
     }
 
+    func testResolvedAlbumArtworkPathFallsBackToFetchedTrackFallback() {
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.resolvedAlbumArtworkPath(
+                albumThumbPath: nil,
+                fetchedTrackArtworkPath: nil,
+                fetchedTrackFallbackPath: "/library/metadata/1111/thumb"
+            ),
+            "/library/metadata/1111/thumb"
+        )
+    }
+
+    func testResolvedAlbumArtworkRatingKeyUsesFallbackTrackRatingKey() {
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.resolvedAlbumArtworkRatingKey(
+                albumThumbPath: nil,
+                albumRatingKey: "album-1",
+                fetchedTrackArtworkPath: nil,
+                fetchedTrackRatingKey: "track-1",
+                fetchedTrackFallbackRatingKey: "album-1"
+            ),
+            "album-1"
+        )
+    }
+
     private func decodePlexTrack(ratingKey: String, filePath: String) throws -> PlexTrack {
         let escapedPath = filePath
             .replacingOccurrences(of: "\\", with: "\\\\")
