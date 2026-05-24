@@ -230,6 +230,11 @@ public extension DependencyContainer {
     }
 
     @MainActor
+    func makeExternalDeviceSyncViewModel() -> ExternalDeviceSyncViewModel {
+        ExternalDeviceSyncViewModel(syncService: externalDeviceSyncService)
+    }
+
+    @MainActor
     func makeHomeViewModel() -> HomeViewModel {
         HomeViewModel(
             accountManager: accountManager,

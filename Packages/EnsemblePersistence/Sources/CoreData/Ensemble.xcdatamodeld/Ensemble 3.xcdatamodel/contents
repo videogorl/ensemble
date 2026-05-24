@@ -260,4 +260,60 @@
             </uniquenessConstraint>
         </uniquenessConstraints>
     </entity>
+    <entity name="CDExternalDevice" representedClassName="CDExternalDevice" syncable="YES">
+        <attribute name="automaticSyncEnabled" optional="YES" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <attribute name="deviceID" attributeType="String"/>
+        <attribute name="displayName" optional="YES" attributeType="String"/>
+        <attribute name="freeCapacity" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="isSupported" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="lastSeenAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastSyncAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="modelIdentifier" optional="YES" attributeType="String"/>
+        <attribute name="mountPath" optional="YES" attributeType="String"/>
+        <attribute name="supportMessage" optional="YES" attributeType="String"/>
+        <attribute name="totalCapacity" optional="YES" attributeType="Integer 64" defaultValueString="0" usesScalarValueType="YES"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="deviceID"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="CDExternalDeviceSyncMap" representedClassName="CDExternalDeviceSyncMap" syncable="YES">
+        <attribute name="deviceID" attributeType="String"/>
+        <attribute name="id" attributeType="String"/>
+        <attribute name="ipodName" optional="YES" attributeType="String"/>
+        <attribute name="ipodPath" optional="YES" attributeType="String"/>
+        <attribute name="ipodPersistentID" optional="YES" attributeType="String"/>
+        <attribute name="kind" attributeType="String"/>
+        <attribute name="lastImportedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastImportedPlayCount" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="lastImportedRating" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="plexRatingKey" optional="YES" attributeType="String"/>
+        <attribute name="sourceCompositeKey" optional="YES" attributeType="String"/>
+        <attribute name="updatedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
+    <entity name="CDExternalDeviceSyncRun" representedClassName="CDExternalDeviceSyncRun" syncable="YES">
+        <attribute name="deviceID" attributeType="String"/>
+        <attribute name="discardedItems" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="errorMessage" optional="YES" attributeType="String"/>
+        <attribute name="exportedPlaylists" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="exportedTracks" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="finishedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="String"/>
+        <attribute name="importedPlaylists" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="importedPlays" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="importedRatings" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="startedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+        <uniquenessConstraints>
+            <uniquenessConstraint>
+                <constraint value="id"/>
+            </uniquenessConstraint>
+        </uniquenessConstraints>
+    </entity>
 </model>

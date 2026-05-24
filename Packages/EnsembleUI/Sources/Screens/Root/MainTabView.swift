@@ -527,6 +527,7 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
+    @StateObject private var externalDeviceVM: ExternalDeviceSyncViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
@@ -573,6 +574,7 @@ public struct SidebarView: View {
         self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+        self._externalDeviceVM = StateObject(wrappedValue: DependencyContainer.shared.makeExternalDeviceSyncViewModel())
         self._selection = selection
     }
 
@@ -612,7 +614,7 @@ public struct SidebarView: View {
         switch selection {
         case .library(let tab):
             return navigationCoordinator.pathSnapshot(for: tab).isEmpty
-        case .playlist, .mergedPlaylist, .pin:
+        case .playlist, .mergedPlaylist, .pin, .device:
             return false
         }
     }
@@ -1064,6 +1066,15 @@ public struct SidebarView: View {
                 }
             }
 
+            if !externalDeviceVM.devices.isEmpty {
+                Section("Devices") {
+                    ForEach(externalDeviceVM.devices) { device in
+                        Label(device.name, systemImage: EnsembleDesign.Icon.externalDevice)
+                            .tag(SidebarSelection.device(id: device.id))
+                    }
+                }
+            }
+
             // Playlists section (collapsible)
             collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
                 Label("All Playlists", systemImage: EnsembleDesign.Icon.playlist)
@@ -1106,6 +1117,9 @@ public struct SidebarView: View {
         .onAppear {
             rebuildCachedSidebarPlaylists()
         }
+        .task {
+            await externalDeviceVM.startMonitoring()
+        }
     }
 
     /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
@@ -1146,6 +1160,8 @@ public struct SidebarView: View {
                 mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
             case .pin(let id, let sourceKey, let type):
                 pinnedDetailNavigationStack(id: id, sourceKey: sourceKey, type: type)
+            case .device(let id):
+                deviceNavigationStack(deviceID: id)
             case .none:
                 // Fallback when nothing is selected — show Home
                 sidebarNavigationStack(for: .home)
@@ -1199,6 +1215,18 @@ public struct SidebarView: View {
             }
         }
         .id("merged-playlist-detail-\(title)-\(isSmart)")
+    }
+
+    @ViewBuilder
+    private func deviceNavigationStack(deviceID: String) -> some View {
+        detailColumnNavigationHost {
+            NavigationStack {
+                detailChromeRegistrationHost {
+                    ExternalDeviceSyncView(selectedDeviceID: deviceID)
+                }
+            }
+        }
+        .id("device-detail-\(deviceID)")
     }
 
     /// Keep the detail column's navigation container shape consistent across sidebar sections.
