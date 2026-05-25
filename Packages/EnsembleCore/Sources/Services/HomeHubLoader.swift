@@ -1,5 +1,6 @@
 import EnsembleAPI
 import Foundation
+import os.signpost
 
 /// Metadata describing how a home hub snapshot was resolved.
 public struct HomeHubSnapshotMetadata: Sendable {
@@ -134,6 +135,12 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     @MainActor
     public func loadSnapshot(applySavedOrder: Bool, hubCount: String) async -> HomeHubSnapshot? {
+        let signpostID = OSSignpostID(log: HomeHubLoaderSignposts.log)
+        os_signpost(.begin, log: HomeHubLoaderSignposts.log, name: HomeHubLoaderSignposts.loadSnapshot, signpostID: signpostID)
+        defer {
+            os_signpost(.end, log: HomeHubLoaderSignposts.log, name: HomeHubLoaderSignposts.loadSnapshot, signpostID: signpostID)
+        }
+
         let sourceContext = currentSourceContext()
         let fetchTasks = makeFetchTasks()
 
@@ -651,4 +658,9 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
         return mergedResults
     }
+}
+
+private enum HomeHubLoaderSignposts {
+    static let log = OSLog(subsystem: "com.videogorl.ensemble", category: "startup-performance")
+    static let loadSnapshot: StaticString = "Home Feed Snapshot"
 }

@@ -11,7 +11,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Background refresh routes through `BackgroundRefreshCoordinator`, not transient UI view models.
 - WebSocket library/update/download events accelerate refresh and sync. Debounce, in-flight guards, cooldowns, polling timers, and foreground refresh remain fallback paths.
 - Source cleanup is destructive and must stay outside UI view models. Removed/disabled sources should clean caches, lyrics, artwork, offline targets, downloads, and stale rows through the owning cleanup services.
-- Siri media index and context refresh are part of freshness work where relevant and must stay source-scoped.
+- Siri media index and context refresh are part of freshness work where relevant and must stay source-scoped. Defer this work while the device is known offline so launch can render cached content first on constrained devices.
 
 ## Owners
 

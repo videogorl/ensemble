@@ -37,6 +37,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
     private let feedRefresh: FeedStep
     private let siriIndexRefresh: SiriIndexStep
     private let siriContextRefresh: AsyncStep
+    private let isNetworkAvailable: @MainActor @Sendable () -> Bool
     private let scheduleNextAppRefresh: ScheduleStep?
     private let foregroundCooldown: TimeInterval
     private var lastForegroundRefresh: Date?
@@ -74,6 +75,9 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
                     await siriMediaUserContextManager.updateMediaUserContext()
                 }
             },
+            isNetworkAvailable: {
+                !syncCoordinator.isOffline
+            },
             scheduleNextAppRefresh: scheduleNextAppRefresh
         )
     }
@@ -84,6 +88,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         feedRefresh: @escaping FeedStep,
         siriIndexRefresh: @escaping SiriIndexStep,
         siriContextRefresh: @escaping AsyncStep,
+        isNetworkAvailable: @escaping @MainActor @Sendable () -> Bool = { true },
         scheduleNextAppRefresh: ScheduleStep? = nil,
         foregroundCooldown: TimeInterval = 15 * 60
     ) {
@@ -94,6 +99,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
             feedRefresh: feedRefresh,
             siriIndexRefresh: siriIndexRefresh,
             siriContextRefresh: siriContextRefresh,
+            isNetworkAvailable: isNetworkAvailable,
             scheduleNextAppRefresh: scheduleNextAppRefresh,
             foregroundCooldown: foregroundCooldown
         )
@@ -106,6 +112,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         feedRefresh: @escaping FeedStep,
         siriIndexRefresh: @escaping SiriIndexStep,
         siriContextRefresh: @escaping AsyncStep,
+        isNetworkAvailable: @escaping @MainActor @Sendable () -> Bool = { true },
         scheduleNextAppRefresh: ScheduleStep? = nil,
         foregroundCooldown: TimeInterval = 15 * 60
     ) {
@@ -115,6 +122,7 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         self.feedRefresh = feedRefresh
         self.siriIndexRefresh = siriIndexRefresh
         self.siriContextRefresh = siriContextRefresh
+        self.isNetworkAvailable = isNetworkAvailable
         self.scheduleNextAppRefresh = scheduleNextAppRefresh
         self.foregroundCooldown = foregroundCooldown
     }
@@ -181,6 +189,22 @@ public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
         var didRefreshFeedSnapshot = false
         var didRebuildSiriIndex = false
         var didUpdateSiriContext = false
+
+        guard isNetworkAvailable() else {
+            let completedAt = Date()
+            EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: \(kind.rawValue) skipped while device network unavailable")
+            return BackgroundRefreshResult(
+                kind: kind,
+                startedAt: startedAt,
+                completedAt: completedAt,
+                didRunEndpointRefresh: false,
+                didRunIncrementalSync: false,
+                didRefreshFeedSnapshot: false,
+                didRebuildSiriIndex: false,
+                didUpdateSiriContext: false,
+                errorDescriptions: []
+            )
+        }
 
         do {
             switch kind {

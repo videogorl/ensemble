@@ -137,6 +137,7 @@ public final class OfflineDownloadService: ObservableObject {
     private var fullProgressRefreshTask: Task<Void, Never>?
     private var hasQueuedFullProgressRefresh = false
     private var deferredLaunchHealingTask: Task<Void, Never>?
+    private var isRecoverySweepInFlight = false
 
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
@@ -1371,6 +1372,21 @@ public final class OfflineDownloadService: ObservableObject {
         reason: OfflineDownloadRecoveryReason,
         resumeEligibleWork: Bool
     ) async {
+        if isRecoverySweepInFlight {
+            EnsembleLogger.debug("📦 Offline download recovery sweep coalesced reason=\(reason.logDescription)")
+            return
+        }
+
+        if reason == .foreground,
+           Date().timeIntervalSince(launchRecoveryStartedAt) < Self.launchForegroundRecoveryGrace,
+           deferredLaunchHealingTask != nil {
+            EnsembleLogger.debug("📦 Offline download foreground recovery coalesced with launch recovery")
+            return
+        }
+
+        isRecoverySweepInFlight = true
+        defer { isRecoverySweepInFlight = false }
+
         EnsembleLogger.debug("📦 Offline download recovery sweep started reason=\(reason.logDescription)")
 
         let recoveredStatus: CDDownload.Status = resumeEligibleWork && canRunQueueAutomatically ? .pending : .paused

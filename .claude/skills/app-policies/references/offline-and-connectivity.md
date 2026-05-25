@@ -8,6 +8,7 @@ Load this reference for changes involving device connectivity, per-server health
 - Device offline and server offline are distinct states. UI should report "not available offline" for device-level offline misses and use classified server failure messages for per-server failures.
 - Playback queues should filter or skip unavailable, non-downloaded tracks instead of attempting known-unavailable streams.
 - Server health checks update availability and diagnostics; they must not silently discard cached library data or downloaded playback options.
+- When the device is known offline, Plex server API requests must fail fast before URLSession work or endpoint failover probing. Cached/downloaded data should carry the UI until connectivity returns.
 - Plex endpoint selection uses policy-aware ordering: local secure, remote secure, local insecure, remote insecure, then relay. Insecure endpoint use follows the configured insecure-connection policy.
 - WebSocket events are acceleration hints. Polling timers, foreground refresh, and circuit breakers must remain fallback paths because some servers reject or close WebSocket connections.
 - Source identity must include account, server, and library scope where applicable. Library section keys are per-server and are not globally unique.

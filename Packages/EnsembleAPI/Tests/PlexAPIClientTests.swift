@@ -277,6 +277,29 @@ final class PlexAPIClientTests: XCTestCase {
         }
     }
 
+    func testServerRequestsSkipURLSessionWhenNetworkUnavailable() async {
+        let keychain = TestKeychain()
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: keychain,
+            isNetworkAvailable: { false }
+        )
+
+        do {
+            _ = try await client.getLibrarySections()
+            XCTFail("Expected offline network error")
+        } catch PlexAPIError.networkError(let error as URLError) {
+            XCTAssertEqual(error.code, .notConnectedToInternet)
+        } catch {
+            XCTFail("Expected notConnectedToInternet, got \(error)")
+        }
+    }
+
     func testBatchTrackFetchDecodesMultipleTracks() throws {
         // Test batch metadata response with multiple tracks
         let batchJSON = """

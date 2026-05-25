@@ -371,11 +371,19 @@ public final class DependencyContainer: @unchecked Sendable {
 
     private static func buildNetworkBootstrap(core: CoreBootstrap) -> NetworkBootstrap {
         let connectionRegistry = ServerConnectionRegistry()
+        let networkMonitor = MainActor.assumeIsolated { NetworkMonitor() }
         let accountManager = MainActor.assumeIsolated {
-            AccountManager(keychain: core.keychain, connectionRegistry: connectionRegistry)
+            AccountManager(
+                keychain: core.keychain,
+                connectionRegistry: connectionRegistry,
+                isNetworkAvailable: {
+                    await MainActor.run {
+                        networkMonitor.networkState.isConnected
+                    }
+                }
+            )
         }
         let accountDiscoveryService = PlexAccountDiscoveryService(keychain: core.keychain)
-        let networkMonitor = MainActor.assumeIsolated { NetworkMonitor() }
         let serverHealthChecker = MainActor.assumeIsolated {
             ServerHealthChecker(
                 accountManager: accountManager,

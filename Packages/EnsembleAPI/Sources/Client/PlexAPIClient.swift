@@ -228,6 +228,7 @@ public actor PlexAPIClient {
     let serverConnection: PlexServerConnection
     let selectedLibrary: PlexLibrarySelection?
     var currentServerURL: String  // The currently active server URL
+    private let isNetworkAvailable: @Sendable () async -> Bool
 
     // Centralized endpoint registry — when set, failover results are reported back
     let connectionRegistry: ServerConnectionRegistry?
@@ -243,6 +244,7 @@ public actor PlexAPIClient {
     ///   - failoverManager: Manages connection failover probing
     ///   - connectionRegistry: Centralized endpoint registry — failover results are written back here
     ///   - serverKey: Registry key for this server (required when registry is provided)
+    ///   - isNetworkAvailable: Device-level network availability gate for server requests
     ///   - productName: Client product name for Plex headers
     ///   - productVersion: Client product version for Plex headers
     public init(
@@ -252,6 +254,7 @@ public actor PlexAPIClient {
         failoverManager: ConnectionFailoverManager = ConnectionFailoverManager(),
         connectionRegistry: ServerConnectionRegistry? = nil,
         serverKey: String? = nil,
+        isNetworkAvailable: @escaping @Sendable () async -> Bool = { true },
         productName: String = "Ensemble",
         productVersion: String = "1.0"
     ) {
@@ -262,6 +265,7 @@ public actor PlexAPIClient {
         self.failoverManager = failoverManager
         self.connectionRegistry = connectionRegistry
         self.serverKey = serverKey
+        self.isNetworkAvailable = isNetworkAvailable
         self.productName = productName
         self.productVersion = productVersion
         self.platformName = PlexClientDeviceInfo.platformName
@@ -732,6 +736,11 @@ public actor PlexAPIClient {
     
     /// Attempt to find a policy-compliant working connection if current one fails.
     func attemptFailover() async throws -> ConnectionSelectionResult {
+        guard await isNetworkAvailable() else {
+            EnsembleLogger.debug("🔄 Connection failover skipped — device network unavailable")
+            throw PlexAPIError.networkError(URLError(.notConnectedToInternet))
+        }
+
         EnsembleLogger.debug("🔄 Attempting connection failover...")
 
         let selection = await failoverManager.findBestConnection(
@@ -772,6 +781,8 @@ public actor PlexAPIClient {
         query: [String: String] = [:],
         accept: String = "application/json"
     ) async throws -> Data {
+        try await ensureNetworkAvailableForServerRequest(path: path)
+
         // Try with current URL first
         do {
             return try await performServerRequest(url: currentServerURL, path: path, query: query, accept: accept)
@@ -825,6 +836,8 @@ public actor PlexAPIClient {
     }
     
     func serverRequestPUT(path: String, query: [String: String] = [:]) async throws -> Data {
+        try await ensureNetworkAvailableForServerRequest(path: path)
+
         // Try with current URL first
         do {
             return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
@@ -852,6 +865,8 @@ public actor PlexAPIClient {
     }
 
     func serverRequestPOST(path: String, query: [String: String] = [:]) async throws -> Data {
+        try await ensureNetworkAvailableForServerRequest(path: path)
+
         do {
             return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
         } catch {
@@ -876,6 +891,8 @@ public actor PlexAPIClient {
     }
 
     func serverRequestDELETE(path: String, query: [String: String] = [:]) async throws -> Data {
+        try await ensureNetworkAvailableForServerRequest(path: path)
+
         do {
             return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
         } catch {
@@ -928,6 +945,13 @@ public actor PlexAPIClient {
 
     private func shouldAttemptFailover(after error: Error) -> Bool {
         PlexErrorClassification.classify(error).shouldFailover
+    }
+
+    private func ensureNetworkAvailableForServerRequest(path: String) async throws {
+        guard await isNetworkAvailable() else {
+            EnsembleLogger.debug("📴 Skipping Plex server request while device network unavailable: \(path)")
+            throw PlexAPIError.networkError(URLError(.notConnectedToInternet))
+        }
     }
 
     internal func shouldAttemptFailoverForTesting(after error: Error) -> Bool {

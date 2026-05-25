@@ -1,10 +1,17 @@
 #if os(iOS)
 import UIKit
 import EnsembleCore
+import os.signpost
 
 extension AppDelegate {
     func startEarlyHealthCheckTask() {
         earlyHealthCheckTask = Task { @MainActor in
+            let signpostID = OSSignpostID(log: LaunchTaskSignposts.log)
+            os_signpost(.begin, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.earlyHealthChecks, signpostID: signpostID)
+            defer {
+                os_signpost(.end, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.earlyHealthChecks, signpostID: signpostID)
+            }
+
             AppLogger.debug("📱 AppDelegate: Starting network monitor + early health checks at \(Date())")
             DependencyContainer.shared.networkMonitor.startMonitoring()
 
@@ -63,6 +70,19 @@ extension AppDelegate {
         Task { @MainActor in
             await self.earlyHealthCheckTask?.value
 
+            guard DependencyContainer.shared.networkMonitor.networkState.isConnected else {
+                AppLogger.debug(
+                    "📱 AppDelegate: Deferring Siri media index/context refresh while network is \(DependencyContainer.shared.networkMonitor.networkState.description)"
+                )
+                return
+            }
+
+            let signpostID = OSSignpostID(log: LaunchTaskSignposts.log)
+            os_signpost(.begin, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.siriMediaRefresh, signpostID: signpostID)
+            defer {
+                os_signpost(.end, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.siriMediaRefresh, signpostID: signpostID)
+            }
+
             let indexStore = DependencyContainer.shared.siriMediaIndexStore
             if indexStore.loadIndex(maxAge: 3600) == nil {
                 let rebuilt = await indexStore.rebuildIndex()
@@ -97,6 +117,11 @@ extension AppDelegate {
         let pendingPlaybackFilename = Self.pendingPlaybackFilename
         startupSyncTask = Task.detached(priority: .utility) {
             await self.earlyHealthCheckTask?.value
+            let signpostID = OSSignpostID(log: LaunchTaskSignposts.log)
+            os_signpost(.begin, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.startupSync, signpostID: signpostID)
+            defer {
+                os_signpost(.end, log: LaunchTaskSignposts.log, name: LaunchTaskSignposts.startupSync, signpostID: signpostID)
+            }
 
             // Check if Siri playback was recently triggered. If so, wait a short time
             // to let the audio session activate and route selection complete.
@@ -142,5 +167,12 @@ extension AppDelegate {
             )
         }
     }
+}
+
+private enum LaunchTaskSignposts {
+    static let log = OSLog(subsystem: "com.videogorl.ensemble", category: "startup-performance")
+    static let earlyHealthChecks: StaticString = "Early Health Checks"
+    static let siriMediaRefresh: StaticString = "Siri Media Refresh"
+    static let startupSync: StaticString = "Startup Sync"
 }
 #endif

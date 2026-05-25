@@ -96,4 +96,33 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
         XCTAssertTrue(didRunFeed)
         XCTAssertFalse(result.didRefreshFeedSnapshot)
     }
+
+    func testRefreshSkipsNetworkBackedWorkWhenOffline() async {
+        var events: [String] = []
+        let sut = BackgroundRefreshCoordinator(
+            endpointRefresh: { events.append("endpoint") },
+            incrementalSync: { events.append("sync") },
+            feedRefresh: {
+                events.append("feed")
+                return true
+            },
+            siriIndexRefresh: {
+                events.append("siri-index")
+                return true
+            },
+            siriContextRefresh: { events.append("siri-context") },
+            isNetworkAvailable: { false },
+            foregroundCooldown: 0
+        )
+
+        let result = await sut.performForegroundFreshnessRefresh()
+
+        XCTAssertTrue(events.isEmpty)
+        XCTAssertFalse(result.didRunEndpointRefresh)
+        XCTAssertFalse(result.didRunIncrementalSync)
+        XCTAssertFalse(result.didRefreshFeedSnapshot)
+        XCTAssertFalse(result.didRebuildSiriIndex)
+        XCTAssertFalse(result.didUpdateSiriContext)
+        XCTAssertTrue(result.errorDescriptions.isEmpty)
+    }
 }

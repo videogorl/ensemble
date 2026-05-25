@@ -59,6 +59,7 @@ public final class AccountManager: ObservableObject {
 
     private let keychain: KeychainServiceProtocol
     private let connectionRegistry: ServerConnectionRegistry?
+    private let isNetworkAvailable: @Sendable () async -> Bool
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
     private var libraryFlagModifiedAt: [String: TimeInterval]
@@ -68,9 +69,14 @@ public final class AccountManager: ObservableObject {
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
     private static let libraryFlagOriginDeviceIDKey = "sync.libraryFlagOriginDeviceID"
 
-    public init(keychain: KeychainServiceProtocol, connectionRegistry: ServerConnectionRegistry? = nil) {
+    public init(
+        keychain: KeychainServiceProtocol,
+        connectionRegistry: ServerConnectionRegistry? = nil,
+        isNetworkAvailable: @escaping @Sendable () async -> Bool = { true }
+    ) {
         self.keychain = keychain
         self.connectionRegistry = connectionRegistry
+        self.isNetworkAvailable = isNetworkAvailable
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
         self.libraryFlagOriginDeviceID = Self.loadOrCreateLibraryFlagOriginDeviceID()
     }
@@ -765,7 +771,8 @@ public final class AccountManager: ObservableObject {
             connection: connection,
             keychain: keychain,
             connectionRegistry: connectionRegistry,
-            serverKey: cacheKey
+            serverKey: cacheKey,
+            isNetworkAvailable: isNetworkAvailable
         )
         apiClientCache[cacheKey] = client
         return client
