@@ -30,6 +30,7 @@ public struct ArtworkView: View {
     @State private var currentArtworkPath: String?
     /// Incremented when artwork is invalidated to force a re-load
     @State private var invalidationToken: Int = 0
+    @State private var serverRetryTask: Task<Void, Never>?
     
     /// Whether the primary path is missing, so we fall back to fallbackPath/fallbackRatingKey
     private var usesFallback: Bool {
@@ -134,13 +135,11 @@ public struct ArtworkView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
         ) { _ in
-            // Startup Feed cards can begin loading against a stale pre-health-check
-            // remote endpoint. When servers become available after failover, retry any
-            // unresolved remote URL as well as nil URLs so cards re-resolve against the
-            // healthy server without disturbing local file-backed artwork.
-            if artworkURL == nil || artworkURL?.isFileURL == false {
-                invalidationToken += 1
-            }
+            scheduleServerAvailabilityRetry()
+        }
+        .onDisappear {
+            serverRetryTask?.cancel()
+            serverRetryTask = nil
         }
     }
 
@@ -238,8 +237,36 @@ public struct ArtworkView: View {
             previousImage = resolvedImage ?? previousImage
             resolvedImage = image
         } catch {
+            if isExpectedCancellation(error) {
+                return
+            }
             EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)] failed url=\(url.absoluteString) error=\(error.localizedDescription)")
         }
+    }
+
+    @MainActor
+    private func scheduleServerAvailabilityRetry() {
+        guard artworkURL?.isFileURL != true else { return }
+        guard resolvedImage == nil || artworkURL == nil else { return }
+
+        serverRetryTask?.cancel()
+        let jitter = UInt64(abs(loadID.hashValue % 700)) * 1_000_000
+        serverRetryTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000 + jitter)
+            guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
+            await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
+            guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
+            invalidationToken += 1
+            serverRetryTask = nil
+        }
+    }
+
+    private func isExpectedCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        let description = error.localizedDescription.lowercased()
+        return description == "cancelled" || description == "canceled"
     }
 }
 

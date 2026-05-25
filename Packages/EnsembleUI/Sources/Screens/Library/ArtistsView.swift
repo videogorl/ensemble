@@ -7,6 +7,7 @@ import UIKit
 
 final class ArtistDetailArtworkContinuityStore: ObservableObject {
     var lastImage: PlatformImage?
+    var lastIdentity: String?
 }
 
 private struct ArtistDetailArtworkContinuityKey: EnvironmentKey {
@@ -646,7 +647,7 @@ public struct ArtistDetailView: View {
         .onReceive(pinManager.$pinnedItems) { pinnedItems in
             updateArtistPinState(pinnedItems: pinnedItems)
         }
-        .task {
+        .task(id: viewModel.artist.sourceScopedID) {
             async let artworkLoad: () = loadArtworkImage()
             async let albumsLoad: () = viewModel.loadAlbums()
             async let tracksLoad: () = viewModel.loadTracks()
@@ -782,6 +783,12 @@ public struct ArtistDetailView: View {
         let loadIdentity = artist.sourceScopedID
 
         await MainActor.run {
+            if currentArtworkLoadIdentity != loadIdentity {
+                artworkImage = nil
+                continuityArtworkImage = artistArtworkContinuity.lastIdentity == loadIdentity
+                    ? artistArtworkContinuity.lastImage
+                    : nil
+            }
             currentArtworkLoadIdentity = loadIdentity
             artworkLoadUnavailable = false
         }
@@ -856,7 +863,10 @@ public struct ArtistDetailView: View {
         if artworkImage == nil, artworkLoadUnavailable || !hasArtworkCandidate {
             return nil
         }
-        return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
+        if artistArtworkContinuity.lastIdentity == viewModel.artist.sourceScopedID {
+            return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
+        }
+        return continuityArtworkImage ?? artworkImage
     }
 
     private var artworkImageIdentity: ObjectIdentifier? {
@@ -870,7 +880,9 @@ public struct ArtistDetailView: View {
     private func updateArtworkContinuity() {
         guard let artworkImage else {
             if continuityArtworkImage == nil {
-                continuityArtworkImage = artistArtworkContinuity.lastImage
+                continuityArtworkImage = artistArtworkContinuity.lastIdentity == viewModel.artist.sourceScopedID
+                    ? artistArtworkContinuity.lastImage
+                    : nil
             }
             return
         }
@@ -879,6 +891,7 @@ public struct ArtistDetailView: View {
             continuityArtworkImage = artworkImage
         }
         artistArtworkContinuity.lastImage = artworkImage
+        artistArtworkContinuity.lastIdentity = viewModel.artist.sourceScopedID
     }
 
     private static func artistHeroImage(from image: PlatformImage) -> PlatformImage {

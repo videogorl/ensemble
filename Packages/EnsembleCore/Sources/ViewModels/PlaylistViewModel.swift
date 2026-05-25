@@ -12,6 +12,7 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     @Published public private(set) var playlists: [Playlist] = []
+    @Published public private(set) var visibleSnapshot: [Playlist] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
     @Published public private(set) var isShowingStaleSnapshot = false
@@ -47,6 +48,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager?
     private var cancellables = Set<AnyCancellable>()
+    private var coalescedReloadTask: Task<Void, Never>?
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
     /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
@@ -94,9 +96,7 @@ public final class PlaylistViewModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] syncing in
                 if !syncing, self?.isRefreshingFromServer != true {
-                    Task { @MainActor in
-                        await self?.loadPlaylists()
-                    }
+                    self?.scheduleCoalescedPlaylistReload(reason: "sync-complete")
                 }
             }
             .store(in: &cancellables)
@@ -108,9 +108,7 @@ public final class PlaylistViewModel: ObservableObject {
                 guard self?.isRefreshingFromServer != true else { return }
                 let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
                 EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
-                Task { @MainActor in
-                    await self?.loadPlaylists()
-                }
+                self?.scheduleCoalescedPlaylistReload(reason: "playlistsDidRefresh")
             }
             .store(in: &cancellables)
 
@@ -409,6 +407,7 @@ public final class PlaylistViewModel: ObservableObject {
         let snapshot = Self.lastGoodPlaylistsSnapshot
         guard !snapshot.isEmpty else { return }
         playlists = snapshot
+        visibleSnapshot = snapshot
         filteredPlaylists = Self.filterPlaylists(
             Self.sortPlaylists(
                 snapshot,
@@ -451,6 +450,7 @@ public final class PlaylistViewModel: ObservableObject {
         optimisticCreatingPlaylists = []
         optimisticRenamedPlaylistTitlesByID = [:]
         publishPlaylistsIfChanged([])
+        visibleSnapshot = []
         filteredPlaylists = []
         sortedPlaylists = []
         displayPlaylists = []
@@ -462,6 +462,18 @@ public final class PlaylistViewModel: ObservableObject {
     private func publishPlaylistsIfChanged(_ nextPlaylists: [Playlist]) {
         guard playlists != nextPlaylists else { return }
         playlists = nextPlaylists
+        visibleSnapshot = nextPlaylists
+    }
+
+    private func scheduleCoalescedPlaylistReload(reason: String) {
+        coalescedReloadTask?.cancel()
+        coalescedReloadTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard let self, !Task.isCancelled, !self.isRefreshingFromServer else { return }
+            EnsembleLogger.debug("📋 PlaylistViewModel: coalesced reload reason=\(reason)")
+            await self.loadPlaylists()
+            self.coalescedReloadTask = nil
+        }
     }
 
     private func awaitCreatedPlaylistMaterialization(title: String, serverSourceKey: String) async {

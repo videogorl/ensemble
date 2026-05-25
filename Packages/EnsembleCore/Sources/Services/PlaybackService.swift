@@ -1285,7 +1285,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         networkMonitor: NetworkMonitor,
         artworkLoader: ArtworkLoaderProtocol,
         audioAnalyzer: AudioAnalyzerProtocol,
-        downloadManager: DownloadManagerProtocol
+        downloadManager: DownloadManagerProtocol,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
@@ -1295,7 +1296,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueStore = PlaybackQueueStore()
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
-        smartMixAnalysisService = SmartMixAnalysisService()
+        smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         startupCoordinator = PlaybackStartupCoordinator()
@@ -1321,7 +1322,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         artworkLoader: ArtworkLoaderProtocol,
         audioAnalyzer: AudioAnalyzerProtocol,
         downloadManager: DownloadManagerProtocol,
-        queueStore: PlaybackQueueStore
+        queueStore: PlaybackQueueStore,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
@@ -1331,7 +1333,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queueStore = queueStore
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
-        smartMixAnalysisService = SmartMixAnalysisService()
+        smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         startupCoordinator = PlaybackStartupCoordinator()

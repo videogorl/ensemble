@@ -59,6 +59,7 @@ public struct NowPlayingCarousel: View {
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide native page dots
             #endif
             .onChange(of: currentPage) { _ in
+                markNowPlayingInteraction()
                 handlePageChange()
             }
 
@@ -68,6 +69,15 @@ public struct NowPlayingCarousel: View {
                 lyricsAvailable: lyricsProjection.lyricsState.isAvailable
             )
             .padding(.vertical, EnsembleScaffold.NowPlaying.PageIndicator.verticalPadding)
+        }
+    }
+
+    private func markNowPlayingInteraction() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
         }
     }
 

@@ -40,6 +40,8 @@ Dependency flow is one-way:
 ## Core Ownership Rules
 
 - `DependencyContainer` wires services and ViewModel factories. Keep construction grouped by subsystem bootstrap helpers and cross-subsystem callback wiring in explicit post-construction helpers.
+- `AppReadinessCoordinator` owns UI-safe launch/source/cache readiness snapshots. Browse ViewModels consume those snapshots instead of independently deriving add-source or empty states from transient account arrays.
+- `ForegroundWorkScheduler` owns foreground interaction budgeting for nonessential CPU/file work. Services route SmartMix analysis, sidecar analysis, offline healing, system media indexing, artwork retries, log export preparation, and expensive progress recomputation through it without making it an app-state singleton.
 - `SyncCoordinator` is the sync facade. Keep provider lookup, refresh orchestration, playlist refresh, network lifecycle, and endpoint synchronization in focused collaborators instead of growing the facade.
 - `PlaybackService` is the playback facade. Queue mutation and transport side effects stay there; audio session, queue persistence, launch/recovery policy, file cache, prefetch, now-playing metadata, reporting, settings observation, system-media donations, and transport resolution belong in focused collaborators.
 - `OfflineDownloadService` remains the target/queue source of truth. Platform events route through the offline background coordinator, not directly from app delegates into queue workers.

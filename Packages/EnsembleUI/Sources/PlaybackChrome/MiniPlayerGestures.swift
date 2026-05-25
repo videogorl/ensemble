@@ -1,3 +1,4 @@
+import EnsembleCore
 import SwiftUI
 
 #if os(iOS)
@@ -22,6 +23,7 @@ struct MiniPlayerVerticalSwipeModifier: ViewModifier {
             content.gesture(
                 DragGesture()
                     .onChanged { value in
+                        DependencyContainer.shared.foregroundWorkScheduler.beginInteraction(.nowPlayingInteractive)
                         if value.translation.height < 0 {
                             verticalOffset = value.translation.height * EnsembleScaffold.MiniPlayer.verticalSwipeRubberBandFactor
                         }
@@ -33,6 +35,7 @@ struct MiniPlayerVerticalSwipeModifier: ViewModifier {
                         withAnimation(.spring()) {
                             verticalOffset = 0
                         }
+                        endNowPlayingInteractionAfterGesture()
                     }
             )
         } else {
@@ -53,6 +56,7 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
             content.gesture(
                 DragGesture()
                     .onChanged { value in
+                        DependencyContainer.shared.foregroundWorkScheduler.beginInteraction(.nowPlayingInteractive)
                         if abs(value.translation.width) > abs(value.translation.height) {
                             dragOffset = value.translation.width
                             opacity = 1.0 - min(
@@ -70,6 +74,7 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
                         } else {
                         }
                         reset()
+                        endNowPlayingInteractionAfterGesture()
                     }
             )
         } else {
@@ -82,5 +87,13 @@ struct MiniPlayerHorizontalSwipeModifier: ViewModifier {
             dragOffset = 0
             opacity = 1.0
         }
+    }
+}
+
+private func endNowPlayingInteractionAfterGesture() {
+    let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+    Task { @MainActor in
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        scheduler.endInteraction(.nowPlayingInteractive)
     }
 }

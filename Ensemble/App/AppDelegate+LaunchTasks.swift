@@ -137,8 +137,19 @@ extension AppDelegate {
             }
 
             AppLogger.debug("📱 AppDelegate: Starting startup sync...")
-            let syncCoordinator = await MainActor.run {
-                DependencyContainer.shared.syncCoordinator
+            let (syncCoordinator, foregroundWorkScheduler) = await MainActor.run {
+                (
+                    DependencyContainer.shared.syncCoordinator,
+                    DependencyContainer.shared.foregroundWorkScheduler
+                )
+            }
+            await MainActor.run {
+                foregroundWorkScheduler.setStartupSyncInFlight(true)
+            }
+            defer {
+                Task { @MainActor in
+                    foregroundWorkScheduler.setStartupSyncInFlight(false)
+                }
             }
             await syncCoordinator.performStartupSync()
             AppLogger.debug("📱 AppDelegate: Startup sync complete")

@@ -14,6 +14,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - SmartMix uses a true two-deck playback model: when a transition finishes, the incoming deck remains the live deck until the next transition, and the next SmartMix schedules onto the opposite deck. Do not force an immediate handoff back to a single primary deck at the transition boundary.
 - SmartMix transitions keep track A current until transition midpoint, then promote track B for Now Playing presentation, artwork, queue index, system media identifiers, timeline reporting, and history. A skip before the SmartMix threshold keeps B playing; a skip at or after the threshold advances past B.
 - SmartMix must gracefully fall back to existing gapless playback when analysis, file resolution, queue shape, route recovery, or second-deck scheduling is unavailable.
+- SmartMix remains available on constrained devices. Analysis results are cached by track identity plus file metadata and analysis work routes through foreground budgeting so tempo/silence analysis does not run concurrently with startup sync, share sheets, Now Playing gestures, or audio-critical sections on A9/iOS 15-class devices.
 - Playback route recovery must preserve the user-visible playhead. Audio-engine scheduling anchors, such as deck segment offsets used for SmartMix or gapless playback, must not become resume positions when render timing is unavailable.
 - System Now Playing artwork should not flash to generated fallback artwork during track transitions. When the incoming track has an artwork path, keep the previous system artwork until the new artwork loads, then replace it; only use generated fallback artwork when no artwork path exists or the artwork load fails.
 - Playback start paths must pass `PlaybackStartContext`. Only direct app UI starts donate to system media; Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery are non-donating.
@@ -30,6 +31,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - `QueueManager` owns queue state and pure queue operations.
 - `PlaybackQueueController` owns queue persistence, history normalization, autoplay flattening, and download-state restamping.
 - `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
+- `ForegroundWorkScheduler` owns playback-safe budgeting for optional analysis work; it must not block user-initiated playback commands or download transfers.
 - `PlaybackNowPlayingBridge` owns `MPNowPlayingInfoCenter` and remote command writes.
 - `SystemMediaIntegrationService` owns donations, Spotlight indexing/deletion, and media user-context refresh.
 

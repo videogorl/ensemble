@@ -25,7 +25,8 @@ public extension DependencyContainer {
             sourceCacheCleanupService: sourceCacheCleanupService,
             accountManager: accountManager,
             visibilityStore: libraryVisibilityStore,
-            toastCenter: toastCenter
+            toastCenter: toastCenter,
+            appReadinessCoordinator: appReadinessCoordinator
         )
     }
 
@@ -238,7 +239,8 @@ public extension DependencyContainer {
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             hubOrderManager: hubOrderManager,
-            visibilityStore: libraryVisibilityStore
+            visibilityStore: libraryVisibilityStore,
+            appReadinessCoordinator: appReadinessCoordinator
         )
     }
 }

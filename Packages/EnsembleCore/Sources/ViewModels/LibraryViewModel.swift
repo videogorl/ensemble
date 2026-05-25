@@ -56,6 +56,7 @@ public final class LibraryViewModel: ObservableObject {
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
+    private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
     private var cachedSourceCleanupTask: Task<Void, Never>?
     private var allArtists: [Artist] = []
@@ -70,7 +71,8 @@ public final class LibraryViewModel: ObservableObject {
         sourceCacheCleanupService: SourceCacheCleaning,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
-        toastCenter: ToastCenter
+        toastCenter: ToastCenter,
+        appReadinessCoordinator: AppReadinessCoordinator? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
@@ -78,6 +80,7 @@ public final class LibraryViewModel: ObservableObject {
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.toastCenter = toastCenter
+        self.appReadinessCoordinator = appReadinessCoordinator
 
         // Load saved filter options
         let savedTracks = FilterPersistence.load(for: "Songs")
@@ -686,6 +689,9 @@ public final class LibraryViewModel: ObservableObject {
         if !Self.idsEqual(albums, newAlbums, identifier: \.sourceScopedID) { albums = newAlbums }
         if !Self.idsEqual(tracks, newTracks, identifier: \.sourceScopedID) { tracks = newTracks }
         if !Self.idsEqual(genres, newGenres, identifier: \.id) { genres = newGenres }
+        appReadinessCoordinator?.updateCachedLibraryReadiness(
+            hasContent: !newArtists.isEmpty || !newAlbums.isEmpty || !newTracks.isEmpty || !newGenres.isEmpty
+        )
     }
 
     /// Fast ID-based equality check — avoids full Equatable comparison

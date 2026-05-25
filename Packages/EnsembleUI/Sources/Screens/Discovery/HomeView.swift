@@ -121,6 +121,7 @@ public struct HomeView: View {
 
     @ViewBuilder
     private var emptyView: some View {
+        let readiness = viewModel.readinessSnapshot
         if let errorMessage = viewModel.error {
             EnsembleStateScaffold(
                 kind: .error,
@@ -128,7 +129,7 @@ public struct HomeView: View {
                 message: errorMessage,
                 iconSystemName: EnsembleDesign.Icon.error
             )
-        } else if viewModel.isRestoringCloudSources {
+        } else if readiness.isRestoringCloudSources {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
@@ -136,7 +137,15 @@ public struct HomeView: View {
                 addSource: { navigationCoordinator.showingAddAccount = true },
                 manageSources: { navigationCoordinator.openProfile() }
             )
-        } else if !viewModel.hasConfiguredAccounts {
+        } else if !readiness.isBootstrapSettled {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Welcome Home",
+                iconSystemName: EnsembleDesign.Icon.library,
+                recovery: .syncing,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openProfile() }
+            )
+        } else if readiness.canShowAddSources {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
@@ -152,7 +161,7 @@ public struct HomeView: View {
                 addSource: { navigationCoordinator.showingAddAccount = true },
                 manageSources: { navigationCoordinator.openProfile() }
             )
-        } else if !viewModel.hasEnabledLibraries {
+        } else if !readiness.hasEnabledLibraries {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
@@ -237,6 +246,7 @@ struct HubSection: View {
     let nowPlayingVM: NowPlayingViewModel
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -264,24 +274,14 @@ struct HubSection: View {
     private var sectionHeader: some View {
         if let artistId = hub.contextArtistId {
             let sourceKey = hub.contextArtistSourceCompositeKey
-            // Tappable header that navigates to the artist detail view
-            if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId, sourceKey: sourceKey)) {
-                    sectionHeaderLabel
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-            } else {
-                NavigationLink {
-                    ArtistDetailLoader(artistId: artistId, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-                } label: {
-                    sectionHeaderLabel
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+            Button {
+                navigateTo(.artist(id: artistId, sourceKey: sourceKey))
+            } label: {
+                sectionHeaderLabel
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         } else {
             EnsembleContentSectionHeader(hub.title)
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
@@ -290,6 +290,16 @@ struct HubSection: View {
 
     private var sectionHeaderLabel: some View {
         EnsembleContentSectionHeader(hub.title, showsDisclosure: true)
+    }
+
+    private func navigateTo(_ destination: NavigationCoordinator.Destination) {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.navigating)
+        navigationCoordinator.push(destination, in: navigationCoordinator.selectedTab)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            scheduler.endInteraction(.navigating)
+        }
     }
 }
 
@@ -316,12 +326,14 @@ struct HubItemCard: View {
                 Button(action: handleTrackTap) {
                     cardContent
                 }
-            } else {
-                NavigationLink {
-                    destinationView
+            } else if let destination = navigationDestination {
+                Button {
+                    navigateTo(destination)
                 } label: {
                     cardContent
                 }
+            } else {
+                cardContent
             }
         }
         .buttonStyle(.plain)
@@ -372,41 +384,30 @@ struct HubItemCard: View {
         }
     }
 
-    @ViewBuilder
-    private var destinationView: some View {
+    private var navigationDestination: NavigationCoordinator.Destination? {
         switch item.type {
         case "album":
             if let album = item.album {
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                return .albumDetail(album)
             } else {
-                AlbumDetailLoader(
-                    albumId: item.id,
-                    albumSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
+                return .album(id: item.id, sourceKey: item.sourceCompositeKey)
             }
         case "artist":
-            if let artist = item.artist {
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-            } else {
-                ArtistDetailLoader(
-                    artistId: item.id,
-                    artistSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
-            }
+            return .artist(id: item.artist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
-            if let playlist = item.playlist {
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
-            } else {
-                PlaylistDetailLoader(
-                    playlistId: item.id,
-                    playlistSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
-            }
+            return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
         default:
-            EmptyView()
+            return nil
+        }
+    }
+
+    private func navigateTo(_ destination: NavigationCoordinator.Destination) {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.navigating)
+        navigationCoordinator.push(destination, in: navigationCoordinator.selectedTab)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            scheduler.endInteraction(.navigating)
         }
     }
 

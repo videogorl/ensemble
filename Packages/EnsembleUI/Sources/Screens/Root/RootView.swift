@@ -542,14 +542,26 @@ public struct RootView: View {
     }
 
     private func presentNowPlayingFromMiniPlayer() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
         }
     }
 
     private func dismissNowPlaying() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = false
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
         }
         if supportsViewportNowPlayingPresentation {
             completeNowPlayingDismissal()
