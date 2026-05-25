@@ -619,6 +619,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             connectionRegistry: ServerConnectionRegistry(),
             serverHealthChecker: shc,
+            networkMonitor: networkMonitor,
             clientIdentifier: "test"
         )
 
