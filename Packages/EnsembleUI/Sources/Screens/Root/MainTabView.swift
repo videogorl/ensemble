@@ -312,19 +312,14 @@ public struct MainTabView: View {
                         for: tab,
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
+                        homeVM: homeVM,
                         searchVM: searchVM,
+                        pinnedVM: pinnedVM,
                         isMoreRoot: isMoreRoot
                     )
                     .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
                     .auroraBackgroundSupport()
-                    .background(
-                        NestedNavigationLink(
-                            path: navigationCoordinator.pathSnapshot(for: tab),
-                            tab: tab,
-                            navigationCoordinator: navigationCoordinator,
-                            destinationBuilder: destinationView
-                        )
-                    )
+                    .background(legacyNavigationBridge(for: tab))
                 }
                 #if os(iOS)
                 .navigationViewStyle(.stack)
@@ -385,6 +380,23 @@ public struct MainTabView: View {
             pinnedVM: pinnedVM
         )
         .environment(\.showsProfileToolbar, false)
+    }
+
+    @ViewBuilder
+    private func legacyNavigationBridge(for tab: TabItem) -> some View {
+        let path = navigationCoordinator.pathSnapshot(for: tab)
+        if !path.isEmpty {
+            NestedNavigationLink(
+                path: path,
+                tab: tab,
+                navigationCoordinator: navigationCoordinator,
+                destinationBuilder: legacyDestinationView
+            )
+        }
+    }
+
+    private func legacyDestinationView(for destination: NavigationCoordinator.Destination) -> AnyView {
+        AnyView(destinationView(for: destination))
     }
 
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {

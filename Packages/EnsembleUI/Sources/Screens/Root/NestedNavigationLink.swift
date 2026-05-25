@@ -1,12 +1,12 @@
 import EnsembleCore
 import SwiftUI
 
-/// Recursive NavigationView fallback used by iOS 15 root tabs.
-struct NestedNavigationLink<DestinationView: View>: View {
+/// NavigationView fallback used by iOS 15 root tabs.
+struct NestedNavigationLink: View {
     let path: [NavigationCoordinator.Destination]
     let tab: TabItem
     let navigationCoordinator: NavigationCoordinator
-    let destinationBuilder: (NavigationCoordinator.Destination) -> DestinationView
+    let destinationBuilder: (NavigationCoordinator.Destination) -> AnyView
 
     var body: some View {
         if let first = path.first {
@@ -17,14 +17,6 @@ struct NestedNavigationLink<DestinationView: View>: View {
                 ),
                 destination: {
                     destinationBuilder(first)
-                        .background(
-                            NestedNavigationLink(
-                                path: Array(path.dropFirst()),
-                                tab: tab,
-                                navigationCoordinator: navigationCoordinator,
-                                destinationBuilder: destinationBuilder
-                            )
-                        )
                 }
             ) {
                 EmptyView()

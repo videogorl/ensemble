@@ -3,7 +3,6 @@ import SwiftUI
 
 struct NavigationDestinationFactory {
     @MainActor
-    @ViewBuilder
     static func tabContent(
         for tab: TabItem,
         libraryVM: LibraryViewModel,
@@ -12,40 +11,19 @@ struct NavigationDestinationFactory {
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil,
         isMoreRoot: Bool = false
-    ) -> some View {
-        if isMoreRoot {
-            MoreView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM
-            )
-        } else {
-            switch tab {
-            case .home:
-                HomeView(nowPlayingVM: nowPlayingVM, viewModel: homeVM)
-            case .songs:
-                SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .artists:
-                ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .albums:
-                AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .genres:
-                GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .playlists:
-                PlaylistsView(nowPlayingVM: nowPlayingVM)
-            case .favorites:
-                FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
-            case .search:
-                SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM, pinnedVM: pinnedVM)
-            case .downloads:
-                DownloadsView(nowPlayingVM: nowPlayingVM)
-            case .settings:
-                ProfileView()
-            }
-        }
+    ) -> AnyView {
+        AnyView(NavigationTabContentView(
+            tab: tab,
+            libraryVM: libraryVM,
+            nowPlayingVM: nowPlayingVM,
+            homeVM: homeVM,
+            searchVM: searchVM,
+            pinnedVM: pinnedVM,
+            isMoreRoot: isMoreRoot
+        ))
     }
 
     @MainActor
-    @ViewBuilder
     static func destinationContent(
         for destination: NavigationCoordinator.Destination,
         libraryVM: LibraryViewModel,
@@ -53,35 +31,36 @@ struct NavigationDestinationFactory {
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil
-    ) -> some View {
+    ) -> AnyView {
         switch destination {
         case .displayArtist(let id):
             if let displayArtist = displayArtist(for: id, libraryVM: libraryVM) {
-                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+                return AnyView(ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM))
             } else {
-                EnsembleStateScaffold(kind: .empty, title: "Artist not found")
+                return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
             }
         case .artist(let id, let sourceKey):
-            ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .album(let id, let sourceKey):
-            AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            return AnyView(AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .albumDetail(let album):
-            AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+            return AnyView(AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM))
         case .playlist(let id, let sourceKey):
-            PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
+            return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .mergedPlaylist(let title, let isSmart):
-            MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM)
+            return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):
-            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
+            return AnyView(MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM))
         case .view(let tab):
-            tabContent(
-                for: tab,
+            return AnyView(NavigationTabContentView(
+                tab: tab,
                 libraryVM: libraryVM,
                 nowPlayingVM: nowPlayingVM,
                 homeVM: homeVM,
                 searchVM: searchVM,
-                pinnedVM: pinnedVM
-            )
+                pinnedVM: pinnedVM,
+                isMoreRoot: false
+            ))
         }
     }
 
@@ -92,5 +71,52 @@ struct NavigationDestinationFactory {
         }
 
         return DisplayArtist.group(libraryVM.artists).first { $0.id == id }
+    }
+}
+
+private struct NavigationTabContentView: View {
+    let tab: TabItem
+    let libraryVM: LibraryViewModel
+    let nowPlayingVM: NowPlayingViewModel
+    let homeVM: HomeViewModel?
+    let searchVM: SearchViewModel
+    let pinnedVM: PinnedViewModel?
+    let isMoreRoot: Bool
+
+    var body: some View {
+        if isMoreRoot {
+            MoreView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM
+            )
+        } else {
+            tabBody
+        }
+    }
+
+    @ViewBuilder
+    private var tabBody: some View {
+        switch tab {
+        case .home:
+            HomeView(nowPlayingVM: nowPlayingVM, viewModel: homeVM)
+        case .songs:
+            SongsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .artists:
+            ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .albums:
+            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .genres:
+            GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .playlists:
+            PlaylistsView(nowPlayingVM: nowPlayingVM)
+        case .favorites:
+            FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+        case .search:
+            SearchView(nowPlayingVM: nowPlayingVM, viewModel: searchVM, pinnedVM: pinnedVM)
+        case .downloads:
+            DownloadsView(nowPlayingVM: nowPlayingVM)
+        case .settings:
+            ProfileView()
+        }
     }
 }
