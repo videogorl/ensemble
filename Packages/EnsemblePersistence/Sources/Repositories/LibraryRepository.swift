@@ -331,6 +331,10 @@ public extension LibraryRepositoryProtocol {
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
     let coreDataStack: CoreDataStack
 
+    public var backingCoreDataStack: CoreDataStack {
+        coreDataStack
+    }
+
     // Accumulator for tracks whose album changed during upsert.
     // Protected by reparentLock; drained by SyncCoordinator after sync.
     private var pendingReparentInfo: [TrackReparentInfo] = []

@@ -7,6 +7,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Feed and library surfaces are offline-first: show cached or last-good data immediately, then refresh in the background.
 - Empty or failed network results must not overwrite last-good Feed snapshots.
 - Browse empty/add-source decisions are readiness-owned. `AppReadinessCoordinator` is the source of truth for bootstrap-settled, cached-library/feed-ready, no-source, and no-enabled-library states; Feed/library views must not infer those states from transient account, hub, playlist, or source arrays.
+- While iCloud/source restoration is still awaiting source data, library browse surfaces must preserve or publish cached source content using cached source keys as a provisional filter. They must not clear visible album/artist/track content or schedule source cleanup until source restoration has settled.
 - Feed uses stale-while-revalidate cadence: fetch once per app session or when the last network snapshot is at least 10 minutes old; manual pull-to-refresh bypasses the cadence.
 - Refreshable root screens attach `.refreshable` to the native scroll owner for every visible content state and expose `.refreshCommand` so keyboard/menu refresh invokes the active screen's same action.
 - Background refresh routes through `BackgroundRefreshCoordinator`, not transient UI view models.

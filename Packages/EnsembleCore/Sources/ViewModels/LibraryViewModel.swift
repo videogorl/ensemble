@@ -81,6 +81,7 @@ public final class LibraryViewModel: ObservableObject {
         self.visibilityStore = visibilityStore ?? .shared
         self.toastCenter = toastCenter
         self.appReadinessCoordinator = appReadinessCoordinator
+        self.isRestoringCloudSources = accountManager.isAwaitingCloudSources
 
         // Load saved filter options
         let savedTracks = FilterPersistence.load(for: "Songs")
@@ -123,7 +124,17 @@ public final class LibraryViewModel: ObservableObject {
 
         accountManager.$isAwaitingCloudSources
             .receive(on: DispatchQueue.main)
-            .assign(to: &$isRestoringCloudSources)
+            .dropFirst()
+            .sink { [weak self] awaiting in
+                guard let self else { return }
+                self.isRestoringCloudSources = awaiting
+                guard !awaiting else { return }
+
+                Task { @MainActor in
+                    await self.loadLibrary()
+                }
+            }
+            .store(in: &cancellables)
 
         // Reflect account/library enablement changes immediately in cached browse surfaces.
         accountManager.$plexAccounts
@@ -433,19 +444,21 @@ public final class LibraryViewModel: ObservableObject {
             await libraryRepository.refreshContext()
 
             let enabledSourceKeys = Set(accountManager.enabledSources().map(\.compositeKey))
-            guard try await reconcileCachedSourcesBeforeLoad(enabledSourceKeys: enabledSourceKeys) else {
+            guard let browseSourceKeys = try await reconcileCachedSourcesBeforeLoad(enabledSourceKeys: enabledSourceKeys) else {
                 return
             }
 
             // Fetch and map on a background context to keep the main thread free.
             // Domain model structs (Artist, Album, Track, Genre) are value types
             // and safe to pass across threads.
-            let result = try await Self.fetchAndMapInBackground()
+            let result = try await Self.fetchAndMapInBackground(
+                coreDataStack: Self.coreDataStack(for: libraryRepository)
+            )
 
-            allArtists = result.artists.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
-            allAlbums = result.albums.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
-            allTracks = result.tracks.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
-            allGenres = result.genres.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: enabledSourceKeys) }
+            allArtists = result.artists.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
+            allAlbums = result.albums.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
+            allTracks = result.tracks.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
+            allGenres = result.genres.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
             applyVisibilityToPublishedCollections()
         } catch {
             self.error = error.localizedDescription
@@ -453,13 +466,24 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     /// Keeps local library storage aligned with the account/library selection before publishing browse rows.
-    private func reconcileCachedSourcesBeforeLoad(enabledSourceKeys: Set<String>) async throws -> Bool {
+    private func reconcileCachedSourcesBeforeLoad(enabledSourceKeys: Set<String>) async throws -> Set<String>? {
+        let cachedSourceKeys = Set(try await libraryRepository.fetchMusicSources().map(\.compositeKey))
+
         guard !accountManager.isAwaitingCloudSources else {
-            clearInMemoryLibrary()
-            return false
+            cancelCachedSourceCleanup()
+            guard !cachedSourceKeys.isEmpty else {
+                EnsembleLogger.info("LibraryViewModel: preserving visible library while cloud sources are restoring")
+                return nil
+            }
+
+            if enabledSourceKeys.isEmpty {
+                EnsembleLogger.info("LibraryViewModel: using cached library source keys while cloud source selection is restoring")
+                return cachedSourceKeys
+            }
+
+            return enabledSourceKeys
         }
 
-        let cachedSourceKeys = Set(try await libraryRepository.fetchMusicSources().map(\.compositeKey))
         guard !enabledSourceKeys.isEmpty else {
             clearInMemoryLibrary()
 
@@ -468,14 +492,14 @@ public final class LibraryViewModel: ObservableObject {
                 if !cachedSourceKeys.isEmpty {
                     EnsembleLogger.info("LibraryViewModel: preserving cached library data while no libraries are enabled")
                 }
-                return false
+                return nil
             }
 
             if !cachedSourceKeys.isEmpty {
                 EnsembleLogger.info("LibraryViewModel: purging cached library data because no source accounts are configured")
             }
             scheduleCachedSourceCleanup(sourceKeys: cachedSourceKeys, deleteAllLibraryData: true)
-            return false
+            return nil
         }
 
         let staleSourceKeys = cachedSourceKeys.subtracting(enabledSourceKeys)
@@ -483,7 +507,7 @@ public final class LibraryViewModel: ObservableObject {
             EnsembleLogger.info("LibraryViewModel: purging cached data for \(staleSourceKeys.count) disabled library source(s)")
             scheduleCachedSourceCleanup(sourceKeys: staleSourceKeys, deleteAllLibraryData: false)
         }
-        return true
+        return enabledSourceKeys
     }
 
     private func cancelCachedSourceCleanup() {
@@ -552,10 +576,16 @@ public final class LibraryViewModel: ObservableObject {
 
     /// Fetches all library entities on a background CoreData context and maps
     /// them to domain model arrays. Runs entirely off the main thread.
-    private nonisolated static func fetchAndMapInBackground() async throws -> (
+    private nonisolated static func coreDataStack(for repository: LibraryRepositoryProtocol) -> CoreDataStack {
+        (repository as? LibraryRepository)?.backingCoreDataStack ?? .shared
+    }
+
+    private nonisolated static func fetchAndMapInBackground(
+        coreDataStack: CoreDataStack
+    ) async throws -> (
         artists: [Artist], albums: [Album], tracks: [Track], genres: [Genre]
     ) {
-        let context = CoreDataStack.shared.newBackgroundContext()
+        let context = coreDataStack.newBackgroundContext()
         context.stalenessInterval = 0  // Always fresh for this one-shot fetch
 
         return try await context.perform {

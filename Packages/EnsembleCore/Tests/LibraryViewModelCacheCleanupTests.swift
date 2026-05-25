@@ -89,6 +89,41 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(trackSourceKeys, [sourceKey])
     }
 
+    func testLoadLibraryPublishesCachedLibraryWhileCloudSourcesAreRestoring() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", false)])
+        )
+        harness.accountManager.setAwaitingCloudSources(true)
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let viewModel = makeViewModel(harness: harness)
+        await viewModel.loadLibrary()
+
+        XCTAssertEqual(viewModel.tracks.map(\.sourceCompositeKey), [sourceKey])
+
+        let sourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
+        XCTAssertEqual(sourceKeys, [sourceKey])
+    }
+
+    func testLibraryReloadsWhenCloudSourceRestorationSettles() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", false)])
+        )
+        harness.accountManager.setAwaitingCloudSources(true)
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let viewModel = makeViewModel(harness: harness)
+        await viewModel.loadLibrary()
+        XCTAssertEqual(viewModel.tracks.map(\.sourceCompositeKey), [sourceKey])
+
+        harness.accountManager.setAwaitingCloudSources(false)
+        try await waitForTrackCount(viewModel: viewModel, expectedCount: 0)
+    }
+
     func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness { sourceKey in
@@ -329,6 +364,18 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let targets = try await harness.targetRepository.fetchTargets()
         XCTAssertTrue(downloads.isEmpty)
         XCTAssertTrue(targets.isEmpty)
+    }
+
+    private func waitForTrackCount(viewModel: LibraryViewModel, expectedCount: Int) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if viewModel.tracks.count == expectedCount {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        XCTAssertEqual(viewModel.tracks.count, expectedCount)
     }
 
     private func makeViewModel(harness: Harness) -> LibraryViewModel {
