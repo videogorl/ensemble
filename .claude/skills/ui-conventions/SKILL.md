@@ -30,6 +30,7 @@ These are core design decisions that must be maintained throughout the app.
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
 - **iOS 15:** Use `NestedNavigationLink` only as the root `NavigationView` bridge for coordinator-driven entry into a tab or hidden More destination. Once inside a browse/detail stack, use native `NavigationLink(destination:)` for in-stack pushes so SwiftUI owns animations and back behavior.
+- **iOS 15 bridge mounting:** Keep the root `NestedNavigationLink` mounted even when its path is empty. If the hidden link is inserted only after the coordinator path becomes non-empty, SwiftUI sees an already-active link and detail pushes cut instead of animating.
 - **Route-owned links:** For feed cards, hub headers, and other coordinator-owned typed routes that must survive source/list refreshes, use `NavigationCoordinator.routeLink(to:)` instead of local `#available` branches or inline destination closures. Context menu navigation actions should use `routeFromMenu(to:)` or `navigateFromMenu(to:)` so path updates happen after native menu dismissal.
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks

@@ -24,34 +24,43 @@ struct NestedNavigationLink: View {
     }
 
     var body: some View {
+        NavigationLink(
+            isActive: Binding(
+                get: { navigationCoordinator.pathSnapshot(for: tab).count > depth },
+                set: { isActive in
+                    guard !isActive else { return }
+                    navigationCoordinator.setPath(
+                        Self.pathAfterDeactivatingLink(at: depth, in: navigationCoordinator.pathSnapshot(for: tab)),
+                        for: tab
+                    )
+                }
+            ),
+            destination: {
+                activeDestination
+            }
+        ) {
+            EmptyView()
+        }
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var activeDestination: some View {
         let currentPath = navigationCoordinator.pathSnapshot(for: tab)
         if let destination = Self.destination(in: currentPath, at: depth) {
-            NavigationLink(
-                isActive: Binding(
-                    get: { navigationCoordinator.pathSnapshot(for: tab).count > depth },
-                    set: { isActive in
-                        guard !isActive else { return }
-                        navigationCoordinator.setPath(
-                            Self.pathAfterDeactivatingLink(at: depth, in: navigationCoordinator.pathSnapshot(for: tab)),
-                            for: tab
-                        )
-                    }
-                ),
-                destination: {
-                    destinationBuilder(destination)
-                        .background(
-                            NestedNavigationLink(
-                                path: currentPath,
-                                tab: tab,
-                                navigationCoordinator: navigationCoordinator,
-                                destinationBuilder: destinationBuilder,
-                                depth: depth + 1
-                            )
-                        )
-                }
-            ) {
-                EmptyView()
-            }
+            destinationBuilder(destination)
+                .background(
+                    NestedNavigationLink(
+                        path: currentPath,
+                        tab: tab,
+                        navigationCoordinator: navigationCoordinator,
+                        destinationBuilder: destinationBuilder,
+                        depth: depth + 1
+                    )
+                )
+        } else {
+            EmptyView()
         }
     }
 

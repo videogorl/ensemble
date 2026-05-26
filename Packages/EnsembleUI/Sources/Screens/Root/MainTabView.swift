@@ -385,14 +385,12 @@ public struct MainTabView: View {
     @ViewBuilder
     private func legacyNavigationBridge(for tab: TabItem) -> some View {
         let path = navigationCoordinator.pathSnapshot(for: tab)
-        if !path.isEmpty {
-            NestedNavigationLink(
-                path: path,
-                tab: tab,
-                navigationCoordinator: navigationCoordinator,
-                destinationBuilder: legacyDestinationView
-            )
-        }
+        NestedNavigationLink(
+            path: path,
+            tab: tab,
+            navigationCoordinator: navigationCoordinator,
+            destinationBuilder: legacyDestinationView
+        )
     }
 
     private func legacyDestinationView(for destination: NavigationCoordinator.Destination) -> AnyView {
