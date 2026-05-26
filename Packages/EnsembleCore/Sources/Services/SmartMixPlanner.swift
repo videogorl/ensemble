@@ -494,7 +494,9 @@ public final class SmartMixAnalysisService: SmartMixAnalysisProviding {
         let scheduler = foregroundWorkScheduler
         let task = Task.detached(priority: .utility) {
             if let scheduler {
-                await scheduler.waitUntilAllowed(.smartMixAnalysis, policy: .playbackSafe)
+                guard await scheduler.waitUntilAllowed(.smartMixAnalysis, policy: .playbackSafe) else {
+                    return SmartMixAnalysis.unavailable
+                }
                 return await Self.serialAnalyzer.analysis(fileURL: fileURL)
             }
             return Self.analyze(fileURL: fileURL)

@@ -1344,7 +1344,11 @@ public final class OfflineDownloadService: ObservableObject {
     /// with target memberships before the UI recomputes its snapshots.
     private func runDownloadHealing() async {
         if !isAppInBackground {
-            await foregroundWorkScheduler?.waitUntilAllowed(.offlineHealing, policy: .idleOnly)
+            if let foregroundWorkScheduler {
+                guard await foregroundWorkScheduler.waitUntilAllowed(.offlineHealing, policy: .idleOnly) else {
+                    return
+                }
+            }
         }
 
         let runStartedAt = Date()
@@ -1534,7 +1538,12 @@ public final class OfflineDownloadService: ObservableObject {
             }
             guard !Task.isCancelled else { return }
 
-            await self.foregroundWorkScheduler?.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly)
+            if let foregroundWorkScheduler = self.foregroundWorkScheduler {
+                guard await foregroundWorkScheduler.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly) else {
+                    self.fullProgressRefreshTask = nil
+                    return
+                }
+            }
             await self.refreshAllTargetProgresses()
             self.fullProgressRefreshTask = nil
 
@@ -1813,7 +1822,10 @@ private actor SidecarAnalysisQueue {
                     break
                 }
                 if let scheduler = await self.scheduler() {
-                    await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe)
+                    guard await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe) else {
+                        await self.requeueCurrentItem()
+                        break
+                    }
                 }
                 if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: item.sourceURL) {
                     try? FrequencyTimelinePersistence.save(timeline, to: item.sidecarURL)

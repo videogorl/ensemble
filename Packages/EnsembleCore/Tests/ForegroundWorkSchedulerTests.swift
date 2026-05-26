@@ -44,8 +44,7 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
 
         var didRun = false
         let task = Task { @MainActor in
-            await scheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly)
-            didRun = true
+            didRun = await scheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly)
         }
 
         try? await Task.sleep(nanoseconds: 30_000_000)
@@ -69,8 +68,7 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
 
         var didRun = false
         let task = Task { @MainActor in
-            await scheduler.waitUntilAllowed(.offlineHealing, policy: .idleOnly)
-            didRun = true
+            didRun = await scheduler.waitUntilAllowed(.offlineHealing, policy: .idleOnly)
         }
 
         try? await Task.sleep(nanoseconds: 30_000_000)
@@ -79,5 +77,58 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         scheduler.setStartupSyncInFlight(false)
         await task.value
         XCTAssertTrue(didRun)
+    }
+
+    func testIdleOnlyWorkReturnsFalseWhenForegroundInactive() async {
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: true,
+                idleDelay: 0,
+                pollingInterval: 0.01
+            )
+        )
+        scheduler.clearLaunchState()
+        scheduler.setForegroundActive(false)
+
+        let allowed = await scheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
+
+        XCTAssertFalse(allowed)
+    }
+
+    func testPlaybackSafeWorkReturnsFalseWhenForegroundInactive() async {
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: true,
+                idleDelay: 0,
+                pollingInterval: 0.01
+            )
+        )
+        scheduler.clearLaunchState()
+        scheduler.setForegroundActive(false)
+
+        let allowed = await scheduler.waitUntilAllowed(.smartMixAnalysis, policy: .playbackSafe)
+
+        XCTAssertFalse(allowed)
+    }
+
+    func testIdleOnlyWorkReturnsFalseWhenWaitingTaskIsCancelled() async {
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: true,
+                idleDelay: 0,
+                pollingInterval: 0.01
+            )
+        )
+        scheduler.clearLaunchState()
+        scheduler.beginInteraction(.navigating)
+
+        let task = Task { @MainActor in
+            await scheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
+        }
+
+        task.cancel()
+        let allowed = await task.value
+
+        XCTAssertFalse(allowed)
     }
 }

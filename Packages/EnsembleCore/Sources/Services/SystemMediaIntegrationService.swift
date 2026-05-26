@@ -454,7 +454,12 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func refreshSpotlightIndex() async {
-        await foregroundWorkScheduler?.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly)
+        if let foregroundWorkScheduler {
+            guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
+                EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")
+                return
+            }
+        }
 
         let previousIndex = siriMediaIndexStore.loadIndexUnbounded()
         let rebuiltIndex = await siriMediaIndexStore.rebuildIndex()

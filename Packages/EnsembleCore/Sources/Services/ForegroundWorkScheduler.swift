@@ -58,17 +58,23 @@ public protocol ForegroundWorkScheduling: AnyObject, Sendable {
     func endInteraction(_ state: ForegroundInteractionState)
     func setStartupSyncInFlight(_ inFlight: Bool)
     func setForegroundActive(_ active: Bool)
-    func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async
+    func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool
 }
 
 private actor ForegroundWorkSerialExecutor {
     private var runningKinds: Set<ForegroundWorkKind> = []
 
-    func waitForTurn(kind: ForegroundWorkKind) async {
+    func waitForTurn(kind: ForegroundWorkKind) async -> Bool {
         while runningKinds.contains(kind) {
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 100_000_000)
+            } catch {
+                return false
+            }
+            guard !Task.isCancelled else { return false }
         }
         runningKinds.insert(kind)
+        return true
     }
 
     func finish(kind: ForegroundWorkKind) {
@@ -130,25 +136,29 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         lastInteractionAt = now()
     }
 
-    public func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async {
+    public func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool {
+        guard !Task.isCancelled, isForegroundActive else { return false }
         switch policy {
         case .immediate:
             if configuration.isConstrainedLegacyDevice, nonessentialKinds.contains(kind) {
-                await waitForIdle()
+                return await waitForIdle()
             }
+            return !Task.isCancelled
         case .debounce(let interval):
-            await sleep(seconds: interval)
+            guard await sleep(seconds: interval) else { return false }
             if configuration.isConstrainedLegacyDevice || requiresIdle(kind: kind) {
-                await waitForIdle()
+                return await waitForIdle()
             }
+            return !Task.isCancelled
         case .serialize:
             if configuration.isConstrainedLegacyDevice, nonessentialKinds.contains(kind) {
-                await waitForIdle()
+                return await waitForIdle()
             }
+            return !Task.isCancelled
         case .idleOnly:
-            await waitForIdle()
+            return await waitForIdle()
         case .playbackSafe:
-            await waitForPlaybackSafe(kind: kind)
+            return await waitForPlaybackSafe(kind: kind)
         }
     }
 
@@ -156,15 +166,19 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         _ kind: ForegroundWorkKind,
         policy: ForegroundWorkPolicy,
         operation: @escaping @Sendable () async throws -> T
-    ) async rethrows -> T {
-        await waitUntilAllowed(kind, policy: policy)
+    ) async throws -> T {
+        guard await waitUntilAllowed(kind, policy: policy) else {
+            throw CancellationError()
+        }
         let shouldSerialize = policy == .serialize ||
             configuration.isConstrainedLegacyDevice ||
             kind == .smartMixAnalysis ||
             kind == .sidecarAnalysis
 
         if shouldSerialize {
-            await serialExecutor.waitForTurn(kind: kind)
+            guard await serialExecutor.waitForTurn(kind: kind) else {
+                throw CancellationError()
+            }
             do {
                 let value = try await operation()
                 await serialExecutor.finish(kind: kind)
@@ -203,22 +217,35 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         }
     }
 
-    private func waitForIdle() async {
-        while !isIdleForNonessentialWork {
-            await sleep(seconds: configuration.pollingInterval)
+    private func waitForIdle() async -> Bool {
+        while !Task.isCancelled {
+            if isIdleForNonessentialWork {
+                return true
+            }
+            guard isForegroundActive else { return false }
+            guard await sleep(seconds: configuration.pollingInterval) else { return false }
         }
+        return false
     }
 
-    private func waitForPlaybackSafe(kind: ForegroundWorkKind) async {
+    private func waitForPlaybackSafe(kind: ForegroundWorkKind) async -> Bool {
         while startupSyncInFlight ||
             !playbackBlockingStates.isDisjoint(with: activeStates) ||
             (configuration.isConstrainedLegacyDevice && requiresIdle(kind: kind) && !isIdleForNonessentialWork) {
-            await sleep(seconds: configuration.pollingInterval)
+            guard !Task.isCancelled else { return false }
+            guard isForegroundActive else { return false }
+            guard await sleep(seconds: configuration.pollingInterval) else { return false }
         }
+        return !Task.isCancelled
     }
 
-    private func sleep(seconds: TimeInterval) async {
+    private func sleep(seconds: TimeInterval) async -> Bool {
         let nanoseconds = UInt64(max(0, seconds) * 1_000_000_000)
-        try? await Task.sleep(nanoseconds: nanoseconds)
+        do {
+            try await Task.sleep(nanoseconds: nanoseconds)
+            return !Task.isCancelled
+        } catch {
+            return false
+        }
     }
 }

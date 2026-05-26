@@ -250,7 +250,11 @@ public struct ArtworkView: View {
         serverRetryTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000 + jitter)
             guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
-            await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
+            let canRetry = await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
+            guard canRetry else {
+                serverRetryTask = nil
+                return
+            }
             guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
             invalidationToken += 1
             serverRetryTask = nil

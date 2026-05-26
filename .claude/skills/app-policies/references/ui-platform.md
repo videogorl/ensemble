@@ -40,6 +40,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Keep compact iPhone fallbacks separate from large-screen split behavior.
 - Use shared scaffolds, labels, icons, materials, and track-list metrics instead of local duplicates.
 - Mark mini-player, Now Playing panel, carousel, scrubber, share-sheet, and route transitions as foreground interactions through `ForegroundWorkScheduler` so nonessential work does not start during visible gestures or native presentations.
+- `ForegroundWorkScheduler` waits for nonessential foreground work must return denied when the app leaves foreground or the waiting task is cancelled; artwork retries, indexing, and analysis must not remain parked on the main actor during process exit.
 - Use native commands and keyboard shortcuts where available; do not install app-wide input monitors for ordinary shortcuts.
 
 ## Verification
