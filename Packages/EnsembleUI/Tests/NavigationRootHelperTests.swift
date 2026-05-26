@@ -244,6 +244,42 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
     }
 
+    func testLegacyNestedNavigationResolvesDestinationAfterPrefix() {
+        let album = Self.album()
+        let path: [NavigationCoordinator.Destination] = [
+            .view(.albums),
+            .albumDetail(album),
+            .artist(id: "artist", sourceKey: "server/library")
+        ]
+
+        XCTAssertEqual(
+            NestedNavigationLink.nextDestination(in: path, after: []),
+            .view(.albums)
+        )
+        XCTAssertEqual(
+            NestedNavigationLink.nextDestination(in: path, after: [.view(.albums)]),
+            .albumDetail(album)
+        )
+        XCTAssertEqual(
+            NestedNavigationLink.nextDestination(in: path, after: [.view(.albums), .albumDetail(album)]),
+            .artist(id: "artist", sourceKey: "server/library")
+        )
+    }
+
+    func testLegacyNestedNavigationRejectsMismatchedPrefix() {
+        let path: [NavigationCoordinator.Destination] = [
+            .view(.albums),
+            .album(id: "album", sourceKey: "server/library")
+        ]
+
+        XCTAssertNil(
+            NestedNavigationLink.nextDestination(in: path, after: [.view(.artists)])
+        )
+        XCTAssertNil(
+            NestedNavigationLink.nextDestination(in: path, after: path)
+        )
+    }
+
     private static func album() -> Album {
         Album(id: "album", key: "/library/metadata/album", title: "Album", artistName: "Artist")
     }

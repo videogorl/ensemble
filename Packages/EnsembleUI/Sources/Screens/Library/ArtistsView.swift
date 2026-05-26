@@ -359,6 +359,7 @@ private struct DisplayArtistGrid: View {
     let artists: [DisplayArtist]
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let columns = EnsembleScaffold.MediaCard.personGridColumns
@@ -393,8 +394,11 @@ private struct DisplayArtistGrid: View {
                 artistContextMenu(for: displayArtist)
             }
         } else {
-            NavigationLink {
-                DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+            Button {
+                navigationCoordinator.push(
+                    .displayArtist(id: displayArtist.id),
+                    in: navigationCoordinator.selectedTab
+                )
             } label: {
                 artistCardContent(displayArtist)
             }
@@ -1409,8 +1413,11 @@ public struct ArtistDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists, id: \.sourceScopedID) { artist in
-                        NavigationLink {
-                            ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                        Button {
+                            navigationCoordinator.push(
+                                .artist(id: artist.id, sourceKey: artist.sourceCompositeKey),
+                                in: navigationCoordinator.selectedTab
+                            )
                         } label: {
                             similarArtistCard(artist: artist)
                         }
@@ -1440,6 +1447,10 @@ public struct ArtistDetailView: View {
         }
     }
 
+    private func navigateToAlbumDetail(_ album: Album) {
+        navigationCoordinator.push(.albumDetail(album), in: navigationCoordinator.selectedTab)
+    }
+
     // MARK: - Albums Section
 
     private var albumsSection: some View {
@@ -1447,7 +1458,11 @@ public struct ArtistDetailView: View {
             EnsembleContentSectionHeader("Albums")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
-            AlbumGrid(albums: detailAlbums, nowPlayingVM: nowPlayingVM)
+            AlbumGrid(
+                albums: detailAlbums,
+                nowPlayingVM: nowPlayingVM,
+                onAlbumTap: navigateToAlbumDetail
+            )
         }
     }
 
@@ -1484,7 +1499,11 @@ public struct ArtistDetailView: View {
             .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             if !albums.isEmpty {
-                AlbumGrid(albums: albums, nowPlayingVM: nowPlayingVM)
+                AlbumGrid(
+                    albums: albums,
+                    nowPlayingVM: nowPlayingVM,
+                    onAlbumTap: navigateToAlbumDetail
+                )
             }
 
             if !favoritedTracks.isEmpty {

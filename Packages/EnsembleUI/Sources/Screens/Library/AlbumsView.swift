@@ -158,14 +158,22 @@ public struct AlbumsView: View {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(libraryVM.albumSections) { section in
                                     Section(header: sectionHeader(section.letter)) {
-                                        AlbumGrid(albums: section.albums, nowPlayingVM: nowPlayingVM)
+                                        AlbumGrid(
+                                            albums: section.albums,
+                                            nowPlayingVM: nowPlayingVM,
+                                            onAlbumTap: navigateToAlbumDetail
+                                        )
                                             .id(section.letter)
                                     }
                                 }
                             }
                             .padding(.vertical)
                         } else {
-                            AlbumGrid(albums: libraryVM.filteredAlbums, nowPlayingVM: nowPlayingVM)
+                            AlbumGrid(
+                                albums: libraryVM.filteredAlbums,
+                                nowPlayingVM: nowPlayingVM,
+                                onAlbumTap: navigateToAlbumDetail
+                            )
                                 .padding(.vertical)
                         }
                     }
@@ -236,6 +244,10 @@ public struct AlbumsView: View {
 
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
+    }
+
+    private func navigateToAlbumDetail(_ album: Album) {
+        navigationCoordinator.push(.albumDetail(album), in: navigationCoordinator.selectedTab)
     }
 }
 
