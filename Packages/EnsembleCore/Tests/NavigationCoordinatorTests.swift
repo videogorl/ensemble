@@ -88,6 +88,20 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testRouteTransitionFlagClearsAfterDuration() async {
+        let coordinator = NavigationCoordinator()
+
+        coordinator.beginRouteTransition(in: .artists, durationNanoseconds: 10_000_000)
+
+        XCTAssertTrue(coordinator.isRouteTransitionActive(for: .artists))
+        XCTAssertFalse(coordinator.isRouteTransitionActive(for: .albums))
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertFalse(coordinator.isRouteTransitionActive(for: .artists))
+    }
+
+    @MainActor
     func testNavigateFromExternalSearchUsesDestinationOwningTab() {
         let coordinator = NavigationCoordinator()
         coordinator.selectedTab = .home

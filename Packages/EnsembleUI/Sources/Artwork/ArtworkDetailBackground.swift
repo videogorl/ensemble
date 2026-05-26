@@ -47,12 +47,12 @@ struct ArtworkDetailBackground: View {
 
     var body: some View {
         ZStack {
-            CrossfadingBlurredArtworkBackground(
+            BlurredArtworkBackground(
                 image: displayedImage,
                 topDimming: colorScheme == .dark ? 0.1 : 0.05,
                 bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
                 overlayColor: backgroundOverlayColor,
-                isEnabled: usesNavigationContinuity
+                animatesImageChanges: false
             )
 
             // Keep the same legibility wash used by MediaDetailView across all
@@ -113,104 +113,6 @@ struct ArtworkDetailBackground: View {
             continuityImage = image
         }
         continuityStore.lastImage = image
-    }
-}
-
-private struct CrossfadingBlurredArtworkBackground: View {
-    let image: PlatformImage?
-    let topDimming: Double
-    let bottomDimming: Double
-    let overlayColor: Color
-    let isEnabled: Bool
-
-    @State private var currentImage: PlatformImage?
-    @State private var previousImage: PlatformImage?
-    @State private var currentOpacity = 1.0
-    @State private var transitionID = UUID()
-
-    init(
-        image: PlatformImage?,
-        topDimming: Double,
-        bottomDimming: Double,
-        overlayColor: Color,
-        isEnabled: Bool
-    ) {
-        self.image = image
-        self.topDimming = topDimming
-        self.bottomDimming = bottomDimming
-        self.overlayColor = overlayColor
-        self.isEnabled = isEnabled
-        self._currentImage = State(initialValue: image)
-    }
-
-    var body: some View {
-        ZStack {
-            if isEnabled, let previousImage {
-                blurredBackground(image: previousImage)
-            }
-
-            blurredBackground(image: currentImage ?? image)
-                .opacity(currentOpacity)
-        }
-        .task(id: imageIdentity) {
-            await updateImage()
-        }
-    }
-
-    private var imageIdentity: ObjectIdentifier? {
-        image.map(ObjectIdentifier.init)
-    }
-
-    private func blurredBackground(image: PlatformImage?) -> some View {
-        BlurredArtworkBackground(
-            image: image,
-            topDimming: topDimming,
-            bottomDimming: bottomDimming,
-            overlayColor: overlayColor,
-            animatesImageChanges: false
-        )
-    }
-
-    @MainActor
-    private func updateImage() async {
-        guard isEnabled else {
-            currentImage = image
-            previousImage = nil
-            currentOpacity = 1
-            return
-        }
-
-        guard currentImage.map(ObjectIdentifier.init) != imageIdentity else {
-            return
-        }
-
-        guard let image else {
-            return
-        }
-
-        let transitionID = UUID()
-        self.transitionID = transitionID
-        previousImage = currentImage
-        currentImage = image
-        currentOpacity = previousImage == nil ? 1 : 0
-
-        guard previousImage != nil else {
-            return
-        }
-
-        await Task.yield()
-
-        withAnimation(.easeInOut(duration: EnsembleScaffold.DetailSurface.backgroundFadeDuration)) {
-            currentOpacity = 1
-        }
-
-        let delay = UInt64(EnsembleScaffold.DetailSurface.backgroundFadeDuration * 1_000_000_000)
-        try? await Task.sleep(nanoseconds: delay)
-
-        guard !Task.isCancelled, self.transitionID == transitionID else {
-            return
-        }
-        previousImage = nil
     }
 }
 

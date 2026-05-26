@@ -92,7 +92,7 @@ public struct AlbumsView: View {
         }
         .profileToolbar()
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.albums.isEmpty && !isStageFlowActive) {
+            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
                 albumFilterButton
                 albumSortMenu
             }
@@ -112,6 +112,13 @@ public struct AlbumsView: View {
 
     private var loadingView: some View {
         EnsembleStateScaffold(kind: .loading, title: "Loading albums…")
+    }
+
+    private var isBrowseToolbarVisible: Bool {
+        !libraryVM.albums.isEmpty &&
+        !isStageFlowActive &&
+        navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
+        !navigationCoordinator.isRouteTransitionActive(for: .albums)
     }
 
     private var emptyView: some View {

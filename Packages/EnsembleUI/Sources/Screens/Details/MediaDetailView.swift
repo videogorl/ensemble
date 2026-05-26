@@ -839,8 +839,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 return
             }
 
-            await loadLowResolutionArtworkSeed(path: path, sourceKey: sourceKey)
-
             // Load asynchronously if not cached.
             if let uiImage = try? await ImagePipeline.shared.image(for: request) {
                 await MainActor.run {
@@ -856,36 +854,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func isCurrentArtworkLoad(path: String) async -> Bool {
         await MainActor.run {
             self.currentLoadPath == path
-        }
-    }
-
-    private func loadLowResolutionArtworkSeed(path: String, sourceKey: String?) async {
-        guard let url = await deps.artworkLoader.artworkURLAsync(
-            for: path,
-            sourceKey: sourceKey,
-            ratingKey: headerData.ratingKey,
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            size: ArtworkSize.thumbnail.rawValue
-        ) else {
-            return
-        }
-
-        let request = ArtworkImageRequest.resized(url: url, size: ArtworkSize.thumbnail.rawValue, priority: .high)
-        let seedImage: PlatformImage?
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
-            seedImage = cachedImage
-        } else {
-            seedImage = try? await ImagePipeline.shared.image(for: request)
-        }
-
-        guard let seedImage else {
-            return
-        }
-
-        await MainActor.run {
-            guard self.currentLoadPath == path, self.artworkImage == nil else { return }
-            self.artworkImage = seedImage
         }
     }
 

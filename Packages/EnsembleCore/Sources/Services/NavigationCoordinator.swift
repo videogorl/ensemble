@@ -72,6 +72,7 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var showingAddAccount = false
     @Published public var activeAuxiliaryPresentation: AuxiliaryPresentation?
     @Published public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
+    @Published public private(set) var routeTransitionTabs: Set<TabItem> = []
 
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -181,6 +182,18 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath.append(destination)
         case .settings: settingsPath.append(destination)
         }
+    }
+
+    public func beginRouteTransition(in tab: TabItem, durationNanoseconds: UInt64 = 700_000_000) {
+        routeTransitionTabs.insert(tab)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: durationNanoseconds)
+            routeTransitionTabs.remove(tab)
+        }
+    }
+
+    public func isRouteTransitionActive(for tab: TabItem) -> Bool {
+        routeTransitionTabs.contains(tab)
     }
 
     public func pathSnapshot(for tab: TabItem) -> [Destination] {

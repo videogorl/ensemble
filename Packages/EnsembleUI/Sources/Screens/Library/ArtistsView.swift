@@ -75,7 +75,7 @@ public struct ArtistsView: View {
         }
         .profileToolbar()
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.artists.isEmpty) {
+            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
                 artistFilterButton
                 artistSortMenu
             }
@@ -104,6 +104,12 @@ public struct ArtistsView: View {
 
     private var selectedArtist: DisplayArtist? {
         externalSelectedArtist?.wrappedValue ?? localSelectedArtist
+    }
+
+    private var isBrowseToolbarVisible: Bool {
+        !libraryVM.artists.isEmpty &&
+        navigationCoordinator.pathSnapshot(for: .artists).isEmpty &&
+        !navigationCoordinator.isRouteTransitionActive(for: .artists)
     }
 
     private func setSelectedArtist(_ artist: DisplayArtist?) {
@@ -367,6 +373,7 @@ private struct DisplayArtistGrid: View {
     let artists: [DisplayArtist]
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let columns = EnsembleScaffold.MediaCard.personGridColumns
@@ -392,24 +399,12 @@ private struct DisplayArtistGrid: View {
 
     @ViewBuilder
     private func artistCardLink(_ displayArtist: DisplayArtist) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationLink(value: NavigationCoordinator.Destination.displayArtist(id: displayArtist.id)) {
-                artistCardContent(displayArtist)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                artistContextMenu(for: displayArtist)
-            }
-        } else {
-            NavigationLink {
-                DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-            } label: {
-                artistCardContent(displayArtist)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                artistContextMenu(for: displayArtist)
-            }
+        navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id), in: .artists) {
+            artistCardContent(displayArtist)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            artistContextMenu(for: displayArtist)
         }
     }
 
@@ -801,8 +796,6 @@ public struct ArtistDetailView: View {
             artworkLoadUnavailable = false
         }
 
-        await loadArtworkSeed(for: artist, loadIdentity: loadIdentity)
-
         guard let url = await dependencies.artworkLoader.artworkURLAsync(
             for: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
@@ -840,37 +833,6 @@ public struct ArtistDetailView: View {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
                 artworkLoadUnavailable = artworkImage == nil
             }
-        }
-    }
-
-    private func loadArtworkSeed(for artist: Artist, loadIdentity: String) async {
-        guard let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: artist.thumbPath,
-            sourceKey: artist.sourceCompositeKey,
-            ratingKey: artist.id,
-            fallbackPath: artist.fallbackThumbPath,
-            fallbackRatingKey: artist.fallbackRatingKey,
-            size: ArtworkSize.thumbnail.rawValue
-        ) else {
-            return
-        }
-
-        let request = ArtworkImageRequest.resized(url: url, size: ArtworkSize.thumbnail.rawValue, priority: .high)
-        let seedImage: PlatformImage?
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
-            seedImage = cachedImage
-        } else {
-            seedImage = try? await ImagePipeline.shared.image(for: request)
-        }
-
-        guard let seedImage else {
-            return
-        }
-
-        let heroImage = await Self.artistHeroImage(from: seedImage)
-        await MainActor.run {
-            guard currentArtworkLoadIdentity == loadIdentity, artworkImage == nil else { return }
-            artworkImage = heroImage
         }
     }
 
@@ -1186,17 +1148,18 @@ public struct ArtistDetailView: View {
                 }
                 .frame(width: geometry.size.width, height: artworkHeight)
                 .clipped()
-                .mask(
+                .overlay(alignment: .bottom) {
                     LinearGradient(
                         gradient: Gradient(stops: [
-                            .init(color: .white, location: 0),
-                            .init(color: .white, location: 0.68),
-                            .init(color: .clear, location: 0.96)
+                            .init(color: .clear, location: 0),
+                            .init(color: EnsembleDesign.Color.windowSurface.opacity(0.84), location: 0.78),
+                            .init(color: EnsembleDesign.Color.windowSurface, location: 1)
                         ]),
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                )
+                    .frame(height: artworkHeight * 0.34)
+                }
                 // Shift up to cover the safe area + overscroll gap
                 .offset(y: -(geometry.safeAreaInsets.top + overscroll))
 

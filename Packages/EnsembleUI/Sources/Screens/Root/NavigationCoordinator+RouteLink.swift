@@ -50,8 +50,10 @@ extension NavigationCoordinator {
 
 private extension NavigationCoordinator {
     func pushFromRouteLink(_ destination: Destination, in tab: TabItem?) {
+        let targetTab = tab ?? selectedTab
+        beginRouteTransition(in: targetTab)
         markRouteInteraction()
-        push(destination, in: tab ?? selectedTab)
+        push(destination, in: targetTab)
     }
 
     func scheduleAfterMenuDismissal(_ action: @escaping @MainActor () -> Void) {
