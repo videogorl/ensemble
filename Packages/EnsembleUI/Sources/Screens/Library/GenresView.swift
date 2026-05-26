@@ -199,6 +199,7 @@ struct GenreDetailContentView: View {
     let genre: Genre
     let nowPlayingVM: NowPlayingViewModel
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     var body: some View {
         let tracks = tracks(for: genre)
@@ -209,7 +210,7 @@ struct GenreDetailContentView: View {
                 currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                 bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                interactionModel: TrackRowInteractionModel()
+                interactionModel: trackInteractionModel
             ),
             tableHeaderContent: AnyView(genreHeader(tracks: tracks)),
             tableFooterContent: tracks.isEmpty ? AnyView(genreEmptyFooter) : nil
@@ -217,6 +218,7 @@ struct GenreDetailContentView: View {
             nowPlayingVM.play(tracks: tracks, startingAt: index)
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         #else
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             genreHeader(tracks: tracks)
@@ -231,7 +233,7 @@ struct GenreDetailContentView: View {
                     configuration: .songs(
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                        interactionModel: TrackRowInteractionModel()
+                        interactionModel: trackInteractionModel
                     )
                 ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
@@ -239,7 +241,16 @@ struct GenreDetailContentView: View {
                 .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             }
         }
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         #endif
+    }
+
+    private var trackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
+            }
+        )
     }
 
     private func genreHeader(tracks: [Track]) -> some View {

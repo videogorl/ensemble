@@ -11,6 +11,7 @@ public struct MoodTracksView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     // Targeted observation state (pattern from MediaDetailView)
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -99,6 +100,7 @@ public struct MoodTracksView: View {
                 if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
             }
             .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+            .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     // MARK: - Table Header (scrolls with tracks)
@@ -214,6 +216,9 @@ public struct MoodTracksView: View {
                         in: navigationCoordinator.selectedTab
                     )
                 }
+            },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)

@@ -27,6 +27,7 @@ public struct FavoritesView: View {
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var hasCompletedInitialLoad = false
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
@@ -98,6 +99,7 @@ public struct FavoritesView: View {
             )
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private var shouldShowTrackList: Bool {
@@ -235,6 +237,9 @@ public struct FavoritesView: View {
                         in: navigationCoordinator.selectedTab
                     )
                 }
+            },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)

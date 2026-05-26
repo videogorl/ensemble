@@ -660,6 +660,7 @@ final class EnsembleUITests: XCTestCase {
             onToggleFavorite: { _ in },
             onGoToAlbum: { _ in },
             onGoToArtist: { _ in },
+            onGetInfo: { _ in },
             onEditMetadata: { _ in },
             onShareLink: { _ in },
             onShareFile: { _ in },
@@ -684,6 +685,7 @@ final class EnsembleUITests: XCTestCase {
                 "Go to Artist",
                 "Share Link…",
                 "Share Audio File…",
+                "Get Info…",
                 "Edit Metadata…",
                 "Delete Track"
             ]

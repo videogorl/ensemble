@@ -595,6 +595,7 @@ public struct ArtistDetailView: View {
     @State private var artworkLoadUnavailable = false
     @State private var currentArtworkLoadIdentity: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var showToolbarTitle = false
     @State private var showToolbarBackground = false
     @State private var artistHeaderActionWidth: CGFloat = 0
@@ -686,6 +687,7 @@ public struct ArtistDetailView: View {
             updateArtworkContinuity()
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private var artistDetailScrollContent: some View {
@@ -1633,6 +1635,9 @@ public struct ArtistDetailView: View {
                             in: self.navigationCoordinator.selectedTab
                         )
                     }
+                },
+                onGetInfo: { track in
+                    libraryItemInfoRequest = .track(track)
                 },
                 onShareLink: { track in
                     ShareActions.shareTrackLink(track, deps: dependencies)
