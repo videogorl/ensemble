@@ -19,7 +19,7 @@ extension View {
 }
 
 /// Shared presentation shell for media-style detail screens.
-/// The root owns the stable detail background, while nested helpers keep the
+/// The root owns the blurred artwork backdrop, while nested helpers keep the
 /// header layout and list-card styling aligned across detail variants.
 struct MediaDetailSurface<Content: View>: View {
     let artworkImage: PlatformImage?
@@ -52,6 +52,16 @@ struct MediaDetailSurface<Content: View>: View {
         ZStack(alignment: .top) {
             EnsembleDesign.Color.windowSurface
                 .ignoresSafeArea()
+
+            ArtworkDetailBackground(
+                image: artworkImage,
+                height: backgroundHeight,
+                darkLegibilityOpacity: darkLegibilityOpacity,
+                lightLegibilityOpacity: lightLegibilityOpacity,
+                usesNavigationContinuity: true
+            )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
 
             if !contentBleedEdges.isEmpty {
                 content()
