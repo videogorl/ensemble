@@ -2,9 +2,9 @@ import EnsembleCore
 import SwiftUI
 
 /// A background view that uses a heavily blurred version of artwork.
-/// When `preBlurredImage` is provided, it is displayed directly without live
-/// contrast/saturation/brightness/blur modifiers — saving 4 GPU render passes
-/// on every SwiftUI body evaluation.
+///
+/// The blur is always bitmap-backed. Callers can pass `preBlurredImage`; otherwise
+/// the view generates and caches a pre-blurred bitmap before displaying it.
 public struct BlurredArtworkBackground: View {
     let image: PlatformImage?
     let preBlurredImage: PlatformImage?
@@ -18,6 +18,7 @@ public struct BlurredArtworkBackground: View {
     let shouldIgnoreSafeArea: Bool
     let overlayColor: Color
     let animatesImageChanges: Bool
+    @State private var cachedBlurredImage: PlatformImage?
 
     public init(
         image: PlatformImage?,
@@ -55,41 +56,26 @@ public struct BlurredArtworkBackground: View {
                 content
             }
         }
+        .task(id: blurSourceIdentity) {
+            await updateCachedBlurredImage()
+        }
     }
     
     private var content: some View {
         GeometryReader { geometry in
             ZStack {
-                // Guard against zero-sized geometry during layout/animation passes
-                // to avoid QuartzCore "Failed to create WxH image slot" errors.
-                //
-                // When a pre-blurred image is available, display it directly without
-                // live contrast/saturation/brightness/blur — those effects are already
-                // baked in, saving 4 GPU render passes per body evaluation.
-                let displayImage = preBlurredImage ?? image
-                let isPreBlurred = preBlurredImage != nil
+                // Guard against zero-sized geometry during layout/animation passes.
+                // Artwork blur is always bitmap-backed: either supplied by the caller
+                // or generated once through ArtworkBlurRenderer and cached.
+                let displayImage = preBlurredImage ?? cachedBlurredImage
 
                 if let displayImage = displayImage, geometry.size.width > 0, geometry.size.height > 0 {
                     #if os(macOS)
-                    // Opaque fill behind the blur — macOS .blur() doesn't support
-                    // the opaque: parameter, so edges become semi-transparent.
-                    // This prevents the window background from showing through.
-                    if !isPreBlurred {
-                        overlayColor
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                    }
-
                     Image(nsImage: displayImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .if(!isPreBlurred) { view in
-                            view.contrast(contrast)
-                                .saturation(saturation)
-                                .brightness(brightness)
-                                .blur(radius: blurRadius)
-                        }
                         .opacity(opacity)
                         .optionalArtworkTransition(
                             id: image.map(ObjectIdentifier.init),
@@ -101,26 +87,12 @@ public struct BlurredArtworkBackground: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .if(!isPreBlurred) { view in
-                            view.contrast(contrast)
-                                .saturation(saturation)
-                                .brightness(brightness)
-                                .blur(radius: blurRadius, opaque: true)
-                        }
                         .opacity(opacity)
                         .optionalArtworkTransition(
                             id: image.map(ObjectIdentifier.init),
                             isEnabled: animatesImageChanges
                         )
                     #endif
-
-                    // Saturation gradient (desaturates bottom slightly)
-                    LinearGradient(
-                        colors: [.clear, .gray.opacity(0.4)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .blendMode(.saturation)
 
                     // Dimming gradient to ensure controls are visible
                     LinearGradient(
@@ -139,6 +111,53 @@ public struct BlurredArtworkBackground: View {
             }
             .clipped()
         }
+    }
+
+    private var blurSourceIdentity: String {
+        if let preBlurredImage {
+            return "pre:\(ObjectIdentifier(preBlurredImage).hashValue)"
+        }
+        return image.map { "source:\(ObjectIdentifier($0).hashValue)" } ?? "nil"
+    }
+
+    @MainActor
+    private func updateCachedBlurredImage() async {
+        if let preBlurredImage {
+            cachedBlurredImage = preBlurredImage
+            return
+        }
+
+        guard let image else {
+            cachedBlurredImage = nil
+            return
+        }
+
+        if let cached = ArtworkBlurRenderer.cachedBlurredImage(for: image) {
+            cachedBlurredImage = cached
+            return
+        }
+
+        let sourceIdentity = ObjectIdentifier(image)
+        let sendableImage = SendablePlatformImage(image)
+        let blurred = await Task.detached(priority: .utility) {
+            ArtworkBlurRenderer.blurredImage(from: sendableImage.value)
+                .map(SendablePlatformImage.init)
+        }.value
+
+        guard !Task.isCancelled, ObjectIdentifier(image) == sourceIdentity else {
+            return
+        }
+        if let blurred {
+            cachedBlurredImage = blurred.value
+        }
+    }
+}
+
+private struct SendablePlatformImage: @unchecked Sendable {
+    let value: PlatformImage
+
+    init(_ value: PlatformImage) {
+        self.value = value
     }
 }
 

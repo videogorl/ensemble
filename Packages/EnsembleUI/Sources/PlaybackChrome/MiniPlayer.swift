@@ -62,9 +62,9 @@ public struct MiniPlayer: View {
                         view.glassEffectID("mini-player-glass-\(id)", in: ns)
                     }
             } else {
-                // iOS 15–25 fallback: handcrafted material stack approximating glass.
+                // iOS 15–25 fallback: low-cost system material stack.
                 pillContent
-                    .background(MiniPlayerBackground(artworkProjection: viewModel.artworkProjection, pillCornerRadius: pillCornerRadius))
+                    .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
                     .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                     .shadow(
                         color: materialRole.shadowColor,

@@ -7,41 +7,28 @@ import UIKit
 import AppKit
 #endif
 
-/// Handcrafted material background used on iOS 15-25. Owns artwork observation
-/// so blur and material changes do not force the full MiniPlayer body to re-render.
+/// Handcrafted system-material background used on iOS 15-25.
+///
+/// The root mini player is visible below most phone surfaces, so it avoids
+/// artwork-backed blur entirely and lets the system color scheme carry the fill.
 struct MiniPlayerBackground: View {
-    @ObservedObject var artworkProjection: NowPlayingArtworkProjection
     let pillCornerRadius: CGFloat
 
     @Environment(\.colorScheme) private var colorScheme
     private let materialRole = EnsembleScaffold.MiniPlayer.materialRole
 
     var body: some View {
-        ZStack {
-            if artworkProjection.currentTrack != nil {
-                BlurredArtworkBackground(
-                    image: artworkProjection.artworkImage,
-                    preBlurredImage: artworkProjection.blurredArtworkImage,
-                    blurRadius: EnsembleScaffold.MiniPlayer.backgroundBlurRadius,
-                    contrast: EnsembleScaffold.MiniPlayer.backgroundContrast,
-                    saturation: EnsembleScaffold.MiniPlayer.backgroundSaturation,
-                    brightness: colorScheme == .dark ? EnsembleScaffold.MiniPlayer.backgroundDarkBrightness : EnsembleScaffold.MiniPlayer.backgroundLightBrightness,
-                    opacity: EnsembleScaffold.MiniPlayer.backgroundOpacity,
-                    topDimming: EnsembleScaffold.MiniPlayer.backgroundTopDimming,
-                    bottomDimming: EnsembleScaffold.MiniPlayer.backgroundBottomDimming,
-                    shouldIgnoreSafeArea: false,
-                    overlayColor: colorScheme == .dark ? .black : platformBackgroundColor
-                )
-                .animation(.easeInOut(duration: EnsembleScaffold.MiniPlayer.backgroundAnimationDuration), value: artworkProjection.artworkImage)
-                .clipped()
-                .allowsHitTesting(false)
-            }
-
-            RoundedRectangle(cornerRadius: pillCornerRadius)
-                .fill(materialRole.fallbackMaterial)
-                .overlay(surfaceSheen)
-                .overlay(edgeGlow)
-        }
+        RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
+            .fill(materialRole.fallbackMaterial)
+            .background(
+                RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
+                    .fill(platformBackgroundColor)
+            )
+            .overlay(surfaceSheen)
+            .overlay(
+                RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous)
+                    .stroke(.primary.opacity(materialRole.strokeOpacity), lineWidth: 1)
+            )
     }
 
     private var platformBackgroundColor: Color {
@@ -68,20 +55,4 @@ struct MiniPlayerBackground: View {
             .allowsHitTesting(false)
     }
 
-    private var edgeGlow: some View {
-        RoundedRectangle(cornerRadius: pillCornerRadius)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        .primary.opacity(colorScheme == .dark ? EnsembleScaffold.MiniPlayer.edgeGlowDarkOpacity : EnsembleScaffold.MiniPlayer.edgeGlowLightOpacity),
-                        .clear
-                    ],
-                    startPoint: .top,
-                    endPoint: .center
-                )
-            )
-            .padding(EnsembleScaffold.MiniPlayer.edgeGlowInset)
-            .mask(RoundedRectangle(cornerRadius: pillCornerRadius))
-            .allowsHitTesting(false)
-    }
 }

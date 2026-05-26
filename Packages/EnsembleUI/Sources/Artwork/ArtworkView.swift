@@ -218,11 +218,7 @@ public struct ArtworkView: View {
             return
         }
 
-        // Plex already serves a size-specific transcode for each artwork request, so
-        // adding an extra Nuke resize processor here is redundant. Matching the plain
-        // request path used by the detail views also avoids a macOS-only Feed failure
-        // where uncached remote artwork never resolves into a rendered image.
-        let request = ImageRequest(url: url, priority: imagePriority)
+        let request = imageRequest(for: url)
 
         if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
             guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
@@ -267,6 +263,24 @@ public struct ArtworkView: View {
         }
         let description = error.localizedDescription.lowercased()
         return description == "cancelled" || description == "canceled"
+    }
+
+    private func imageRequest(for url: URL) -> ImageRequest {
+        guard url.isFileURL, size.rawValue <= ArtworkSize.card.rawValue else {
+            return ImageRequest(url: url, priority: imagePriority)
+        }
+
+        return ImageRequest(
+            url: url,
+            processors: [
+                ImageProcessors.Resize(
+                    size: size.cgSize,
+                    contentMode: .aspectFill,
+                    upscale: false
+                )
+            ],
+            priority: imagePriority
+        )
     }
 }
 

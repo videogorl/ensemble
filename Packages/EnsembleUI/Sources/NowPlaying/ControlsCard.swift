@@ -223,7 +223,9 @@ public struct ControlsCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
                 .contrast(1.1)
-                .ensembleStandardShadow()
+                .if(!EnsembleDesign.Performance.prefersReducedVisualEffects) { view in
+                    view.ensembleStandardShadow()
+                }
                 .ifLet(namespace, animationID) { view, ns, id in
                     view.matchedGeometryEffect(id: id, in: ns)
                 }
@@ -272,7 +274,9 @@ public struct ControlsCard: View {
                         .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.emptyArtworkIconOpacity))
                 )
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
-                .ensembleStandardShadow()
+                .if(!EnsembleDesign.Performance.prefersReducedVisualEffects) { view in
+                    view.ensembleStandardShadow()
+                }
                 .padding(.top, layout.artworkTopPadding)
                 .padding(.bottom, layout.artworkBottomPadding)
 

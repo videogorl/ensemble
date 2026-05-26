@@ -14,6 +14,77 @@ import SwiftUI
     public typealias PlatformImage = NSImage
 #endif
 
+/// Shared pre-renderer for artwork washes.
+///
+/// SwiftUI `.blur` on large artwork layers forces repeated offscreen rendering.
+/// This renderer bakes the color adjustment and Gaussian blur into a bitmap once,
+/// then keeps the result in a small process cache keyed by the source image object.
+public enum ArtworkBlurRenderer {
+    private static let cache = NSCache<NSString, PlatformImage>()
+
+    public static func cachedBlurredImage(for source: PlatformImage) -> PlatformImage? {
+        cache.object(forKey: cacheKey(for: source))
+    }
+
+    public static func blurredImage(from source: PlatformImage) -> PlatformImage? {
+        let key = cacheKey(for: source)
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+
+        guard let rendered = generateBlurredImage(from: source) else {
+            return nil
+        }
+        cache.setObject(rendered, forKey: key)
+        return rendered
+    }
+
+    private static func cacheKey(for source: PlatformImage) -> NSString {
+        let identity = ObjectIdentifier(source).hashValue
+        #if os(iOS) || os(tvOS) || os(watchOS)
+            let size = source.size
+            let scale = source.scale
+            return "\(identity):\(Int(size.width))x\(Int(size.height))@\(scale)" as NSString
+        #elseif os(macOS)
+            let size = source.size
+            return "\(identity):\(Int(size.width))x\(Int(size.height))" as NSString
+        #endif
+    }
+
+    private nonisolated static func generateBlurredImage(from source: PlatformImage) -> PlatformImage? {
+        #if os(iOS) || os(tvOS) || os(watchOS)
+            guard let ciImage = CIImage(image: source) else { return nil }
+        #elseif os(macOS)
+            guard let tiffData = source.tiffRepresentation,
+                  let ciImage = CIImage(data: tiffData) else { return nil }
+        #endif
+
+        guard let colorFilter = CIFilter(name: "CIColorControls") else { return nil }
+        colorFilter.setValue(ciImage, forKey: kCIInputImageKey)
+        colorFilter.setValue(2.0, forKey: kCIInputContrastKey)
+        colorFilter.setValue(1.9, forKey: kCIInputSaturationKey)
+        colorFilter.setValue(-0.05, forKey: kCIInputBrightnessKey)
+
+        guard let colorAdjusted = colorFilter.outputImage else { return nil }
+
+        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
+        blurFilter.setValue(colorAdjusted, forKey: kCIInputImageKey)
+        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
+
+        guard let blurred = blurFilter.outputImage else { return nil }
+        let output = blurred.cropped(to: ciImage.extent)
+
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
+
+        #if os(iOS) || os(tvOS) || os(watchOS)
+            return UIImage(cgImage: cgImage)
+        #elseif os(macOS)
+            return NSImage(cgImage: cgImage, size: source.size)
+        #endif
+    }
+}
+
 /// Rating states for the three-state heart button
 public enum TrackRating: Equatable {
     case none // No rating (empty heart)
@@ -999,7 +1070,7 @@ public final class NowPlayingViewModel: ObservableObject {
         }
 
         blurGenerationTask = Task.detached(priority: .utility) { [weak self] in
-            let blurred = NowPlayingViewModel.generateBlurredImage(from: source)
+            let blurred = ArtworkBlurRenderer.blurredImage(from: source)
             await self?.applyGeneratedBlurredArtwork(blurred, for: trackIdentity)
         }
     }
@@ -1009,49 +1080,6 @@ public final class NowPlayingViewModel: ObservableObject {
     private func applyGeneratedBlurredArtwork(_ blurred: PlatformImage?, for trackIdentity: String) {
         guard currentLoadTrackIdentity == trackIdentity else { return }
         blurredArtworkImage = blurred
-    }
-
-    /// Pre-render blurred artwork using Core Image.
-    /// Applies CIColorControls (contrast 2.0, saturation 1.9, brightness -0.05)
-    /// before CIGaussianBlur (radius 40) to match BlurredArtworkBackground's
-    /// live SwiftUI modifiers, computed once on a background thread.
-    private nonisolated static func generateBlurredImage(from source: PlatformImage) -> PlatformImage? {
-        #if os(iOS) || os(tvOS) || os(watchOS)
-            guard let ciImage = CIImage(image: source) else { return nil }
-        #elseif os(macOS)
-            guard let tiffData = source.tiffRepresentation,
-                  let ciImage = CIImage(data: tiffData) else { return nil }
-        #endif
-
-        // Apply contrast/saturation/brightness before the blur so the final
-        // blurred field is based on the tuned artwork signal.
-        guard let colorFilter = CIFilter(name: "CIColorControls") else { return nil }
-        colorFilter.setValue(ciImage, forKey: kCIInputImageKey)
-        colorFilter.setValue(2.0, forKey: kCIInputContrastKey)
-        colorFilter.setValue(1.9, forKey: kCIInputSaturationKey)
-        colorFilter.setValue(-0.05, forKey: kCIInputBrightnessKey)
-
-        guard let colorAdjusted = colorFilter.outputImage else { return nil }
-
-        // Gaussian blur — radius 40 on the 600px source ≈ 80pt in SwiftUI
-        // when scaled to fit ~375pt screen width.
-        guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
-        blurFilter.setValue(colorAdjusted, forKey: kCIInputImageKey)
-        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
-
-        guard let blurred = blurFilter.outputImage else { return nil }
-
-        // CIGaussianBlur extends image bounds — crop back to original extent.
-        let output = blurred.cropped(to: ciImage.extent)
-
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-        guard let cgImage = context.createCGImage(output, from: output.extent) else { return nil }
-
-        #if os(iOS) || os(tvOS) || os(watchOS)
-            return UIImage(cgImage: cgImage)
-        #elseif os(macOS)
-            return NSImage(cgImage: cgImage, size: source.size)
-        #endif
     }
 
     // MARK: - Computed Properties

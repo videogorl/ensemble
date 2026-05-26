@@ -76,7 +76,7 @@ public struct NowPlayingCarousel: View {
         let scheduler = DependencyContainer.shared.foregroundWorkScheduler
         scheduler.beginInteraction(.nowPlayingInteractive)
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
             scheduler.endInteraction(.nowPlayingInteractive)
         }
     }

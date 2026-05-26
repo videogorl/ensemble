@@ -261,7 +261,8 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Hub items:** 140x140pt artwork
 - **Corner radius:** Albums/playlists use 8pt; artists use 70pt (circular)
 - **Shadows:** use `EnsembleDesign.Effect` / component bridge tokens for shared card/detail depth; StageFlow keeps its own tuned 3D shadows.
-- **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
+- **Blurred backgrounds:** NowPlayingView and detail views may use `BlurredArtworkBackground`, but the blur must be bitmap-backed through `ArtworkBlurRenderer` or an explicit `preBlurredImage`; do not apply live SwiftUI `.blur` to large artwork layers.
+- **Mini-player background:** The root mini player uses a system-color/material background instead of artwork blur because it remains visible under most phone surfaces and compounds every transition.
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens. The wash should cross-fade artwork changes using `EnsembleScaffold.DetailSurface.backgroundFadeDuration` instead of swapping the blurred layer abruptly during navigation or cached artwork loads.
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation. Artwork-backed detail screens that need content to pass under translucent titlebar/toolbar chrome should set `contentBleedsUnderTopChrome: true` on `MediaDetailSurface` instead of adding local `.ignoresSafeArea(edges: .top)` modifiers.
 - **Detail loading stability:** Album, playlist, artist, and virtual collection detail loads should avoid full-screen centered loaders that later swap to top-aligned headers. Use `MediaDetailSurface.LoadingState` or keep the shared header/table shell mounted with a compact footer loader during initial data fetches. On macOS, keep the detail root top-aligned, let AppKit own native table safe-area/content insets and clip views, use a bottom spacer row for mini-player clearance, let the AppKit backend use a deterministic wide-header row height, preload the initial album/playlist track snapshot in loaders before mounting the shared detail table, and publish virtual collection filtered snapshots before clearing their loading state so the first table layout already has its final rows; do not force the native table host itself to infinite height as a reflow workaround.
@@ -336,6 +337,7 @@ struct AlbumDetailLoader: View {
 - **Lazy loading:** Use `LazyVGrid`, `LazyVStack`, and lazy image loading via Nuke
 - **Background contexts:** Heavy CoreData operations use `CoreDataStack.performBackgroundTask`
 - **Image caching:** Two-tier (filesystem + Nuke in-memory) with 100MB disk cache limit
+- **Artwork blur caching:** Large artwork washes must use pre-rendered/cached blur bitmaps rather than live SwiftUI blur modifiers.
 - **Task.detached:** For non-blocking background work
 
 ### Debouncing
