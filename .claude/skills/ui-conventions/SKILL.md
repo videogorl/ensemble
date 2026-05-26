@@ -29,7 +29,7 @@ These are core design decisions that must be maintained throughout the app.
 
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
-- **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
+- **iOS 15:** Use `NestedNavigationLink` only as the root `NavigationView` bridge for coordinator-driven entry into a tab or hidden More destination. Once inside a browse/detail stack, use native `NavigationLink(destination:)` for in-stack pushes so SwiftUI owns animations and back behavior.
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
 - **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment/color, native separator color, and default mini-player clearance instead of repeating `68/54/16/140/70/52` or raw separator alpha across screens. Native table rows and compact SwiftUI track/search rows should share these metrics so Artist pages, Media Detail pages, and Songs/Search rows do not drift.
@@ -62,21 +62,15 @@ These are core design decisions that must be maintained throughout the app.
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
-struct NestedNavigationLink<Content: View>: View {
+struct NestedNavigationLink: View {
     let path: [NavigationCoordinator.Destination]
-    let content: Content
+    let destinationBuilder: (NavigationCoordinator.Destination) -> AnyView
 
     var body: some View {
         if let first = path.first {
-            NavigationLink(destination: nextView(for: first)) { content }
-        } else {
-            content
-        }
-    }
-
-    private func nextView(for destination: Destination) -> some View {
-        NestedNavigationLink(path: Array(path.dropFirst())) {
-            // Render destination view (AlbumDetailLoader, etc.)
+            NavigationLink(destination: destinationBuilder(first)) {
+                EmptyView()
+            }
         }
     }
 }

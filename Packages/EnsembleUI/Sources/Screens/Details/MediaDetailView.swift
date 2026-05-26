@@ -842,10 +842,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func subtitleView(alignment: TextAlignment) -> some View {
         if let subtitle = headerData.subtitle {
             if let artistId = headerData.artistRatingKey {
-                Button {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: headerData.sourceKey),
-                        in: navigationCoordinator.selectedTab
+                NavigationLink {
+                    ArtistDetailLoader(
+                        artistId: artistId,
+                        artistSourceKey: headerData.sourceKey,
+                        nowPlayingVM: nowPlayingVM
                     )
                 } label: {
                     Text(subtitle)
@@ -856,7 +857,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
                 .buttonStyle(.plain)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isLink)
             } else {
                 Text(subtitle)
                     .font(EnsembleDesign.Typography.detailSubtitle)

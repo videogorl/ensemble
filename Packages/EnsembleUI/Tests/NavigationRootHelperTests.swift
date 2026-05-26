@@ -244,7 +244,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
     }
 
-    func testLegacyNestedNavigationResolvesDestinationAfterPrefix() {
+    func testLegacyNestedNavigationUsesFirstPathDestinationOnly() {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
             .view(.albums),
@@ -253,31 +253,13 @@ final class NavigationRootHelperTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            NestedNavigationLink.nextDestination(in: path, after: []),
+            NestedNavigationLink.firstDestination(in: path),
             .view(.albums)
-        )
-        XCTAssertEqual(
-            NestedNavigationLink.nextDestination(in: path, after: [.view(.albums)]),
-            .albumDetail(album)
-        )
-        XCTAssertEqual(
-            NestedNavigationLink.nextDestination(in: path, after: [.view(.albums), .albumDetail(album)]),
-            .artist(id: "artist", sourceKey: "server/library")
         )
     }
 
-    func testLegacyNestedNavigationRejectsMismatchedPrefix() {
-        let path: [NavigationCoordinator.Destination] = [
-            .view(.albums),
-            .album(id: "album", sourceKey: "server/library")
-        ]
-
-        XCTAssertNil(
-            NestedNavigationLink.nextDestination(in: path, after: [.view(.artists)])
-        )
-        XCTAssertNil(
-            NestedNavigationLink.nextDestination(in: path, after: path)
-        )
+    func testLegacyNestedNavigationIgnoresEmptyPath() {
+        XCTAssertNil(NestedNavigationLink.firstDestination(in: []))
     }
 
     private static func album() -> Album {

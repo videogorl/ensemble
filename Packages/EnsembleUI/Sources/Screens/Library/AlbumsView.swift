@@ -160,8 +160,7 @@ public struct AlbumsView: View {
                                     Section(header: sectionHeader(section.letter)) {
                                         AlbumGrid(
                                             albums: section.albums,
-                                            nowPlayingVM: nowPlayingVM,
-                                            onAlbumTap: navigateToAlbumDetail
+                                            nowPlayingVM: nowPlayingVM
                                         )
                                             .id(section.letter)
                                     }
@@ -171,8 +170,7 @@ public struct AlbumsView: View {
                         } else {
                             AlbumGrid(
                                 albums: libraryVM.filteredAlbums,
-                                nowPlayingVM: nowPlayingVM,
-                                onAlbumTap: navigateToAlbumDetail
+                                nowPlayingVM: nowPlayingVM
                             )
                                 .padding(.vertical)
                         }
@@ -245,10 +243,6 @@ public struct AlbumsView: View {
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
     }
-
-    private func navigateToAlbumDetail(_ album: Album) {
-        navigationCoordinator.push(.albumDetail(album), in: navigationCoordinator.selectedTab)
-    }
 }
 
 // MARK: - Album Detail View
@@ -261,7 +255,6 @@ public struct AlbumDetailView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album
@@ -586,13 +579,12 @@ public struct AlbumDetailView: View {
 
     @ViewBuilder
     private func albumCardLink(for scrollAlbum: Album) -> some View {
-        Button {
-            navigationCoordinator.push(.albumDetail(scrollAlbum), in: navigationCoordinator.selectedTab)
+        NavigationLink {
+            AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
         } label: {
             AlbumCard(album: scrollAlbum, layout: .shelf)
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(.isLink)
     }
 
     private var moreByArtistSection: some View {
