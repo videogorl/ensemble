@@ -176,12 +176,25 @@ public struct AlbumGrid: View {
                         albumContextMenu(for: album)
                     }
                 } else {
-                    navigationCoordinator.routeLink(to: .albumDetail(album)) {
-                        AlbumCard(album: album, layout: layout)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        albumContextMenu(for: album)
+                    if #available(iOS 16.0, macOS 13.0, *) {
+                        navigationCoordinator.routeLink(to: .albumDetail(album)) {
+                            AlbumCard(album: album, layout: layout)
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            albumContextMenu(for: album)
+                        }
+                    } else {
+                        NavigationLink {
+                            AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                        } label: {
+                            AlbumCard(album: album, layout: layout)
+                        }
+                        .simultaneousGesture(TapGesture().onEnded(markRouteInteraction))
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            albumContextMenu(for: album)
+                        }
                     }
                 }
             }
@@ -242,6 +255,15 @@ public struct AlbumGrid: View {
                 pendingAlbumDeletion = album
             }
         )
+    }
+
+    private func markRouteInteraction() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.navigating)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            scheduler.endInteraction(.navigating)
+        }
     }
 
     private func presentAlbumMetadataEditor(_ album: Album) {

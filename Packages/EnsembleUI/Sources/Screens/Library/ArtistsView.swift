@@ -399,12 +399,34 @@ private struct DisplayArtistGrid: View {
 
     @ViewBuilder
     private func artistCardLink(_ displayArtist: DisplayArtist) -> some View {
-        navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id), in: .artists) {
-            artistCardContent(displayArtist)
+        if #available(iOS 16.0, macOS 13.0, *) {
+            navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id), in: .artists) {
+                artistCardContent(displayArtist)
+            }
+            .buttonStyle(.plain)
+            .contextMenu {
+                artistContextMenu(for: displayArtist)
+            }
+        } else {
+            NavigationLink {
+                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+            } label: {
+                artistCardContent(displayArtist)
+            }
+            .simultaneousGesture(TapGesture().onEnded(markRouteInteraction))
+            .buttonStyle(.plain)
+            .contextMenu {
+                artistContextMenu(for: displayArtist)
+            }
         }
-        .buttonStyle(.plain)
-        .contextMenu {
-            artistContextMenu(for: displayArtist)
+    }
+
+    private func markRouteInteraction() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.navigating)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            scheduler.endInteraction(.navigating)
         }
     }
 
