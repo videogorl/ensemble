@@ -1617,7 +1617,10 @@ public struct ArtistDetailView: View {
                 },
                 onGoToAlbum: { track in
                     if let albumId = track.albumRatingKey {
-                        self.navigationCoordinator.push(.album(id: albumId, sourceKey: track.sourceCompositeKey), in: self.navigationCoordinator.selectedTab)
+                        self.navigationCoordinator.routeFromMenu(
+                            to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                            in: self.navigationCoordinator.selectedTab
+                        )
                     }
                 },
                 onShareLink: { track in

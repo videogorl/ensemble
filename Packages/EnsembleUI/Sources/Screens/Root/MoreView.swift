@@ -66,25 +66,10 @@ public struct MoreView: View {
         List {
             Section {
                 ForEach(moreTabs.filter { isLibraryTab($0) }) { tab in
-                    if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
-                            Label(tab.displayTitle, systemImage: tab.designSystemImage)
-                        }
-                    } else {
-                        // iOS 15 Fallback: Use manual push to coordinator to sync with NavigationView
-                        Button {
-                            navigationCoordinator.push(.view(tab), in: .settings)
-                        } label: {
-                            HStack {
-                                Label(tab.displayTitle, systemImage: tab.designSystemImage)
-                                Spacer()
-                                Image(systemName: EnsembleDesign.Icon.chevronRight)
-                                    .font(EnsembleDesign.Typography.rowSecondary)
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            }
-                        }
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    navigationCoordinator.routeLink(to: .view(tab), in: .settings) {
+                        moreTabRowLabel(for: tab)
                     }
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 }
             } header: {
                 EnsembleUtilitySectionHeader("Library")
@@ -92,25 +77,10 @@ public struct MoreView: View {
 
             Section {
                 ForEach(moreTabs.filter { !isLibraryTab($0) }) { tab in
-                    if #available(iOS 16.0, macOS 13.0, *) {
-                        NavigationLink(value: NavigationCoordinator.Destination.view(tab)) {
-                            Label(tab.displayTitle, systemImage: tab.designSystemImage)
-                        }
-                    } else {
-                        // iOS 15 Fallback
-                        Button {
-                            navigationCoordinator.push(.view(tab), in: .settings)
-                        } label: {
-                            HStack {
-                                Label(tab.displayTitle, systemImage: tab.designSystemImage)
-                                Spacer()
-                                Image(systemName: EnsembleDesign.Icon.chevronRight)
-                                    .font(EnsembleDesign.Typography.rowSecondary)
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            }
-                        }
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    navigationCoordinator.routeLink(to: .view(tab), in: .settings) {
+                        moreTabRowLabel(for: tab)
                     }
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
                 }
             } header: {
                 EnsembleUtilitySectionHeader("Other")
@@ -121,6 +91,27 @@ public struct MoreView: View {
         #else
         .listStyle(.inset)
         #endif
+    }
+
+    private func moreTabRowLabel(for tab: TabItem) -> some View {
+        HStack {
+            Label(tab.displayTitle, systemImage: tab.designSystemImage)
+            #if os(iOS)
+            if #unavailable(iOS 16.0) {
+                Spacer()
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+            #elseif os(macOS)
+            if #unavailable(macOS 13.0) {
+                Spacer()
+                Image(systemName: EnsembleDesign.Icon.chevronRight)
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+            #endif
+        }
     }
 
     // MARK: - Edit Tabs Mode

@@ -98,14 +98,14 @@ public struct MiniPlayer: View {
                     },
                     onGoToAlbum: {
                         if let albumId = track.albumRatingKey {
-                            navigationCoordinator.navigate(
+                            navigationCoordinator.navigateFromMenu(
                                 to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
                             )
                         }
                     },
                     onGoToArtist: {
                         if let artistId = track.artistRatingKey {
-                            navigationCoordinator.navigate(
+                            navigationCoordinator.navigateFromMenu(
                                 to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
                             )
                         }

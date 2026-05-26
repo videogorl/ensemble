@@ -429,8 +429,8 @@ struct HubItemCard: View {
             },
             toastNamespace: "hub-album-menu",
             navigateToArtist: { artistId in
-                navigationCoordinator.push(
-                    .artist(id: artistId, sourceKey: item.sourceCompositeKey),
+                navigationCoordinator.routeFromMenu(
+                    to: .artist(id: artistId, sourceKey: item.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },
@@ -477,16 +477,16 @@ struct HubItemCard: View {
             },
             onGoToAlbum: {
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
             },
             onGoToArtist: {
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }

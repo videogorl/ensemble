@@ -878,15 +878,15 @@ public struct SearchView: View {
             },
             onGoToAlbum: { track in
                 guard let albumId = track.albumRatingKey else { return }
-                navigationCoordinator.push(
-                    .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                navigationCoordinator.routeFromMenu(
+                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },
             onGoToArtist: { track in
                 guard let artistId = track.artistRatingKey else { return }
-                navigationCoordinator.push(
-                    .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                navigationCoordinator.routeFromMenu(
+                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },

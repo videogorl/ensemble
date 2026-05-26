@@ -373,16 +373,16 @@ public struct SongsView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }

@@ -24,6 +24,29 @@ extension NavigationCoordinator {
             }
         }
     }
+
+    /// Routes actions chosen from menus after the native menu has time to dismiss.
+    func routeFromMenu(to destination: Destination, in tab: TabItem? = nil) {
+        markRouteInteraction()
+        let targetTab = tab ?? selectedTab
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            withAnimation(.default) {
+                self?.push(destination, in: targetTab)
+            }
+        }
+    }
+
+    /// Routes cross-surface menu actions using the coordinator's active-tab fallback.
+    func navigateFromMenu(to destination: Destination) {
+        markRouteInteraction()
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            withAnimation(.default) {
+                self?.navigate(to: destination)
+            }
+        }
+    }
 }
 
 private extension NavigationCoordinator {

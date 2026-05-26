@@ -165,7 +165,7 @@ struct MiniPlayerActionsMenuButton: View {
     private func goToAlbum() {
         guard let track = playbackProjection.currentTrack,
               let albumId = track.albumRatingKey else { return }
-        navigationCoordinator.navigate(
+        navigationCoordinator.navigateFromMenu(
             to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
         )
     }
@@ -173,7 +173,7 @@ struct MiniPlayerActionsMenuButton: View {
     private func goToArtist() {
         guard let track = playbackProjection.currentTrack,
               let artistId = track.artistRatingKey else { return }
-        navigationCoordinator.navigate(
+        navigationCoordinator.navigateFromMenu(
             to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
         )
     }
