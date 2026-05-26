@@ -9,7 +9,6 @@ public struct AlbumsView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
-    @State private var isLegacyNavigationBarTransitionActive = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -98,7 +97,6 @@ public struct AlbumsView: View {
                 albumSortMenu
             }
         }
-        .legacyNavigationBarBackground(isTransparent: isLegacyNavigationBarTransitionActive)
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.albumsFilterOptions,
@@ -169,9 +167,7 @@ public struct AlbumsView: View {
                                     Section(header: sectionHeader(section.letter)) {
                                         AlbumGrid(
                                             albums: section.albums,
-                                            nowPlayingVM: nowPlayingVM,
-                                            onLegacyNavigationWillPush: beginLegacyNavigationBarTransition,
-                                            onLegacyNavigationDidPop: endLegacyNavigationBarTransition
+                                            nowPlayingVM: nowPlayingVM
                                         )
                                             .id(section.letter)
                                     }
@@ -181,9 +177,7 @@ public struct AlbumsView: View {
                         } else {
                             AlbumGrid(
                                 albums: libraryVM.filteredAlbums,
-                                nowPlayingVM: nowPlayingVM,
-                                onLegacyNavigationWillPush: beginLegacyNavigationBarTransition,
-                                onLegacyNavigationDidPop: endLegacyNavigationBarTransition
+                                nowPlayingVM: nowPlayingVM
                             )
                                 .padding(.vertical)
                         }
@@ -251,24 +245,6 @@ public struct AlbumsView: View {
             selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
         )
-    }
-
-    private func beginLegacyNavigationBarTransition() {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            return
-        }
-        isLegacyNavigationBarTransitionActive = true
-        #endif
-    }
-
-    private func endLegacyNavigationBarTransition() {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            return
-        }
-        isLegacyNavigationBarTransitionActive = false
-        #endif
     }
 
     private func sectionHeader(_ letter: String) -> some View {
