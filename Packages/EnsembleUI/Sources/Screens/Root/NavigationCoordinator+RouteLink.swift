@@ -1,4 +1,5 @@
 import EnsembleCore
+import Foundation
 import SwiftUI
 
 @MainActor
@@ -29,8 +30,7 @@ extension NavigationCoordinator {
     func routeFromMenu(to destination: Destination, in tab: TabItem? = nil) {
         markRouteInteraction()
         let targetTab = tab ?? selectedTab
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 180_000_000)
+        scheduleAfterMenuDismissal { [weak self] in
             withAnimation(.default) {
                 self?.push(destination, in: targetTab)
             }
@@ -40,8 +40,7 @@ extension NavigationCoordinator {
     /// Routes cross-surface menu actions using the coordinator's active-tab fallback.
     func navigateFromMenu(to destination: Destination) {
         markRouteInteraction()
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 180_000_000)
+        scheduleAfterMenuDismissal { [weak self] in
             withAnimation(.default) {
                 self?.navigate(to: destination)
             }
@@ -53,6 +52,14 @@ private extension NavigationCoordinator {
     func pushFromRouteLink(_ destination: Destination, in tab: TabItem?) {
         markRouteInteraction()
         push(destination, in: tab ?? selectedTab)
+    }
+
+    func scheduleAfterMenuDismissal(_ action: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(180)) {
+            Task { @MainActor in
+                action()
+            }
+        }
     }
 
     func markRouteInteraction() {
