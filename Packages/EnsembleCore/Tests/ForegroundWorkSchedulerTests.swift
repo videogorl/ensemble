@@ -131,4 +131,21 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
 
         XCTAssertFalse(allowed)
     }
+
+    func testVisibleArtworkRetryBypassesNavigationIdleGate() async {
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: true,
+                idleDelay: 5,
+                pollingInterval: 0.01
+            )
+        )
+        scheduler.clearLaunchState()
+        scheduler.beginInteraction(.navigating)
+
+        let visibleRetryAllowed = await scheduler.waitUntilAllowed(.visibleArtworkRetry, policy: .immediate)
+
+        XCTAssertTrue(visibleRetryAllowed)
+        XCTAssertFalse(scheduler.isIdleForNonessentialWork)
+    }
 }

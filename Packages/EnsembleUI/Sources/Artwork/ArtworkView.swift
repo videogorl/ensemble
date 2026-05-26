@@ -250,7 +250,7 @@ public struct ArtworkView: View {
         serverRetryTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000 + jitter)
             guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
-            let canRetry = await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
+            let canRetry = await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.visibleArtworkRetry, policy: .immediate)
             guard canRetry else {
                 serverRetryTask = nil
                 return
@@ -270,21 +270,7 @@ public struct ArtworkView: View {
     }
 
     private func imageRequest(for url: URL) -> ImageRequest {
-        guard url.isFileURL, size.rawValue <= ArtworkSize.card.rawValue else {
-            return ImageRequest(url: url, priority: imagePriority)
-        }
-
-        return ImageRequest(
-            url: url,
-            processors: [
-                ImageProcessors.Resize(
-                    size: size.cgSize,
-                    contentMode: .aspectFill,
-                    upscale: false
-                )
-            ],
-            priority: imagePriority
-        )
+        ArtworkImageRequest.resized(url: url, size: size.cgSize, priority: imagePriority)
     }
 }
 

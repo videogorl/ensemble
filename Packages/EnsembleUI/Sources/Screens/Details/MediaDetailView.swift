@@ -827,7 +827,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 continue
             }
 
-            let request = ImageRequest(url: url)
+            let request = ArtworkImageRequest.resized(url: url, size: 600, priority: .high)
 
             // Try synchronous cache lookup first.
             if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
@@ -871,7 +871,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             return
         }
 
-        let request = ImageRequest(url: url)
+        let request = ArtworkImageRequest.resized(url: url, size: ArtworkSize.thumbnail.rawValue, priority: .high)
         let seedImage: PlatformImage?
         if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
             seedImage = cachedImage

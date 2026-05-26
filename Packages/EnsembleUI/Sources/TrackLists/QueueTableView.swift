@@ -188,7 +188,11 @@ public class QueueItemCell: UITableViewCell {
 
                 guard self.configureGeneration == expectedGeneration else { return }
 
-                let request = ImageRequest(url: url)
+                let request = ArtworkImageRequest.resized(
+                    url: url,
+                    size: ArtworkSize.thumbnail.rawValue,
+                    priority: .high
+                )
 
                 // Check cache first
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {

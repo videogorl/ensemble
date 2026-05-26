@@ -339,6 +339,7 @@ struct AlbumDetailLoader: View {
 - **Background contexts:** Heavy CoreData operations use `CoreDataStack.performBackgroundTask`
 - **Image caching:** Two-tier (filesystem + Nuke in-memory) with 100MB disk cache limit
 - **Artwork blur caching:** Large artwork washes must use pre-rendered/cached blur bitmaps rather than live SwiftUI blur modifiers.
+- **Artwork requests:** UI surfaces should build Nuke requests through `ArtworkImageRequest.resized(...)` so local cached originals and remote responses are downsampled before display instead of decoding full-size artwork during navigation or scrolling.
 - **Task.detached:** For non-blocking background work
 
 ### Debouncing

@@ -7,6 +7,7 @@ public enum ForegroundWorkKind: String, CaseIterable, Sendable {
     case offlineHealing
     case systemMediaIndexing
     case artworkRetry
+    case visibleArtworkRetry
     case logExport
     case downloadProgressRecompute
 }
@@ -212,7 +213,7 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         switch kind {
         case .offlineHealing, .systemMediaIndexing, .artworkRetry, .downloadProgressRecompute:
             return true
-        case .smartMixAnalysis, .sidecarAnalysis, .logExport:
+        case .smartMixAnalysis, .sidecarAnalysis, .visibleArtworkRetry, .logExport:
             return false
         }
     }

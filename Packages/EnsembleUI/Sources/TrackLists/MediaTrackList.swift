@@ -365,7 +365,11 @@ public class TrackTableViewCell: UITableViewCell {
                     return
                 }
                 
-                let request = ImageRequest(url: url)
+                let request = ArtworkImageRequest.resized(
+                    url: url,
+                    size: ArtworkSize.thumbnail.rawValue,
+                    priority: .high
+                )
                 
                 // Check cache first for instant display
                 if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {

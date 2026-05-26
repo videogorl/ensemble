@@ -5,6 +5,14 @@ import Nuke
 import UIKit
 #endif
 
+private struct SendableArtistPlatformImage: @unchecked Sendable {
+    let value: PlatformImage
+
+    init(_ value: PlatformImage) {
+        self.value = value
+    }
+}
+
 final class ArtistDetailArtworkContinuityStore: ObservableObject {
     var lastImage: PlatformImage?
     var lastIdentity: String?
@@ -793,7 +801,7 @@ public struct ArtistDetailView: View {
             artworkLoadUnavailable = false
         }
 
-        await loadCachedArtworkSeed(for: artist, loadIdentity: loadIdentity)
+        await loadArtworkSeed(for: artist, loadIdentity: loadIdentity)
 
         guard let url = await dependencies.artworkLoader.artworkURLAsync(
             for: artist.thumbPath,
@@ -810,10 +818,10 @@ public struct ArtistDetailView: View {
             return
         }
 
-        let request = ImageRequest(url: url)
+        let request = ArtworkImageRequest.resized(url: url, size: 600, priority: .high)
 
         if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            let heroImage = Self.artistHeroImage(from: cachedImage.image)
+            let heroImage = await Self.artistHeroImage(from: cachedImage.image)
             await MainActor.run {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
                 artworkImage = heroImage
@@ -822,7 +830,7 @@ public struct ArtistDetailView: View {
         }
 
         if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-            let heroImage = Self.artistHeroImage(from: uiImage)
+            let heroImage = await Self.artistHeroImage(from: uiImage)
             await MainActor.run {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
                 artworkImage = heroImage
@@ -835,7 +843,7 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private func loadCachedArtworkSeed(for artist: Artist, loadIdentity: String) async {
+    private func loadArtworkSeed(for artist: Artist, loadIdentity: String) async {
         guard let url = await dependencies.artworkLoader.artworkURLAsync(
             for: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
@@ -847,12 +855,19 @@ public struct ArtistDetailView: View {
             return
         }
 
-        let request = ImageRequest(url: url)
-        guard let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) else {
+        let request = ArtworkImageRequest.resized(url: url, size: ArtworkSize.thumbnail.rawValue, priority: .high)
+        let seedImage: PlatformImage?
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
+            seedImage = cachedImage
+        } else {
+            seedImage = try? await ImagePipeline.shared.image(for: request)
+        }
+
+        guard let seedImage else {
             return
         }
 
-        let heroImage = Self.artistHeroImage(from: cachedImage.image)
+        let heroImage = await Self.artistHeroImage(from: seedImage)
         await MainActor.run {
             guard currentArtworkLoadIdentity == loadIdentity, artworkImage == nil else { return }
             artworkImage = heroImage
@@ -894,7 +909,18 @@ public struct ArtistDetailView: View {
         artistArtworkContinuity.lastIdentity = viewModel.artist.sourceScopedID
     }
 
-    private static func artistHeroImage(from image: PlatformImage) -> PlatformImage {
+    private static func artistHeroImage(from image: PlatformImage) async -> PlatformImage {
+        #if os(iOS)
+        let sendableImage = SendableArtistPlatformImage(image)
+        return await Task.detached(priority: .utility) {
+            Self.trimmedArtistHeroImage(from: sendableImage.value)
+        }.value
+        #else
+        return trimmedArtistHeroImage(from: image)
+        #endif
+    }
+
+    nonisolated private static func trimmedArtistHeroImage(from image: PlatformImage) -> PlatformImage {
         #if os(iOS)
         guard let cgImage = image.cgImage else {
             return image
@@ -910,7 +936,7 @@ public struct ArtistDetailView: View {
         #endif
     }
 
-    private static func transparentTrimmedImage(_ image: CGImage) -> CGImage? {
+    nonisolated private static func transparentTrimmedImage(_ image: CGImage) -> CGImage? {
         let width = image.width
         let height = image.height
         guard width > 0, height > 0 else { return nil }

@@ -390,7 +390,7 @@ public struct DownloadTargetDetailView: View {
             size: 600
         ) else { return }
 
-        let request = ImageRequest(url: url)
+        let request = ArtworkImageRequest.resized(url: url, size: 600, priority: .high)
 
         // Synchronous cache hit
         if let cached = ImagePipeline.shared.cache.cachedImage(for: request) {
