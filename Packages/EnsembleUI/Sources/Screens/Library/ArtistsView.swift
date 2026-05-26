@@ -1172,17 +1172,16 @@ public struct ArtistDetailView: View {
                 }
                 .frame(width: geometry.size.width, height: artworkHeight)
                 .clipped()
-                .overlay(alignment: .bottom) {
+                .mask {
                     LinearGradient(
                         gradient: Gradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: EnsembleDesign.Color.windowSurface.opacity(0.84), location: 0.78),
-                            .init(color: EnsembleDesign.Color.windowSurface, location: 1)
+                            .init(color: .white, location: 0),
+                            .init(color: .white, location: 0.68),
+                            .init(color: .clear, location: 0.96)
                         ]),
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(height: artworkHeight * 0.34)
                 }
                 // Shift up to cover the safe area + overscroll gap
                 .offset(y: -(geometry.safeAreaInsets.top + overscroll))
