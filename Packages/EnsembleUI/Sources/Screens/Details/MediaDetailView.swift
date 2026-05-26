@@ -81,6 +81,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @State private var artworkImage: PlatformImage?
     @State private var currentLoadPath: String?
+    @State private var headerArtworkRetryToken = 0
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -222,6 +223,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .task {
             await runInitialLoads()
         }
+        .task(id: headerArtworkLoadKey) {
+            await loadHeaderArtworkIfNeeded()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
+        ) { _ in
+            guard headerData.artworkPath?.isEmpty == false else { return }
+            headerArtworkRetryToken &+= 1
+        }
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
             currentTrackId: $currentTrackId,
@@ -242,6 +252,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
         let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
+    }
+
+    private var headerArtworkLoadKey: String {
+        [
+            headerData.sourceKey ?? "",
+            headerData.artworkPath ?? "",
+            headerData.ratingKey ?? "",
+            String(headerArtworkRetryToken)
+        ].joined(separator: "|")
     }
 
     private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
@@ -747,11 +766,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private func runInitialLoads() async {
         async let trackLoad: () = loadTracksIfNeeded()
-        async let artworkLoad: () = loadHeaderArtworkIfNeeded()
         if let supplementalLoad {
             await supplementalLoad()
         }
-        _ = await (trackLoad, artworkLoad)
+        _ = await trackLoad
     }
 
     private func loadTracksIfNeeded() async {
@@ -761,49 +779,83 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadHeaderArtworkIfNeeded() async {
-        if let path = headerData.artworkPath {
-            await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
+        guard let path = headerData.artworkPath, !path.isEmpty else {
+            await MainActor.run {
+                currentLoadPath = nil
+                artworkImage = nil
+            }
+            return
         }
+
+        await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
     }
 
     private func loadArtworkImage(path: String, sourceKey: String?) async {
-        await MainActor.run {
+        let shouldSkip = await MainActor.run {
+            if self.currentLoadPath == path, self.artworkImage != nil {
+                return true
+            }
+            if self.currentLoadPath != path {
+                self.artworkImage = nil
+            }
             self.currentLoadPath = path
+            return false
         }
+        guard !shouldSkip else { return }
 
-        guard let url = await deps.artworkLoader.artworkURLAsync(
-            for: path,
-            sourceKey: sourceKey,
-            ratingKey: headerData.ratingKey,
-            fallbackPath: nil,  // No fallback for album/artist/playlist detail views
-            fallbackRatingKey: nil,
-            size: 600
-        ) else {
-            return
-        }
+        let retryDelays: [UInt64] = [
+            0,
+            300_000_000,
+            900_000_000,
+            1_800_000_000
+        ]
 
-        let request = ImageRequest(url: url)
-
-        // Try synchronous cache lookup first
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.artworkImage = cachedImage.image
-                }
+        for delay in retryDelays {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
             }
-            return
-        }
+            guard await isCurrentArtworkLoad(path: path) else { return }
 
-        await loadLowResolutionArtworkSeed(path: path, sourceKey: sourceKey)
-
-        // Load asynchronously if not cached
-        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-            await MainActor.run {
-                // Only update if this is still the current path
-                if self.currentLoadPath == path {
-                    self.artworkImage = uiImage
-                }
+            guard let url = await deps.artworkLoader.artworkURLAsync(
+                for: path,
+                sourceKey: sourceKey,
+                ratingKey: headerData.ratingKey,
+                fallbackPath: nil,  // No fallback for album/artist/playlist detail views
+                fallbackRatingKey: nil,
+                size: 600
+            ) else {
+                continue
             }
+
+            let request = ImageRequest(url: url)
+
+            // Try synchronous cache lookup first.
+            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+                await MainActor.run {
+                    if self.currentLoadPath == path {
+                        self.artworkImage = cachedImage.image
+                    }
+                }
+                return
+            }
+
+            await loadLowResolutionArtworkSeed(path: path, sourceKey: sourceKey)
+
+            // Load asynchronously if not cached.
+            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+                await MainActor.run {
+                    if self.currentLoadPath == path {
+                        self.artworkImage = uiImage
+                    }
+                }
+                return
+            }
+        }
+    }
+
+    private func isCurrentArtworkLoad(path: String) async -> Bool {
+        await MainActor.run {
+            self.currentLoadPath == path
         }
     }
 
