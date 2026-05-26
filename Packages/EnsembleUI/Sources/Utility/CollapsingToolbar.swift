@@ -177,17 +177,21 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
             lastAppliedState = isTransparent
 
             if isTransparent {
-                let appearance = UINavigationBarAppearance()
-                appearance.configureWithTransparentBackground()
+                let appearance = transparentAppearance()
+                navBar.isTranslucent = true
+                navBar.backgroundColor = .clear
                 navBar.standardAppearance = appearance
                 navBar.scrollEdgeAppearance = appearance
                 navBar.compactAppearance = appearance
+                navBar.compactScrollEdgeAppearance = appearance
             } else {
-                let appearance = UINavigationBarAppearance()
-                appearance.configureWithDefaultBackground()
+                let appearance = defaultAppearance()
+                navBar.isTranslucent = false
+                navBar.backgroundColor = nil
                 navBar.standardAppearance = appearance
                 navBar.scrollEdgeAppearance = appearance
                 navBar.compactAppearance = appearance
+                navBar.compactScrollEdgeAppearance = appearance
             }
         }
 
@@ -219,12 +223,29 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
                 return
             }
             guard let navBar = findNavigationBar() else { return }
-            let appearance = UINavigationBarAppearance()
-            appearance.configureWithDefaultBackground()
+            let appearance = defaultAppearance()
+            navBar.isTranslucent = false
+            navBar.backgroundColor = nil
             navBar.standardAppearance = appearance
             navBar.scrollEdgeAppearance = appearance
             navBar.compactAppearance = appearance
+            navBar.compactScrollEdgeAppearance = appearance
             lastAppliedState = nil
+        }
+
+        private func transparentAppearance() -> UINavigationBarAppearance {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithTransparentBackground()
+            appearance.backgroundEffect = nil
+            appearance.backgroundColor = .clear
+            appearance.shadowColor = .clear
+            return appearance
+        }
+
+        private func defaultAppearance() -> UINavigationBarAppearance {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithDefaultBackground()
+            return appearance
         }
     }
 }
@@ -258,6 +279,12 @@ extension View {
         modifier(ToolbarMaterialBackgroundModifier())
     }
 
+    /// Temporarily toggles the iOS 15 navigation bar background during legacy
+    /// source-card pushes without changing toolbar item visibility.
+    func legacyNavigationBarBackground(isTransparent: Bool) -> some View {
+        modifier(LegacyNavigationBarBackgroundModifier(isTransparent: isTransparent))
+    }
+
     /// Keeps artwork-backed surfaces visible behind platform toolbar chrome.
     func artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
         toolbarMaterialBleed(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect)
@@ -276,6 +303,24 @@ private struct ToolbarMaterialBackgroundModifier: ViewModifier {
                 .toolbarBackground(.visible, for: .windowToolbar)
         } else {
             content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+private struct LegacyNavigationBarBackgroundModifier: ViewModifier {
+    let isTransparent: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content
+        } else {
+            content
+                .background(NavigationBarAppearanceConfigurator(isTransparent: isTransparent))
         }
         #else
         content

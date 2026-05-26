@@ -140,6 +140,8 @@ public struct AlbumGrid: View {
     let onAlbumTap: ((Album) -> Void)?
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
+    let onLegacyNavigationWillPush: () -> Void
+    let onLegacyNavigationDidPop: () -> Void
 
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -153,12 +155,16 @@ public struct AlbumGrid: View {
         nowPlayingVM: NowPlayingViewModel,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
+        onLegacyNavigationWillPush: @escaping () -> Void = {},
+        onLegacyNavigationDidPop: @escaping () -> Void = {},
         onAlbumTap: ((Album) -> Void)? = nil
     ) {
         self.albums = albums
         self.nowPlayingVM = nowPlayingVM
         self.layout = layout
         self.horizontalPadding = horizontalPadding
+        self.onLegacyNavigationWillPush = onLegacyNavigationWillPush
+        self.onLegacyNavigationDidPop = onLegacyNavigationDidPop
         self.onAlbumTap = onAlbumTap
     }
 
@@ -187,6 +193,7 @@ public struct AlbumGrid: View {
                     } else {
                         NavigationLink {
                             AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                                .onDisappear(perform: onLegacyNavigationDidPop)
                         } label: {
                             AlbumCard(album: album, layout: layout)
                         }
@@ -258,6 +265,7 @@ public struct AlbumGrid: View {
     }
 
     private func markRouteInteraction() {
+        onLegacyNavigationWillPush()
         let scheduler = DependencyContainer.shared.foregroundWorkScheduler
         scheduler.beginInteraction(.navigating)
         Task { @MainActor in

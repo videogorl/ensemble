@@ -42,6 +42,7 @@ public struct ArtistsView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
+    @State private var isLegacyNavigationBarTransitionActive = false
 
     public init(
         libraryVM: LibraryViewModel,
@@ -83,6 +84,7 @@ public struct ArtistsView: View {
         .if(selectedArtist == nil) { view in
             view.toolbarMaterialBackground()
         }
+        .legacyNavigationBarBackground(isTransparent: isLegacyNavigationBarTransitionActive)
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions,
@@ -280,7 +282,9 @@ public struct ArtistsView: View {
                                     Section(header: sectionHeader(section.letter)) {
                                         DisplayArtistGrid(
                                             artists: section.artists,
-                                            nowPlayingVM: nowPlayingVM
+                                            nowPlayingVM: nowPlayingVM,
+                                            onLegacyNavigationWillPush: beginLegacyNavigationBarTransition,
+                                            onLegacyNavigationDidPop: endLegacyNavigationBarTransition
                                         )
                                         .id(section.letter)
                                     }
@@ -290,7 +294,9 @@ public struct ArtistsView: View {
                         } else {
                             DisplayArtistGrid(
                                 artists: libraryVM.displayArtists,
-                                nowPlayingVM: nowPlayingVM
+                                nowPlayingVM: nowPlayingVM,
+                                onLegacyNavigationWillPush: beginLegacyNavigationBarTransition,
+                                onLegacyNavigationDidPop: endLegacyNavigationBarTransition
                             )
                             .padding(.vertical)
                         }
@@ -330,6 +336,24 @@ public struct ArtistsView: View {
 
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
+    }
+
+    private func beginLegacyNavigationBarTransition() {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return
+        }
+        isLegacyNavigationBarTransitionActive = true
+        #endif
+    }
+
+    private func endLegacyNavigationBarTransition() {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return
+        }
+        isLegacyNavigationBarTransitionActive = false
+        #endif
     }
 }
 
@@ -372,6 +396,8 @@ private struct DisplayArtistRow: View {
 private struct DisplayArtistGrid: View {
     let artists: [DisplayArtist]
     let nowPlayingVM: NowPlayingViewModel
+    let onLegacyNavigationWillPush: () -> Void
+    let onLegacyNavigationDidPop: () -> Void
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
@@ -410,6 +436,7 @@ private struct DisplayArtistGrid: View {
         } else {
             NavigationLink {
                 ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
+                    .onDisappear(perform: onLegacyNavigationDidPop)
             } label: {
                 artistCardContent(displayArtist)
             }
@@ -422,6 +449,7 @@ private struct DisplayArtistGrid: View {
     }
 
     private func markRouteInteraction() {
+        onLegacyNavigationWillPush()
         let scheduler = DependencyContainer.shared.foregroundWorkScheduler
         scheduler.beginInteraction(.navigating)
         Task { @MainActor in
@@ -504,6 +532,91 @@ private struct DisplayArtistDetailView: View {
         ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
     }
 }
+
+private extension View {
+    @ViewBuilder
+    func legacyArtistDetailChrome<Actions: View>(
+        title: String,
+        sourceTitle: String,
+        showBackground: Bool,
+        onBack: @escaping () -> Void,
+        @ViewBuilder actions: @escaping () -> Actions
+    ) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self
+        } else {
+            self
+                .navigationBarHidden(true)
+                .overlay(alignment: .top) {
+                    LegacyArtistDetailChrome(
+                        title: title,
+                        sourceTitle: sourceTitle,
+                        showBackground: showBackground,
+                        onBack: onBack,
+                        actions: actions
+                    )
+                }
+        }
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(iOS)
+private struct LegacyArtistDetailChrome<Actions: View>: View {
+    let title: String
+    let sourceTitle: String
+    let showBackground: Bool
+    let onBack: () -> Void
+    @ViewBuilder let actions: () -> Actions
+
+    private let toolbarHeight: CGFloat = 44
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                EnsembleDesign.Color.windowSurface
+                    .opacity(showBackground ? 0.94 : 0)
+                    .ignoresSafeArea(.container, edges: .top)
+
+                ZStack {
+                    Text(title)
+                        .font(EnsembleDesign.Typography.toolbarTitle)
+                        .lineLimit(1)
+                        .opacity(showBackground ? 1 : 0)
+
+                    HStack(spacing: EnsembleDesign.Spacing.none) {
+                        Button(action: onBack) {
+                            HStack(spacing: EnsembleDesign.Spacing.xs) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 28, weight: .regular))
+                                Text(sourceTitle)
+                                    .font(EnsembleDesign.Typography.toolbarTitle)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(EnsembleDesign.Color.accent)
+
+                        Spacer()
+
+                        actions()
+                            .font(EnsembleDesign.Typography.toolbarTitle)
+                            .foregroundColor(EnsembleDesign.Color.accent)
+                    }
+                    .padding(.horizontal, EnsembleDesign.Spacing.md)
+                }
+                .frame(height: toolbarHeight)
+            }
+            .frame(height: geometry.safeAreaInsets.top + toolbarHeight)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .animation(.easeInOut(duration: 0.2), value: showBackground)
+        }
+        .ignoresSafeArea(.container, edges: .top)
+    }
+}
+#endif
 
 // MARK: - Artist Detail View
 
@@ -603,6 +716,7 @@ public struct ArtistDetailView: View {
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
     @Environment(\.artistDetailArtworkContinuity) private var artistArtworkContinuity
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismiss) private var dismiss
 
     public init(
         artist: Artist,
@@ -652,6 +766,15 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
         }
+        .legacyArtistDetailChrome(
+            title: viewModel.artist.name,
+            sourceTitle: "Artists",
+            showBackground: showToolbarBackground,
+            onBack: { dismiss() },
+            actions: {
+                artistPinMenuButton
+            }
+        )
         .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarBackground)
         .miniPlayerBottomSpacing()
         .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
