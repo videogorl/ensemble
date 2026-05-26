@@ -274,9 +274,8 @@ struct HubSection: View {
     private var sectionHeader: some View {
         if let artistId = hub.contextArtistId {
             let sourceKey = hub.contextArtistSourceCompositeKey
-            Button {
-                navigateTo(.artist(id: artistId, sourceKey: sourceKey))
-            } label: {
+            let destination = NavigationCoordinator.Destination.artist(id: artistId, sourceKey: sourceKey)
+            navigationCoordinator.routeLink(to: destination) {
                 sectionHeaderLabel
                     .contentShape(Rectangle())
             }
@@ -290,16 +289,6 @@ struct HubSection: View {
 
     private var sectionHeaderLabel: some View {
         EnsembleContentSectionHeader(hub.title, showsDisclosure: true)
-    }
-
-    private func navigateTo(_ destination: NavigationCoordinator.Destination) {
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
-        scheduler.beginInteraction(.navigating)
-        navigationCoordinator.push(destination, in: navigationCoordinator.selectedTab)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            scheduler.endInteraction(.navigating)
-        }
     }
 }
 
@@ -327,9 +316,7 @@ struct HubItemCard: View {
                     cardContent
                 }
             } else if let destination = navigationDestination {
-                Button {
-                    navigateTo(destination)
-                } label: {
+                navigationCoordinator.routeLink(to: destination) {
                     cardContent
                 }
             } else {
@@ -398,16 +385,6 @@ struct HubItemCard: View {
             return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
         default:
             return nil
-        }
-    }
-
-    private func navigateTo(_ destination: NavigationCoordinator.Destination) {
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
-        scheduler.beginInteraction(.navigating)
-        navigationCoordinator.push(destination, in: navigationCoordinator.selectedTab)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            scheduler.endInteraction(.navigating)
         }
     }
 
