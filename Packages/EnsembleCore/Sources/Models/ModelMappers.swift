@@ -141,7 +141,7 @@ public extension Track {
 
 public extension Album {
     /// Maps a hub metadata item (from /related endpoint) to an Album
-    init(from hub: PlexHubMetadata) {
+    init(from hub: PlexHubMetadata, sourceKey: String? = nil) {
         self.init(
             id: hub.ratingKey,
             key: hub.key,
@@ -155,11 +155,12 @@ public extension Album {
             artPath: hub.art,
             dateAdded: hub.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: hub.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0
+            rating: 0,
+            sourceCompositeKey: sourceKey
         )
     }
 
-    init(from plex: PlexAlbum) {
+    init(from plex: PlexAlbum, sourceKey: String? = nil) {
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -174,7 +175,8 @@ public extension Album {
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
-            genres: plex.genreNames
+            genres: plex.genreNames,
+            sourceCompositeKey: sourceKey
         )
     }
 

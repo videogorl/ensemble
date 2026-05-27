@@ -33,7 +33,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EnsembleCoreTests",
-            dependencies: ["EnsembleCore"],
+            dependencies: ["EnsembleCore", "EnsembleAPI"],
             path: "Tests"
         ),
     ]
