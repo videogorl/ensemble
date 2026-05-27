@@ -630,7 +630,7 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
         }
-        .artworkBackedToolbarBleed()
+        .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarTitle)
         .miniPlayerBottomSpacing()
         .trackListRuntimeObservation(
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
