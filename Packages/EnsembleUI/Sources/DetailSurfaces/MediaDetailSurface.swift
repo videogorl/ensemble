@@ -23,6 +23,8 @@ extension View {
 /// header layout and list-card styling aligned across detail variants.
 struct MediaDetailSurface<Content: View>: View {
     let artworkImage: PlatformImage?
+    let preBlurredArtworkImage: PlatformImage?
+    let artworkContinuityIdentity: String?
     let backgroundHeight: CGFloat
     let darkLegibilityOpacity: Double
     let lightLegibilityOpacity: Double
@@ -32,6 +34,8 @@ struct MediaDetailSurface<Content: View>: View {
 
     init(
         artworkImage: PlatformImage?,
+        preBlurredArtworkImage: PlatformImage? = nil,
+        artworkContinuityIdentity: String? = nil,
         backgroundHeight: CGFloat = 500,
         darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
         lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity,
@@ -40,6 +44,8 @@ struct MediaDetailSurface<Content: View>: View {
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.artworkImage = artworkImage
+        self.preBlurredArtworkImage = preBlurredArtworkImage
+        self.artworkContinuityIdentity = artworkContinuityIdentity
         self.backgroundHeight = backgroundHeight
         self.darkLegibilityOpacity = darkLegibilityOpacity
         self.lightLegibilityOpacity = lightLegibilityOpacity
@@ -55,10 +61,12 @@ struct MediaDetailSurface<Content: View>: View {
 
             ArtworkDetailBackground(
                 image: artworkImage,
+                preBlurredImage: preBlurredArtworkImage,
                 height: backgroundHeight,
                 darkLegibilityOpacity: darkLegibilityOpacity,
                 lightLegibilityOpacity: lightLegibilityOpacity,
-                usesNavigationContinuity: true
+                usesNavigationContinuity: true,
+                continuityIdentity: artworkContinuityIdentity
             )
                 .ignoresSafeArea()
                 .allowsHitTesting(false)

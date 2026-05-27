@@ -44,6 +44,10 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var trackSections: [TrackSection] = []
     @Published public private(set) var artistSections: [ArtistSection] = []
     @Published public private(set) var albumSections: [AlbumSection] = []
+    @Published public private(set) var trackBrowseSnapshot: TrackBrowseSnapshot = .empty
+    @Published public private(set) var artistBrowseSnapshot: ArtistBrowseSnapshot = .empty
+    @Published public private(set) var albumBrowseSnapshot: AlbumBrowseSnapshot = .empty
+    @Published public private(set) var genreBrowseSnapshot: GenreBrowseSnapshot = .empty
 
     // Available genres for chip bar filtering (derived from albums/tracks)
     @Published public private(set) var availableAlbumGenres: [String] = []
@@ -212,8 +216,11 @@ public final class LibraryViewModel: ObservableObject {
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered, sections in
-                self?.filteredTracks = filtered
-                self?.trackSections = sections
+                self?.commitTrackSnapshot(
+                    tracks: filtered,
+                    sections: sections,
+                    rawTrackCount: self?.tracks.count ?? 0
+                )
             }
             .store(in: &cancellables)
 
@@ -235,9 +242,12 @@ public final class LibraryViewModel: ObservableObject {
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered, display, sections in
-                self?.filteredArtists = filtered
-                self?.displayArtists = display
-                self?.artistSections = sections
+                self?.commitArtistSnapshot(
+                    artists: filtered,
+                    displayArtists: display,
+                    sections: sections,
+                    rawArtistCount: self?.artists.count ?? 0
+                )
             }
             .store(in: &cancellables)
 
@@ -259,8 +269,11 @@ public final class LibraryViewModel: ObservableObject {
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered, sections in
-                self?.filteredAlbums = filtered
-                self?.albumSections = sections
+                self?.commitAlbumSnapshot(
+                    albums: filtered,
+                    sections: sections,
+                    rawAlbumCount: self?.albums.count ?? 0
+                )
             }
             .store(in: &cancellables)
 
@@ -276,7 +289,7 @@ public final class LibraryViewModel: ObservableObject {
                 return zip(old, new).allSatisfy { $0.id == $1.id }
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.filteredGenres = $0 }
+            .sink { [weak self] in self?.commitGenreSnapshot(genres: $0, rawGenreCount: self?.genres.count ?? 0) }
             .store(in: &cancellables)
 
         // Available genres for chip bar filtering.
@@ -294,7 +307,16 @@ public final class LibraryViewModel: ObservableObject {
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.availableAlbumGenres = $0 }
+            .sink { [weak self] genres in
+                guard let self else { return }
+                if self.availableAlbumGenres != genres {
+                    self.availableAlbumGenres = genres
+                }
+                let next = self.albumBrowseSnapshot.updating(availableGenres: genres)
+                if self.albumBrowseSnapshot != next {
+                    self.albumBrowseSnapshot = next
+                }
+            }
             .store(in: &cancellables)
 
         Publishers.CombineLatest($tracks, $tracksFilterOptions)
@@ -308,7 +330,16 @@ public final class LibraryViewModel: ObservableObject {
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.availableTrackGenres = $0 }
+            .sink { [weak self] genres in
+                guard let self else { return }
+                if self.availableTrackGenres != genres {
+                    self.availableTrackGenres = genres
+                }
+                let next = self.trackBrowseSnapshot.updating(availableGenres: genres)
+                if self.trackBrowseSnapshot != next {
+                    self.trackBrowseSnapshot = next
+                }
+            }
             .store(in: &cancellables)
 
         // Artist genres: derived from albums that pass non-genre filters
@@ -323,7 +354,16 @@ public final class LibraryViewModel: ObservableObject {
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.availableArtistGenres = $0 }
+            .sink { [weak self] genres in
+                guard let self else { return }
+                if self.availableArtistGenres != genres {
+                    self.availableArtistGenres = genres
+                }
+                let next = self.artistBrowseSnapshot.updating(availableGenres: genres)
+                if self.artistBrowseSnapshot != next {
+                    self.artistBrowseSnapshot = next
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -435,9 +475,16 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     public func loadLibrary() async {
+        setBrowsePhase(hasAnyVisibleBrowseSnapshot ? .refreshing : .loading)
         isLoading = true
         error = nil
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            let finalPhase: LibraryBrowseRefreshPhase = hasAnyVisibleBrowseSnapshot || canCommitAuthoritativeEmptyBrowseSnapshot
+                ? .idle
+                : .refreshing
+            setBrowsePhase(finalPhase)
+        }
 
         do {
             // Refresh view context to ensure merge state is current
@@ -567,6 +614,7 @@ public final class LibraryViewModel: ObservableObject {
         if !availableAlbumGenres.isEmpty { availableAlbumGenres = [] }
         if !availableTrackGenres.isEmpty { availableTrackGenres = [] }
         if !availableArtistGenres.isEmpty { availableArtistGenres = [] }
+        commitEmptyBrowseSnapshots()
     }
 
     private static func isEnabledSource(_ sourceCompositeKey: String?, enabledSourceKeys: Set<String>) -> Bool {
@@ -724,6 +772,156 @@ public final class LibraryViewModel: ObservableObject {
         )
     }
 
+    private var hasAnyVisibleBrowseSnapshot: Bool {
+        trackBrowseSnapshot.hasVisibleContent ||
+            artistBrowseSnapshot.hasVisibleContent ||
+            albumBrowseSnapshot.hasVisibleContent ||
+            genreBrowseSnapshot.hasVisibleContent
+    }
+
+    private var canCommitAuthoritativeEmptyBrowseSnapshot: Bool {
+        guard !accountManager.isAwaitingCloudSources else { return false }
+        guard let readinessSnapshot = appReadinessCoordinator?.snapshot else { return true }
+        guard readinessSnapshot.isBootstrapSettled else { return false }
+        guard accountManager.hasAnySources else { return readinessSnapshot.canShowAddSources }
+        guard !accountManager.enabledSources().isEmpty else { return !readinessSnapshot.hasEnabledLibraries }
+        return true
+    }
+
+    private func setBrowsePhase(_ phase: LibraryBrowseRefreshPhase) {
+        updateTrackBrowseSnapshot(trackBrowseSnapshot.updating(phase: phase))
+        updateArtistBrowseSnapshot(artistBrowseSnapshot.updating(phase: phase))
+        updateAlbumBrowseSnapshot(albumBrowseSnapshot.updating(phase: phase))
+        updateGenreBrowseSnapshot(genreBrowseSnapshot.updating(phase: phase))
+    }
+
+    private func commitTrackSnapshot(
+        tracks: [Track],
+        sections: [TrackSection],
+        rawTrackCount: Int
+    ) {
+        guard rawTrackCount > 0 || !trackBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
+            updateTrackBrowseSnapshot(trackBrowseSnapshot.updating(isShowingStaleSnapshot: true))
+            return
+        }
+
+        if !Self.idsEqual(filteredTracks, tracks, identifier: \.sourceScopedID) { filteredTracks = tracks }
+        if trackSections != sections { trackSections = sections }
+
+        updateTrackBrowseSnapshot(
+            TrackBrowseSnapshot(
+                tracks: tracks,
+                sections: sections,
+                availableGenres: availableTrackGenres,
+                phase: trackBrowseSnapshot.phase,
+                isShowingStaleSnapshot: false
+            )
+        )
+    }
+
+    private func commitArtistSnapshot(
+        artists: [Artist],
+        displayArtists: [DisplayArtist],
+        sections: [ArtistSection],
+        rawArtistCount: Int
+    ) {
+        guard rawArtistCount > 0 || !artistBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
+            updateArtistBrowseSnapshot(artistBrowseSnapshot.updating(isShowingStaleSnapshot: true))
+            return
+        }
+
+        if !Self.idsEqual(filteredArtists, artists, identifier: \.sourceScopedID) { filteredArtists = artists }
+        if !Self.idsEqual(self.displayArtists, displayArtists, identifier: \.id) { self.displayArtists = displayArtists }
+        if artistSections != sections { artistSections = sections }
+
+        updateArtistBrowseSnapshot(
+            ArtistBrowseSnapshot(
+                artists: artists,
+                displayArtists: displayArtists,
+                sections: sections,
+                availableGenres: availableArtistGenres,
+                phase: artistBrowseSnapshot.phase,
+                isShowingStaleSnapshot: false
+            )
+        )
+    }
+
+    private func commitAlbumSnapshot(
+        albums: [Album],
+        sections: [AlbumSection],
+        rawAlbumCount: Int
+    ) {
+        guard rawAlbumCount > 0 || !albumBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
+            updateAlbumBrowseSnapshot(albumBrowseSnapshot.updating(isShowingStaleSnapshot: true))
+            return
+        }
+
+        if !Self.idsEqual(filteredAlbums, albums, identifier: \.sourceScopedID) { filteredAlbums = albums }
+        if albumSections != sections { albumSections = sections }
+
+        updateAlbumBrowseSnapshot(
+            AlbumBrowseSnapshot(
+                albums: albums,
+                sections: sections,
+                availableGenres: availableAlbumGenres,
+                phase: albumBrowseSnapshot.phase,
+                isShowingStaleSnapshot: false
+            )
+        )
+    }
+
+    private func commitGenreSnapshot(genres: [Genre], rawGenreCount: Int) {
+        guard rawGenreCount > 0 || !genreBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
+            updateGenreBrowseSnapshot(genreBrowseSnapshot.updating(isShowingStaleSnapshot: true))
+            return
+        }
+
+        if !Self.idsEqual(filteredGenres, genres, identifier: \.id) { filteredGenres = genres }
+        updateGenreBrowseSnapshot(
+            GenreBrowseSnapshot(
+                genres: genres,
+                phase: genreBrowseSnapshot.phase,
+                isShowingStaleSnapshot: false
+            )
+        )
+    }
+
+    private func commitEmptyBrowseSnapshots() {
+        guard canCommitAuthoritativeEmptyBrowseSnapshot else {
+            setBrowsePhase(.refreshing)
+            return
+        }
+
+        updateTrackBrowseSnapshot(.empty.updating(availableGenres: availableTrackGenres, phase: trackBrowseSnapshot.phase))
+        updateArtistBrowseSnapshot(.empty.updating(availableGenres: availableArtistGenres, phase: artistBrowseSnapshot.phase))
+        updateAlbumBrowseSnapshot(.empty.updating(availableGenres: availableAlbumGenres, phase: albumBrowseSnapshot.phase))
+        updateGenreBrowseSnapshot(.empty.updating(phase: genreBrowseSnapshot.phase))
+    }
+
+    private func updateTrackBrowseSnapshot(_ snapshot: TrackBrowseSnapshot) {
+        if trackBrowseSnapshot != snapshot {
+            trackBrowseSnapshot = snapshot
+        }
+    }
+
+    private func updateArtistBrowseSnapshot(_ snapshot: ArtistBrowseSnapshot) {
+        if artistBrowseSnapshot != snapshot {
+            artistBrowseSnapshot = snapshot
+        }
+    }
+
+    private func updateAlbumBrowseSnapshot(_ snapshot: AlbumBrowseSnapshot) {
+        if albumBrowseSnapshot != snapshot {
+            albumBrowseSnapshot = snapshot
+        }
+    }
+
+    private func updateGenreBrowseSnapshot(_ snapshot: GenreBrowseSnapshot) {
+        if genreBrowseSnapshot != snapshot {
+            genreBrowseSnapshot = snapshot
+        }
+    }
+
     /// Fast ID-based equality check — avoids full Equatable comparison
     private static func idsEqual<T>(_ a: [T], _ b: [T], identifier: (T) -> String) -> Bool {
         guard a.count == b.count else { return false }
@@ -870,19 +1068,19 @@ public final class LibraryViewModel: ObservableObject {
 
     // MARK: - Sections
 
-    public struct TrackSection: Identifiable {
+    public struct TrackSection: Identifiable, Equatable, Sendable {
         public let letter: String
         public let tracks: [Track]
         public var id: String { letter }
     }
 
-    public struct ArtistSection: Identifiable {
+    public struct ArtistSection: Identifiable, Equatable, Sendable {
         public let letter: String
         public let artists: [DisplayArtist]
         public var id: String { letter }
     }
 
-    public struct AlbumSection: Identifiable {
+    public struct AlbumSection: Identifiable, Equatable, Sendable {
         public let letter: String
         public let albums: [Album]
         public var id: String { letter }

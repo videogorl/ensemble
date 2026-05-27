@@ -124,6 +124,58 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForTrackCount(viewModel: viewModel, expectedCount: 0)
     }
 
+    func testBrowseSnapshotPreservesVisibleTracksUntilEmptySourceStateSettles() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", true)])
+        )
+        let readiness = AppReadinessCoordinator(
+            accountManager: harness.accountManager,
+            syncCoordinator: harness.syncCoordinator
+        )
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let viewModel = makeViewModel(harness: harness, appReadinessCoordinator: readiness)
+        await viewModel.loadLibrary()
+        try await waitForTrackSnapshot(
+            viewModel: viewModel,
+            expectedSourceKeys: [sourceKey],
+            isShowingStaleSnapshot: false
+        )
+        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        XCTAssertFalse(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot)
+
+        XCTAssertTrue(harness.accountManager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "lib-1",
+            isEnabled: false
+        ))
+        await Task.yield()
+        await viewModel.loadLibrary()
+
+        try await waitForTrackSnapshot(
+            viewModel: viewModel,
+            expectedSourceKeys: [sourceKey],
+            isShowingStaleSnapshot: true
+        )
+        XCTAssertTrue(viewModel.tracks.isEmpty)
+        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), [sourceKey])
+        XCTAssertTrue(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot)
+
+        readiness.markBootstrapSettled()
+        await viewModel.loadLibrary()
+        try await waitForTrackSnapshot(
+            viewModel: viewModel,
+            expectedSourceKeys: [],
+            isShowingStaleSnapshot: false
+        )
+
+        XCTAssertTrue(viewModel.trackBrowseSnapshot.tracks.isEmpty)
+        XCTAssertFalse(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot)
+    }
+
     func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness { sourceKey in
@@ -378,14 +430,37 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(viewModel.tracks.count, expectedCount)
     }
 
-    private func makeViewModel(harness: Harness) -> LibraryViewModel {
+    private func waitForTrackSnapshot(
+        viewModel: LibraryViewModel,
+        expectedSourceKeys: [String],
+        isShowingStaleSnapshot: Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            let sourceKeys = viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey)
+            if sourceKeys == expectedSourceKeys,
+               viewModel.trackBrowseSnapshot.isShowingStaleSnapshot == isShowingStaleSnapshot {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), expectedSourceKeys)
+        XCTAssertEqual(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot, isShowingStaleSnapshot)
+    }
+
+    private func makeViewModel(
+        harness: Harness,
+        appReadinessCoordinator: AppReadinessCoordinator? = nil
+    ) -> LibraryViewModel {
         LibraryViewModel(
             libraryRepository: harness.libraryRepository,
             syncCoordinator: harness.syncCoordinator,
             sourceCacheCleanupService: harness.sourceCacheCleanupService,
             accountManager: harness.accountManager,
             visibilityStore: LibraryVisibilityStore(),
-            toastCenter: ToastCenter()
+            toastCenter: ToastCenter(),
+            appReadinessCoordinator: appReadinessCoordinator
         )
     }
 

@@ -8,6 +8,7 @@ public enum ForegroundWorkKind: String, CaseIterable, Sendable {
     case systemMediaIndexing
     case artworkRetry
     case visibleArtworkRetry
+    case startupSync
     case logExport
     case downloadProgressRecompute
 }
@@ -206,12 +207,12 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
     }
 
     private var nonessentialKinds: Set<ForegroundWorkKind> {
-        [.smartMixAnalysis, .sidecarAnalysis, .offlineHealing, .systemMediaIndexing, .artworkRetry, .logExport, .downloadProgressRecompute]
+        [.smartMixAnalysis, .sidecarAnalysis, .offlineHealing, .systemMediaIndexing, .artworkRetry, .startupSync, .logExport, .downloadProgressRecompute]
     }
 
     private func requiresIdle(kind: ForegroundWorkKind) -> Bool {
         switch kind {
-        case .offlineHealing, .systemMediaIndexing, .artworkRetry, .downloadProgressRecompute:
+        case .offlineHealing, .systemMediaIndexing, .artworkRetry, .startupSync, .downloadProgressRecompute:
             return true
         case .smartMixAnalysis, .sidecarAnalysis, .visibleArtworkRetry, .logExport:
             return false

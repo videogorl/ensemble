@@ -286,6 +286,7 @@ public struct FavoritesView: View {
                     }
                 }
             }
+            .foregroundScrollActivity()
             .miniPlayerBottomSpacing()
             .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #else

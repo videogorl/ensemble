@@ -205,6 +205,7 @@ public struct HomeView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -220,6 +221,7 @@ public struct HomeView: View {
             .refreshable {
                 await viewModel.refresh()
             }
+            .foregroundScrollActivity()
             .miniPlayerBottomSpacing()
         }
     }
@@ -267,6 +269,7 @@ struct HubSection: View {
                 }
                 .padding(.horizontal)
             }
+            .foregroundScrollActivity()
         }
     }
 

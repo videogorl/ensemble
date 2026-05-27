@@ -3,8 +3,8 @@ import SwiftUI
 
 /// A background view that uses a heavily blurred version of artwork.
 ///
-/// The blur is always bitmap-backed. Callers can pass `preBlurredImage`; otherwise
-/// the view generates and caches a pre-blurred bitmap before displaying it.
+/// The blur is always bitmap-backed. Callers should pass `preBlurredImage` from
+/// an artwork resolver so navigation/layout passes do not generate blur work.
 public struct BlurredArtworkBackground: View {
     let image: PlatformImage?
     let preBlurredImage: PlatformImage?
@@ -18,6 +18,7 @@ public struct BlurredArtworkBackground: View {
     let shouldIgnoreSafeArea: Bool
     let overlayColor: Color
     let animatesImageChanges: Bool
+    let allowsLiveBlurRender: Bool
     @State private var cachedBlurredImage: PlatformImage?
 
     public init(
@@ -32,7 +33,8 @@ public struct BlurredArtworkBackground: View {
         bottomDimming: Double = 0.5,
         shouldIgnoreSafeArea: Bool = true,
         overlayColor: Color = .black,
-        animatesImageChanges: Bool = true
+        animatesImageChanges: Bool = true,
+        allowsLiveBlurRender: Bool = false
     ) {
         self.image = image
         self.preBlurredImage = preBlurredImage
@@ -46,6 +48,7 @@ public struct BlurredArtworkBackground: View {
         self.shouldIgnoreSafeArea = shouldIgnoreSafeArea
         self.overlayColor = overlayColor
         self.animatesImageChanges = animatesImageChanges
+        self.allowsLiveBlurRender = allowsLiveBlurRender
     }
     
     public var body: some View {
@@ -134,6 +137,11 @@ public struct BlurredArtworkBackground: View {
 
         if let cached = ArtworkBlurRenderer.cachedBlurredImage(for: image) {
             cachedBlurredImage = cached
+            return
+        }
+
+        guard allowsLiveBlurRender else {
+            cachedBlurredImage = nil
             return
         }
 

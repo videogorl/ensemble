@@ -15,6 +15,7 @@ private struct SendableArtistPlatformImage: @unchecked Sendable {
 
 final class ArtistDetailArtworkContinuityStore: ObservableObject {
     var lastImage: PlatformImage?
+    var lastBlurredImage: PlatformImage?
     var lastIdentity: String?
 }
 
@@ -57,9 +58,9 @@ public struct ArtistsView: View {
 
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.artists.isEmpty {
+            if artistSnapshot.phase != .idle && !artistSnapshot.hasVisibleContent {
                 loadingView
-            } else if libraryVM.artists.isEmpty {
+            } else if !artistSnapshot.hasVisibleContent {
                 emptyView
             } else {
                 rootContent
@@ -86,7 +87,7 @@ public struct ArtistsView: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions,
-                availableGenres: libraryVM.availableArtistGenres,
+                availableGenres: artistSnapshot.availableGenres,
                 showGenreFilter: true
             )
         }
@@ -106,8 +107,12 @@ public struct ArtistsView: View {
         externalSelectedArtist?.wrappedValue ?? localSelectedArtist
     }
 
+    private var artistSnapshot: ArtistBrowseSnapshot {
+        libraryVM.artistBrowseSnapshot
+    }
+
     private var isBrowseToolbarVisible: Bool {
-        !libraryVM.artists.isEmpty &&
+        artistSnapshot.hasVisibleContent &&
         navigationCoordinator.pathSnapshot(for: .artists).isEmpty &&
         !navigationCoordinator.isRouteTransitionActive(for: .artists)
     }
@@ -192,7 +197,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.artistSections) { section in
+                                ForEach(artistSnapshot.sections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         ForEach(section.artists) { displayArtist in
                                             artistSelectionRow(displayArtist)
@@ -204,7 +209,7 @@ public struct ArtistsView: View {
                             .padding(.vertical)
                         } else {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.displayArtists) { displayArtist in
+                                ForEach(artistSnapshot.displayArtists) { displayArtist in
                                     artistSelectionRow(displayArtist)
                                 }
                             }
@@ -216,7 +221,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: libraryVM.artistSections.map { $0.letter },
+                            letters: artistSnapshot.sections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -224,6 +229,7 @@ public struct ArtistsView: View {
                         )
                     }
                 }
+                .foregroundScrollActivity()
             }
         }
     }
@@ -276,7 +282,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.artistSections) { section in
+                                ForEach(artistSnapshot.sections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         DisplayArtistGrid(
                                             artists: section.artists,
@@ -289,7 +295,7 @@ public struct ArtistsView: View {
                             .padding(.vertical)
                         } else {
                             DisplayArtistGrid(
-                                artists: libraryVM.displayArtists,
+                                artists: artistSnapshot.displayArtists,
                                 nowPlayingVM: nowPlayingVM
                             )
                             .padding(.vertical)
@@ -300,7 +306,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: libraryVM.artistSections.map { $0.letter },
+                            letters: artistSnapshot.sections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -308,6 +314,7 @@ public struct ArtistsView: View {
                         )
                     }
                 }
+                .foregroundScrollActivity()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -315,7 +322,7 @@ public struct ArtistsView: View {
 
     private var artistGenreChipBar: some View {
         GenreFilterHeader(
-            availableGenres: libraryVM.availableArtistGenres,
+            availableGenres: artistSnapshot.availableGenres,
             selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
         )
@@ -324,7 +331,7 @@ public struct ArtistsView: View {
     private func shouldShowScrollIndex(width: CGFloat) -> Bool {
         presentationMode == .compactRoot &&
         libraryVM.artistSortOption == .name &&
-        !libraryVM.displayArtists.isEmpty &&
+        !artistSnapshot.displayArtists.isEmpty &&
         ScrollIndex.isVisible(forContainerWidth: width)
     }
 
@@ -591,6 +598,7 @@ public struct ArtistDetailView: View {
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: PlatformImage?
+    @State private var blurredArtworkImage: PlatformImage?
     @State private var continuityArtworkImage: PlatformImage?
     @State private var artworkLoadUnavailable = false
     @State private var currentArtworkLoadIdentity: String?
@@ -629,6 +637,8 @@ public struct ArtistDetailView: View {
     public var body: some View {
         MediaDetailSurface(
             artworkImage: artworkImage,
+            preBlurredArtworkImage: blurredArtworkImage,
+            artworkContinuityIdentity: viewModel.artist.sourceScopedID,
             backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
             darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
             lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity,
@@ -653,7 +663,6 @@ public struct ArtistDetailView: View {
             }
         }
         .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarBackground)
-        .legacyNavigationBarHiddenUntilScrolled(!showToolbarBackground)
         .miniPlayerBottomSpacing()
         .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
             if shouldShowBackground != showToolbarBackground {
@@ -739,6 +748,7 @@ public struct ArtistDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            .foregroundScrollActivity()
         }
     }
 
@@ -813,6 +823,7 @@ public struct ArtistDetailView: View {
         await MainActor.run {
             if currentArtworkLoadIdentity != loadIdentity {
                 artworkImage = nil
+                blurredArtworkImage = nil
                 continuityArtworkImage = artistArtworkContinuity.lastIdentity == loadIdentity
                     ? artistArtworkContinuity.lastImage
                     : nil
@@ -821,13 +832,19 @@ public struct ArtistDetailView: View {
             artworkLoadUnavailable = false
         }
 
-        guard let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: artist.thumbPath,
+        let descriptor = ArtworkResolutionDescriptor(
+            path: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
-            size: 600
+            size: 600,
+            priority: .high
+        )
+
+        guard let resolved = await ArtworkImageResolver.resolvedImage(
+            for: descriptor,
+            artworkLoader: dependencies.artworkLoader
         ) else {
             await MainActor.run {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
@@ -836,28 +853,16 @@ public struct ArtistDetailView: View {
             return
         }
 
-        let request = ArtworkImageRequest.resized(url: url, size: 600, priority: .high)
-
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            let heroImage = await Self.artistHeroImage(from: cachedImage.image)
-            await MainActor.run {
-                guard currentArtworkLoadIdentity == loadIdentity else { return }
-                artworkImage = heroImage
-            }
-            return
+        let heroImage = await Self.artistHeroImage(from: resolved.image)
+        await MainActor.run {
+            guard currentArtworkLoadIdentity == loadIdentity else { return }
+            artworkImage = heroImage
         }
 
-        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-            let heroImage = await Self.artistHeroImage(from: uiImage)
-            await MainActor.run {
-                guard currentArtworkLoadIdentity == loadIdentity else { return }
-                artworkImage = heroImage
-            }
-        } else {
-            await MainActor.run {
-                guard currentArtworkLoadIdentity == loadIdentity else { return }
-                artworkLoadUnavailable = artworkImage == nil
-            }
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(for: heroImage)
+        await MainActor.run {
+            guard currentArtworkLoadIdentity == loadIdentity else { return }
+            blurredArtworkImage = blurredImage
         }
     }
 

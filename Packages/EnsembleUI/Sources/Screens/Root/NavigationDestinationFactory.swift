@@ -66,7 +66,7 @@ struct NavigationDestinationFactory {
 
     @MainActor
     private static func displayArtist(for id: String, libraryVM: LibraryViewModel) -> DisplayArtist? {
-        if let displayArtist = libraryVM.displayArtists.first(where: { $0.id == id }) {
+        if let displayArtist = libraryVM.artistBrowseSnapshot.displayArtists.first(where: { $0.id == id }) {
             return displayArtist
         }
 

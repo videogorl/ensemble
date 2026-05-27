@@ -510,6 +510,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -564,6 +565,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
     

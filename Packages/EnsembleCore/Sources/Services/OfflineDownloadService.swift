@@ -1519,7 +1519,14 @@ public final class OfflineDownloadService: ObservableObject {
             fullProgressRefreshTask = nil
             hasQueuedFullProgressRefresh = false
             Task { @MainActor [weak self] in
-                await self?.refreshAllTargetProgresses()
+                guard let self else { return }
+                if !self.isAppInBackground,
+                   let foregroundWorkScheduler = self.foregroundWorkScheduler {
+                    guard await foregroundWorkScheduler.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly) else {
+                        return
+                    }
+                }
+                await self.refreshAllTargetProgresses()
             }
             return
         }

@@ -200,44 +200,32 @@ public struct ArtworkView: View {
             return
         }
 
-        let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: path,
+        let descriptor = ArtworkResolutionDescriptor(
+            path: path,
             sourceKey: sourceKey,
             ratingKey: ratingKey,
             fallbackPath: fallbackPath,
             fallbackRatingKey: fallbackRatingKey,
-            size: size.rawValue
+            size: size.rawValue,
+            priority: imagePriority
         )
 
-        if url != artworkURL {
-            artworkURL = url
-        }
-
-        guard let url else {
+        guard let resolved = await ArtworkImageResolver.resolvedImage(
+            for: descriptor,
+            artworkLoader: dependencies.artworkLoader
+        ) else {
+            artworkURL = nil
             resolvedImage = nil
             return
         }
 
-        let request = imageRequest(for: url)
-
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
-            previousImage = resolvedImage ?? previousImage
-            resolvedImage = cachedImage.image
-            return
+        if resolved.url != artworkURL {
+            artworkURL = resolved.url
         }
 
-        do {
-            let image = try await ImagePipeline.shared.image(for: request)
-            guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
-            previousImage = resolvedImage ?? previousImage
-            resolvedImage = image
-        } catch {
-            if isExpectedCancellation(error) {
-                return
-            }
-            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)] failed url=\(url.absoluteString) error=\(error.localizedDescription)")
-        }
+        guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
+        previousImage = resolvedImage ?? previousImage
+        resolvedImage = resolved.image
     }
 
     @MainActor
@@ -259,18 +247,6 @@ public struct ArtworkView: View {
             invalidationToken += 1
             serverRetryTask = nil
         }
-    }
-
-    private func isExpectedCancellation(_ error: Error) -> Bool {
-        if error is CancellationError {
-            return true
-        }
-        let description = error.localizedDescription.lowercased()
-        return description == "cancelled" || description == "canceled"
-    }
-
-    private func imageRequest(for url: URL) -> ImageRequest {
-        ArtworkImageRequest.resized(url: url, size: size.cgSize, priority: imagePriority)
     }
 }
 

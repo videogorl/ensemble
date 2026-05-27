@@ -332,6 +332,7 @@ public struct SearchView: View {
                 }
                 .padding(.vertical)
             }
+            .foregroundScrollActivity()
             .onAppear {
                 // Reset dragging state when view appears/reappears to prevent stuck transparency
                 pinnedVM.draggingPin = nil
@@ -715,6 +716,7 @@ public struct SearchView: View {
             }
             .padding(.vertical)
         }
+        .foregroundScrollActivity()
     }
 
     @ViewBuilder

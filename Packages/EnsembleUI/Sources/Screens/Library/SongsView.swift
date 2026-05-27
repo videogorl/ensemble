@@ -70,13 +70,13 @@ public struct SongsView: View {
             Divider()
 
             Button {
-                nowPlayingVM.shufflePlay(tracks: libraryVM.filteredTracks)
+                nowPlayingVM.shufflePlay(tracks: trackSnapshot.tracks)
             } label: {
                 Label("Shuffle All", systemImage: EnsembleDesign.Icon.shuffle)
             }
 
             Button {
-                nowPlayingVM.play(tracks: libraryVM.filteredTracks)
+                nowPlayingVM.play(tracks: trackSnapshot.tracks)
             } label: {
                 Label("Play All", systemImage: EnsembleDesign.Icon.play)
             }
@@ -93,9 +93,9 @@ public struct SongsView: View {
 
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.tracks.isEmpty {
+            if trackSnapshot.phase != .idle && !trackSnapshot.hasVisibleContent {
                 loadingView
-            } else if libraryVM.tracks.isEmpty {
+            } else if !trackSnapshot.hasVisibleContent {
                 emptyView
             } else if isStageFlowActive {
                 landscapeAlbumStageFlowView
@@ -119,7 +119,7 @@ public struct SongsView: View {
         }
         .profileToolbar()
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.tracks.isEmpty && !isStageFlowActive) {
+            EnsembleBrowseToolbar(isVisible: trackSnapshot.hasVisibleContent && !isStageFlowActive) {
                 songsFilterButton
                 songsMoreMenu
             }
@@ -133,14 +133,14 @@ public struct SongsView: View {
         .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
-        .onReceive(libraryVM.$filteredTracks) { tracks in
-            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: tracks)
+        .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
+            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: snapshot.tracks)
             if rebuiltAlbums != cachedStageFlowAlbums {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
         }
         .onAppear {
-            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: libraryVM.filteredTracks)
+            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: trackSnapshot.tracks)
             if rebuiltAlbums != cachedStageFlowAlbums {
                 cachedStageFlowAlbums = rebuiltAlbums
             }
@@ -148,10 +148,14 @@ public struct SongsView: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.tracksFilterOptions,
-                availableGenres: libraryVM.availableTrackGenres,
+                availableGenres: trackSnapshot.availableGenres,
                 showGenreFilter: true
             )
         }
+    }
+
+    private var trackSnapshot: TrackBrowseSnapshot {
+        libraryVM.trackBrowseSnapshot
     }
 
     /// StageFlow carousel for landscape mode. MainTabView owns rotation and
@@ -236,7 +240,7 @@ public struct SongsView: View {
             } else {
                 #if os(iOS)
                     SongsTrackListHost(
-                        tracks: libraryVM.filteredTracks,
+                        tracks: trackSnapshot.tracks,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
@@ -259,14 +263,14 @@ public struct SongsView: View {
 
     private var songsGenreChipBar: some View {
         GenreFilterHeader(
-            availableGenres: libraryVM.availableTrackGenres,
+            availableGenres: trackSnapshot.availableGenres,
             selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
         )
     }
 
     private var songsGenreChipTableHeader: AnyView? {
-        guard !libraryVM.availableTrackGenres.isEmpty else { return nil }
+        guard !trackSnapshot.availableGenres.isEmpty else { return nil }
         return AnyView(songsGenreChipBar)
     }
 
@@ -320,7 +324,7 @@ public struct SongsView: View {
 
     private func largeScreenFlatSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
         SongsTrackListHost(
-            tracks: libraryVM.filteredTracks,
+            tracks: trackSnapshot.tracks,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
@@ -343,7 +347,7 @@ public struct SongsView: View {
     }
 
     private var largeScreenTrackSections: [NativeTrackListSection] {
-        libraryVM.trackSections.map { section in
+        trackSnapshot.sections.map { section in
             NativeTrackListSection(
                 id: section.letter,
                 title: section.letter,
@@ -407,13 +411,14 @@ public struct SongsView: View {
     }
 
     private func playTrack(_ track: Track) {
-        if let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
-            nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: globalIndex)
+        let tracks = trackSnapshot.tracks
+        if let globalIndex = tracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
+            nowPlayingVM.play(tracks: tracks, startingAt: globalIndex)
         }
     }
 
     private func playAvailableTrack(_ track: Track) {
-        guard let globalIndex = libraryVM.filteredTracks.firstIndex(where: { $0.sourceScopedID == track.sourceScopedID }) else {
+        guard let globalIndex = trackSnapshot.tracks.firstIndex(where: { $0.sourceScopedID == track.sourceScopedID }) else {
             return
         }
 
@@ -435,7 +440,7 @@ public struct SongsView: View {
             return
         }
 
-        nowPlayingVM.play(tracks: libraryVM.filteredTracks, startingAt: index)
+        nowPlayingVM.play(tracks: trackSnapshot.tracks, startingAt: index)
     }
 
     /// Non-indexed table backend used by non-phone platforms.
@@ -444,7 +449,7 @@ public struct SongsView: View {
             EmptyView()
         #else
             SongsTrackListHost(
-                tracks: libraryVM.filteredTracks,
+                tracks: trackSnapshot.tracks,
                 currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,

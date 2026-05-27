@@ -28,7 +28,7 @@ public struct GenresView: View {
     }
 
     private var filteredGenres: [Genre] {
-        let sorted = libraryVM.sortedGenres
+        let sorted = genreSnapshot.genres.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         guard !searchText.isEmpty else { return sorted }
         return sorted.filter { genre in
             genre.title.localizedCaseInsensitiveContains(searchText)
@@ -37,9 +37,9 @@ public struct GenresView: View {
 
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.genres.isEmpty {
+            if genreSnapshot.phase != .idle && !genreSnapshot.hasVisibleContent {
                 loadingView
-            } else if libraryVM.genres.isEmpty {
+            } else if !genreSnapshot.hasVisibleContent {
                 emptyView
             } else {
                 rootContent
@@ -58,6 +58,10 @@ public struct GenresView: View {
             await libraryVM.refreshFromServer()
         }
         .profileToolbar()
+    }
+
+    private var genreSnapshot: GenreBrowseSnapshot {
+        libraryVM.genreBrowseSnapshot
     }
 
     @ViewBuilder
@@ -154,6 +158,7 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -175,6 +180,7 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -276,7 +282,7 @@ struct GenreDetailContentView: View {
     }
 
     private func tracks(for genre: Genre) -> [Track] {
-        libraryVM.filteredTracks.filter { track in
+        libraryVM.trackBrowseSnapshot.tracks.filter { track in
             track.genres.contains { $0.caseInsensitiveCompare(genre.title) == .orderedSame }
         }
     }

@@ -20,8 +20,12 @@ public struct AlbumsView: View {
     
     // Get unique artist names for filter
     private var availableArtists: [String] {
-        let artists = libraryVM.albums.compactMap { $0.artistName }
+        let artists = albumSnapshot.albums.compactMap { $0.artistName }
         return Array(Set(artists))
+    }
+
+    private var albumSnapshot: AlbumBrowseSnapshot {
+        libraryVM.albumBrowseSnapshot
     }
 
     private var albumFilterButton: some View {
@@ -62,9 +66,9 @@ public struct AlbumsView: View {
 
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.albums.isEmpty {
+            if albumSnapshot.phase != .idle && !albumSnapshot.hasVisibleContent {
                 loadingView
-            } else if libraryVM.albums.isEmpty {
+            } else if !albumSnapshot.hasVisibleContent {
                 emptyView
             } else if isStageFlowActive {
                 stageFlowView
@@ -101,7 +105,7 @@ public struct AlbumsView: View {
             FilterSheet(
                 filterOptions: $libraryVM.albumsFilterOptions,
                 availableArtists: availableArtists,
-                availableGenres: libraryVM.availableAlbumGenres,
+                availableGenres: albumSnapshot.availableGenres,
                 showYearFilter: true,
                 showArtistFilter: true,
                 showGenreFilter: true,
@@ -115,7 +119,7 @@ public struct AlbumsView: View {
     }
 
     private var isBrowseToolbarVisible: Bool {
-        !libraryVM.albums.isEmpty &&
+        albumSnapshot.hasVisibleContent &&
         !isStageFlowActive &&
         navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
         !navigationCoordinator.isRouteTransitionActive(for: .albums)
@@ -163,7 +167,7 @@ public struct AlbumsView: View {
 
                         if isSortIndexed {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.albumSections) { section in
+                                ForEach(albumSnapshot.sections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         AlbumGrid(
                                             albums: section.albums,
@@ -176,7 +180,7 @@ public struct AlbumsView: View {
                             .padding(.vertical)
                         } else {
                             AlbumGrid(
-                                albums: libraryVM.filteredAlbums,
+                                albums: albumSnapshot.albums,
                                 nowPlayingVM: nowPlayingVM
                             )
                                 .padding(.vertical)
@@ -185,9 +189,9 @@ public struct AlbumsView: View {
                 }
                 .miniPlayerBottomSpacing()
                 .libraryScrollIndexOverlay {
-                    if isSortIndexed && !libraryVM.filteredAlbums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
+                    if isSortIndexed && !albumSnapshot.albums.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
                         ScrollIndex(
-                            letters: libraryVM.albumSections.map { $0.letter },
+                            letters: albumSnapshot.sections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -195,6 +199,7 @@ public struct AlbumsView: View {
                         )
                     }
                 }
+                .foregroundScrollActivity()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -202,7 +207,7 @@ public struct AlbumsView: View {
 
     private var stageFlowView: some View {
         StageFlowView(
-            items: libraryVM.filteredAlbums,
+            items: albumSnapshot.albums,
             nowPlayingVM: nowPlayingVM,
             itemView: { album in
                 StageFlowItemView(album: album)
@@ -241,7 +246,7 @@ public struct AlbumsView: View {
 
     private var albumGenreChipBar: some View {
         GenreFilterHeader(
-            availableGenres: libraryVM.availableAlbumGenres,
+            availableGenres: albumSnapshot.availableGenres,
             selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
         )

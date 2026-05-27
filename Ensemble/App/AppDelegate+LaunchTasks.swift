@@ -93,6 +93,12 @@ extension AppDelegate {
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
             }
 
+            let foregroundWorkScheduler = DependencyContainer.shared.foregroundWorkScheduler
+            guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
+                AppLogger.debug("📱 AppDelegate: Siri media index/context refresh skipped because foreground work is unavailable")
+                return
+            }
+
             // Refresh system media context and Spotlight from the shared media index.
             await DependencyContainer.shared.systemMediaIntegrationService.updateMediaUserContext()
             await DependencyContainer.shared.systemMediaIntegrationService.refreshSpotlightIndex()
@@ -142,6 +148,10 @@ extension AppDelegate {
                     DependencyContainer.shared.syncCoordinator,
                     DependencyContainer.shared.foregroundWorkScheduler
                 )
+            }
+            guard await foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
+                AppLogger.debug("📱 AppDelegate: Startup sync skipped because foreground work is unavailable")
+                return
             }
             await MainActor.run {
                 foregroundWorkScheduler.setStartupSyncInFlight(true)

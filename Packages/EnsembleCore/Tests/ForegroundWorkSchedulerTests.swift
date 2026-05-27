@@ -79,6 +79,33 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         XCTAssertTrue(didRun)
     }
 
+    func testStartupSyncWaitsForScrollingToBecomeIdleOnConstrainedDevice() async {
+        var now = Date(timeIntervalSinceReferenceDate: 200)
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: true,
+                idleDelay: 1.5,
+                pollingInterval: 0.01
+            ),
+            now: { now }
+        )
+        scheduler.clearLaunchState()
+        scheduler.beginInteraction(.scrolling)
+
+        var didRun = false
+        let task = Task { @MainActor in
+            didRun = await scheduler.waitUntilAllowed(.startupSync, policy: .idleOnly)
+        }
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertFalse(didRun)
+
+        scheduler.endInteraction(.scrolling)
+        now.addTimeInterval(1.6)
+        await task.value
+        XCTAssertTrue(didRun)
+    }
+
     func testIdleOnlyWorkReturnsFalseWhenForegroundInactive() async {
         let scheduler = ForegroundWorkScheduler(
             configuration: ForegroundWorkSchedulerConfiguration(

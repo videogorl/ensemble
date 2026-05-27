@@ -80,6 +80,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let customIsPinned: ((Set<String>) -> Bool)?
 
     @State private var artworkImage: PlatformImage?
+    @State private var blurredArtworkImage: PlatformImage?
     @State private var currentLoadPath: String?
     @State private var headerArtworkRetryToken = 0
     @State private var showFilterSheet = false
@@ -175,7 +176,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showToolbarTitle: $showToolbarTitle
         )
         .artworkBackedToolbarBleed()
-        .legacyNavigationBarHiddenUntilScrolled(showArtwork && !showToolbarTitle)
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
@@ -261,6 +261,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             headerData.artworkPath ?? "",
             headerData.ratingKey ?? "",
             String(headerArtworkRetryToken)
+        ].joined(separator: "|")
+    }
+
+    private var headerArtworkContinuityIdentity: String {
+        [
+            headerData.sourceKey ?? "",
+            headerData.artworkPath ?? "",
+            headerData.ratingKey ?? ""
         ].joined(separator: "|")
     }
 
@@ -734,6 +742,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var baseContent: some View {
         MediaDetailSurface(
             artworkImage: artworkImage,
+            preBlurredArtworkImage: blurredArtworkImage,
+            artworkContinuityIdentity: headerArtworkContinuityIdentity,
             contentBleedsUnderTopChrome: true,
             contentBleedsUnderBottomChrome: true
         ) {
@@ -785,6 +795,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             await MainActor.run {
                 currentLoadPath = nil
                 artworkImage = nil
+                blurredArtworkImage = nil
             }
             return
         }
@@ -793,17 +804,26 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadArtworkImage(path: String, sourceKey: String?) async {
-        let shouldSkip = await MainActor.run {
-            if self.currentLoadPath == path, self.artworkImage != nil {
-                return true
-            }
+        let existingImage = await MainActor.run {
             if self.currentLoadPath != path {
                 self.artworkImage = nil
+                self.blurredArtworkImage = nil
             }
             self.currentLoadPath = path
-            return false
+            return self.artworkImage
         }
-        guard !shouldSkip else { return }
+
+        if let existingImage {
+            let alreadyHasBlur = await MainActor.run { self.blurredArtworkImage != nil }
+            guard !alreadyHasBlur else { return }
+            let blurredImage = await ArtworkImageResolver.preBlurredImage(for: existingImage)
+            await MainActor.run {
+                if self.currentLoadPath == path {
+                    self.blurredArtworkImage = blurredImage
+                }
+            }
+            return
+        }
 
         let retryDelays: [UInt64] = [
             0,
@@ -818,38 +838,36 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             guard await isCurrentArtworkLoad(path: path) else { return }
 
-            guard let url = await deps.artworkLoader.artworkURLAsync(
-                for: path,
+            let descriptor = ArtworkResolutionDescriptor(
+                path: path,
                 sourceKey: sourceKey,
                 ratingKey: headerData.ratingKey,
                 fallbackPath: nil,  // No fallback for album/artist/playlist detail views
                 fallbackRatingKey: nil,
-                size: 600
+                size: 600,
+                priority: .high
+            )
+
+            guard let resolved = await ArtworkImageResolver.resolvedImage(
+                for: descriptor,
+                artworkLoader: deps.artworkLoader
             ) else {
                 continue
             }
 
-            let request = ArtworkImageRequest.resized(url: url, size: 600, priority: .high)
-
-            // Try synchronous cache lookup first.
-            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                await MainActor.run {
-                    if self.currentLoadPath == path {
-                        self.artworkImage = cachedImage.image
-                    }
+            await MainActor.run {
+                if self.currentLoadPath == path {
+                    self.artworkImage = resolved.image
                 }
-                return
             }
 
-            // Load asynchronously if not cached.
-            if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-                await MainActor.run {
-                    if self.currentLoadPath == path {
-                        self.artworkImage = uiImage
-                    }
+            let blurredImage = await ArtworkImageResolver.preBlurredImage(for: resolved.image)
+            await MainActor.run {
+                if self.currentLoadPath == path {
+                    self.blurredArtworkImage = blurredImage
                 }
-                return
             }
+            return
         }
     }
 

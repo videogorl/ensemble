@@ -13,7 +13,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Background refresh routes through `BackgroundRefreshCoordinator`, not transient UI view models.
 - WebSocket library/update/download events accelerate refresh and sync. Debounce, in-flight guards, cooldowns, polling timers, and foreground refresh remain fallback paths.
 - Source cleanup is destructive and must stay outside UI view models. Removed/disabled sources should clean caches, lyrics, artwork, offline targets, downloads, and stale rows through the owning cleanup services.
-- Siri media index and context refresh are part of freshness work where relevant and must stay source-scoped. Defer this work while the device is known offline and route Spotlight/Siri indexing through foreground idle budgeting so launch, navigation, Now Playing gestures, share sheets, and audio-critical windows remain responsive on constrained devices.
+- Siri media index, media context refresh, and automatic startup sync are freshness work where relevant and must stay source-scoped. Defer this work while the device is known offline and route startup sync plus Spotlight/Siri indexing through foreground idle budgeting so launch, scrolling, navigation, Now Playing gestures, share sheets, and audio-critical windows remain responsive on constrained devices.
 
 ## Owners
 
@@ -31,7 +31,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 
 - Use `HomeHubLoader` or `BackgroundRefreshCoordinator` for Feed refresh. Do not create `HomeViewModel` only to refresh background data.
 - Keep cached rows visible during refresh after a screen has shown content; mark stale/loading locally rather than blanking the surface.
-- Feed, playlist, artist, album, and library browse refreshes should publish committed snapshots atomically. Degraded empty/partial reloads should preserve the current visible snapshot until bootstrap is settled and the repository confirms the empty state is authoritative.
+- Feed, playlist, artist, album, track, genre, and library browse refreshes should publish committed snapshots atomically. Degraded empty/partial reloads should preserve the current visible snapshot until bootstrap is settled and the repository confirms the empty state is authoritative.
 - Filter cached source rows against enabled sources before publishing browse state.
 - Mood browse rows are display categories keyed by normalized title. Plex mood keys are library-local, so merge duplicate mood titles across sources for display and carry per-source mood keys when available. Mood detail pages should use the cached per-source key first and only refetch/resolve the current library's mood key when cached metadata is missing or stale.
 - Keep WebSocket event handling idempotent and safe to miss.
