@@ -262,7 +262,102 @@ extension View {
     func artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
         toolbarMaterialBleed(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect)
     }
+
+    /// Hides the legacy iOS 15 navigation bar while artwork-backed detail
+    /// surfaces are at their top edge. iOS 16+ uses native toolbar background
+    /// APIs instead so route animations and Liquid Glass behavior stay native.
+    func legacyNavigationBarHiddenUntilScrolled(_ isHidden: Bool) -> some View {
+        modifier(LegacyNavigationBarHiddenUntilScrolledModifier(isHidden: isHidden))
+    }
 }
+
+private struct LegacyNavigationBarHiddenUntilScrolledModifier: ViewModifier {
+    let isHidden: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            content
+        } else {
+            content
+                .navigationBarHidden(isHidden)
+                .background(LegacyNavigationBarVisibilityConfigurator(isHidden: isHidden))
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+#if os(iOS)
+private struct LegacyNavigationBarVisibilityConfigurator: UIViewRepresentable {
+    let isHidden: Bool
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.isHidden = true
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        if #available(iOS 16.0, *) {
+            return
+        }
+        uiView.isNavigationBarHidden = isHidden
+        uiView.updateVisibility()
+    }
+
+    final class ProbeView: UIView {
+        var isNavigationBarHidden = false
+        private var lastAppliedState: Bool?
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if #available(iOS 16.0, *) {
+                return
+            }
+            if window != nil {
+                updateVisibility()
+            }
+        }
+
+        func updateVisibility() {
+            if #available(iOS 16.0, *) {
+                return
+            }
+            guard lastAppliedState != isNavigationBarHidden else { return }
+            guard let navigationController = findNavigationController() else { return }
+
+            lastAppliedState = isNavigationBarHidden
+            navigationController.setNavigationBarHidden(isNavigationBarHidden, animated: true)
+        }
+
+        override func willMove(toWindow newWindow: UIWindow?) {
+            super.willMove(toWindow: newWindow)
+            if #available(iOS 16.0, *) {
+                return
+            }
+            if newWindow == nil, let navigationController = findNavigationController() {
+                navigationController.setNavigationBarHidden(false, animated: false)
+                lastAppliedState = nil
+            }
+        }
+
+        private func findNavigationController() -> UINavigationController? {
+            var responder: UIResponder? = self
+            while let next = responder?.next {
+                if let navigationController = next as? UINavigationController {
+                    return navigationController
+                }
+                responder = next
+            }
+            return nil
+        }
+    }
+}
+#endif
 
 private struct ToolbarMaterialBackgroundModifier: ViewModifier {
     @ViewBuilder

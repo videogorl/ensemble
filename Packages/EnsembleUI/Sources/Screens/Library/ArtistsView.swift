@@ -653,6 +653,7 @@ public struct ArtistDetailView: View {
             }
         }
         .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarBackground)
+        .legacyNavigationBarHiddenUntilScrolled(!showToolbarBackground)
         .miniPlayerBottomSpacing()
         .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
             if shouldShowBackground != showToolbarBackground {
@@ -1461,7 +1462,8 @@ public struct ArtistDetailView: View {
 
             AlbumGrid(
                 albums: detailAlbums,
-                nowPlayingVM: nowPlayingVM
+                nowPlayingVM: nowPlayingVM,
+                navigationStyle: .nativeDestination
             )
         }
     }
@@ -1501,7 +1503,8 @@ public struct ArtistDetailView: View {
             if !albums.isEmpty {
                 AlbumGrid(
                     albums: albums,
-                    nowPlayingVM: nowPlayingVM
+                    nowPlayingVM: nowPlayingVM,
+                    navigationStyle: .nativeDestination
                 )
             }
 

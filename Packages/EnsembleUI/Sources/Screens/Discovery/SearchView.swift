@@ -721,23 +721,23 @@ public struct SearchView: View {
     private func searchResultSection(for section: SearchSection) -> some View {
         switch section {
         case .artists:
-            if !viewModel.artistResults.isEmpty {
+            if !viewModel.displayArtistResults.isEmpty {
                 compactSection(
                     title: "Artists",
-                    count: viewModel.artistResults.count,
-                    items: Array(viewModel.artistResults.prefix(5))
-                ) { artist in
+                    count: viewModel.displayArtistResults.count,
+                    items: Array(viewModel.displayArtistResults.prefix(5))
+                ) { displayArtist in
                     NavigationLink {
-                        ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
                     } label: {
-                        CompactArtistRow(artist: artist)
+                        CompactArtistRow(displayArtist: displayArtist)
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture().onEnded {
                         handleSearchResultNavigation()
                     })
                     .contextMenu {
-                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
                     }
                 }
             }

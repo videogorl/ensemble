@@ -134,10 +134,16 @@ public struct AlbumCard: View {
 
 // MARK: - Album Grid
 
+public enum AlbumGridNavigationStyle: Equatable {
+    case routeOwned
+    case nativeDestination
+}
+
 public struct AlbumGrid: View {
     let albums: [Album]
     let nowPlayingVM: NowPlayingViewModel
     let onAlbumTap: ((Album) -> Void)?
+    let navigationStyle: AlbumGridNavigationStyle
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
 
@@ -151,12 +157,14 @@ public struct AlbumGrid: View {
     public init(
         albums: [Album],
         nowPlayingVM: NowPlayingViewModel,
+        navigationStyle: AlbumGridNavigationStyle = .routeOwned,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
         onAlbumTap: ((Album) -> Void)? = nil
     ) {
         self.albums = albums
         self.nowPlayingVM = nowPlayingVM
+        self.navigationStyle = navigationStyle
         self.layout = layout
         self.horizontalPadding = horizontalPadding
         self.onAlbumTap = onAlbumTap
@@ -176,7 +184,9 @@ public struct AlbumGrid: View {
                         albumContextMenu(for: album)
                     }
                 } else {
-                    if #available(iOS 16.0, macOS 13.0, *) {
+                    if navigationStyle == .nativeDestination {
+                        nativeAlbumLink(album)
+                    } else if #available(iOS 16.0, macOS 13.0, *) {
                         navigationCoordinator.routeLink(to: .albumDetail(album)) {
                             AlbumCard(album: album, layout: layout)
                         }
@@ -234,6 +244,19 @@ public struct AlbumGrid: View {
             if let album = pendingAlbumDeletion {
                 Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
             }
+        }
+    }
+
+    private func nativeAlbumLink(_ album: Album) -> some View {
+        NavigationLink {
+            AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+        } label: {
+            AlbumCard(album: album, layout: layout)
+        }
+        .simultaneousGesture(TapGesture().onEnded(markRouteInteraction))
+        .buttonStyle(.plain)
+        .contextMenu {
+            albumContextMenu(for: album)
         }
     }
 

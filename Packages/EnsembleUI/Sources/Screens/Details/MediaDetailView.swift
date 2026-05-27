@@ -175,6 +175,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showToolbarTitle: $showToolbarTitle
         )
         .artworkBackedToolbarBleed()
+        .legacyNavigationBarHiddenUntilScrolled(showArtwork && !showToolbarTitle)
         // Native track lists manage their own bottom inset so rows can scroll
         // behind the floating mini player without shrinking the table host.
         .trackListRuntimeObservation(
@@ -738,6 +739,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         ) {
             detailContent
         }
+        .coordinateSpace(name: "mediaDetailScroll")
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         .navigationTitle("")
         #if os(iOS)

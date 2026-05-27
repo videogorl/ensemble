@@ -7,24 +7,37 @@ import SwiftUI
 // MARK: - Compact Artist Row
 
 public struct CompactArtistRow: View {
-    let artist: Artist
+    let displayArtist: DisplayArtist
 
     public init(artist: Artist) {
-        self.artist = artist
+        self.displayArtist = .single(artist)
+    }
+
+    public init(displayArtist: DisplayArtist) {
+        self.displayArtist = displayArtist
     }
 
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(
-                artist: artist,
+                artist: displayArtist.primaryArtist,
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
             )
 
-            Text(artist.name)
-                .font(EnsembleDesign.Typography.rowPrimary)
-                .lineLimit(1)
-                .foregroundColor(EnsembleDesign.Color.primaryText)
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
+                Text(displayArtist.name)
+                    .font(EnsembleDesign.Typography.rowPrimary)
+                    .lineLimit(1)
+                    .foregroundColor(EnsembleDesign.Color.primaryText)
+
+                if displayArtist.isMerged {
+                    Text("\(displayArtist.artists.count) sources")
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .lineLimit(1)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+            }
 
             Spacer()
 

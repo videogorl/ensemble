@@ -38,6 +38,7 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var recentSearches: [String] = []
     @Published public private(set) var trackResults: [Track] = []
     @Published public private(set) var artistResults: [Artist] = []
+    @Published public private(set) var displayArtistResults: [DisplayArtist] = []
     @Published public private(set) var albumResults: [Album] = []
     @Published public private(set) var playlistResults: [Playlist] = []
     @Published public private(set) var orderedSections: [SearchSection] = []
@@ -162,6 +163,7 @@ public final class SearchViewModel: ObservableObject {
             unfilteredPlaylistResults = []
             trackResults = []
             artistResults = []
+            displayArtistResults = []
             albumResults = []
             playlistResults = []
             orderedSections = []
@@ -291,7 +293,7 @@ public final class SearchViewModel: ObservableObject {
     /// Orders search sections with artists always first, then remaining by match count
     private func determineSearchSectionOrder() {
         var sectionCounts: [(section: SearchSection, count: Int)] = [
-            (.artists, artistResults.count),
+            (.artists, displayArtistResults.count),
             (.albums, albumResults.count),
             (.playlists, playlistResults.count),
             (.songs, trackResults.count)
@@ -324,6 +326,7 @@ public final class SearchViewModel: ObservableObject {
             unfilteredArtistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
+        displayArtistResults = DisplayArtist.group(artistResults)
         albumResults = Self.filterAlbumsForVisibility(
             unfilteredAlbumResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
@@ -431,6 +434,7 @@ public final class SearchViewModel: ObservableObject {
         unfilteredPlaylistResults = []
         trackResults = []
         artistResults = []
+        displayArtistResults = []
         albumResults = []
         playlistResults = []
         orderedSections = []
