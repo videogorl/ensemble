@@ -492,14 +492,6 @@ private struct DisplayArtistDetailView: View {
 
 // MARK: - Artist Detail View
 
-private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
-    static var defaultValue = false
-
-    static func reduce(value: inout Bool, nextValue: () -> Bool) {
-        value = value || nextValue()
-    }
-}
-
 private struct StableArtistArtworkImage<Fallback: View>: View {
     let image: PlatformImage?
     @ViewBuilder let fallback: () -> Fallback
@@ -583,7 +575,6 @@ public struct ArtistDetailView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var showToolbarTitle = false
-    @State private var showToolbarBackground = false
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
@@ -628,8 +619,7 @@ public struct ArtistDetailView: View {
         .collapsingToolbarTitle(
             viewModel.artist.name,
             threshold: 0,
-            showToolbarTitle: $showToolbarTitle,
-            showToolbarBackground: $showToolbarBackground
+            showToolbarTitle: $showToolbarTitle
         )
         .navigationTitle("")
         #if os(iOS)
@@ -640,15 +630,8 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
         }
-        .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarBackground)
+        .artworkBackedToolbarBleed()
         .miniPlayerBottomSpacing()
-        .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
-            if shouldShowBackground != showToolbarBackground {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showToolbarBackground = shouldShowBackground
-                }
-            }
-        }
         .trackListRuntimeObservation(
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
@@ -1141,7 +1124,6 @@ public struct ArtistDetailView: View {
             let globalMinY = geometry.frame(in: .global).minY
             let overscroll = max(globalMinY, 0)
             let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
-            let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
             ZStack(alignment: .bottom) {
                 // The resolved hero image fills the banner directly; ArtworkView is
@@ -1203,22 +1185,9 @@ public struct ArtistDetailView: View {
                 .padding()
                 .offset(y: -overscroll)
             }
-            .preference(
-                key: ArtistHeroToolbarBackgroundPreferenceKey.self,
-                value: isHeroPastToolbar
-            )
         }
         .frame(height: compactHeroHeight(containerWidth: containerWidth))
         .frame(maxWidth: .infinity)
-    }
-
-    private static func isHeroPastToolbar(_ geometry: GeometryProxy) -> Bool {
-        #if os(iOS)
-        let revealY = geometry.safeAreaInsets.top + EnsembleScaffold.ArtistDetail.toolbarChromeRevealHeight
-        return geometry.frame(in: .global).maxY <= revealY
-        #else
-        return false
-        #endif
     }
 
     // MARK: - Action Buttons
