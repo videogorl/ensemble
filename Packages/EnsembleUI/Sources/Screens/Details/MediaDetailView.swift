@@ -882,13 +882,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func subtitleView(alignment: TextAlignment) -> some View {
         if let subtitle = headerData.subtitle {
             if let artistId = headerData.artistRatingKey {
-                NavigationLink {
-                    ArtistDetailLoader(
-                        artistId: artistId,
-                        artistSourceKey: headerData.sourceKey,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                } label: {
+                navigationCoordinator.routeLink(
+                    to: .artist(id: artistId, sourceKey: headerData.sourceKey)
+                ) {
                     Text(subtitle)
                         .font(EnsembleDesign.Typography.detailSubtitle)
                         .foregroundColor(EnsembleDesign.Color.accent)

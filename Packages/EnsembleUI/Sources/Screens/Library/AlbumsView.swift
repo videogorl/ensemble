@@ -267,6 +267,7 @@ public struct AlbumDetailView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album
@@ -591,9 +592,7 @@ public struct AlbumDetailView: View {
 
     @ViewBuilder
     private func albumCardLink(for scrollAlbum: Album) -> some View {
-        NavigationLink {
-            AlbumDetailView(album: scrollAlbum, nowPlayingVM: nowPlayingVM)
-        } label: {
+        navigationCoordinator.routeLink(to: .albumDetail(scrollAlbum)) {
             AlbumCard(album: scrollAlbum, layout: .shelf)
         }
         .buttonStyle(.plain)

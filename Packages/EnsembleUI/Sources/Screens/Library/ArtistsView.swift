@@ -406,34 +406,12 @@ private struct DisplayArtistGrid: View {
 
     @ViewBuilder
     private func artistCardLink(_ displayArtist: DisplayArtist) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id), in: .artists) {
-                artistCardContent(displayArtist)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                artistContextMenu(for: displayArtist)
-            }
-        } else {
-            NavigationLink {
-                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-            } label: {
-                artistCardContent(displayArtist)
-            }
-            .simultaneousGesture(TapGesture().onEnded(markRouteInteraction))
-            .buttonStyle(.plain)
-            .contextMenu {
-                artistContextMenu(for: displayArtist)
-            }
+        navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id)) {
+            artistCardContent(displayArtist)
         }
-    }
-
-    private func markRouteInteraction() {
-        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
-        scheduler.beginInteraction(.navigating)
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            scheduler.endInteraction(.navigating)
+        .buttonStyle(.plain)
+        .contextMenu {
+            artistContextMenu(for: displayArtist)
         }
     }
 
@@ -1427,9 +1405,9 @@ public struct ArtistDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists, id: \.sourceScopedID) { artist in
-                        NavigationLink {
-                            ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                        } label: {
+                        navigationCoordinator.routeLink(
+                            to: .artist(id: artist.id, sourceKey: artist.sourceCompositeKey)
+                        ) {
                             similarArtistCard(artist: artist)
                         }
                         .buttonStyle(.plain)
@@ -1467,8 +1445,7 @@ public struct ArtistDetailView: View {
 
             AlbumGrid(
                 albums: detailAlbums,
-                nowPlayingVM: nowPlayingVM,
-                navigationStyle: .nativeDestination
+                nowPlayingVM: nowPlayingVM
             )
         }
     }
@@ -1508,8 +1485,7 @@ public struct ArtistDetailView: View {
             if !albums.isEmpty {
                 AlbumGrid(
                     albums: albums,
-                    nowPlayingVM: nowPlayingVM,
-                    navigationStyle: .nativeDestination
+                    nowPlayingVM: nowPlayingVM
                 )
             }
 

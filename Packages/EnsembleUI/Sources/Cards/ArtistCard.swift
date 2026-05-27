@@ -76,6 +76,7 @@ public struct ArtistGrid: View {
     let nowPlayingVM: NowPlayingViewModel
     let onArtistTap: ((Artist) -> Void)?
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let columns = EnsembleScaffold.MediaCard.personGridColumns
@@ -93,20 +94,26 @@ public struct ArtistGrid: View {
     public var body: some View {
         LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
             ForEach(artists, id: \.sourceScopedID) { artist in
-                NavigationLink {
-                    ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                } label: {
-                    artistCardContent(artist)
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    ArtistActionsContextMenu(
-                        artist: artist,
-                        nowPlayingVM: nowPlayingVM,
-                        onEditMetadata: {
-                            presentArtistMetadataEditor(artist)
-                        }
-                    )
+                if let onArtistTap {
+                    Button {
+                        onArtistTap(artist)
+                    } label: {
+                        artistCardContent(artist)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        artistContextMenu(for: artist)
+                    }
+                } else {
+                    navigationCoordinator.routeLink(
+                        to: .artist(id: artist.id, sourceKey: artist.sourceCompositeKey)
+                    ) {
+                        artistCardContent(artist)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        artistContextMenu(for: artist)
+                    }
                 }
             }
         }
@@ -138,6 +145,17 @@ public struct ArtistGrid: View {
                 .foregroundColor(EnsembleDesign.Color.primaryText)
         }
         .frame(width: ArtworkSize.thumbnail.cgSize.width)
+    }
+
+    @ViewBuilder
+    private func artistContextMenu(for artist: Artist) -> some View {
+        ArtistActionsContextMenu(
+            artist: artist,
+            nowPlayingVM: nowPlayingVM,
+            onEditMetadata: {
+                presentArtistMetadataEditor(artist)
+            }
+        )
     }
 
     private func presentArtistMetadataEditor(_ artist: Artist) {
