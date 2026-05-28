@@ -23,7 +23,7 @@ final class PlaybackSettingsObserver {
     ) {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
-        self.lastKnownVisualizerEnabled = defaults.bool(forKey: Self.visualizerEnabledKey)
+        self.lastKnownVisualizerEnabled = Self.visualizerEnabled(in: defaults)
         self.lastObservedStreamingQuality = defaults.string(forKey: Self.streamingQualityKey) ?? Self.defaultStreamingQuality
     }
 
@@ -60,7 +60,7 @@ final class PlaybackSettingsObserver {
     }
 
     func pollChanges() -> PlaybackSettingsChange {
-        let visualizerEnabled = defaults.bool(forKey: Self.visualizerEnabledKey)
+        let visualizerEnabled = Self.visualizerEnabled(in: defaults)
         let changedVisualizerEnabled: Bool?
         if visualizerEnabled != lastKnownVisualizerEnabled {
             lastKnownVisualizerEnabled = visualizerEnabled
@@ -84,7 +84,15 @@ final class PlaybackSettingsObserver {
         )
     }
 
+    static func visualizerEnabled(in defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: visualizerEnabledKey) != nil else {
+            return defaultVisualizerEnabled
+        }
+        return defaults.bool(forKey: visualizerEnabledKey)
+    }
+
     private static let visualizerEnabledKey = "auroraVisualizationEnabled"
+    private static let defaultVisualizerEnabled = true
     private static let streamingQualityKey = "streamingQuality"
     private static let defaultStreamingQuality = "high"
 }

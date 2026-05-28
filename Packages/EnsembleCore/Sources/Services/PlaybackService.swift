@@ -1131,11 +1131,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
     /// to avoid @MainActor isolation issues with SettingsManager).
-    /// Uses .bool(forKey:) which correctly bridges NSNumber on iOS 15,
-    /// avoiding the object(forKey:) as? Bool cast which can fail and
-    /// default to true even when the user disabled the visualizer.
+    /// Treats an unset value as enabled so startup analysis does not wait for
+    /// SettingsManager to register defaults.
     private var isVisualizerEnabled: Bool {
-        let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+        let enabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
         EnsembleLogger.debug("[FrequencyAnalysis] isVisualizerEnabled check: \(enabled)")
         return enabled
     }

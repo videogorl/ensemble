@@ -856,7 +856,7 @@ public final class DependencyContainer: @unchecked Sendable {
     private func wirePlaybackCallbacks() {
         playbackService.setMutationCoordinator(mutationCoordinator)
         if let audioAnalyzer = audioAnalyzer as? FrequencyAnalysisService {
-            audioAnalyzer.visualizationEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+            audioAnalyzer.visualizationEnabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
         }
     }
 

@@ -16,8 +16,8 @@ public struct AuroraVisualizationView: View {
 
     // MARK: - State
 
-    @State private var playbackState: PlaybackState = .stopped
-    @State private var isVisible: Bool = false
+    @State private var playbackState: PlaybackState
+    @State private var isVisible: Bool = true
     @State private var isMounted = false
     @State private var isSettlingToZero = false
     @State private var settleToZeroTask: Task<Void, Never>?
@@ -87,6 +87,7 @@ public struct AuroraVisualizationView: View {
         self.expandsBeyondBounds = expandsBeyondBounds
         self.activeContentMaxWidth = activeContentMaxWidth
         self.isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+        self._playbackState = State(initialValue: playbackService.playbackState)
     }
 
     // MARK: - Body
@@ -284,10 +285,10 @@ public struct AuroraVisualizationView: View {
         case .playing, .buffering, .loading, .paused:
             newVisibility = true
         case .stopped, .failed:
-            newVisibility = false
-            // Reset band state so stale values don't flash when playback resumes
+            newVisibility = true
+            // Reset band state so stale values don't flash while the idle surface remains mounted.
             bandProcessor.cancelPending()
-            renderModel.reset()
+            renderModel.resetToIdle()
         }
 
         guard newVisibility != isVisible else { return }
@@ -824,7 +825,7 @@ final class AuroraBandShapeProcessor: ObservableObject {
 /// do not invalidate root-level view trees on every update.
 final class AuroraRenderModel: ObservableObject {
     private let bandCount = 24
-    private var smoothedBands = Array(repeating: 0.0, count: 24)
+    private var smoothedBands = AuroraRenderModel.idleBands
     private var peakHolds = Array(repeating: 0.0, count: 24)
     private var peakDecayTimers = Array(repeating: 0.0, count: 24)
 
@@ -836,8 +837,8 @@ final class AuroraRenderModel: ObservableObject {
         smoothedBands.allSatisfy { $0 < 0.01 }
     }
 
-    func reset() {
-        smoothedBands = Array(repeating: 0.0, count: bandCount)
+    func resetToIdle() {
+        smoothedBands = Self.idleBands
         peakHolds = Array(repeating: 0.0, count: bandCount)
         peakDecayTimers = Array(repeating: 0.0, count: bandCount)
     }
@@ -872,5 +873,11 @@ final class AuroraRenderModel: ObservableObject {
                 )
             }
         }
+    }
+
+    private static let idleBands: [Double] = (0..<24).map { index in
+        let normalizedPosition = Double(index) / 23.0
+        let centerLift = exp(-pow(normalizedPosition - 0.5, 2) / (2 * pow(0.34, 2)))
+        return 0.035 + centerLift * 0.075
     }
 }
