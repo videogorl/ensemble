@@ -9,6 +9,10 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.artists)
         )
         XCTAssertEqual(
+            SidebarSelection.selection(for: .displayGenre(id: "merged:rock"), fallback: nil),
+            .library(.genres)
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .artistDetail(Self.artist()), fallback: nil),
             .library(.artists)
         )

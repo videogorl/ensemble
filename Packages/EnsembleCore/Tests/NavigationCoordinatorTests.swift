@@ -5,6 +5,7 @@ import Combine
 final class NavigationCoordinatorTests: XCTestCase {
     func testDestinationTargetTabs() {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayArtist(id: "merged:ajr")), .artists)
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayGenre(id: "merged:rock")), .genres)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .artistDetail(Self.artist())), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .artist(id: "artist")), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .album(id: "album")), .albums)

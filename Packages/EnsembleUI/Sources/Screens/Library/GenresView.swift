@@ -102,7 +102,12 @@ public struct GenresView: View {
                 genreSelectionList
             },
             detail: { genre in
-                GenreDetailContentView(libraryVM: libraryVM, genre: genre, nowPlayingVM: nowPlayingVM)
+                GenreDetailContentView(
+                    libraryVM: libraryVM,
+                    genre: genre,
+                    nowPlayingVM: nowPlayingVM,
+                    presentationStyle: .splitPane
+                )
                     .id(genre.id)
             },
             placeholder: {
@@ -142,9 +147,7 @@ public struct GenresView: View {
     private var genreListView: some View {
         List {
             ForEach(filteredGenres) { genre in
-                Button {
-                    setSelectedGenre(genre)
-                } label: {
+                navigationCoordinator.routeLink(to: .displayGenre(id: genre.id)) {
                     genreRow(genre)
                 }
                 .buttonStyle(.plain)
@@ -190,18 +193,38 @@ public struct GenresView: View {
 }
 
 struct GenreDetailContentView: View {
+    enum PresentationStyle {
+        case navigationPage
+        case splitPane
+    }
+
     @ObservedObject var libraryVM: LibraryViewModel
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
+    let presentationStyle: PresentationStyle
+
+    init(
+        libraryVM: LibraryViewModel,
+        genre: DisplayGenre,
+        nowPlayingVM: NowPlayingViewModel,
+        presentationStyle: PresentationStyle = .splitPane
+    ) {
+        self.libraryVM = libraryVM
+        self.genre = genre
+        self.nowPlayingVM = nowPlayingVM
+        self.presentationStyle = presentationStyle
+    }
 
     var body: some View {
         let albums = albums(for: genre)
         let sections = albumSections(from: albums)
 
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            genreHeader(albums: albums)
+            if presentationStyle == .splitPane {
+                genreHeader(albums: albums)
 
-            Divider()
+                Divider()
+            }
 
             if albums.isEmpty {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Albums")
@@ -209,6 +232,7 @@ struct GenreDetailContentView: View {
                 genreAlbumList(sections: sections)
             }
         }
+        .navigationTitle(genre.title)
     }
 
     private func genreHeader(albums: [Album]) -> some View {
@@ -241,7 +265,7 @@ struct GenreDetailContentView: View {
                     .padding(.vertical)
                 }
                 .miniPlayerBottomSpacing()
-                .libraryScrollIndexOverlay {
+                .libraryScrollIndexOverlay(.centered) {
                     if !sections.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
                         ScrollIndex(
                             letters: sections.map { $0.letter },
