@@ -24,6 +24,7 @@ extension View {
 struct MediaDetailSurface<Content: View>: View {
     let artworkImage: PlatformImage?
     let preBlurredArtworkImage: PlatformImage?
+    let preBlurredArtworkCacheKey: String?
     let artworkContinuityIdentity: String?
     let backgroundHeight: CGFloat
     let darkLegibilityOpacity: Double
@@ -35,6 +36,7 @@ struct MediaDetailSurface<Content: View>: View {
     init(
         artworkImage: PlatformImage?,
         preBlurredArtworkImage: PlatformImage? = nil,
+        preBlurredArtworkCacheKey: String? = nil,
         artworkContinuityIdentity: String? = nil,
         backgroundHeight: CGFloat = 500,
         darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
@@ -45,6 +47,7 @@ struct MediaDetailSurface<Content: View>: View {
     ) {
         self.artworkImage = artworkImage
         self.preBlurredArtworkImage = preBlurredArtworkImage
+        self.preBlurredArtworkCacheKey = preBlurredArtworkCacheKey
         self.artworkContinuityIdentity = artworkContinuityIdentity
         self.backgroundHeight = backgroundHeight
         self.darkLegibilityOpacity = darkLegibilityOpacity
@@ -62,6 +65,7 @@ struct MediaDetailSurface<Content: View>: View {
             ArtworkDetailBackground(
                 image: artworkImage,
                 preBlurredImage: preBlurredArtworkImage,
+                preBlurredCacheKey: preBlurredArtworkCacheKey,
                 height: backgroundHeight,
                 darkLegibilityOpacity: darkLegibilityOpacity,
                 lightLegibilityOpacity: lightLegibilityOpacity,

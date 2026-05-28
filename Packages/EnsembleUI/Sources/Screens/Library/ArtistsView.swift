@@ -607,6 +607,7 @@ public struct ArtistDetailView: View {
         MediaDetailSurface(
             artworkImage: artworkImage,
             preBlurredArtworkImage: blurredArtworkImage,
+            preBlurredArtworkCacheKey: artistBackdropBlurCacheKey,
             artworkContinuityIdentity: displayArtist.id,
             backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
             darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
@@ -780,6 +781,10 @@ public struct ArtistDetailView: View {
     private var artworkArtist: Artist {
         displayArtist.artworkArtist
     }
+
+    private var artistBackdropBlurCacheKey: String? {
+        "\(artworkDescriptor(for: artworkArtist).stableBlurCacheKey)|artist-hero"
+    }
     
     private func loadArtworkImage() async {
         let artist = artworkArtist
@@ -798,21 +803,7 @@ public struct ArtistDetailView: View {
             artworkLoadUnavailable = false
         }
 
-        let descriptor = ArtworkResolutionDescriptor(
-            path: artist.thumbPath,
-            sourceKey: artist.sourceCompositeKey,
-            ratingKey: artist.id,
-            fallbackPath: artist.fallbackThumbPath,
-            fallbackRatingKey: artist.fallbackRatingKey,
-            cacheHint: PersistentArtworkCacheHint(artist: artist),
-            fallbackCacheHint: PersistentArtworkCacheHint(
-                ratingKey: artist.fallbackRatingKey,
-                kind: .album,
-                sourcePath: artist.fallbackThumbPath
-            ),
-            size: 600,
-            priority: .high
-        )
+        let descriptor = artworkDescriptor(for: artist)
 
         guard let resolved = await ArtworkImageResolver.resolvedImage(
             for: descriptor,
@@ -840,6 +831,24 @@ public struct ArtistDetailView: View {
             blurredArtworkImage = blurredImage
             artistArtworkContinuity.lastBlurredImage = blurredImage
         }
+    }
+
+    private func artworkDescriptor(for artist: Artist) -> ArtworkResolutionDescriptor {
+        ArtworkResolutionDescriptor(
+            path: artist.thumbPath,
+            sourceKey: artist.sourceCompositeKey,
+            ratingKey: artist.id,
+            fallbackPath: artist.fallbackThumbPath,
+            fallbackRatingKey: artist.fallbackRatingKey,
+            cacheHint: PersistentArtworkCacheHint(artist: artist),
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: artist.fallbackRatingKey,
+                kind: .album,
+                sourcePath: artist.fallbackThumbPath
+            ),
+            size: 600,
+            priority: .high
+        )
     }
 
     private var displayedArtworkImage: PlatformImage? {

@@ -8,6 +8,7 @@ import SwiftUI
 public struct BlurredArtworkBackground: View {
     let image: PlatformImage?
     let preBlurredImage: PlatformImage?
+    let preBlurredCacheKey: String?
     let blurRadius: CGFloat
     let contrast: Double
     let saturation: Double
@@ -24,6 +25,7 @@ public struct BlurredArtworkBackground: View {
     public init(
         image: PlatformImage?,
         preBlurredImage: PlatformImage? = nil,
+        preBlurredCacheKey: String? = nil,
         blurRadius: CGFloat = 80,
         contrast: Double = 2.0,
         saturation: Double = 1.9,
@@ -38,6 +40,7 @@ public struct BlurredArtworkBackground: View {
     ) {
         self.image = image
         self.preBlurredImage = preBlurredImage
+        self.preBlurredCacheKey = preBlurredCacheKey
         self.blurRadius = blurRadius
         self.contrast = contrast
         self.saturation = saturation
@@ -70,7 +73,9 @@ public struct BlurredArtworkBackground: View {
                 // Guard against zero-sized geometry during layout/animation passes.
                 // Artwork blur is always bitmap-backed: either supplied by the caller
                 // or generated once through ArtworkBlurRenderer and cached.
-                let displayImage = preBlurredImage ?? cachedBlurredImage
+                let displayImage = preBlurredImage
+                    ?? cachedBlurredImage
+                    ?? cachedStableBlurredImage
 
                 if let displayImage = displayImage, geometry.size.width > 0, geometry.size.height > 0 {
                     #if os(macOS)
@@ -120,13 +125,26 @@ public struct BlurredArtworkBackground: View {
         if let preBlurredImage {
             return "pre:\(ObjectIdentifier(preBlurredImage).hashValue)"
         }
+        if let preBlurredCacheKey {
+            return "stable:\(preBlurredCacheKey)"
+        }
         return image.map { "source:\(ObjectIdentifier($0).hashValue)" } ?? "nil"
+    }
+
+    private var cachedStableBlurredImage: PlatformImage? {
+        guard let preBlurredCacheKey else { return nil }
+        return ArtworkBlurRenderer.cachedBlurredImage(forStableKey: preBlurredCacheKey)
     }
 
     @MainActor
     private func updateCachedBlurredImage() async {
         if let preBlurredImage {
             cachedBlurredImage = preBlurredImage
+            return
+        }
+
+        if let cached = cachedStableBlurredImage {
+            cachedBlurredImage = cached
             return
         }
 

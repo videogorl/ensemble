@@ -9,6 +9,7 @@ public struct HomeView: View {
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @State private var profileBackgroundImage: PlatformImage?
     @State private var profileBackgroundBlurredImage: PlatformImage?
+    @State private var profileBackgroundCacheKey: String?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -27,6 +28,7 @@ public struct HomeView: View {
             ArtworkDetailBackground(
                 image: profileBackgroundImage,
                 preBlurredImage: profileBackgroundBlurredImage,
+                preBlurredCacheKey: profileBackgroundStableCacheKey,
                 height: profileBackgroundHeight
             )
                 .allowsHitTesting(false)
@@ -110,6 +112,11 @@ public struct HomeView: View {
         let imagePath = profileStore.profile.profileImagePath ?? "none"
         let modified = profileStore.profile.lastModified.timeIntervalSinceReferenceDate
         return "\(imagePath)-\(modified)"
+    }
+
+    private var profileBackgroundStableCacheKey: String? {
+        guard let url = profileStore.profileImageURL else { return nil }
+        return "profile|\(url.path)|\(profileBackgroundReloadKey)"
     }
 
     private var profileBackgroundHeight: CGFloat {
@@ -235,8 +242,11 @@ public struct HomeView: View {
         guard let url = profileStore.profileImageURL else {
             profileBackgroundImage = nil
             profileBackgroundBlurredImage = nil
+            profileBackgroundCacheKey = nil
             return
         }
+
+        let cacheKey = "profile|\(url.path)|\(reloadKey)"
 
         #if canImport(UIKit)
             let image = UIImage(contentsOfFile: url.path)
@@ -244,16 +254,27 @@ public struct HomeView: View {
             let image = NSImage(contentsOf: url)
         #endif
 
-        profileBackgroundImage = image
-        profileBackgroundBlurredImage = nil
+        if profileBackgroundCacheKey == cacheKey {
+            if let image {
+                profileBackgroundImage = image
+            }
+            if profileBackgroundBlurredImage != nil {
+                return
+            }
+        } else {
+            profileBackgroundCacheKey = cacheKey
+            profileBackgroundImage = image
+            profileBackgroundBlurredImage = ArtworkBlurRenderer.cachedBlurredImage(forStableKey: cacheKey)
+        }
 
         guard let image else { return }
         let blurredImage = await ArtworkImageResolver.preBlurredImage(
             for: image,
-            cacheKey: "profile|\(url.path)|\(reloadKey)"
+            cacheKey: cacheKey
         )
 
         guard reloadKey == profileBackgroundReloadKey else { return }
+        profileBackgroundCacheKey = cacheKey
         profileBackgroundBlurredImage = blurredImage
     }
 }

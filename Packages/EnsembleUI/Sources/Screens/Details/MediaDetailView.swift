@@ -751,6 +751,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         MediaDetailSurface(
             artworkImage: artworkImage,
             preBlurredArtworkImage: blurredArtworkImage,
+            preBlurredArtworkCacheKey: currentHeaderBlurCacheKey,
             artworkContinuityIdentity: headerArtworkContinuityIdentity,
             contentBleedsUnderTopChrome: true,
             contentBleedsUnderBottomChrome: true
@@ -925,6 +926,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             path,
             "600"
         ].joined(separator: "|")
+    }
+
+    private var currentHeaderBlurCacheKey: String? {
+        guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
+        return headerBlurCacheKey(path: path)
     }
 
     /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.

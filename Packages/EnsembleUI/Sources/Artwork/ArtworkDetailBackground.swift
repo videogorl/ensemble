@@ -24,6 +24,7 @@ extension EnvironmentValues {
 struct ArtworkDetailBackground: View {
     let image: PlatformImage?
     let preBlurredImage: PlatformImage?
+    let preBlurredCacheKey: String?
     let height: CGFloat
     let darkLegibilityOpacity: Double
     let lightLegibilityOpacity: Double
@@ -38,6 +39,7 @@ struct ArtworkDetailBackground: View {
     init(
         image: PlatformImage?,
         preBlurredImage: PlatformImage? = nil,
+        preBlurredCacheKey: String? = nil,
         height: CGFloat = 500,
         darkLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.darkLegibilityOverlayOpacity,
         lightLegibilityOpacity: Double = EnsembleScaffold.DetailSurface.lightLegibilityOverlayOpacity,
@@ -46,6 +48,7 @@ struct ArtworkDetailBackground: View {
     ) {
         self.image = image
         self.preBlurredImage = preBlurredImage
+        self.preBlurredCacheKey = preBlurredCacheKey
         self.height = height
         self.darkLegibilityOpacity = darkLegibilityOpacity
         self.lightLegibilityOpacity = lightLegibilityOpacity
@@ -60,6 +63,7 @@ struct ArtworkDetailBackground: View {
             BlurredArtworkBackground(
                 image: displayedImage,
                 preBlurredImage: displayedBlurredImage,
+                preBlurredCacheKey: preBlurredCacheKey,
                 topDimming: colorScheme == .dark ? 0.1 : 0.05,
                 bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
                 overlayColor: backgroundOverlayColor,
