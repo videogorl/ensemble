@@ -13,6 +13,10 @@ final class LibraryViewModelGenreBrowseTests: XCTestCase {
                 makeGenre(id: "2", title: "röck", source: "plex:shared:server:2"),
                 makeGenre(id: "3", title: "Jazz", source: "plex:main:server:1")
             ],
+            albums: [
+                makeAlbum(id: "a", title: "Main Album", genres: ["Rock"], source: "plex:main:server:1"),
+                makeAlbum(id: "b", title: "Shared Album", genres: ["röck"], source: "plex:shared:server:2")
+            ],
             with: options
         )
 
@@ -30,6 +34,10 @@ final class LibraryViewModelGenreBrowseTests: XCTestCase {
                 makeGenre(id: "1", title: "Ambient", source: "plex:main:server:1"),
                 makeGenre(id: "2", title: "ambient", source: "plex:shared:server:2")
             ],
+            albums: [
+                makeAlbum(id: "a", title: "Main Album", genres: ["Ambient"], source: "plex:main:server:1"),
+                makeAlbum(id: "b", title: "Shared Album", genres: ["ambient"], source: "plex:shared:server:2")
+            ],
             with: FilterOptions()
         )[0]
 
@@ -40,6 +48,21 @@ final class LibraryViewModelGenreBrowseTests: XCTestCase {
         ]
 
         XCTAssertEqual(albums.filter { displayGenre.matches(album: $0) }.map(\.id), ["a", "b"])
+    }
+
+    func testDisplayGenresOmitsRowsWithoutAlbumBackedGenreMetadata() {
+        let displayGenres = LibraryViewModel.displayGenres(
+            from: [
+                makeGenre(id: "1", title: "Comedy/Spoken", source: "plex:main:server:1"),
+                makeGenre(id: "2", title: "Electronic", source: "plex:main:server:1")
+            ],
+            albums: [
+                makeAlbum(id: "a", title: "Electronic Album", genres: ["Electronic"], source: "plex:main:server:1")
+            ],
+            with: FilterOptions()
+        )
+
+        XCTAssertEqual(displayGenres.map(\.title), ["Electronic"])
     }
 
     private func makeGenre(id: String, title: String, source: String) -> Genre {

@@ -88,11 +88,7 @@ struct NavigationDestinationFactory {
 
     @MainActor
     private static func displayGenre(for id: String, libraryVM: LibraryViewModel) -> DisplayGenre? {
-        if let displayGenre = libraryVM.genreBrowseSnapshot.displayGenres.first(where: { $0.id == id }) {
-            return displayGenre
-        }
-
-        return DisplayGenre.group(libraryVM.genres).first { $0.id == id }
+        libraryVM.immediateGenreBrowseSnapshot.displayGenres.first { $0.id == id }
     }
 }
 

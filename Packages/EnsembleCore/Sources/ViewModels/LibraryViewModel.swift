@@ -105,7 +105,7 @@ public final class LibraryViewModel: ObservableObject {
             return genreBrowseSnapshot
         }
 
-        let displayGenres = Self.displayGenres(from: genres, with: genresFilterOptions)
+        let displayGenres = Self.displayGenres(from: genres, albums: albums, with: genresFilterOptions)
         return GenreBrowseSnapshot(
             displayGenres: displayGenres,
             phase: genreBrowseSnapshot.phase,
@@ -342,10 +342,10 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
-        Publishers.CombineLatest($genres, $genresFilterOptions)
+        Publishers.CombineLatest3($genres, $albums, $genresFilterOptions)
             .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
-            .map { genres, filterOptions -> [DisplayGenre] in
-                LibraryViewModel.displayGenres(from: genres, with: filterOptions)
+            .map { genres, albums, filterOptions -> [DisplayGenre] in
+                LibraryViewModel.displayGenres(from: genres, albums: albums, with: filterOptions)
             }
             .removeDuplicates { old, new in
                 guard old.count == new.count else { return false }
@@ -1178,9 +1178,11 @@ public final class LibraryViewModel: ObservableObject {
         MediaFilterEngine.filterGenres(genres, with: options)
     }
 
-    static func displayGenres(from genres: [Genre], with options: FilterOptions) -> [DisplayGenre] {
+    static func displayGenres(from genres: [Genre], albums: [Album], with options: FilterOptions) -> [DisplayGenre] {
+        let albumGenreTitles = Set(albums.flatMap(\.genres).map(DisplayGenre.normalizedTitle))
         let sorted = Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
-        let filtered = Self.filterGenres(sorted, with: options)
+        let albumBacked = sorted.filter { albumGenreTitles.contains(DisplayGenre.normalizedTitle($0.title)) }
+        let filtered = Self.filterGenres(albumBacked, with: options)
         return DisplayGenre.group(filtered)
     }
 }
