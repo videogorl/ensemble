@@ -19,6 +19,11 @@ struct TrackDownloadRowView: View {
                     ratingKey: row.trackRatingKey,
                     fallbackPath: row.fallbackThumbPath,
                     fallbackRatingKey: row.albumRatingKey,
+                    fallbackCacheHint: PersistentArtworkCacheHint(
+                        ratingKey: row.albumRatingKey,
+                        kind: .album,
+                        sourcePath: row.fallbackThumbPath
+                    ),
                     size: .tiny,
                     cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.UtilityRow.downloadArtworkDimension)
                 )

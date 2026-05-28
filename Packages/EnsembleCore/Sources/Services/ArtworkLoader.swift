@@ -3,12 +3,122 @@ import EnsemblePersistence
 import Foundation
 import Nuke
 
+public struct PersistentArtworkCacheHint: Sendable, Hashable {
+    public enum Kind: String, Sendable, Codable, Hashable {
+        case album
+        case artist
+        case playlist
+
+        public init?(_ pinnedItemType: PinnedItemType) {
+            switch pinnedItemType {
+            case .album:
+                self = .album
+            case .artist:
+                self = .artist
+            case .playlist:
+                self = .playlist
+            }
+        }
+
+        public init?(_ downloadTargetKind: CDOfflineDownloadTarget.Kind) {
+            switch downloadTargetKind {
+            case .album:
+                self = .album
+            case .artist:
+                self = .artist
+            case .playlist:
+                self = .playlist
+            case .library, .favorites:
+                return nil
+            }
+        }
+    }
+
+    public let ratingKey: String
+    public let kind: Kind
+    public let sourcePath: String
+    public let dateModifiedSeconds: Int?
+
+    public init?(
+        ratingKey: String?,
+        kind: Kind,
+        sourcePath: String?,
+        dateModified: Date? = nil
+    ) {
+        self.init(
+            ratingKey: ratingKey,
+            kind: kind,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModified.map { Int($0.timeIntervalSince1970) }
+        )
+    }
+
+    public init?(
+        ratingKey: String?,
+        kind: Kind,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?
+    ) {
+        guard let ratingKey, !ratingKey.isEmpty,
+              let sourcePath, !sourcePath.isEmpty else {
+            return nil
+        }
+
+        self.ratingKey = ratingKey
+        self.kind = kind
+        self.sourcePath = sourcePath
+        self.dateModifiedSeconds = dateModifiedSeconds
+    }
+}
+
+public extension PersistentArtworkCacheHint {
+    init?(album: Album) {
+        self.init(
+            ratingKey: album.id,
+            kind: .album,
+            sourcePath: album.thumbPath,
+            dateModified: album.dateModified
+        )
+    }
+
+    init?(artist: Artist) {
+        self.init(
+            ratingKey: artist.id,
+            kind: .artist,
+            sourcePath: artist.thumbPath,
+            dateModified: artist.dateModified
+        )
+    }
+
+    init?(playlist: Playlist) {
+        self.init(
+            ratingKey: playlist.id,
+            kind: .playlist,
+            sourcePath: playlist.compositePath,
+            dateModified: playlist.dateModified
+        )
+    }
+
+    init?(fallbackAlbumArtworkFor track: Track) {
+        self.init(
+            ratingKey: track.fallbackRatingKey,
+            kind: .album,
+            sourcePath: track.fallbackThumbPath
+        )
+    }
+}
+
 public protocol ArtworkLoaderProtocol {
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int
     func invalidateURLCache() async
+}
+
+public extension ArtworkLoaderProtocol {
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async {}
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
@@ -75,6 +185,22 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
     }
     private let loadStats = ArtworkLoadStats()
+
+    private actor PersistentArtworkCacheTracker {
+        private var inFlight: Set<PersistentArtworkCacheHint> = []
+
+        func begin(_ hint: PersistentArtworkCacheHint) -> Bool {
+            guard !inFlight.contains(hint) else { return false }
+            inFlight.insert(hint)
+            return true
+        }
+
+        func finish(_ hint: PersistentArtworkCacheHint) {
+            inFlight.remove(hint)
+        }
+    }
+
+    private let persistentCacheTracker = PersistentArtworkCacheTracker()
 
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
@@ -200,6 +326,47 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         )
 
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated artwork for ratingKey=\(ratingKey)")
+    }
+
+    public func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async {
+        guard let cacheHint, !url.isFileURL else { return }
+        guard await persistentCacheTracker.begin(cacheHint) else { return }
+
+        let artworkDownloadManager = artworkDownloadManager
+        let tracker = persistentCacheTracker
+        Task.detached(priority: .utility) {
+            defer {
+                Task {
+                    await tracker.finish(cacheHint)
+                }
+            }
+
+            let artworkType = cacheHint.kind.artworkType
+            if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(
+                ratingKey: cacheHint.ratingKey,
+                type: artworkType,
+                sourcePath: cacheHint.sourcePath,
+                dateModifiedSeconds: cacheHint.dateModifiedSeconds
+            ),
+               FileManager.default.fileExists(atPath: localPath) {
+                return
+            }
+
+            do {
+                try await artworkDownloadManager.downloadAndCacheArtwork(
+                    from: url,
+                    identity: ArtworkIdentity(
+                        ratingKey: cacheHint.ratingKey,
+                        type: artworkType,
+                        sourcePath: cacheHint.sourcePath,
+                        dateModifiedSeconds: cacheHint.dateModifiedSeconds
+                    )
+                )
+                EnsembleLogger.debug("🎨 ArtworkLoader: Persisted \(cacheHint.kind.rawValue) artwork for ratingKey=\(cacheHint.ratingKey)")
+            } catch {
+                EnsembleLogger.debug("🎨 ArtworkLoader: Failed to persist \(cacheHint.kind.rawValue) artwork for ratingKey=\(cacheHint.ratingKey): \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Async version for modern Swift concurrency
@@ -490,5 +657,18 @@ public enum ArtworkSize: Int {
 
     public var cgSize: CGSize {
         CGSize(width: rawValue, height: rawValue)
+    }
+}
+
+private extension PersistentArtworkCacheHint.Kind {
+    var artworkType: ArtworkType {
+        switch self {
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        }
     }
 }

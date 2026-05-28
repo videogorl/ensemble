@@ -799,6 +799,12 @@ public struct ArtistDetailView: View {
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
+            cacheHint: PersistentArtworkCacheHint(artist: artist),
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: artist.fallbackRatingKey,
+                kind: .album,
+                sourcePath: artist.fallbackThumbPath
+            ),
             size: 600,
             priority: .high
         )

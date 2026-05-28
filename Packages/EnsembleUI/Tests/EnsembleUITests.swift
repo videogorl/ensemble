@@ -1,6 +1,7 @@
 import XCTest
 @testable import EnsembleUI
 import EnsembleCore
+import EnsemblePersistence
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
@@ -45,6 +46,35 @@ final class EnsembleUITests: XCTestCase {
             EnsembleDesign.Icon.smartMixIconName(modernSymbolSetAvailable: true),
             "circle.dotted.and.circle"
         )
+    }
+
+    func testArtworkResolverSchedulesPersistentCacheHintAfterImageResolution() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL) }
+
+        let hint = PersistentArtworkCacheHint(
+            ratingKey: "album-1",
+            kind: .album,
+            sourcePath: "/library/metadata/album-1/thumb"
+        )
+        let artworkLoader = RecordingArtworkLoader(url: artworkURL)
+        let descriptor = ArtworkResolutionDescriptor(
+            path: "/library/metadata/album-1/thumb",
+            sourceKey: "plex:server:library",
+            ratingKey: "album-1",
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: hint,
+            fallbackCacheHint: nil,
+            size: 44,
+            priority: .high
+        )
+
+        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
+
+        XCTAssertNotNil(resolved)
+        let cacheRequests = await artworkLoader.cacheRequests
+        XCTAssertEqual(cacheRequests, [hint])
     }
 
     func testChordLineSegmentsPreserveManualReturnsBeforeWrapping() {
@@ -748,4 +778,51 @@ private extension Array where Element == MediaMenuSection {
     func role(for actionID: MediaMenuActionID) -> MediaMenuActionDescriptor.Role? {
         flatMap(\.actions).first { $0.id == actionID }?.role
     }
+}
+
+private func makeTemporaryPNG() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+        .appendingPathExtension("png")
+    let data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
+    try data.write(to: url)
+    return url
+}
+
+private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
+    let url: URL?
+    private(set) var cacheRequests: [PersistentArtworkCacheHint?] = []
+
+    init(url: URL?) {
+        self.url = url
+    }
+
+    func artworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        size: Int
+    ) async -> URL? {
+        url
+    }
+
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async {
+        cacheRequests.append(cacheHint)
+    }
+
+    func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int {
+        0
+    }
+
+    func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int {
+        0
+    }
+
+    func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int {
+        0
+    }
+
+    func invalidateURLCache() async {}
 }

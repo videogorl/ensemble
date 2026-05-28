@@ -844,6 +844,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 ratingKey: headerData.ratingKey,
                 fallbackPath: nil,  // No fallback for album/artist/playlist detail views
                 fallbackRatingKey: nil,
+                cacheHint: headerArtworkCacheHint(path: path),
+                fallbackCacheHint: nil,
                 size: 600,
                 priority: .high
             )
@@ -875,6 +877,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         await MainActor.run {
             self.currentLoadPath == path
         }
+    }
+
+    private func headerArtworkCacheHint(path: String) -> PersistentArtworkCacheHint? {
+        guard let mediaType,
+              let kind = PersistentArtworkCacheHint.Kind(mediaType) else {
+            return nil
+        }
+
+        return PersistentArtworkCacheHint(
+            ratingKey: headerData.ratingKey,
+            kind: kind,
+            sourcePath: path
+        )
     }
 
     /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.

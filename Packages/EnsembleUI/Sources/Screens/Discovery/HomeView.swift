@@ -339,6 +339,7 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
+                cacheHint: artworkCacheHint,
                 size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
@@ -386,6 +387,40 @@ struct HubItemCard: View {
             return .artist(id: item.artist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
             return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
+        default:
+            return nil
+        }
+    }
+
+    private var artworkCacheHint: PersistentArtworkCacheHint? {
+        switch item.type {
+        case "album":
+            if let album = item.album {
+                return PersistentArtworkCacheHint(album: album)
+            }
+            return PersistentArtworkCacheHint(
+                ratingKey: item.id,
+                kind: .album,
+                sourcePath: item.thumbPath
+            )
+        case "artist":
+            if let artist = item.artist {
+                return PersistentArtworkCacheHint(artist: artist)
+            }
+            return PersistentArtworkCacheHint(
+                ratingKey: item.id,
+                kind: .artist,
+                sourcePath: item.thumbPath
+            )
+        case "playlist":
+            if let playlist = item.playlist {
+                return PersistentArtworkCacheHint(playlist: playlist)
+            }
+            return PersistentArtworkCacheHint(
+                ratingKey: item.id,
+                kind: .playlist,
+                sourcePath: item.thumbPath
+            )
         default:
             return nil
         }

@@ -8,8 +8,17 @@ struct ArtworkResolutionDescriptor {
     let ratingKey: String?
     let fallbackPath: String?
     let fallbackRatingKey: String?
+    let cacheHint: PersistentArtworkCacheHint?
+    let fallbackCacheHint: PersistentArtworkCacheHint?
     let size: Int
     let priority: ImageRequest.Priority
+
+    var effectiveCacheHint: PersistentArtworkCacheHint? {
+        if let path, !path.isEmpty {
+            return cacheHint
+        }
+        return fallbackCacheHint
+    }
 }
 
 struct ArtworkResolvedImage {
@@ -35,12 +44,14 @@ enum ArtworkImageResolver {
 
         let request = ArtworkImageRequest.resized(url: url, size: descriptor.size, priority: descriptor.priority)
         if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            await artworkLoader.cacheResolvedArtwork(from: url, cacheHint: descriptor.effectiveCacheHint)
             return ArtworkResolvedImage(url: url, image: cachedImage.image)
         }
 
         guard let image = try? await ImagePipeline.shared.image(for: request) else {
             return nil
         }
+        await artworkLoader.cacheResolvedArtwork(from: url, cacheHint: descriptor.effectiveCacheHint)
         return ArtworkResolvedImage(url: url, image: image)
     }
 

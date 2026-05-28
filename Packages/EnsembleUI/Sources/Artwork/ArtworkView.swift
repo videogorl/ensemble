@@ -14,6 +14,8 @@ public struct ArtworkView: View {
     let ratingKey: String?
     let fallbackPath: String?
     let fallbackRatingKey: String?
+    let cacheHint: PersistentArtworkCacheHint?
+    let fallbackCacheHint: PersistentArtworkCacheHint?
     let size: ArtworkSize
     let cornerRadius: CGFloat
     let isResponsive: Bool
@@ -70,6 +72,8 @@ public struct ArtworkView: View {
         ratingKey: String? = nil,
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
+        cacheHint: PersistentArtworkCacheHint? = nil,
+        fallbackCacheHint: PersistentArtworkCacheHint? = nil,
         size: ArtworkSize = .medium,
         cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
@@ -79,6 +83,8 @@ public struct ArtworkView: View {
         self.ratingKey = ratingKey
         self.fallbackPath = fallbackPath
         self.fallbackRatingKey = fallbackRatingKey
+        self.cacheHint = cacheHint
+        self.fallbackCacheHint = fallbackCacheHint
         self.size = size
         self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
@@ -206,6 +212,8 @@ public struct ArtworkView: View {
             ratingKey: ratingKey,
             fallbackPath: fallbackPath,
             fallbackRatingKey: fallbackRatingKey,
+            cacheHint: cacheHint,
+            fallbackCacheHint: fallbackCacheHint,
             size: size.rawValue,
             priority: imagePriority
         )
@@ -260,6 +268,8 @@ public extension ArtworkView {
             ratingKey: track.id,
             fallbackPath: track.fallbackThumbPath,
             fallbackRatingKey: track.fallbackRatingKey,
+            cacheHint: nil,
+            fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive
@@ -267,7 +277,17 @@ public extension ArtworkView {
     }
 
     init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
-        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, fallbackPath: nil, fallbackRatingKey: nil, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
+        self.init(
+            path: album.thumbPath,
+            sourceKey: album.sourceCompositeKey,
+            ratingKey: album.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: PersistentArtworkCacheHint(album: album),
+            size: size,
+            cornerRadius: cornerRadius,
+            isResponsive: isResponsive
+        )
     }
 
     init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
@@ -277,6 +297,12 @@ public extension ArtworkView {
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
+            cacheHint: PersistentArtworkCacheHint(artist: artist),
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: artist.fallbackRatingKey,
+                kind: .album,
+                sourcePath: artist.fallbackThumbPath
+            ),
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive
@@ -284,6 +310,14 @@ public extension ArtworkView {
     }
 
     init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
-        self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, ratingKey: playlist.id, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
+        self.init(
+            path: playlist.compositePath,
+            sourceKey: playlist.sourceCompositeKey,
+            ratingKey: playlist.id,
+            cacheHint: PersistentArtworkCacheHint(playlist: playlist),
+            size: size,
+            cornerRadius: cornerRadius,
+            isResponsive: isResponsive
+        )
     }
 }

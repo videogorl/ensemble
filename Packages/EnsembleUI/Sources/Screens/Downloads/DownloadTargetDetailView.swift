@@ -1,6 +1,5 @@
 import EnsembleCore
 import EnsemblePersistence
-import Nuke
 import SwiftUI
 
 /// Detail view for a single offline download target showing per-track download status.
@@ -77,6 +76,7 @@ public struct DownloadTargetDetailView: View {
                     path: viewModel.thumbPath,
                     sourceKey: viewModel.summary.sourceCompositeKey,
                     ratingKey: viewModel.summary.ratingKey,
+                    cacheHint: targetArtworkCacheHint,
                     size: .medium,
                     cornerRadius: ArtworkCornerRadius.square(for: ArtworkSize.medium)
                 )
@@ -381,29 +381,35 @@ public struct DownloadTargetDetailView: View {
 
     private func loadArtworkImage(path: String) async {
         currentArtworkPath = path
-        guard let url = await deps.artworkLoader.artworkURLAsync(
-            for: path,
+        let descriptor = ArtworkResolutionDescriptor(
+            path: path,
             sourceKey: viewModel.summary.sourceCompositeKey,
             ratingKey: viewModel.summary.ratingKey,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            size: 600
+            cacheHint: targetArtworkCacheHint,
+            fallbackCacheHint: nil,
+            size: 600,
+            priority: .high
+        )
+
+        guard let resolved = await ArtworkImageResolver.resolvedImage(
+            for: descriptor,
+            artworkLoader: deps.artworkLoader
         ) else { return }
 
-        let request = ArtworkImageRequest.resized(url: url, size: 600, priority: .high)
-
-        // Synchronous cache hit
-        if let cached = ImagePipeline.shared.cache.cachedImage(for: request) {
-            artworkImage = cached.image
-            return
+        withAnimation(.easeInOut(duration: 0.2)) {
+            artworkImage = resolved.image
         }
+    }
 
-        // Async load
-        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                artworkImage = uiImage
-            }
-        }
+    private var targetArtworkCacheHint: PersistentArtworkCacheHint? {
+        guard let kind = PersistentArtworkCacheHint.Kind(viewModel.summary.kind) else { return nil }
+        return PersistentArtworkCacheHint(
+            ratingKey: viewModel.summary.ratingKey,
+            kind: kind,
+            sourcePath: viewModel.thumbPath
+        )
     }
 
     // MARK: - Navigation to Original Item

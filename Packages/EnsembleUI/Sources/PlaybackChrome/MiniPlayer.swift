@@ -295,6 +295,11 @@ private struct MiniPlayerTrackInfo: View {
                     ratingKey: track.id,
                     fallbackPath: track.fallbackThumbPath,
                     fallbackRatingKey: track.fallbackRatingKey,
+                    fallbackCacheHint: PersistentArtworkCacheHint(
+                        ratingKey: track.fallbackRatingKey,
+                        kind: .album,
+                        sourcePath: track.fallbackThumbPath
+                    ),
                     size: .tiny,
                     cornerRadius: artworkCornerRadius,
                     isResponsive: true

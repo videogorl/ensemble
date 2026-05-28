@@ -1555,9 +1555,7 @@ public struct SidebarView: View {
                 Text(displayPlaylist.title)
             } icon: {
                 ArtworkView(
-                    path: displayPlaylist.primaryPlaylist.compositePath,
-                    sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
-                    ratingKey: displayPlaylist.primaryPlaylist.id,
+                    playlist: displayPlaylist.primaryPlaylist,
                     size: .tiny,
                     cornerRadius: ArtworkCornerRadius.square(for: artworkDimension),
                     isResponsive: true
@@ -1605,6 +1603,11 @@ public struct SidebarView: View {
                 path: playlist.compositePath,
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
+                cacheHint: PersistentArtworkCacheHint(
+                    ratingKey: playlist.playlistID,
+                    kind: .playlist,
+                    sourcePath: playlist.compositePath
+                ),
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension),
                 isResponsive: true
