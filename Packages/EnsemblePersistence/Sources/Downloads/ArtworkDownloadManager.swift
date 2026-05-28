@@ -73,6 +73,7 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
     func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
     func getLocalArtworkPath(ratingKey: String, type: ArtworkType, sourcePath: String?, dateModifiedSeconds: Int?) async throws -> String?
+    func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String?
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
     func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws
     func deleteArtwork(ratingKey: String, type: ArtworkType)
@@ -96,6 +97,13 @@ public extension ArtworkDownloadManagerProtocol {
 
     func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws {
         try await downloadAndCacheArtwork(from: url, ratingKey: identity.ratingKey, type: identity.type)
+    }
+
+    func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String? {
+        let localPath = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
+            .path
+        return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
     }
 }
 
@@ -169,6 +177,22 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         guard storedIdentity.ratingKey == ratingKey,
               storedIdentity.type == type,
               storedIdentity.matches(sourcePath: sourcePath, dateModifiedSeconds: dateModifiedSeconds) else {
+            return nil
+        }
+
+        return localURL.path
+    }
+
+    public func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String? {
+        let localURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
+        guard FileManager.default.fileExists(atPath: localURL.path) else { return nil }
+
+        guard let storedIdentity = Self.readIdentity(for: localURL) else {
+            return localURL.path
+        }
+
+        guard storedIdentity.ratingKey == ratingKey,
+              storedIdentity.type == type else {
             return nil
         }
 

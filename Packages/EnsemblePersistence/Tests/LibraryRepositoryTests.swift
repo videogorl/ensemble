@@ -308,6 +308,49 @@ final class LibraryRepositoryTests: XCTestCase {
         }
     }
 
+    func testArtworkDownloadManagerReturnsStaleIdentityForOfflineFallback() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "stale-\(UUID().uuidString)"
+        let artworkURL = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_album.jpg")
+        let identityURL = artworkURL
+            .deletingPathExtension()
+            .appendingPathExtension("identity.json")
+        defer {
+            try? FileManager.default.removeItem(at: artworkURL)
+            try? FileManager.default.removeItem(at: identityURL)
+        }
+
+        try Data("image".utf8).write(to: artworkURL)
+        let identity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb/1000",
+            dateModifiedSeconds: 1_000
+        )
+        try JSONEncoder().encode(identity).write(to: identityURL)
+
+        let strictPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb/1001",
+            dateModifiedSeconds: 1_001
+        )
+        XCTAssertNil(strictPath)
+
+        let stalePath = try await manager.getStaleLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album
+        )
+        XCTAssertEqual(stalePath, artworkURL.path)
+
+        let wrongTypePath = try await manager.getStaleLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .artist
+        )
+        XCTAssertNil(wrongTypePath)
+    }
+
     func testArtworkDownloadManagerAcceptsLegacyArtworkWithoutIdentitySidecar() async throws {
         let manager = ArtworkDownloadManager()
         let ratingKey = "legacy-\(UUID().uuidString)"

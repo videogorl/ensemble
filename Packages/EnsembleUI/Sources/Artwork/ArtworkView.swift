@@ -238,20 +238,19 @@ public struct ArtworkView: View {
 
     @MainActor
     private func scheduleServerAvailabilityRetry() {
-        guard artworkURL?.isFileURL != true else { return }
-        guard resolvedImage == nil || artworkURL == nil else { return }
+        guard resolvedImage == nil || artworkURL == nil || artworkURL?.isFileURL == true else { return }
 
         serverRetryTask?.cancel()
         let jitter = UInt64(abs(loadID.hashValue % 700)) * 1_000_000
         serverRetryTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000 + jitter)
-            guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
+            guard !Task.isCancelled else { return }
             let canRetry = await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.visibleArtworkRetry, policy: .immediate)
             guard canRetry else {
                 serverRetryTask = nil
                 return
             }
-            guard !Task.isCancelled, artworkURL?.isFileURL != true else { return }
+            guard !Task.isCancelled else { return }
             invalidationToken += 1
             serverRetryTask = nil
         }
