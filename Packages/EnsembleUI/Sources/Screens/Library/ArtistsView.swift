@@ -107,7 +107,7 @@ public struct ArtistsView: View {
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
-        libraryVM.artistBrowseSnapshot
+        libraryVM.immediateArtistBrowseSnapshot
     }
 
     private var isBrowseToolbarVisible: Bool {

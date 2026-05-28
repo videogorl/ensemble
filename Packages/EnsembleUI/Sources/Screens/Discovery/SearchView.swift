@@ -27,6 +27,7 @@ public struct SearchView: View {
     @State private var isSearchTabActive = false
     @State private var isSearchPathEmpty = true
     @State private var isMoreSearchRootActive = false
+    @State private var preservesSearchChromeDuringTabExit = false
     @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.dependencies) private var deps
 
@@ -101,6 +102,11 @@ public struct SearchView: View {
         )
         .onReceive(navigationCoordinator.$selectedTab) { tab in
             let isActive = tab == .search
+            if isSearchTabActive && !isActive {
+                preservesSearchChromeDuringTabExit = true
+            } else if isActive {
+                preservesSearchChromeDuringTabExit = false
+            }
             if isActive != isSearchTabActive { isSearchTabActive = isActive }
         }
         .onReceive(navigationCoordinator.$searchPath) { path in
@@ -125,6 +131,14 @@ public struct SearchView: View {
             isSearchTabActive = navigationCoordinator.selectedTab == .search
             isSearchPathEmpty = navigationCoordinator.searchPath.isEmpty
             isMoreSearchRootActive = Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
+        }
+        // Keep the search controller mounted through the native tab handoff so
+        // Search does not relayout under the outgoing tab transition frame.
+        .task(id: preservesSearchChromeDuringTabExit) {
+            guard preservesSearchChromeDuringTabExit else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled, !isSearchTabActive else { return }
+            preservesSearchChromeDuringTabExit = false
         }
         .navigationTitle("Search")
         // Search chrome belongs to the active root Search screen only.
@@ -163,7 +177,7 @@ public struct SearchView: View {
     private var shouldShowSearchChrome: Bool {
         // Search chrome should be visible on both the dedicated Search tab root
         // and the More -> Search root destination.
-        (isSearchTabActive && isSearchPathEmpty) || isMoreSearchRootActive
+        ((isSearchTabActive || preservesSearchChromeDuringTabExit) && isSearchPathEmpty) || isMoreSearchRootActive
     }
 
     private static func isMoreSearchRootPath(

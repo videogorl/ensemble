@@ -154,7 +154,7 @@ public struct SongsView: View {
     }
 
     private var trackSnapshot: TrackBrowseSnapshot {
-        libraryVM.trackBrowseSnapshot
+        libraryVM.immediateTrackBrowseSnapshot
     }
 
     /// StageFlow carousel for landscape mode. MainTabView owns rotation and
