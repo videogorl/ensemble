@@ -67,7 +67,8 @@ struct ArtworkDetailBackground: View {
                 topDimming: colorScheme == .dark ? 0.1 : 0.05,
                 bottomDimming: colorScheme == .dark ? 0.4 : 0.3,
                 overlayColor: backgroundOverlayColor,
-                animatesImageChanges: false
+                animatesImageChanges: false,
+                fadesInDelayedImages: true
             )
 
             // Keep the same legibility wash used by MediaDetailView across all
