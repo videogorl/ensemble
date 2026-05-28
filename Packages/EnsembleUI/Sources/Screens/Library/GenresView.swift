@@ -60,7 +60,7 @@ public struct GenresView: View {
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
-        libraryVM.genreBrowseSnapshot
+        libraryVM.immediateGenreBrowseSnapshot
     }
 
     @ViewBuilder

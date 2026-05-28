@@ -49,6 +49,71 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var albumBrowseSnapshot: AlbumBrowseSnapshot = .empty
     @Published public private(set) var genreBrowseSnapshot: GenreBrowseSnapshot = .empty
 
+    /// Synchronous first-frame fallback while debounced display pipelines catch up after cache loads.
+    public var immediateTrackBrowseSnapshot: TrackBrowseSnapshot {
+        guard !trackBrowseSnapshot.hasVisibleContent, !tracks.isEmpty else {
+            return trackBrowseSnapshot
+        }
+
+        let sorted = Self.sortTracks(tracks, by: trackSortOption, direction: tracksFilterOptions.sortDirection)
+        let filtered = Self.filterTracks(sorted, with: tracksFilterOptions)
+        return TrackBrowseSnapshot(
+            tracks: filtered,
+            sections: Self.computeTrackSections(from: filtered),
+            availableGenres: availableTrackGenres,
+            phase: trackBrowseSnapshot.phase,
+            isShowingStaleSnapshot: trackBrowseSnapshot.isShowingStaleSnapshot
+        )
+    }
+
+    public var immediateArtistBrowseSnapshot: ArtistBrowseSnapshot {
+        guard !artistBrowseSnapshot.hasVisibleContent, !artists.isEmpty else {
+            return artistBrowseSnapshot
+        }
+
+        let sorted = Self.sortArtists(artists, by: artistSortOption, direction: artistsFilterOptions.sortDirection)
+        let filtered = Self.filterArtists(sorted, with: artistsFilterOptions, albums: albums)
+        let displayArtists = DisplayArtist.group(filtered)
+        return ArtistBrowseSnapshot(
+            artists: filtered,
+            displayArtists: displayArtists,
+            sections: artistSortOption == .name ? Self.computeArtistSections(from: displayArtists) : [],
+            availableGenres: availableArtistGenres,
+            phase: artistBrowseSnapshot.phase,
+            isShowingStaleSnapshot: artistBrowseSnapshot.isShowingStaleSnapshot
+        )
+    }
+
+    public var immediateAlbumBrowseSnapshot: AlbumBrowseSnapshot {
+        guard !albumBrowseSnapshot.hasVisibleContent, !albums.isEmpty else {
+            return albumBrowseSnapshot
+        }
+
+        let sorted = Self.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection)
+        let filtered = Self.filterAlbums(sorted, with: albumsFilterOptions)
+        return AlbumBrowseSnapshot(
+            albums: filtered,
+            sections: Self.computeAlbumSections(from: filtered, sortOption: albumSortOption),
+            availableGenres: availableAlbumGenres,
+            phase: albumBrowseSnapshot.phase,
+            isShowingStaleSnapshot: albumBrowseSnapshot.isShowingStaleSnapshot
+        )
+    }
+
+    public var immediateGenreBrowseSnapshot: GenreBrowseSnapshot {
+        guard !genreBrowseSnapshot.hasVisibleContent, !genres.isEmpty else {
+            return genreBrowseSnapshot
+        }
+
+        let sorted = Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
+        let filtered = Self.filterGenres(sorted, with: genresFilterOptions)
+        return GenreBrowseSnapshot(
+            genres: filtered,
+            phase: genreBrowseSnapshot.phase,
+            isShowingStaleSnapshot: genreBrowseSnapshot.isShowingStaleSnapshot
+        )
+    }
+
     // Available genres for chip bar filtering (derived from albums/tracks)
     @Published public private(set) var availableAlbumGenres: [String] = []
     @Published public private(set) var availableTrackGenres: [String] = []

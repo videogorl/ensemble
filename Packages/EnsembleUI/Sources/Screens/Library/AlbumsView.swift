@@ -25,7 +25,7 @@ public struct AlbumsView: View {
     }
 
     private var albumSnapshot: AlbumBrowseSnapshot {
-        libraryVM.albumBrowseSnapshot
+        libraryVM.immediateAlbumBrowseSnapshot
     }
 
     private var albumFilterButton: some View {
