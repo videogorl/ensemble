@@ -831,10 +831,14 @@ public struct ArtistDetailView: View {
             artworkImage = heroImage
         }
 
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(for: heroImage)
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+            for: heroImage,
+            cacheKey: "\(resolved.blurCacheKey)|artist-hero"
+        )
         await MainActor.run {
             guard currentArtworkLoadIdentity == loadIdentity else { return }
             blurredArtworkImage = blurredImage
+            artistArtworkContinuity.lastBlurredImage = blurredImage
         }
     }
 

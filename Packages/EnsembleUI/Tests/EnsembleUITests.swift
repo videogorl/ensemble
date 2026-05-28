@@ -3,6 +3,9 @@ import XCTest
 import EnsembleCore
 import EnsemblePersistence
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -75,6 +78,24 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(resolved)
         let cacheRequests = await artworkLoader.cacheRequests
         XCTAssertEqual(cacheRequests, [hint])
+    }
+
+    func testArtworkPreBlurUsesVisibleArtworkSchedulerByDefault() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL) }
+        let image = try XCTUnwrap(makePlatformImage(from: artworkURL))
+        let scheduler = await MainActor.run { RecordingForegroundWorkScheduler() }
+
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+            for: image,
+            cacheKey: "test-visible-blur-\(UUID().uuidString)",
+            scheduler: scheduler
+        )
+
+        XCTAssertNotNil(blurredImage)
+        let waitCalls = await scheduler.waitCalls
+        XCTAssertEqual(waitCalls.map(\.kind), [.visibleArtworkRetry])
+        XCTAssertEqual(waitCalls.map(\.policy), [.immediate])
     }
 
     func testChordLineSegmentsPreserveManualReturnsBeforeWrapping() {
@@ -787,6 +808,38 @@ private func makeTemporaryPNG() throws -> URL {
     let data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
     try data.write(to: url)
     return url
+}
+
+private func makePlatformImage(from url: URL) -> PlatformImage? {
+    #if os(macOS)
+        return NSImage(contentsOf: url)
+    #else
+        return UIImage(contentsOfFile: url.path)
+    #endif
+}
+
+@MainActor
+private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, @unchecked Sendable {
+    struct WaitCall: Equatable {
+        let kind: ForegroundWorkKind
+        let policy: ForegroundWorkPolicy
+    }
+
+    var isIdleForNonessentialWork = true
+    private(set) var waitCalls: [WaitCall] = []
+
+    func beginInteraction(_ state: ForegroundInteractionState) {}
+
+    func endInteraction(_ state: ForegroundInteractionState) {}
+
+    func setStartupSyncInFlight(_ inFlight: Bool) {}
+
+    func setForegroundActive(_ active: Bool) {}
+
+    func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool {
+        waitCalls.append(WaitCall(kind: kind, policy: policy))
+        return true
+    }
 }
 
 private actor RecordingArtworkLoader: ArtworkLoaderProtocol {

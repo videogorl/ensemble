@@ -8,6 +8,7 @@ public struct HomeView: View {
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @State private var profileBackgroundImage: PlatformImage?
+    @State private var profileBackgroundBlurredImage: PlatformImage?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -23,7 +24,11 @@ public struct HomeView: View {
         ZStack(alignment: .top) {
             // Mount the extension-backed background before profile artwork loads
             // so macOS Liquid Glass keeps the same scroll-edge sampling path.
-            ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
+            ArtworkDetailBackground(
+                image: profileBackgroundImage,
+                preBlurredImage: profileBackgroundBlurredImage,
+                height: profileBackgroundHeight
+            )
                 .allowsHitTesting(false)
                 .ignoresSafeArea()
 
@@ -69,7 +74,7 @@ public struct HomeView: View {
             await viewModel.loadHubsIfNeeded()
         }
         .task(id: profileBackgroundReloadKey) {
-            loadProfileBackgroundImage()
+            await loadProfileBackgroundImage(reloadKey: profileBackgroundReloadKey)
         }
         .onAppear {
             viewModel.handleViewVisibilityChange(isVisible: true)
@@ -226,17 +231,30 @@ public struct HomeView: View {
         }
     }
 
-    private func loadProfileBackgroundImage() {
+    private func loadProfileBackgroundImage(reloadKey: String) async {
         guard let url = profileStore.profileImageURL else {
             profileBackgroundImage = nil
+            profileBackgroundBlurredImage = nil
             return
         }
 
         #if canImport(UIKit)
-            profileBackgroundImage = UIImage(contentsOfFile: url.path)
+            let image = UIImage(contentsOfFile: url.path)
         #elseif canImport(AppKit)
-            profileBackgroundImage = NSImage(contentsOf: url)
+            let image = NSImage(contentsOf: url)
         #endif
+
+        profileBackgroundImage = image
+        profileBackgroundBlurredImage = nil
+
+        guard let image else { return }
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+            for: image,
+            cacheKey: "profile|\(url.path)|\(reloadKey)"
+        )
+
+        guard reloadKey == profileBackgroundReloadKey else { return }
+        profileBackgroundBlurredImage = blurredImage
     }
 }
 

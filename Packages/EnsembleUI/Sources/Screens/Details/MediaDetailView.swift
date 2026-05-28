@@ -2,6 +2,14 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
+private struct SendableMediaDetailPlatformImage: @unchecked Sendable {
+    let value: PlatformImage
+
+    init(_ value: PlatformImage) {
+        self.value = value
+    }
+}
+
 // MARK: - Media Header Data
 
 public struct MediaHeaderData {
@@ -804,19 +812,22 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadArtworkImage(path: String, sourceKey: String?) async {
-        let existingImage = await MainActor.run {
+        let existingImage = await MainActor.run { () -> SendableMediaDetailPlatformImage? in
             if self.currentLoadPath != path {
                 self.artworkImage = nil
                 self.blurredArtworkImage = nil
             }
             self.currentLoadPath = path
-            return self.artworkImage
-        }
+            return self.artworkImage.map(SendableMediaDetailPlatformImage.init)
+        }?.value
 
         if let existingImage {
             let alreadyHasBlur = await MainActor.run { self.blurredArtworkImage != nil }
             guard !alreadyHasBlur else { return }
-            let blurredImage = await ArtworkImageResolver.preBlurredImage(for: existingImage)
+            let blurredImage = await ArtworkImageResolver.preBlurredImage(
+                for: existingImage,
+                cacheKey: headerBlurCacheKey(path: path)
+            )
             await MainActor.run {
                 if self.currentLoadPath == path {
                     self.blurredArtworkImage = blurredImage
@@ -863,7 +874,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
 
-            let blurredImage = await ArtworkImageResolver.preBlurredImage(for: resolved.image)
+            let blurredImage = await ArtworkImageResolver.preBlurredImage(
+                for: resolved.image,
+                cacheKey: resolved.blurCacheKey
+            )
             await MainActor.run {
                 if self.currentLoadPath == path {
                     self.blurredArtworkImage = blurredImage
@@ -890,6 +904,27 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             kind: kind,
             sourcePath: path
         )
+    }
+
+    private func headerBlurCacheKey(path: String) -> String {
+        if let cacheHint = headerArtworkCacheHint(path: path) {
+            return [
+                "hint",
+                cacheHint.kind.rawValue,
+                cacheHint.ratingKey,
+                cacheHint.sourcePath,
+                cacheHint.dateModifiedSeconds.map(String.init) ?? "no-date",
+                "600"
+            ].joined(separator: "|")
+        }
+
+        return [
+            "header",
+            headerData.sourceKey ?? "no-source",
+            headerData.ratingKey ?? "no-rating",
+            path,
+            "600"
+        ].joined(separator: "|")
     }
 
     /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.
