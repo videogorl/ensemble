@@ -201,6 +201,8 @@ public final class NavigationCoordinator: ObservableObject {
     }
 
     public func setPath(_ path: [Destination], for tab: TabItem) {
+        guard self.path(for: tab) != path else { return }
+
         switch tab {
         case .home: homePath = path
         case .songs: songsPath = path
@@ -217,6 +219,8 @@ public final class NavigationCoordinator: ObservableObject {
     
     /// Pop to root for a specific tab
     public func popToRoot(tab: TabItem) {
+        guard !path(for: tab).isEmpty else { return }
+
         switch tab {
         case .home: homePath.removeAll()
         case .songs: songsPath.removeAll()

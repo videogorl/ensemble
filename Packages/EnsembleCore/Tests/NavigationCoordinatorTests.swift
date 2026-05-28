@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import EnsembleCore
 
 final class NavigationCoordinatorTests: XCTestCase {
@@ -74,6 +75,27 @@ final class NavigationCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(coordinator.albumsPath, path)
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), path)
+    }
+
+    @MainActor
+    func testRedundantPathMutationsDoNotRepublishNavigationState() {
+        let coordinator = NavigationCoordinator()
+        let path: [NavigationCoordinator.Destination] = [
+            .album(id: "album", sourceKey: nil)
+        ]
+        var publishCount = 0
+        let cancellable = coordinator.objectWillChange.sink {
+            publishCount += 1
+        }
+
+        coordinator.setPath(path, for: .albums)
+        coordinator.setPath(path, for: .albums)
+        coordinator.popToRoot(tab: .songs)
+
+        XCTAssertEqual(publishCount, 1)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .albums), path)
+
+        cancellable.cancel()
     }
 
     @MainActor

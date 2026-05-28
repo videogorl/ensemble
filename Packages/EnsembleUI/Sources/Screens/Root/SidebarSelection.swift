@@ -19,6 +19,13 @@ public enum SidebarSelection: Hashable {
         }
     }
 
+    var isPinnedDetailSelection: Bool {
+        if case .pin = self {
+            return true
+        }
+        return false
+    }
+
     static func selection(
         for destination: NavigationCoordinator.Destination,
         fallback: SidebarSelection?
