@@ -5,7 +5,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 ## Policies
 
 - Root shells own platform navigation: tab shell on iPhone, split/sidebar shell on iPadOS and macOS where supported.
-- iPhone root profile toolbar chrome is owned by `MainTabView` at each tab root-content wrapper, not by individual screens. It appears only on visible tab roots and the root More screen, and must stay absent from pushed destinations and hidden-tab drill-ins.
+- iPhone root profile toolbar chrome is owned by `MainTabView` at each visible tab root-content wrapper and the root More wrapper, not by individual screens. On iOS 16+, it stays mounted at that root owner instead of toggling from navigation path emptiness; iOS 15 may path-gate the fallback item to prevent inherited toolbar leakage. It appears after other root trailing actions, and must stay absent from pushed destinations and hidden-tab drill-ins.
 - Navigation coordinators are scene/window-scoped. Do not route user-driven navigation through shared singleton state that mirrors iPad/macOS windows.
 - Feed cards and hub headers use scene-local `NavigationCoordinator` typed routes, not inline destination closures tied to mutable hub arrays. A Feed refresh must not pop a pushed album, artist, playlist, or hub-header destination.
 - Media browse and relationship links use scene-local `NavigationCoordinator` typed routes without hard-coding the owning tab. Album, artist, playlist, pinned, search, related-item, and detail subtitle links should append to the currently active stack so hidden More-tab routes and iOS 15 fallback stacks can continue drilling into nested details.

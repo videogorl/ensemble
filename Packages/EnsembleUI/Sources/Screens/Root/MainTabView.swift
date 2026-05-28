@@ -399,7 +399,9 @@ public struct MainTabView: View {
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
+        if #unavailable(iOS 16.0) {
+            guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
+        }
         return isMoreRoot || barTabs.contains(tab)
         #else
         return false
@@ -413,7 +415,7 @@ private extension View {
         #if os(iOS)
         if #available(iOS 16.0, *) {
             self.toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     if isVisible {
                         ProfileToolbarButton()
                     }

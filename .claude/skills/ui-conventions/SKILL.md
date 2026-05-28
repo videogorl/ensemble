@@ -181,7 +181,7 @@ Button("Remove", role: .destructive) { remove() }
 Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Profile Toolbar Button
-- **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and attached once to each tab's root-content wrapper inside the tab navigation container. It is shown only on root tab destinations: the visible tab-bar tabs plus the root `More` view. Do not add it inside individual screens, or it will remount during pop transitions and can leak into pushed `More` destinations.
+- **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and attached once to each visible tab root-content wrapper plus the root `More` wrapper. On iOS 16+, keep it mounted at that root owner instead of toggling it from navigation path emptiness, so it returns with the native root toolbar during pops; iOS 15 may still path-gate the fallback `NavigationView` item to avoid inherited toolbar leakage. Place it after other root actions in the trailing stack. Do not add it inside individual screens, or it will remount during pop transitions and can leak into pushed `More` destinations.
 - **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
 - Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
 - App-level Settings commands route through `NavigationCoordinator.openProfileFromActiveScene(fallback:)`; `RootView` registers its window-scoped coordinator as the active auxiliary command coordinator on appear/scene activation so `⌘,` opens Profile in the active scene instead of the legacy shared coordinator.
