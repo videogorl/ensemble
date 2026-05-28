@@ -77,7 +77,9 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertNotNil(resolved)
         let cacheRequests = await artworkLoader.cacheRequests
-        XCTAssertEqual(cacheRequests, [hint])
+        XCTAssertEqual(cacheRequests.count, 1)
+        XCTAssertEqual(cacheRequests.first?.hint, hint)
+        XCTAssertEqual(cacheRequests.first?.minimumPixelDimension, 44)
     }
 
     func testArtworkPreBlurUsesVisibleArtworkSchedulerByDefault() async throws {
@@ -844,7 +846,7 @@ private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, 
 
 private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
     let url: URL?
-    private(set) var cacheRequests: [PersistentArtworkCacheHint?] = []
+    private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
 
     init(url: URL?) {
         self.url = url
@@ -861,8 +863,12 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
         url
     }
 
-    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async {
-        cacheRequests.append(cacheHint)
+    func cacheResolvedArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int?
+    ) async {
+        cacheRequests.append((cacheHint, minimumPixelDimension))
     }
 
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int {

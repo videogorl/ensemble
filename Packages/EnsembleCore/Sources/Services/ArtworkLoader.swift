@@ -1,6 +1,7 @@
 import EnsembleAPI
 import EnsemblePersistence
 import Foundation
+import ImageIO
 import Nuke
 
 public struct PersistentArtworkCacheHint: Sendable, Hashable {
@@ -110,7 +111,7 @@ public extension PersistentArtworkCacheHint {
 
 public protocol ArtworkLoaderProtocol {
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
-    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?) async
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int
@@ -118,7 +119,7 @@ public protocol ArtworkLoaderProtocol {
 }
 
 public extension ArtworkLoaderProtocol {
-    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async {}
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int? = nil) async {}
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
@@ -131,6 +132,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private static let asyncArtworkURLCacheTTL: TimeInterval = 60
+    private static let maximumArtworkRequestDimension = 1000
+    private static let minimumPersistentArtworkWriteDimension = 500
     
     /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
     /// instead of wiping the entire pipeline cache when a single artwork changes.
@@ -352,8 +355,16 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         EnsembleLogger.debug("🎨 ArtworkLoader: Marked artwork stale for ratingKey=\(ratingKey)")
     }
 
-    public func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?) async {
+    public func cacheResolvedArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int? = nil
+    ) async {
         guard let cacheHint, !url.isFileURL else { return }
+        if let minimumPixelDimension,
+           minimumPixelDimension < Self.minimumPersistentArtworkWriteDimension {
+            return
+        }
         guard await persistentCacheTracker.begin(cacheHint) else { return }
 
         let artworkDownloadManager = artworkDownloadManager
@@ -373,7 +384,11 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                 sourcePath: cacheHint.sourcePath,
                 dateModifiedSeconds: cacheHint.dateModifiedSeconds
             ),
-               FileManager.default.fileExists(atPath: localPath) {
+               FileManager.default.fileExists(atPath: localPath),
+               Self.localArtwork(
+                   at: URL(fileURLWithPath: localPath),
+                   meetsMinimumPixelDimension: minimumPixelDimension
+               ) {
                 return
             }
 
@@ -406,8 +421,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         fallbackRatingKey: String? = nil,
         size: Int = 300
     ) async -> URL? {
-        // Cap size at 1000px to avoid excessive memory usage
-        let cappedSize = min(size, 1000)
+        // Cap size to avoid excessive memory usage while still serving retina detail headers.
+        let cappedSize = min(size, Self.maximumArtworkRequestDimension)
         // Determine which path and ratingKey to use.
         let actualPath: String?
         let actualRatingKey: String?
@@ -423,11 +438,15 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         
         guard let finalPath = actualPath else { return nil }
 
-        // Prefer local cache first — all callers get the same file:// URL regardless of
-        // requested size, eliminating the cache-lottery mismatch between ArtworkView (300px),
-        // PlaybackService (600px), and NowPlayingViewModel (600px) when offline.
-        // Nuke applies per-caller resize processors on the local file.
-        if let localURL = await localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath, allowStaleIdentity: false) {
+        // Prefer local cache when it can satisfy this request. Undersized persistent
+        // artwork is allowed as offline fallback, but should not block an online
+        // detail surface from fetching and replacing a better image.
+        if let localURL = await localCachedArtworkURL(
+            ratingKey: actualRatingKey,
+            path: finalPath,
+            allowStaleIdentity: false,
+            minimumPixelDimension: cappedSize
+        ) {
             let localCacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):local"
             if await urlCache.get(localCacheKey) == nil {
                 await urlCache.set(localCacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
@@ -451,7 +470,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // rather than building a URL that will time out
         let serverUnavailable = !isOffline && !serverAvailable
         if isOffline || serverUnavailable {
-            if let localURL = await localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath, allowStaleIdentity: true) {
+            if let localURL = await localCachedArtworkURL(
+                ratingKey: actualRatingKey,
+                path: finalPath,
+                allowStaleIdentity: true,
+                minimumPixelDimension: nil
+            ) {
                 #if DEBUG
                 await loadStats.recordLocalFallback()
                 #endif
@@ -478,7 +502,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         // Network URL resolution failed — fall back to local cache if available
-        if let localURL = await localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath, allowStaleIdentity: true) {
+        if let localURL = await localCachedArtworkURL(
+            ratingKey: actualRatingKey,
+            path: finalPath,
+            allowStaleIdentity: true,
+            minimumPixelDimension: nil
+        ) {
             #if DEBUG
             await loadStats.recordLocalFallback()
             #endif
@@ -506,7 +535,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private func localCachedArtworkURL(
         ratingKey: String?,
         path: String? = nil,
-        allowStaleIdentity: Bool
+        allowStaleIdentity: Bool,
+        minimumPixelDimension: Int?
     ) async -> URL? {
         // Try the passed ratingKey first
         if let key = ratingKey {
@@ -519,14 +549,22 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                     type: type,
                     sourcePath: path,
                     dateModifiedSeconds: nil
-                ) {
+                ),
+                   Self.localArtwork(
+                       at: URL(fileURLWithPath: filePath),
+                       meetsMinimumPixelDimension: minimumPixelDimension
+                   ) {
                     return URL(fileURLWithPath: filePath)
                 }
             }
 
             if allowStaleIdentity {
                 for type in [ArtworkType.album, .artist, .playlist] {
-                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(ratingKey: key, type: type) {
+                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(ratingKey: key, type: type),
+                       Self.localArtwork(
+                           at: URL(fileURLWithPath: filePath),
+                           meetsMinimumPixelDimension: minimumPixelDimension
+                       ) {
                         return URL(fileURLWithPath: filePath)
                     }
                 }
@@ -546,14 +584,22 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                     type: type,
                     sourcePath: path,
                     dateModifiedSeconds: nil
-                ) {
+                ),
+                   Self.localArtwork(
+                       at: URL(fileURLWithPath: filePath),
+                       meetsMinimumPixelDimension: minimumPixelDimension
+                   ) {
                     return URL(fileURLWithPath: filePath)
                 }
             }
 
             if allowStaleIdentity {
                 for type in [ArtworkType.album, .artist, .playlist] {
-                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(ratingKey: pathKey, type: type) {
+                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(ratingKey: pathKey, type: type),
+                       Self.localArtwork(
+                           at: URL(fileURLWithPath: filePath),
+                           meetsMinimumPixelDimension: minimumPixelDimension
+                       ) {
                         return URL(fileURLWithPath: filePath)
                     }
                 }
@@ -561,6 +607,23 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         return nil
+    }
+
+    private static func localArtwork(
+        at url: URL,
+        meetsMinimumPixelDimension minimumPixelDimension: Int?
+    ) -> Bool {
+        guard let minimumPixelDimension, minimumPixelDimension > 0 else {
+            return true
+        }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return true
+        }
+
+        let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+        return max(width, height) >= minimumPixelDimension
     }
 
     // MARK: - Pre-downloading

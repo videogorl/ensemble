@@ -846,7 +846,7 @@ public struct ArtistDetailView: View {
                 kind: .album,
                 sourcePath: artist.fallbackThumbPath
             ),
-            size: 600,
+            size: 1000,
             priority: .high
         )
     }

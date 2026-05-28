@@ -68,7 +68,11 @@ enum ArtworkImageResolver {
 
         let request = ArtworkImageRequest.resized(url: url, size: descriptor.size, priority: descriptor.priority)
         if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            await artworkLoader.cacheResolvedArtwork(from: url, cacheHint: descriptor.effectiveCacheHint)
+            await artworkLoader.cacheResolvedArtwork(
+                from: url,
+                cacheHint: descriptor.effectiveCacheHint,
+                minimumPixelDimension: descriptor.size
+            )
             return ArtworkResolvedImage(
                 url: url,
                 image: cachedImage.image,
@@ -79,7 +83,11 @@ enum ArtworkImageResolver {
         guard let image = try? await ImagePipeline.shared.image(for: request) else {
             return nil
         }
-        await artworkLoader.cacheResolvedArtwork(from: url, cacheHint: descriptor.effectiveCacheHint)
+        await artworkLoader.cacheResolvedArtwork(
+            from: url,
+            cacheHint: descriptor.effectiveCacheHint,
+            minimumPixelDimension: descriptor.size
+        )
         return ArtworkResolvedImage(
             url: url,
             image: image,
