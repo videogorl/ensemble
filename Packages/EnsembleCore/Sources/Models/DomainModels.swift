@@ -457,6 +457,91 @@ public struct Genre: Identifiable, Hashable, Sendable, Codable {
         self.title = title
         self.sourceCompositeKey = sourceCompositeKey
     }
+
+    /// Stable UI identity that distinguishes the same Plex genre key across sources.
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+}
+
+/// UI genre entry that can represent one physical genre or a merged same-name group.
+public struct DisplayGenre: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let genres: [Genre]
+
+    public var isMerged: Bool { genres.count > 1 }
+    public var primaryGenre: Genre { genres[0] }
+    public var sourceKeys: [String] { genres.compactMap(\.sourceCompositeKey) }
+
+    public init(id: String, title: String, genres: [Genre]) {
+        precondition(!genres.isEmpty, "DisplayGenre requires at least one backing genre")
+        self.id = id
+        self.title = title
+        self.genres = genres
+    }
+
+    public static func single(_ genre: Genre) -> DisplayGenre {
+        DisplayGenre(
+            id: "single:\(genre.sourceScopedID)",
+            title: genre.title,
+            genres: [genre]
+        )
+    }
+
+    public static func merged(title: String, normalizedTitle: String, genres: [Genre]) -> DisplayGenre {
+        DisplayGenre(
+            id: "merged:\(normalizedTitle)",
+            title: title,
+            genres: genres
+        )
+    }
+
+    /// Groups visible genres by normalized display title while preserving backing source items.
+    public static func group(_ genres: [Genre]) -> [DisplayGenre] {
+        var groups: [(normalizedTitle: String, title: String, genres: [Genre])] = []
+        var indexByTitle: [String: Int] = [:]
+
+        for genre in genres {
+            let normalizedTitle = Self.normalizedTitle(genre.title)
+            if let index = indexByTitle[normalizedTitle] {
+                groups[index].genres.append(genre)
+            } else {
+                indexByTitle[normalizedTitle] = groups.count
+                groups.append((normalizedTitle: normalizedTitle, title: genre.title, genres: [genre]))
+            }
+        }
+
+        return groups.map { group in
+            if group.genres.count == 1 {
+                return .single(group.genres[0])
+            }
+            return .merged(
+                title: group.title,
+                normalizedTitle: group.normalizedTitle,
+                genres: group.genres
+            )
+        }
+    }
+
+    public static func normalizedTitle(_ title: String) -> String {
+        let folded = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return folded
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
+    }
+
+    public func matches(album: Album) -> Bool {
+        let normalizedDisplayTitle = Self.normalizedTitle(title)
+        return album.genres.contains { albumGenre in
+            Self.normalizedTitle(albumGenre) == normalizedDisplayTitle
+        }
+    }
 }
 
 // MARK: - Mood

@@ -40,7 +40,7 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var filteredArtists: [Artist] = []
     @Published public private(set) var displayArtists: [DisplayArtist] = []
     @Published public private(set) var filteredAlbums: [Album] = []
-    @Published public private(set) var filteredGenres: [Genre] = []
+    @Published public private(set) var filteredGenres: [DisplayGenre] = []
     @Published public private(set) var trackSections: [TrackSection] = []
     @Published public private(set) var artistSections: [ArtistSection] = []
     @Published public private(set) var albumSections: [AlbumSection] = []
@@ -105,10 +105,9 @@ public final class LibraryViewModel: ObservableObject {
             return genreBrowseSnapshot
         }
 
-        let sorted = Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
-        let filtered = Self.filterGenres(sorted, with: genresFilterOptions)
+        let displayGenres = Self.displayGenres(from: genres, with: genresFilterOptions)
         return GenreBrowseSnapshot(
-            genres: filtered,
+            displayGenres: displayGenres,
             phase: genreBrowseSnapshot.phase,
             isShowingStaleSnapshot: genreBrowseSnapshot.isShowingStaleSnapshot
         )
@@ -345,16 +344,15 @@ public final class LibraryViewModel: ObservableObject {
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest($genres, $genresFilterOptions)
             .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
-            .map { genres, filterOptions -> [Genre] in
-                let sorted = LibraryViewModel.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
-                return LibraryViewModel.filterGenres(sorted, with: filterOptions)
+            .map { genres, filterOptions -> [DisplayGenre] in
+                LibraryViewModel.displayGenres(from: genres, with: filterOptions)
             }
             .removeDuplicates { old, new in
                 guard old.count == new.count else { return false }
                 return zip(old, new).allSatisfy { $0.id == $1.id }
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.commitGenreSnapshot(genres: $0, rawGenreCount: self?.genres.count ?? 0) }
+            .sink { [weak self] in self?.commitGenreSnapshot(displayGenres: $0, rawGenreCount: self?.genres.count ?? 0) }
             .store(in: &cancellables)
 
         // Available genres for chip bar filtering.
@@ -935,16 +933,16 @@ public final class LibraryViewModel: ObservableObject {
         )
     }
 
-    private func commitGenreSnapshot(genres: [Genre], rawGenreCount: Int) {
+    private func commitGenreSnapshot(displayGenres: [DisplayGenre], rawGenreCount: Int) {
         guard rawGenreCount > 0 || !genreBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
             updateGenreBrowseSnapshot(genreBrowseSnapshot.updating(isShowingStaleSnapshot: true))
             return
         }
 
-        if !Self.idsEqual(filteredGenres, genres, identifier: \.id) { filteredGenres = genres }
+        if !Self.idsEqual(filteredGenres, displayGenres, identifier: \.id) { filteredGenres = displayGenres }
         updateGenreBrowseSnapshot(
             GenreBrowseSnapshot(
-                genres: genres,
+                displayGenres: displayGenres,
                 phase: genreBrowseSnapshot.phase,
                 isShowingStaleSnapshot: false
             )
@@ -1149,6 +1147,11 @@ public final class LibraryViewModel: ObservableObject {
         public let letter: String
         public let albums: [Album]
         public var id: String { letter }
+
+        public init(letter: String, albums: [Album]) {
+            self.letter = letter
+            self.albums = albums
+        }
     }
 
     // MARK: - Filter Implementations (static so Combine pipelines can call them without actor capture)
@@ -1173,5 +1176,11 @@ public final class LibraryViewModel: ObservableObject {
 
     private static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
         MediaFilterEngine.filterGenres(genres, with: options)
+    }
+
+    static func displayGenres(from genres: [Genre], with options: FilterOptions) -> [DisplayGenre] {
+        let sorted = Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
+        let filtered = Self.filterGenres(sorted, with: options)
+        return DisplayGenre.group(filtered)
     }
 }

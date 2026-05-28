@@ -10,16 +10,15 @@ public struct GenresView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
-    private let externalSelectedGenre: Binding<Genre?>?
-    @State private var searchText = ""
-    @State private var localSelectedGenre: Genre?
+    private let externalSelectedGenre: Binding<DisplayGenre?>?
+    @State private var localSelectedGenre: DisplayGenre?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
         libraryVM: LibraryViewModel,
         nowPlayingVM: NowPlayingViewModel,
         presentationMode: PresentationMode = .compactRoot,
-        selectedGenre: Binding<Genre?>? = nil
+        selectedGenre: Binding<DisplayGenre?>? = nil
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
@@ -27,12 +26,8 @@ public struct GenresView: View {
         self.externalSelectedGenre = selectedGenre
     }
 
-    private var filteredGenres: [Genre] {
-        let sorted = genreSnapshot.genres.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { genre in
-            genre.title.localizedCaseInsensitiveContains(searchText)
-        }
+    private var filteredGenres: [DisplayGenre] {
+        genreSnapshot.displayGenres
     }
 
     public var body: some View {
@@ -47,9 +42,13 @@ public struct GenresView: View {
         }
         .navigationTitle("Genres")
         #if os(iOS)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
+        .searchable(
+            text: $libraryVM.genresFilterOptions.searchText,
+            placement: .navigationBarDrawer(displayMode: .automatic),
+            prompt: "Filter genres"
+        )
         #else
-        .searchable(text: $searchText)
+        .searchable(text: $libraryVM.genresFilterOptions.searchText, prompt: "Filter genres")
         #endif
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -73,11 +72,11 @@ public struct GenresView: View {
         }
     }
 
-    private var selectedGenre: Genre? {
+    private var selectedGenre: DisplayGenre? {
         externalSelectedGenre?.wrappedValue ?? localSelectedGenre
     }
 
-    private func setSelectedGenre(_ genre: Genre?) {
+    private func setSelectedGenre(_ genre: DisplayGenre?) {
         if let externalSelectedGenre {
             externalSelectedGenre.wrappedValue = genre
         } else {
@@ -85,7 +84,7 @@ public struct GenresView: View {
         }
     }
 
-    private var selectedGenreBinding: Binding<Genre?> {
+    private var selectedGenreBinding: Binding<DisplayGenre?> {
         Binding(
             get: { selectedGenre },
             set: { setSelectedGenre($0) }
@@ -143,17 +142,12 @@ public struct GenresView: View {
     private var genreListView: some View {
         List {
             ForEach(filteredGenres) { genre in
-                HStack {
-                    Image(systemName: EnsembleDesign.Icon.genreFilled)
-                        .font(EnsembleDesign.Typography.sectionTitle)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                        .frame(width: EnsembleScaffold.Genres.iconLaneWidth)
-
-                    Text(genre.title)
-                        .font(EnsembleDesign.Typography.rowPrimary)
-
-                    Spacer()
+                Button {
+                    setSelectedGenre(genre)
+                } label: {
+                    genreRow(genre)
                 }
+                .buttonStyle(.plain)
             }
         }
         .listStyle(.plain)
@@ -164,14 +158,15 @@ public struct GenresView: View {
     private var genreSelectionList: some View {
         List {
             ForEach(filteredGenres) { genre in
-                genreRow(genre)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        setSelectedGenre(genre)
-                    }
-                    .listRowBackground(
-                        RoundedRectangle(
-                            cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                Button {
+                    setSelectedGenre(genre)
+                } label: {
+                    genreRow(genre)
+                }
+                .buttonStyle(.plain)
+                .listRowBackground(
+                    RoundedRectangle(
+                        cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
                             style: .continuous
                         )
                         .fill(selectedGenre?.id == genre.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
@@ -183,13 +178,8 @@ public struct GenresView: View {
         .miniPlayerBottomSpacing()
     }
 
-    private func genreRow(_ genre: Genre) -> some View {
+    private func genreRow(_ genre: DisplayGenre) -> some View {
         HStack {
-            Image(systemName: EnsembleDesign.Icon.genreFilled)
-                .font(EnsembleDesign.Typography.sectionTitle)
-                .foregroundColor(EnsembleDesign.Color.accent)
-                .frame(width: EnsembleScaffold.Genres.iconLaneWidth)
-
             Text(genre.title)
                 .font(EnsembleDesign.Typography.rowPrimary)
                 .lineLimit(1)
@@ -201,88 +191,91 @@ public struct GenresView: View {
 
 struct GenreDetailContentView: View {
     @ObservedObject var libraryVM: LibraryViewModel
-    let genre: Genre
+    let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
-    @State private var trackListSupplementalMetadataWidth: CGFloat = 0
-    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     var body: some View {
-        let tracks = tracks(for: genre)
-        #if os(macOS)
-        SongsTrackListHost(
-            tracks: tracks,
-            configuration: .songs(
-                currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
-                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                interactionModel: trackInteractionModel
-            ),
-            tableHeaderContent: AnyView(genreHeader(tracks: tracks)),
-            tableFooterContent: tracks.isEmpty ? AnyView(genreEmptyFooter) : nil
-        ) { _, index in
-            nowPlayingVM.play(tracks: tracks, startingAt: index)
-        }
-        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        #else
+        let albums = albums(for: genre)
+        let sections = albumSections(from: albums)
+
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            genreHeader(tracks: tracks)
+            genreHeader(albums: albums)
 
             Divider()
 
-            if tracks.isEmpty {
-                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.musicNote, title: "No Songs")
+            if albums.isEmpty {
+                LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Albums")
             } else {
-                SongsTrackListHost(
-                    tracks: tracks,
-                    configuration: .songs(
-                        currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                        interactionModel: trackInteractionModel
-                    )
-                ) { _, index in
-                    nowPlayingVM.play(tracks: tracks, startingAt: index)
-                }
-                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+                genreAlbumList(sections: sections)
             }
         }
-        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        #endif
     }
 
-    private var trackInteractionModel: TrackRowInteractionModel {
-        TrackRowInteractionModel(
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            }
-        )
-    }
-
-    private func genreHeader(tracks: [Track]) -> some View {
+    private func genreHeader(albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
             Text(genre.title)
                 .font(EnsembleDesign.Typography.stateTitle)
                 .fontWeight(.semibold)
-            Text("\(tracks.count) song\(tracks.count == 1 ? "" : "s")")
+            Text("\(albums.count) album\(albums.count == 1 ? "" : "s")")
                 .font(EnsembleDesign.Typography.stateMessage)
                 .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding(EnsembleDesign.Spacing.lg)
     }
 
-    private var genreEmptyFooter: some View {
-        LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.musicNote, title: "No Songs")
-    }
-
-    private func updateTrackListSupplementalMetadataWidth(_ newWidth: CGFloat) {
-        if abs(trackListSupplementalMetadataWidth - newWidth) > 1 {
-            trackListSupplementalMetadataWidth = newWidth
+    private func genreAlbumList(sections: [LibraryViewModel.AlbumSection]) -> some View {
+        ScrollViewReader { proxy in
+            GeometryReader { geometry in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                        ForEach(sections) { section in
+                            Section(header: sectionHeader(section.letter)) {
+                                AlbumGrid(
+                                    albums: section.albums,
+                                    nowPlayingVM: nowPlayingVM
+                                )
+                                .id(section.letter)
+                            }
+                        }
+                    }
+                    .padding(.vertical)
+                }
+                .miniPlayerBottomSpacing()
+                .libraryScrollIndexOverlay {
+                    if !sections.isEmpty && ScrollIndex.isVisible(forContainerWidth: geometry.size.width) {
+                        ScrollIndex(
+                            letters: sections.map { $0.letter },
+                            currentLetter: .constant(nil),
+                            onLetterTap: { letter in
+                                proxy.scrollTo(letter, anchor: .top)
+                            }
+                        )
+                    }
+                }
+                .foregroundScrollActivity()
+            }
         }
     }
 
-    private func tracks(for genre: Genre) -> [Track] {
-        libraryVM.trackBrowseSnapshot.tracks.filter { track in
-            track.genres.contains { $0.caseInsensitiveCompare(genre.title) == .orderedSame }
-        }
+    private func albums(for genre: DisplayGenre) -> [Album] {
+        libraryVM.albums
+            .filter { genre.matches(album: $0) }
+            .sorted { left, right in
+                let result = left.title.sortingKey.localizedStandardCompare(right.title.sortingKey)
+                if result == .orderedSame {
+                    return left.sourceScopedID < right.sourceScopedID
+                }
+                return result == .orderedAscending
+            }
+    }
+
+    private func albumSections(from albums: [Album]) -> [LibraryViewModel.AlbumSection] {
+        let grouped = Dictionary(grouping: albums) { $0.title.indexingLetter }
+        return grouped.map { LibraryViewModel.AlbumSection(letter: $0.key, albums: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
+    private func sectionHeader(_ letter: String) -> some View {
+        EnsembleBrowseSectionHeader(letter)
     }
 }
