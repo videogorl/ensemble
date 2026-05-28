@@ -82,9 +82,7 @@ struct CompositeArtworkView: View {
     private func subArtwork(at index: Int) -> some View {
         let playlist = playlists[index % playlists.count]
         ArtworkView(
-            path: playlist.compositePath,
-            sourceKey: playlist.sourceCompositeKey,
-            ratingKey: playlist.id,
+            playlist: playlist,
             size: subArtworkSize,
             cornerRadius: EnsembleDesign.Spacing.none,
             isResponsive: isResponsive

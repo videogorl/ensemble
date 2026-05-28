@@ -32,6 +32,11 @@ public struct InfoCard: View {
         NowPlayingPanelPage.info.shouldRenderContent(currentPage: currentPage)
     }
 
+    private var shouldLoadMetadata: Bool {
+        NowPlayingPanelPage.info.isActive(currentPage: currentPage)
+            || (!EnsembleDesign.Performance.prefersReducedVisualEffects && shouldRenderContent)
+    }
+
     private var currentTrack: Track? {
         playbackProjection.currentTrack
     }
@@ -53,20 +58,21 @@ public struct InfoCard: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: shouldRenderContent) {
-            guard shouldRenderContent else { return }
+        .task(id: shouldLoadMetadata) {
+            guard shouldLoadMetadata else { return }
             await loadMetadataForCurrentTrack()
         }
         .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
-            guard shouldRenderContent else { return }
+            guard shouldLoadMetadata else { return }
             audioFileInfo = nil // Clear stale data immediately
             Task {
                 await loadMetadataForCurrentTrack()
             }
         }
-        .onChange(of: currentPage) { newPage in
-            // Preload metadata when the Info card becomes adjacent to the swipe.
-            if NowPlayingPanelPage.info.shouldRenderContent(currentPage: newPage), fetchedAlbum == nil {
+        .onChange(of: currentPage) { _ in
+            // Preload metadata when adjacent on capable devices; constrained devices
+            // wait until Info is selected so swipes don't compete with file/library IO.
+            if shouldLoadMetadata, fetchedAlbum == nil {
                 Task {
                     await loadMetadataForCurrentTrack()
                 }
@@ -115,7 +121,9 @@ public struct InfoCard: View {
             .padding(.top, EnsembleDesign.Spacing.sm)
             .padding(.bottom, EnsembleDesign.Spacing.xxxl)
         }
-        .mask(fadeMask)
+        .if(!EnsembleDesign.Performance.prefersReducedVisualEffects) { view in
+            view.mask(fadeMask)
+        }
     }
 
     // MARK: - Track Metadata Section

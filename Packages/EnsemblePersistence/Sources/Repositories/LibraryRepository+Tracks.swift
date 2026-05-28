@@ -218,6 +218,57 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchTrackArtworkFallback(
+        title: String,
+        albumName: String?,
+        artistName: String?,
+        excludingRatingKey: String,
+        excludingSourceCompositeKey: String?
+    ) async throws -> CDTrack? {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                var predicates: [NSPredicate] = [
+                    NSPredicate(format: "title ==[c] %@", title),
+                    NSPredicate(format: "thumbPath != nil OR album.thumbPath != nil")
+                ]
+
+                if let albumName, !albumName.isEmpty {
+                    predicates.append(NSPredicate(format: "albumName ==[c] %@", albumName))
+                }
+
+                if let artistName, !artistName.isEmpty {
+                    predicates.append(NSPredicate(format: "artistName ==[c] %@", artistName))
+                }
+
+                if let excludingSourceCompositeKey {
+                    predicates.append(NSPredicate(
+                        format: "NOT (ratingKey == %@ AND sourceCompositeKey == %@)",
+                        excludingRatingKey,
+                        excludingSourceCompositeKey
+                    ))
+                } else {
+                    predicates.append(NSPredicate(format: "ratingKey != %@", excludingRatingKey))
+                }
+
+                request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+                request.sortDescriptors = [
+                    NSSortDescriptor(key: "updatedAt", ascending: false)
+                ]
+                request.fetchLimit = 20
+                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+
+                do {
+                    let track = try context.fetch(request).first
+                    continuation.resume(returning: track)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {
         let trimmed = Self.normalizedTrackTitle(title, streamKey: nil)
         guard !trimmed.isEmpty else { return }

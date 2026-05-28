@@ -168,6 +168,7 @@ struct EnsembleApp: App {
             AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
             switch phase {
             case .active:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {
                     hasHandledInitialIOSActivePhase = true
@@ -223,6 +224,7 @@ struct EnsembleApp: App {
                 WatchCompanionBridge.shared.refresh()
 
             case .background:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
@@ -247,6 +249,7 @@ struct EnsembleApp: App {
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
 
             case .inactive:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break
@@ -258,6 +261,7 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 // Start persistent log session on first activation (macOS)
                 if !hasStartedLogSession {
                     hasStartedLogSession = true
@@ -331,8 +335,19 @@ struct EnsembleApp: App {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
 
                         AppLogger.debug("💻 macOS: Starting startup sync...")
-                        let syncCoordinator = await MainActor.run {
-                            DependencyContainer.shared.syncCoordinator
+                        let (syncCoordinator, foregroundWorkScheduler) = await MainActor.run {
+                            (
+                                DependencyContainer.shared.syncCoordinator,
+                                DependencyContainer.shared.foregroundWorkScheduler
+                            )
+                        }
+                        await MainActor.run {
+                            foregroundWorkScheduler.setStartupSyncInFlight(true)
+                        }
+                        defer {
+                            Task { @MainActor in
+                                foregroundWorkScheduler.setStartupSyncInFlight(false)
+                            }
                         }
                         await syncCoordinator.performStartupSync()
                         AppLogger.debug("💻 macOS: Startup sync complete")
@@ -341,6 +356,7 @@ struct EnsembleApp: App {
                     }
                 }
             case .background:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background activity.
                 DependencyContainer.shared.persistentLogService.flushSession()
@@ -351,6 +367,7 @@ struct EnsembleApp: App {
                 // Stop periodic sync timer
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
             case .inactive:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break

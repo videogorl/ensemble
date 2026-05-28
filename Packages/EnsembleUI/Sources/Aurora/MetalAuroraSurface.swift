@@ -238,12 +238,19 @@ final class AuroraMetalRenderer: NSObject, MTKViewDelegate {
         uniforms.colorScheme = colorScheme == .dark ? 1 : 0
 
         view.preferredFramesPerSecond = framesPerSecond(for: preferredFrameInterval)
-        view.isPaused = isPaused || pipelineState == nil
+        let shouldPause = isPaused || pipelineState == nil
+        view.isPaused = shouldPause
         configureTransparentBacking(for: view)
+        if shouldPause, pipelineState != nil {
+            view.draw()
+        }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         uniforms.size = SIMD2(Float(size.width), Float(size.height))
+        if view.isPaused {
+            view.draw()
+        }
     }
 
     func draw(in view: MTKView) {

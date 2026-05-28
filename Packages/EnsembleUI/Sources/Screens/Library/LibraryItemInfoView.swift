@@ -52,6 +52,8 @@ public struct LibraryItemInfoView: View {
                 ratingKey: viewModel.resolvedArtworkRatingKey,
                 fallbackPath: viewModel.request.artworkFallbackPath,
                 fallbackRatingKey: viewModel.request.artworkFallbackRatingKey,
+                cacheHint: artworkCacheHint,
+                fallbackCacheHint: fallbackArtworkCacheHint,
                 size: .card,
                 isResponsive: true
             )
@@ -68,6 +70,36 @@ public struct LibraryItemInfoView: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
+    }
+
+    private var artworkCacheHint: PersistentArtworkCacheHint? {
+        switch viewModel.request {
+        case .album(let album):
+            return PersistentArtworkCacheHint(
+                ratingKey: viewModel.resolvedArtworkRatingKey,
+                kind: .album,
+                sourcePath: viewModel.resolvedArtworkPath,
+                dateModified: album.dateModified
+            )
+        case .playlist(let playlist):
+            return PersistentArtworkCacheHint(
+                ratingKey: viewModel.resolvedArtworkRatingKey,
+                kind: .playlist,
+                sourcePath: viewModel.resolvedArtworkPath,
+                dateModified: playlist.dateModified
+            )
+        case .track:
+            return nil
+        }
+    }
+
+    private var fallbackArtworkCacheHint: PersistentArtworkCacheHint? {
+        guard case .track(let track) = viewModel.request else { return nil }
+        return PersistentArtworkCacheHint(
+            ratingKey: track.fallbackRatingKey,
+            kind: .album,
+            sourcePath: track.fallbackThumbPath
+        )
     }
 
     private var itemSection: some View {

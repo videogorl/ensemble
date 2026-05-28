@@ -17,6 +17,7 @@ public struct LogDetailView: View {
     @State private var visibleLineCount: Int = 0
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var isPreparingShare = false
 
     private let logService = DependencyContainer.shared.persistentLogService
 
@@ -146,6 +147,7 @@ public struct LogDetailView: View {
             } label: {
                 Image(systemName: EnsembleDesign.Icon.shareAudioFile)
             }
+            .disabled(isPreparingShare)
         }
     }
 
@@ -156,21 +158,35 @@ public struct LogDetailView: View {
     /// to interfere with the active log writer, potentially making the original
     /// inaccessible until the share completes.
     private func shareLogFile() {
-        logService.flushSession()
-        let sourceURL = session.fileURL
-        let tempDir = FileManager.default.temporaryDirectory
-        let tempURL = tempDir.appendingPathComponent(sourceURL.lastPathComponent)
+        guard !isPreparingShare else { return }
+        isPreparingShare = true
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.shareSheetPresenting)
 
-        // Remove stale temp copy if present
-        try? FileManager.default.removeItem(at: tempURL)
-
-        do {
-            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-            ShareSheetPresenter.present(items: [tempURL])
-        } catch {
-            // Fall back to sharing the original if copy fails
-            ShareSheetPresenter.present(items: [sourceURL])
+        Task { @MainActor in
+            logService.flushSession()
+            let sourceURL = session.fileURL
+            let shareURL = await Self.prepareTemporaryShareCopy(sourceURL: sourceURL)
+            ShareSheetPresenter.present(items: [shareURL]) {
+                scheduler.endInteraction(.shareSheetPresenting)
+                isPreparingShare = false
+            }
         }
+    }
+
+    private static func prepareTemporaryShareCopy(sourceURL: URL) async -> URL {
+        await Task.detached(priority: .utility) {
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(sourceURL.lastPathComponent)
+
+            try? FileManager.default.removeItem(at: tempURL)
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                return tempURL
+            } catch {
+                return sourceURL
+            }
+        }.value
     }
 
     // MARK: - Loading

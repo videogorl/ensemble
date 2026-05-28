@@ -127,6 +127,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
+    private let foregroundWorkScheduler: ForegroundWorkScheduling?
     private let launchRecoveryStartedAt = Date()
 
     private var cancellables = Set<AnyCancellable>()
@@ -141,7 +142,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
-    private let sidecarAnalysisQueue = SidecarAnalysisQueue()
+    private let sidecarAnalysisQueue: SidecarAnalysisQueue
     private var isUserPaused = false
     private var isLowPowerSuspended = false
     private var isAppInBackground = false
@@ -288,7 +289,8 @@ public final class OfflineDownloadService: ObservableObject {
         backgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         toastCenter: ToastCenter,
-        lyricsService: LyricsService
+        lyricsService: LyricsService,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -300,6 +302,8 @@ public final class OfflineDownloadService: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.toastCenter = toastCenter
         self.lyricsService = lyricsService
+        self.foregroundWorkScheduler = foregroundWorkScheduler
+        self.sidecarAnalysisQueue = SidecarAnalysisQueue(foregroundWorkScheduler: foregroundWorkScheduler)
 
         // Clean up legacy keys from the old transcode blacklist approach.
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeUnsupportedServerKeys")
@@ -1339,6 +1343,14 @@ public final class OfflineDownloadService: ObservableObject {
     /// Runs the best-effort healing steps that keep persisted downloads aligned
     /// with target memberships before the UI recomputes its snapshots.
     private func runDownloadHealing() async {
+        if !isAppInBackground {
+            if let foregroundWorkScheduler {
+                guard await foregroundWorkScheduler.waitUntilAllowed(.offlineHealing, policy: .idleOnly) else {
+                    return
+                }
+            }
+        }
+
         let runStartedAt = Date()
         // Verify files on disk, mark missing/invalid downloads as failed.
         _ = try? await downloadManager.fetchDownloads()
@@ -1507,7 +1519,14 @@ public final class OfflineDownloadService: ObservableObject {
             fullProgressRefreshTask = nil
             hasQueuedFullProgressRefresh = false
             Task { @MainActor [weak self] in
-                await self?.refreshAllTargetProgresses()
+                guard let self else { return }
+                if !self.isAppInBackground,
+                   let foregroundWorkScheduler = self.foregroundWorkScheduler {
+                    guard await foregroundWorkScheduler.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly) else {
+                        return
+                    }
+                }
+                await self.refreshAllTargetProgresses()
             }
             return
         }
@@ -1526,6 +1545,12 @@ public final class OfflineDownloadService: ObservableObject {
             }
             guard !Task.isCancelled else { return }
 
+            if let foregroundWorkScheduler = self.foregroundWorkScheduler {
+                guard await foregroundWorkScheduler.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly) else {
+                    self.fullProgressRefreshTask = nil
+                    return
+                }
+            }
             await self.refreshAllTargetProgresses()
             self.fullProgressRefreshTask = nil
 
@@ -1737,12 +1762,17 @@ public final class OfflineDownloadService: ObservableObject {
 ///   FFT loop (~every 0.1s at 10fps) responds to our cancellation.
 /// - The interrupted item is re-queued at the front so it retries on resume().
 private actor SidecarAnalysisQueue {
+    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var pending: [(sourceURL: URL, sidecarURL: URL)] = []
     /// The item currently being analyzed (popped from pending, held here for re-queuing on suspend).
     private var currentItem: (sourceURL: URL, sidecarURL: URL)?
     /// Active worker task. Cancelled on suspend().
     private var workerTask: Task<Void, Never>?
     private var isSuspended = false
+
+    init(foregroundWorkScheduler: ForegroundWorkScheduling? = nil) {
+        self.foregroundWorkScheduler = foregroundWorkScheduler
+    }
 
     // MARK: - Public Interface
 
@@ -1798,6 +1828,12 @@ private actor SidecarAnalysisQueue {
                     await self.requeueCurrentItem()
                     break
                 }
+                if let scheduler = await self.scheduler() {
+                    guard await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe) else {
+                        await self.requeueCurrentItem()
+                        break
+                    }
+                }
                 if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: item.sourceURL) {
                     try? FrequencyTimelinePersistence.save(timeline, to: item.sidecarURL)
                 }
@@ -1833,5 +1869,9 @@ private actor SidecarAnalysisQueue {
     private func markWorkerFinished() {
         workerTask = nil
         startWorkerIfNeeded()
+    }
+
+    private func scheduler() -> ForegroundWorkScheduling? {
+        foregroundWorkScheduler
     }
 }

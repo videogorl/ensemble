@@ -92,8 +92,8 @@ struct TrackActionsContextMenu: View {
                     if let onGoToAlbum {
                         onGoToAlbum()
                     } else if let albumId = track.albumRatingKey {
-                        navigationCoordinator.push(
-                            .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                        navigationCoordinator.routeFromMenu(
+                            to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                             in: navigationCoordinator.selectedTab
                         )
                     }
@@ -102,8 +102,8 @@ struct TrackActionsContextMenu: View {
                     if let onGoToArtist {
                         onGoToArtist()
                     } else if let artistId = track.artistRatingKey {
-                        navigationCoordinator.push(
-                            .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        navigationCoordinator.routeFromMenu(
+                            to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                             in: navigationCoordinator.selectedTab
                         )
                     }
@@ -262,8 +262,8 @@ struct AlbumActionsContextMenu: View {
             return
         }
 
-        navigationCoordinator.push(
-            .artist(id: artistId, sourceKey: album.sourceCompositeKey),
+        navigationCoordinator.routeFromMenu(
+            to: .artist(id: artistId, sourceKey: album.sourceCompositeKey),
             in: navigationCoordinator.selectedTab
         )
     }

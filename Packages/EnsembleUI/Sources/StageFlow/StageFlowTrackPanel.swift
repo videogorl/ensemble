@@ -72,6 +72,7 @@ struct StageFlowTrackPanel: View {
     @State private var isLoading = true
     @State private var error: Error?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var currentTrackId: String?
@@ -115,6 +116,9 @@ struct StageFlowTrackPanel: View {
                         Task {
                             await nowPlayingVM.toggleTrackFavorite(track)
                         }
+                    },
+                    onGetInfo: { track in
+                        libraryItemInfoRequest = .track(track)
                     },
                     onShareLink: { track in
                         ShareActions.shareTrackLink(track, deps: deps)
@@ -182,6 +186,7 @@ struct StageFlowTrackPanel: View {
             await loadTracks()
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private func errorState(_ error: Error) -> some View {
@@ -248,6 +253,9 @@ struct StageFlowTrackPanel: View {
                 Task {
                     await nowPlayingVM.toggleTrackFavorite(track)
                 }
+            },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)

@@ -20,7 +20,6 @@ public struct DownloadsView: View {
             }
         }
         .navigationTitle("Downloads")
-        .profileToolbar()
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -493,6 +492,7 @@ private struct DownloadedItemRow: View {
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.ratingKey,
+                    cacheHint: artworkCacheHint,
                     size: .thumbnail,
                     cornerRadius: item.kind == .artist
                         ? ArtworkCornerRadius.circle(for: EnsembleScaffold.UtilityRow.artworkDimension)
@@ -589,6 +589,15 @@ private struct DownloadedItemRow: View {
         case .pending, .completed:
             return EnsembleDesign.Color.secondaryText
         }
+    }
+
+    private var artworkCacheHint: PersistentArtworkCacheHint? {
+        guard let kind = PersistentArtworkCacheHint.Kind(item.kind) else { return nil }
+        return PersistentArtworkCacheHint(
+            ratingKey: item.ratingKey,
+            kind: kind,
+            sourcePath: item.thumbPath
+        )
     }
 
 }

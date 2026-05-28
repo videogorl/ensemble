@@ -127,7 +127,6 @@ public struct SearchView: View {
             isMoreSearchRootActive = Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
         }
         .navigationTitle("Search")
-        .profileToolbar()
         // Search chrome belongs to the active root Search screen only.
         // Leaving it attached while Search is offscreen or pushed into detail
         // leaks stale toolbar/search-controller state into other tabs/destinations.
@@ -247,9 +246,7 @@ public struct SearchView: View {
                             items: viewModel.recentlyPlayedAlbums,
                             id: \.sourceScopedID
                         ) { album in
-                            NavigationLink {
-                                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-                            } label: {
+                            navigationCoordinator.routeLink(to: .albumDetail(album)) {
                                 AlbumCard(album: album)
                             }
                             .buttonStyle(.plain)
@@ -301,19 +298,10 @@ public struct SearchView: View {
 
                             LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                                 ForEach(viewModel.allMoods) { mood in
-                                    if #available(iOS 16.0, macOS 13.0, *) {
-                                        NavigationLink(value: NavigationCoordinator.Destination.moodTracks(mood: mood)) {
-                                            GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
-                                        }
-                                        .buttonStyle(.plain)
-                                    } else {
-                                        NavigationLink {
-                                            MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM)
-                                        } label: {
-                                            GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
-                                        }
-                                        .buttonStyle(.plain)
+                                    navigationCoordinator.routeLink(to: .moodTracks(mood: mood)) {
+                                        GenreCard(genre: Genre(id: mood.id, key: mood.key, title: mood.title))
                                     }
+                                    .buttonStyle(.plain)
                                 }
                             }
                             .padding(.horizontal)
@@ -332,6 +320,7 @@ public struct SearchView: View {
                 }
                 .padding(.vertical)
             }
+            .foregroundScrollActivity()
             .onAppear {
                 // Reset dragging state when view appears/reappears to prevent stuck transparency
                 pinnedVM.draggingPin = nil
@@ -408,9 +397,7 @@ public struct SearchView: View {
     private func recommendedItemCard(_ item: HubItem) -> some View {
         Group {
             if let album = item.album {
-                NavigationLink {
-                    AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-                } label: {
+                navigationCoordinator.routeLink(to: .albumDetail(album)) {
                     AlbumCard(album: album)
                 }
                 .buttonStyle(.plain)
@@ -427,9 +414,9 @@ public struct SearchView: View {
                     )
                 }
             } else if let artist = item.artist {
-                NavigationLink {
-                    ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                } label: {
+                navigationCoordinator.routeLink(
+                    to: .artistDetail(artist)
+                ) {
                     ArtistCard(artist: artist)
                 }
                 .buttonStyle(.plain)
@@ -437,9 +424,9 @@ public struct SearchView: View {
                     ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
                 }
             } else if let playlist = item.playlist {
-                NavigationLink {
-                    PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
-                } label: {
+                navigationCoordinator.routeLink(
+                    to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                ) {
                     PlaylistCard(playlist: playlist)
                 }
                 .buttonStyle(.plain)
@@ -565,7 +552,7 @@ public struct SearchView: View {
         }
     }
 
-    /// Renders the appropriate card and NavigationLink for a resolved pin
+    /// Renders the appropriate route-owned card for a resolved pin.
     /// Supports drag reordering on iOS 16+
     @ViewBuilder
     private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
@@ -641,39 +628,36 @@ public struct SearchView: View {
         }
     }
 
-    /// The actual card content (NavigationLink + card) without drag modifiers
+    /// The actual route-owned card content without drag modifiers.
     @ViewBuilder
     private func pinnedItemCardContent(_ pin: ResolvedPin) -> some View {
         switch pin {
         case let .album(album, _):
-            NavigationLink {
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-            } label: {
+            navigationCoordinator.routeLink(to: .albumDetail(album)) {
                 AlbumCard(album: album)
             }
             .buttonStyle(.plain)
             .disabled(isEditingPins)
         case let .artist(artist, _):
-            NavigationLink {
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-            } label: {
+            navigationCoordinator.routeLink(
+                to: .artistDetail(artist)
+            ) {
                 ArtistCard(artist: artist)
             }
             .buttonStyle(.plain)
             .disabled(isEditingPins)
         case let .playlist(playlist, _):
-            NavigationLink {
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
-            } label: {
+            navigationCoordinator.routeLink(
+                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+            ) {
                 PlaylistCard(playlist: playlist)
             }
             .buttonStyle(.plain)
             .disabled(isEditingPins)
         case let .mergedPlaylist(dp, _):
-            // Navigate to merged playlist detail — shows composite artwork and aggregated info
-            NavigationLink {
-                MergedPlaylistDetailView(displayPlaylist: dp, nowPlayingVM: nowPlayingVM)
-            } label: {
+            navigationCoordinator.routeLink(
+                to: .mergedPlaylist(title: dp.title, isSmart: dp.isSmart)
+            ) {
                 DisplayPlaylistCard(displayPlaylist: dp)
             }
             .buttonStyle(.plain)
@@ -715,29 +699,28 @@ public struct SearchView: View {
             }
             .padding(.vertical)
         }
+        .foregroundScrollActivity()
     }
 
     @ViewBuilder
     private func searchResultSection(for section: SearchSection) -> some View {
         switch section {
         case .artists:
-            if !viewModel.artistResults.isEmpty {
+            if !viewModel.displayArtistResults.isEmpty {
                 compactSection(
                     title: "Artists",
-                    count: viewModel.artistResults.count,
-                    items: Array(viewModel.artistResults.prefix(5))
-                ) { artist in
-                    NavigationLink {
-                        ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                    } label: {
-                        CompactArtistRow(artist: artist)
+                    count: viewModel.displayArtistResults.count,
+                    items: Array(viewModel.displayArtistResults.prefix(5))
+                ) { displayArtist in
+                    navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id)) {
+                        CompactArtistRow(displayArtist: displayArtist)
                     }
                     .buttonStyle(.plain)
                     .simultaneousGesture(TapGesture().onEnded {
                         handleSearchResultNavigation()
                     })
                     .contextMenu {
-                        ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                        ArtistActionsContextMenu(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
                     }
                 }
             }
@@ -749,9 +732,7 @@ public struct SearchView: View {
                     count: viewModel.albumResults.count,
                     items: Array(viewModel.albumResults.prefix(5))
                 ) { album in
-                    NavigationLink {
-                        AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-                    } label: {
+                    navigationCoordinator.routeLink(to: .albumDetail(album)) {
                         CompactAlbumRow(album: album)
                     }
                     .buttonStyle(.plain)
@@ -780,9 +761,9 @@ public struct SearchView: View {
                     count: viewModel.playlistResults.count,
                     items: Array(viewModel.playlistResults.prefix(5))
                 ) { playlist in
-                    NavigationLink {
-                        PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
-                    } label: {
+                    navigationCoordinator.routeLink(
+                        to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                    ) {
                         CompactPlaylistRow(playlist: playlist)
                     }
                     .buttonStyle(.plain)
@@ -878,15 +859,15 @@ public struct SearchView: View {
             },
             onGoToAlbum: { track in
                 guard let albumId = track.albumRatingKey else { return }
-                navigationCoordinator.push(
-                    .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                navigationCoordinator.routeFromMenu(
+                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },
             onGoToArtist: { track in
                 guard let artistId = track.artistRatingKey else { return }
-                navigationCoordinator.push(
-                    .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                navigationCoordinator.routeFromMenu(
+                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },

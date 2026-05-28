@@ -12,6 +12,15 @@ import AppKit
 /// "card spacing" or "toolbar pill material" instead of copying a raw number or
 /// material stack from another component.
 public enum EnsembleDesign {
+    public enum Performance {
+        /// Legacy and 2 GB-class devices need simpler compositing during dense
+        /// scroll/navigation/Now Playing transitions.
+        public static var prefersReducedVisualEffects: Bool {
+            let os = ProcessInfo.processInfo.operatingSystemVersion
+            return os.majorVersion <= 15 || ProcessInfo.processInfo.physicalMemory <= 2_500_000_000
+        }
+    }
+
     public enum Spacing {
         public static let none: CGFloat = 0
         public static let xxs: CGFloat = 2

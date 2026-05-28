@@ -1,6 +1,7 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+import ObjectiveC
 #endif
 
 // MARK: - Scroll Offset Title Preference Key
@@ -22,7 +23,6 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
     let title: String
     let threshold: CGFloat  // maxY value below which toolbar title appears
     @Binding var showToolbarTitle: Bool
-    let showToolbarBackground: Binding<Bool>?
 
     private var shouldEnableCollapsingToolbarTitle: Bool {
         #if os(macOS)
@@ -56,9 +56,9 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     }
                     #if os(iOS)
                     // iOS 16+: use SwiftUI toolbarBackground (respects iOS 26 Liquid Glass)
-                    .modifier(ToolbarBackgroundModifier(isTransparent: !toolbarBackgroundIsVisible))
+                    .modifier(ToolbarBackgroundModifier(isTransparent: !showToolbarTitle))
                     // iOS 15 fallback only; newer OS releases own navigation chrome natively.
-                    .modifier(IOS15NavigationBarAppearanceModifier(isTransparent: !toolbarBackgroundIsVisible))
+                    .modifier(IOS15NavigationBarAppearanceModifier(isTransparent: !showToolbarTitle))
                     #endif
             } else {
                 content
@@ -67,10 +67,6 @@ struct CollapsingToolbarTitleModifier: ViewModifier {
                     }
             }
         }
-    }
-
-    private var toolbarBackgroundIsVisible: Bool {
-        showToolbarBackground?.wrappedValue ?? showToolbarTitle
     }
 }
 
@@ -155,7 +151,14 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
     /// Probe view that walks up the responder chain to find the parent UINavigationController
     final class NavigationBarProbeView: UIView {
         var isTransparent = true
+        private final class AppearanceOwner: NSObject {}
+
+        private static var appearanceOwnerKey: UInt8 = 0
+
+        private let ownerToken = AppearanceOwner()
+        private weak var appliedNavigationBar: UINavigationBar?
         private var lastAppliedState: Bool?
+        private var retryScheduled = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -171,23 +174,41 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
             if #available(iOS 16.0, *) {
                 return
             }
-            guard lastAppliedState != isTransparent else { return }
+            guard let navBar = findNavigationBar() else {
+                scheduleAppearanceRetry()
+                return
+            }
 
-            guard let navBar = findNavigationBar() else { return }
-            lastAppliedState = isTransparent
+            let ownsCurrentAppearance = Self.ownerToken(for: navBar) === ownerToken
+            guard lastAppliedState != isTransparent || appliedNavigationBar !== navBar || !ownsCurrentAppearance else {
+                return
+            }
 
+            applyAppearance(isTransparent: isTransparent, to: navBar)
+        }
+
+        private func applyAppearance(isTransparent: Bool, to navBar: UINavigationBar) {
+            let appearance = UINavigationBarAppearance()
             if isTransparent {
-                let appearance = UINavigationBarAppearance()
                 appearance.configureWithTransparentBackground()
-                navBar.standardAppearance = appearance
-                navBar.scrollEdgeAppearance = appearance
-                navBar.compactAppearance = appearance
             } else {
-                let appearance = UINavigationBarAppearance()
                 appearance.configureWithDefaultBackground()
-                navBar.standardAppearance = appearance
-                navBar.scrollEdgeAppearance = appearance
-                navBar.compactAppearance = appearance
+            }
+            navBar.standardAppearance = appearance
+            navBar.scrollEdgeAppearance = appearance
+            navBar.compactAppearance = appearance
+            Self.setOwnerToken(ownerToken, for: navBar)
+            appliedNavigationBar = navBar
+            lastAppliedState = isTransparent
+        }
+
+        private func scheduleAppearanceRetry() {
+            guard !retryScheduled else { return }
+            retryScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.retryScheduled = false
+                self.updateAppearance()
             }
         }
 
@@ -209,22 +230,52 @@ struct NavigationBarAppearanceConfigurator: UIViewRepresentable {
                 return
             }
             if newWindow == nil {
-                // Restore default appearance when leaving
-                restoreDefaultAppearance()
+                restoreDefaultAppearanceIfOwned()
             }
         }
 
-        private func restoreDefaultAppearance() {
+        private func restoreDefaultAppearanceIfOwned() {
             if #available(iOS 16.0, *) {
                 return
             }
-            guard let navBar = findNavigationBar() else { return }
+            // During nested pushes, an offscreen source detail can detach after the
+            // destination has already claimed transparent chrome. Only the current
+            // owner may restore default chrome.
+            guard let navBar = appliedNavigationBar ?? findNavigationBar(),
+                  Self.ownerToken(for: navBar) === ownerToken else {
+                return
+            }
+
             let appearance = UINavigationBarAppearance()
             appearance.configureWithDefaultBackground()
             navBar.standardAppearance = appearance
             navBar.scrollEdgeAppearance = appearance
             navBar.compactAppearance = appearance
+            Self.clearOwnerToken(for: navBar)
+            appliedNavigationBar = nil
             lastAppliedState = nil
+        }
+
+        private static func ownerToken(for navBar: UINavigationBar) -> AppearanceOwner? {
+            objc_getAssociatedObject(navBar, &appearanceOwnerKey) as? AppearanceOwner
+        }
+
+        private static func setOwnerToken(_ token: AppearanceOwner, for navBar: UINavigationBar) {
+            objc_setAssociatedObject(
+                navBar,
+                &appearanceOwnerKey,
+                token,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+
+        private static func clearOwnerToken(for navBar: UINavigationBar) {
+            objc_setAssociatedObject(
+                navBar,
+                &appearanceOwnerKey,
+                nil,
+                .OBJC_ASSOCIATION_ASSIGN
+            )
         }
     }
 }
@@ -237,14 +288,12 @@ extension View {
     func collapsingToolbarTitle(
         _ title: String,
         threshold: CGFloat = 0,
-        showToolbarTitle: Binding<Bool>,
-        showToolbarBackground: Binding<Bool>? = nil
+        showToolbarTitle: Binding<Bool>
     ) -> some View {
         self.modifier(CollapsingToolbarTitleModifier(
             title: title,
             threshold: threshold,
-            showToolbarTitle: showToolbarTitle,
-            showToolbarBackground: showToolbarBackground
+            showToolbarTitle: showToolbarTitle
         ))
     }
 
@@ -262,6 +311,7 @@ extension View {
     func artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: Bool = false) -> some View {
         toolbarMaterialBleed(hidesTopScrollEdgeEffect: hidesTopScrollEdgeEffect)
     }
+
 }
 
 private struct ToolbarMaterialBackgroundModifier: ViewModifier {

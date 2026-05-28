@@ -723,7 +723,7 @@ public func getStreamURL(
 
     public func getArtistAlbums(artistKey: String) async throws -> [Album] {
         let plexAlbums = try await apiClient.getArtistAlbums(artistKey: artistKey)
-        return plexAlbums.map { Album(from: $0) }
+        return plexAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
     }
 
     public func getArtistTracks(artistKey: String) async throws -> [Track] {
@@ -747,6 +747,6 @@ public func getStreamURL(
 
     public func getSimilarAlbums(albumKey: String) async throws -> [Album] {
         let plexAlbums = try await apiClient.getSimilarAlbums(albumKey: albumKey)
-        return plexAlbums.map { Album(from: $0) }
+        return plexAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
     }
 }

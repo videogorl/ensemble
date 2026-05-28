@@ -1,9 +1,11 @@
 import XCTest
+import Combine
 @testable import EnsembleCore
 
 final class NavigationCoordinatorTests: XCTestCase {
     func testDestinationTargetTabs() {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayArtist(id: "merged:ajr")), .artists)
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .artistDetail(Self.artist())), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .artist(id: "artist")), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .album(id: "album")), .albums)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .playlist(id: "playlist", sourceKey: nil)), .playlists)
@@ -77,6 +79,27 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testRedundantPathMutationsDoNotRepublishNavigationState() {
+        let coordinator = NavigationCoordinator()
+        let path: [NavigationCoordinator.Destination] = [
+            .album(id: "album", sourceKey: nil)
+        ]
+        var publishCount = 0
+        let cancellable = coordinator.objectWillChange.sink {
+            publishCount += 1
+        }
+
+        coordinator.setPath(path, for: .albums)
+        coordinator.setPath(path, for: .albums)
+        coordinator.popToRoot(tab: .songs)
+
+        XCTAssertEqual(publishCount, 1)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .albums), path)
+
+        cancellable.cancel()
+    }
+
+    @MainActor
     func testPushIgnoresDuplicateTopDestination() {
         let coordinator = NavigationCoordinator()
         let destination = NavigationCoordinator.Destination.playlist(id: "playlist", sourceKey: "server/library")
@@ -85,6 +108,20 @@ final class NavigationCoordinatorTests: XCTestCase {
         coordinator.push(destination, in: .playlists)
 
         XCTAssertEqual(coordinator.pathSnapshot(for: .playlists), [destination])
+    }
+
+    @MainActor
+    func testRouteTransitionFlagClearsAfterDuration() async {
+        let coordinator = NavigationCoordinator()
+
+        coordinator.beginRouteTransition(in: .artists, durationNanoseconds: 10_000_000)
+
+        XCTAssertTrue(coordinator.isRouteTransitionActive(for: .artists))
+        XCTAssertFalse(coordinator.isRouteTransitionActive(for: .albums))
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertFalse(coordinator.isRouteTransitionActive(for: .artists))
     }
 
     @MainActor
@@ -177,5 +214,9 @@ final class NavigationCoordinatorTests: XCTestCase {
         XCTAssertTrue(NavigationCoordinator.routeExternalSearchInActiveScene(to: destination))
         XCTAssertEqual(coordinator.selectedTab, .albums)
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+    }
+
+    private static func artist() -> Artist {
+        Artist(id: "artist", key: "/library/metadata/artist", name: "Artist")
     }
 }

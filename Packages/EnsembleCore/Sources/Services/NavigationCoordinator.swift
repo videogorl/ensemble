@@ -37,6 +37,7 @@ public final class NavigationCoordinator: ObservableObject {
     /// Represents a navigation destination using IDs for hashability and deep linking
     public enum Destination: Hashable {
         case displayArtist(id: String)
+        case artistDetail(Artist)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
         case albumDetail(Album)
@@ -72,6 +73,7 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var showingAddAccount = false
     @Published public var activeAuxiliaryPresentation: AuxiliaryPresentation?
     @Published public var auxiliaryWindowRequest: AuxiliaryWindowRequest?
+    @Published public private(set) var routeTransitionTabs: Set<TabItem> = []
 
     /// For NowPlaying flow: pending navigation to execute after sheet dismissal
     public struct PendingNavigation {
@@ -90,7 +92,7 @@ public final class NavigationCoordinator: ObservableObject {
 
     public nonisolated static func targetTab(for destination: Destination) -> TabItem {
         switch destination {
-        case .displayArtist:
+        case .displayArtist, .artistDetail:
             return .artists
         case .artist:
             return .artists
@@ -183,11 +185,25 @@ public final class NavigationCoordinator: ObservableObject {
         }
     }
 
+    public func beginRouteTransition(in tab: TabItem, durationNanoseconds: UInt64 = 700_000_000) {
+        routeTransitionTabs.insert(tab)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: durationNanoseconds)
+            routeTransitionTabs.remove(tab)
+        }
+    }
+
+    public func isRouteTransitionActive(for tab: TabItem) -> Bool {
+        routeTransitionTabs.contains(tab)
+    }
+
     public func pathSnapshot(for tab: TabItem) -> [Destination] {
         path(for: tab)
     }
 
     public func setPath(_ path: [Destination], for tab: TabItem) {
+        guard self.path(for: tab) != path else { return }
+
         switch tab {
         case .home: homePath = path
         case .songs: songsPath = path
@@ -204,6 +220,8 @@ public final class NavigationCoordinator: ObservableObject {
     
     /// Pop to root for a specific tab
     public func popToRoot(tab: TabItem) {
+        guard !path(for: tab).isEmpty else { return }
+
         switch tab {
         case .home: homePath.removeAll()
         case .songs: songsPath.removeAll()

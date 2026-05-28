@@ -40,6 +40,8 @@ Dependency flow is one-way:
 ## Core Ownership Rules
 
 - `DependencyContainer` wires services and ViewModel factories. Keep construction grouped by subsystem bootstrap helpers and cross-subsystem callback wiring in explicit post-construction helpers.
+- `AppReadinessCoordinator` owns UI-safe launch/source/cache readiness snapshots. Browse ViewModels consume those snapshots instead of independently deriving add-source or empty states from transient account arrays, and library browse screens consume committed `LibraryBrowseSnapshot` values instead of raw arrays that may be empty mid-refresh.
+- `ForegroundWorkScheduler` owns foreground interaction budgeting for nonessential CPU/file work. Services route SmartMix analysis, sidecar analysis, offline healing, system media indexing, artwork retries, log export preparation, and expensive progress recomputation through it without making it an app-state singleton.
 - `SyncCoordinator` is the sync facade. Keep provider lookup, refresh orchestration, playlist refresh, network lifecycle, and endpoint synchronization in focused collaborators instead of growing the facade.
 - `PlaybackService` is the playback facade. Queue mutation and transport side effects stay there; audio session, queue persistence, launch/recovery policy, file cache, prefetch, now-playing metadata, reporting, settings observation, system-media donations, and transport resolution belong in focused collaborators.
 - `OfflineDownloadService` remains the target/queue source of truth. Platform events route through the offline background coordinator, not directly from app delegates into queue workers.
@@ -59,7 +61,7 @@ Dependency flow is one-way:
 - Root shells own platform navigation: tab shell on iPhone, split/sidebar shell on iPad/macOS where supported.
 - Persistent list/detail surfaces should observe focused projections or local state snapshots, not broad high-frequency singleton objects.
 - Keep native platform owners for behavior SwiftUI does not expose: UIKit/AppKit track tables, AirPlay picker, Metal aurora, global toast window, native share/menu hosts, iOS 15 tab/mini-player bridges.
-- Treat new safe-area compensation, delayed layout tasks, custom scroll detectors, and root-chrome mutation as suspect until a current simulator/macOS repro proves native behavior is broken.
+- Treat new safe-area compensation, delayed layout tasks, custom scroll detectors, leaf-level navigation-bar hiding, and root-chrome mutation as suspect until a current simulator/macOS repro proves native behavior is broken.
 - Now Playing panel additions must update the shared iPhone carousel and wide detail panel. External display stays a shell around the shared wide layout.
 
 ## Data And Sync Rules
@@ -69,7 +71,7 @@ Dependency flow is one-way:
   - `CD*` models live in `EnsemblePersistence`.
   - UI-facing domain models live in `EnsembleCore`.
 - Source identity must include account/server/library scope where applicable. Plex library section keys are per-server integers and are not globally unique.
-- Feed and library surfaces should use stale-while-revalidate behavior: show cached/last-good data first, then refresh in background.
+- Feed and library surfaces should use stale-while-revalidate behavior: show cached/last-good committed snapshots first, then refresh in background.
 - Empty or failed network results must not overwrite last-good Feed snapshots.
 - Destructive source cleanup belongs in `SourceCacheCleanupService` or the relevant persistence/offline owner, not in UI ViewModels.
 

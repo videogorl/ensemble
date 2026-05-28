@@ -18,6 +18,7 @@ public enum ShareSheetPresenter {
     /// - Parameters:
     ///   - items: Items to share (URLs, strings, etc.)
     ///   - completion: Called after the share sheet is dismissed
+    @MainActor
     public static func present(items: [Any], completion: (() -> Void)? = nil) {
         #if os(iOS)
         presentIOS(items: items, completion: completion)
@@ -27,6 +28,7 @@ public enum ShareSheetPresenter {
     }
 
     #if os(iOS)
+    @MainActor
     private static func presentIOS(items: [Any], completion: (() -> Void)?) {
         let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
 
@@ -64,6 +66,7 @@ public enum ShareSheetPresenter {
     #endif
 
     #if os(macOS)
+    @MainActor
     private static func presentMacOS(items: [Any], completion: (() -> Void)?) {
         guard let window = NSApplication.shared.keyWindow,
               let contentView = window.contentView else {

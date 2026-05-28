@@ -11,6 +11,7 @@ Load this reference for offline download targets, download queue behavior, trans
 - User pause, Low Power Mode, app backgrounding, and iOS continued-processing windows all feed the same scheduler. The queue should pause aggressively on constrained devices without losing resumability.
 - Background execution is an accelerator, not the source of truth. Persistent queue state must resume under normal foreground/background opportunities when OS background execution is rejected, cancelled, or expired.
 - Launch recovery is lightweight: repair stale `.downloading` records and publish target shells first, then defer file healing, truncation scans, cleanup, and full progress recomputation.
+- Deferred launch/foreground healing, truncation scans, cleanup, sidecar analysis, and expensive full-progress recomputation route through `ForegroundWorkScheduler` while the app is foreground active. Downloads themselves may continue when network/settings allow; the scheduler throttles reconciliation and analysis work, not user-requested transfer execution.
 - Foreground recovery immediately after launch should coalesce with launch recovery instead of repeating the same startup sweep.
 - Some Plex servers reject offline transcode even when original downloads work. Mark unsupported servers, avoid repeated failing transcode attempts, and allow original-quality fallback for those servers.
 - Quality refresh requeues completed downloads only when stored quality differs from the current download quality and the server supports the requested mode.
@@ -30,7 +31,7 @@ Load this reference for offline download targets, download queue behavior, trans
 
 - Route user-facing target toggles, removals, remove-all, pause, and resume through `DownloadMutationWorkflow` when views or view models initiate them.
 - Use debounced `downloadsDidChange` fan-out through `OfflineDownloadNotificationBridge`; avoid per-track publish storms during bulk downloads.
-- Keep FFT, artwork, and lyrics sidecar work background priority and serialized where needed so downloads do not starve playback or low-RAM devices.
+- Keep FFT, artwork, and lyrics sidecar work background priority and serialized where needed so downloads do not starve playback or low-RAM devices. On A9/iOS 15-class devices, sidecar/analysis work should pause during startup sync, share sheets, Now Playing interaction, and audio-critical sections.
 - Include chord stream pre-cache in the same best-effort sidecar path as lyrics downloads; retry or cache-clearing actions for a track/source should evict both normal lyric and chord caches.
 - Do not instantiate download workers when there are no pending downloads.
 

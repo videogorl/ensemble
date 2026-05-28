@@ -145,6 +145,10 @@ public struct LyricsCard: View {
         NowPlayingPanelPage.lyrics.shouldRenderContent(currentPage: currentPage)
     }
 
+    private var usesReducedVisualEffects: Bool {
+        EnsembleDesign.Performance.prefersReducedVisualEffects
+    }
+
     @ViewBuilder
     private var contentView: some View {
         if shouldRenderContent {
@@ -152,16 +156,22 @@ public struct LyricsCard: View {
             case .loading:
                 loadingView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .mask(fadeMask)
+                    .if(!usesReducedVisualEffects) { view in
+                        view.mask(fadeMask)
+                    }
 
             case .notAvailable:
                 notAvailableView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .mask(fadeMask)
+                    .if(!usesReducedVisualEffects) { view in
+                        view.mask(fadeMask)
+                    }
 
             case .available(let lyrics):
                 lyricsScrollView(lyrics: lyrics)
-                    .mask(fadeMask)
+                    .if(!usesReducedVisualEffects) { view in
+                        view.mask(fadeMask)
+                    }
             }
         } else {
             // Lightweight placeholder for pages more than one swipe away.
@@ -485,7 +495,9 @@ public struct LyricsCard: View {
             }
         }
         .chromelessMediaControlButton()
-        .ensembleStandardShadow()
+        .if(!EnsembleDesign.Performance.prefersReducedVisualEffects) { view in
+            view.ensembleStandardShadow()
+        }
     }
 
     // MARK: - Helpers
@@ -547,7 +559,11 @@ public struct LyricsCard: View {
     /// Lines close to the active line are sharp; distant lines blur progressively.
     /// Disabled when native scroll-phase observation is unavailable so user scrolling stays readable.
     private func lineBlurRadius(index: Int, isTimed: Bool) -> CGFloat {
-        guard isTimed, supportsProgressiveLyricsBlur, !isLowPowerMode, !isUserDrivenLyricsScrollActive else { return 0 }
+        guard isTimed,
+              supportsProgressiveLyricsBlur,
+              !isLowPowerMode,
+              !usesReducedVisualEffects,
+              !isUserDrivenLyricsScrollActive else { return 0 }
 
         // Use active line index, fall back to scroll target during instrumental gaps
         let center = currentLyricsLineIndex

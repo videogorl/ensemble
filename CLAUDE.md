@@ -34,7 +34,13 @@ Add another skill when the task crosses that boundary. Do not load every skill b
 
 Before changing durable app behavior, load `app-policies` and the relevant policy reference(s). Follow the existing policy unless the task explicitly requires a behavior change. If implementation creates, removes, or clarifies behavior, update the relevant `app-policies` reference in the same logical change before handing work back.
 
+Before making a change that goes against an existing policy, confirm with the user first. Do not infer approval from a broad implementation request.
+
+Prefer removing code to adding code when simplification preserves behavior, matches current policy, and avoids regressions. After confirming any required policy change, favor simpler native platform behavior over custom workarounds when current verification supports it.
+
 Use policy docs for behavior contracts, not historical notes. Keep `architecture` for package/service ownership, `ui-conventions` for UI implementation conventions, `testing` for verification execution, `known-issues` for active limitations, and `plex-api` for PMS endpoint details.
+
+When updating a policy, include the concrete app surfaces and implementation hooks that policy touches, such as `ArtistDetailView` or `NowPlayingView.swift`, so `surface-sweep` can use the policy as a test map.
 
 ## Workflow
 

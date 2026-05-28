@@ -47,6 +47,10 @@ public struct QueueCard: View {
         )
     }
 
+    private var usesReducedVisualEffects: Bool {
+        EnsembleDesign.Performance.prefersReducedVisualEffects
+    }
+
     public var body: some View {
         VStack(spacing: EnsembleDesign.Spacing.none) {
             // Pinned header
@@ -57,7 +61,8 @@ public struct QueueCard: View {
             if shouldRenderContent {
                 // QueueTableView manages its own scrolling so cell recycling remains native.
                 queueListView
-                    .mask(
+                    .if(!usesReducedVisualEffects) { view in
+                        view.mask(
                         VStack(spacing: EnsembleDesign.Spacing.none) {
                             // Top fade
                             LinearGradient(
@@ -84,7 +89,8 @@ public struct QueueCard: View {
                             )
                             .frame(height: EnsembleScaffold.NowPlaying.FadeMask.bottomHeight)
                         }
-                    )
+                        )
+                    }
             } else {
                 // Lightweight placeholder for far-off pages only.
                 Color.clear
@@ -526,7 +532,9 @@ public struct QueueCard: View {
             .opacity(!deps.networkMonitor.isConnected ? EnsembleScaffold.NowPlaying.offlineControlOpacity : 1.0)
         }
         .chromelessMediaControlButton()
-        .ensembleStandardShadow()
+        .if(!EnsembleDesign.Performance.prefersReducedVisualEffects) { view in
+            view.ensembleStandardShadow()
+        }
     }
 
     private var autoplayIcon: String {

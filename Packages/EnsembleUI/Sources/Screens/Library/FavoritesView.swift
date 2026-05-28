@@ -27,6 +27,7 @@ public struct FavoritesView: View {
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
     @State private var hasCompletedInitialLoad = false
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
@@ -53,7 +54,6 @@ public struct FavoritesView: View {
         }
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
-        .profileToolbar()
         .toolbar {
             EnsembleBrowseToolbar(isVisible: !viewModel.tracks.isEmpty) {
                 sortMenu
@@ -98,6 +98,7 @@ public struct FavoritesView: View {
             )
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private var shouldShowTrackList: Bool {
@@ -222,19 +223,22 @@ public struct FavoritesView: View {
             },
             onGoToAlbum: { track in
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
+            },
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)
@@ -281,6 +285,7 @@ public struct FavoritesView: View {
                     }
                 }
             }
+            .foregroundScrollActivity()
             .miniPlayerBottomSpacing()
             .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         #else

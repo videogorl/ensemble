@@ -2,12 +2,13 @@ import EnsembleCore
 import SwiftUI
 
 /// A background view that uses a heavily blurred version of artwork.
-/// When `preBlurredImage` is provided, it is displayed directly without live
-/// contrast/saturation/brightness/blur modifiers — saving 4 GPU render passes
-/// on every SwiftUI body evaluation.
+///
+/// The blur is always bitmap-backed. Callers should pass `preBlurredImage` from
+/// an artwork resolver so navigation/layout passes do not generate blur work.
 public struct BlurredArtworkBackground: View {
     let image: PlatformImage?
     let preBlurredImage: PlatformImage?
+    let preBlurredCacheKey: String?
     let blurRadius: CGFloat
     let contrast: Double
     let saturation: Double
@@ -18,10 +19,18 @@ public struct BlurredArtworkBackground: View {
     let shouldIgnoreSafeArea: Bool
     let overlayColor: Color
     let animatesImageChanges: Bool
+    let allowsLiveBlurRender: Bool
+    let fadesInDelayedImages: Bool
+    @State private var cachedBlurredImage: PlatformImage?
+    @State private var cachedBlurredImageIdentity: String?
+    @State private var renderedArtworkOpacity: Double
+    @State private var sourceStartedWithoutRenderableImage: Bool
+    @State private var preparedBlurSourceIdentity: String?
 
     public init(
         image: PlatformImage?,
         preBlurredImage: PlatformImage? = nil,
+        preBlurredCacheKey: String? = nil,
         blurRadius: CGFloat = 80,
         contrast: Double = 2.0,
         saturation: Double = 1.9,
@@ -31,10 +40,23 @@ public struct BlurredArtworkBackground: View {
         bottomDimming: Double = 0.5,
         shouldIgnoreSafeArea: Bool = true,
         overlayColor: Color = .black,
-        animatesImageChanges: Bool = true
+        animatesImageChanges: Bool = true,
+        allowsLiveBlurRender: Bool = false,
+        fadesInDelayedImages: Bool = false
     ) {
+        let sourceIdentity = Self.blurSourceIdentity(
+            image: image,
+            preBlurredImage: preBlurredImage,
+            preBlurredCacheKey: preBlurredCacheKey
+        )
+        let initialCachedImage = Self.synchronouslyCachedBlurredImage(
+            image: image,
+            preBlurredImage: preBlurredImage,
+            preBlurredCacheKey: preBlurredCacheKey
+        )
         self.image = image
         self.preBlurredImage = preBlurredImage
+        self.preBlurredCacheKey = preBlurredCacheKey
         self.blurRadius = blurRadius
         self.contrast = contrast
         self.saturation = saturation
@@ -45,6 +67,13 @@ public struct BlurredArtworkBackground: View {
         self.shouldIgnoreSafeArea = shouldIgnoreSafeArea
         self.overlayColor = overlayColor
         self.animatesImageChanges = animatesImageChanges
+        self.allowsLiveBlurRender = allowsLiveBlurRender
+        self.fadesInDelayedImages = fadesInDelayedImages
+        self._cachedBlurredImage = State(initialValue: initialCachedImage)
+        self._cachedBlurredImageIdentity = State(initialValue: initialCachedImage == nil ? nil : sourceIdentity)
+        self._renderedArtworkOpacity = State(initialValue: initialCachedImage == nil && fadesInDelayedImages ? 0 : 1)
+        self._sourceStartedWithoutRenderableImage = State(initialValue: initialCachedImage == nil)
+        self._preparedBlurSourceIdentity = State(initialValue: sourceIdentity)
     }
     
     public var body: some View {
@@ -55,42 +84,33 @@ public struct BlurredArtworkBackground: View {
                 content
             }
         }
+        .onAppear {
+            updateRenderedArtworkOpacityForCurrentSource()
+        }
+        .onChange(of: blurSourceIdentity) { _ in
+            updateRenderedArtworkOpacityForCurrentSource()
+        }
+        .task(id: blurSourceIdentity) {
+            await updateCachedBlurredImage()
+        }
     }
     
     private var content: some View {
         GeometryReader { geometry in
             ZStack {
-                // Guard against zero-sized geometry during layout/animation passes
-                // to avoid QuartzCore "Failed to create WxH image slot" errors.
-                //
-                // When a pre-blurred image is available, display it directly without
-                // live contrast/saturation/brightness/blur — those effects are already
-                // baked in, saving 4 GPU render passes per body evaluation.
-                let displayImage = preBlurredImage ?? image
-                let isPreBlurred = preBlurredImage != nil
+                // Guard against zero-sized geometry during layout/animation passes.
+                // Artwork blur is always bitmap-backed: either supplied by the caller
+                // or generated once through ArtworkBlurRenderer and cached.
+                let displayImage = currentDisplayImage
 
                 if let displayImage = displayImage, geometry.size.width > 0, geometry.size.height > 0 {
                     #if os(macOS)
-                    // Opaque fill behind the blur — macOS .blur() doesn't support
-                    // the opaque: parameter, so edges become semi-transparent.
-                    // This prevents the window background from showing through.
-                    if !isPreBlurred {
-                        overlayColor
-                            .frame(width: geometry.size.width, height: geometry.size.height)
-                    }
-
                     Image(nsImage: displayImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .if(!isPreBlurred) { view in
-                            view.contrast(contrast)
-                                .saturation(saturation)
-                                .brightness(brightness)
-                                .blur(radius: blurRadius)
-                        }
-                        .opacity(opacity)
+                        .opacity(opacity * renderedArtworkOpacity)
                         .optionalArtworkTransition(
                             id: image.map(ObjectIdentifier.init),
                             isEnabled: animatesImageChanges
@@ -101,26 +121,12 @@ public struct BlurredArtworkBackground: View {
                         .aspectRatio(contentMode: .fill)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
-                        .if(!isPreBlurred) { view in
-                            view.contrast(contrast)
-                                .saturation(saturation)
-                                .brightness(brightness)
-                                .blur(radius: blurRadius, opaque: true)
-                        }
-                        .opacity(opacity)
+                        .opacity(opacity * renderedArtworkOpacity)
                         .optionalArtworkTransition(
                             id: image.map(ObjectIdentifier.init),
                             isEnabled: animatesImageChanges
                         )
                     #endif
-
-                    // Saturation gradient (desaturates bottom slightly)
-                    LinearGradient(
-                        colors: [.clear, .gray.opacity(0.4)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .blendMode(.saturation)
 
                     // Dimming gradient to ensure controls are visible
                     LinearGradient(
@@ -139,6 +145,186 @@ public struct BlurredArtworkBackground: View {
             }
             .clipped()
         }
+    }
+
+    private var blurSourceIdentity: String {
+        Self.blurSourceIdentity(
+            image: image,
+            preBlurredImage: preBlurredImage,
+            preBlurredCacheKey: preBlurredCacheKey
+        )
+    }
+
+    private var cachedStableBlurredImage: PlatformImage? {
+        guard let preBlurredCacheKey else { return nil }
+        return ArtworkBlurRenderer.cachedBlurredImage(forStableKey: preBlurredCacheKey)
+    }
+
+    private var currentDisplayImage: PlatformImage? {
+        if let preBlurredImage {
+            return preBlurredImage
+        }
+        if cachedBlurredImageIdentity == blurSourceIdentity,
+           let cachedBlurredImage {
+            return cachedBlurredImage
+        }
+        return cachedStableBlurredImage
+    }
+
+    private var currentSourceHasSynchronousCachedImage: Bool {
+        if cachedBlurredImageIdentity == blurSourceIdentity,
+           cachedBlurredImage != nil {
+            return true
+        }
+        if cachedStableBlurredImage != nil {
+            return true
+        }
+        if let image,
+           ArtworkBlurRenderer.cachedBlurredImage(for: image) != nil {
+            return true
+        }
+        return false
+    }
+
+    @MainActor
+    private func updateCachedBlurredImage() async {
+        let sourceIdentity = blurSourceIdentity
+
+        if let preBlurredImage {
+            setCachedBlurredImage(preBlurredImage, identity: sourceIdentity)
+            return
+        }
+
+        if let cached = cachedStableBlurredImage {
+            setCachedBlurredImage(cached, identity: sourceIdentity)
+            return
+        }
+
+        guard let image else {
+            setCachedBlurredImage(nil, identity: sourceIdentity)
+            return
+        }
+
+        if let cached = ArtworkBlurRenderer.cachedBlurredImage(for: image) {
+            setCachedBlurredImage(cached, identity: sourceIdentity)
+            return
+        }
+
+        guard allowsLiveBlurRender else {
+            setCachedBlurredImage(nil, identity: sourceIdentity)
+            return
+        }
+
+        let imageIdentity = ObjectIdentifier(image)
+        let sendableImage = SendablePlatformImage(image)
+        let blurred = await Task.detached(priority: .utility) {
+            ArtworkBlurRenderer.blurredImage(from: sendableImage.value)
+                .map(SendablePlatformImage.init)
+        }.value
+
+        guard !Task.isCancelled, ObjectIdentifier(image) == imageIdentity, blurSourceIdentity == sourceIdentity else {
+            return
+        }
+        if let blurred {
+            setCachedBlurredImage(blurred.value, identity: sourceIdentity)
+        }
+    }
+
+    @MainActor
+    private func setCachedBlurredImage(_ image: PlatformImage?, identity: String) {
+        cachedBlurredImage = image
+        cachedBlurredImageIdentity = image == nil ? nil : identity
+        updateRenderedArtworkOpacityForCurrentSource()
+    }
+
+    @MainActor
+    private func updateRenderedArtworkOpacityForCurrentSource() {
+        guard fadesInDelayedImages else {
+            renderedArtworkOpacity = 1
+            sourceStartedWithoutRenderableImage = false
+            preparedBlurSourceIdentity = blurSourceIdentity
+            return
+        }
+
+        let sourceIdentity = blurSourceIdentity
+        let sourceChanged = preparedBlurSourceIdentity != sourceIdentity
+        let hasDisplayImage = currentDisplayImage != nil
+
+        if sourceChanged {
+            preparedBlurSourceIdentity = sourceIdentity
+            if !hasDisplayImage {
+                sourceStartedWithoutRenderableImage = true
+                renderedArtworkOpacity = 0
+                return
+            }
+            if preBlurredImage == nil, currentSourceHasSynchronousCachedImage {
+                sourceStartedWithoutRenderableImage = false
+                renderedArtworkOpacity = 1
+                return
+            }
+        }
+
+        guard hasDisplayImage else {
+            sourceStartedWithoutRenderableImage = true
+            renderedArtworkOpacity = 0
+            return
+        }
+
+        if !sourceStartedWithoutRenderableImage {
+            renderedArtworkOpacity = 1
+            return
+        }
+
+        guard renderedArtworkOpacity == 0 else {
+            sourceStartedWithoutRenderableImage = false
+            return
+        }
+
+        sourceStartedWithoutRenderableImage = false
+        withAnimation(.easeInOut(duration: 0.28)) {
+            renderedArtworkOpacity = 1
+        }
+    }
+
+    private static func blurSourceIdentity(
+        image: PlatformImage?,
+        preBlurredImage: PlatformImage?,
+        preBlurredCacheKey: String?
+    ) -> String {
+        if let preBlurredImage {
+            return "pre:\(ObjectIdentifier(preBlurredImage).hashValue)"
+        }
+        if let preBlurredCacheKey {
+            return "stable:\(preBlurredCacheKey)"
+        }
+        return image.map { "source:\(ObjectIdentifier($0).hashValue)" } ?? "nil"
+    }
+
+    private static func synchronouslyCachedBlurredImage(
+        image: PlatformImage?,
+        preBlurredImage: PlatformImage?,
+        preBlurredCacheKey: String?
+    ) -> PlatformImage? {
+        if let preBlurredImage {
+            return preBlurredImage
+        }
+        if let preBlurredCacheKey,
+           let stableImage = ArtworkBlurRenderer.cachedBlurredImage(forStableKey: preBlurredCacheKey) {
+            return stableImage
+        }
+        if let image,
+           let cachedImage = ArtworkBlurRenderer.cachedBlurredImage(for: image) {
+            return cachedImage
+        }
+        return nil
+    }
+}
+
+private struct SendablePlatformImage: @unchecked Sendable {
+    let value: PlatformImage
+
+    init(_ value: PlatformImage) {
+        self.value = value
     }
 }
 

@@ -327,6 +327,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     private let mediaUserContextManager: SiriMediaUserContextManagerProtocol
     private let spotlightIndex: SystemSpotlightIndexing
     private let notificationCenter: NotificationCenter
+    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var rebuildObserverToken: NSObjectProtocol?
 
     #if !os(macOS)
@@ -338,13 +339,15 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     public convenience init(
         siriMediaIndexStore: SiriMediaIndexStore,
         mediaUserContextManager: SiriMediaUserContextManagerProtocol,
-        artworkLoader: ArtworkLoaderProtocol? = nil
+        artworkLoader: ArtworkLoaderProtocol? = nil,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         #if os(macOS)
         self.init(
             siriMediaIndexStore: siriMediaIndexStore,
             mediaUserContextManager: mediaUserContextManager,
-            spotlightIndex: CoreSpotlightSystemIndex()
+            spotlightIndex: CoreSpotlightSystemIndex(),
+            foregroundWorkScheduler: foregroundWorkScheduler
         )
         #else
         self.init(
@@ -354,7 +357,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             intentDonor: LiveSystemMediaIntentDonor(),
             artworkProvider: artworkLoader.map { LiveSystemMediaArtworkProvider(artworkLoader: $0) }
                 ?? LocalSystemMediaArtworkProvider(),
-            vocabularyRegistrar: LiveSystemMediaVocabularyRegistrar()
+            vocabularyRegistrar: LiveSystemMediaVocabularyRegistrar(),
+            foregroundWorkScheduler: foregroundWorkScheduler
         )
         #endif
     }
@@ -364,12 +368,14 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         siriMediaIndexStore: SiriMediaIndexStore,
         mediaUserContextManager: SiriMediaUserContextManagerProtocol,
         spotlightIndex: SystemSpotlightIndexing,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
         self.spotlightIndex = spotlightIndex
         self.notificationCenter = notificationCenter
+        self.foregroundWorkScheduler = foregroundWorkScheduler
         installRebuildObserver()
     }
     #else
@@ -380,7 +386,8 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         intentDonor: SystemMediaIntentDonating,
         artworkProvider: SystemMediaArtworkProviding,
         vocabularyRegistrar: SystemMediaVocabularyRegistering,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.siriMediaIndexStore = siriMediaIndexStore
         self.mediaUserContextManager = mediaUserContextManager
@@ -389,6 +396,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         self.artworkProvider = artworkProvider
         self.vocabularyRegistrar = vocabularyRegistrar
         self.notificationCenter = notificationCenter
+        self.foregroundWorkScheduler = foregroundWorkScheduler
         installRebuildObserver()
     }
     #endif
@@ -446,6 +454,13 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func refreshSpotlightIndex() async {
+        if let foregroundWorkScheduler {
+            guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
+                EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")
+                return
+            }
+        }
+
         let previousIndex = siriMediaIndexStore.loadIndexUnbounded()
         let rebuiltIndex = await siriMediaIndexStore.rebuildIndex()
         let index = rebuiltIndex ?? previousIndex

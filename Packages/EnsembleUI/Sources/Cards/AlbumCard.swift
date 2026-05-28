@@ -142,6 +142,7 @@ public struct AlbumGrid: View {
     let horizontalPadding: CGFloat
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
@@ -175,9 +176,7 @@ public struct AlbumGrid: View {
                         albumContextMenu(for: album)
                     }
                 } else {
-                    NavigationLink {
-                        AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
-                    } label: {
+                    navigationCoordinator.routeLink(to: .albumDetail(album)) {
                         AlbumCard(album: album, layout: layout)
                     }
                     .buttonStyle(.plain)

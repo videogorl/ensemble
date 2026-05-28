@@ -19,12 +19,19 @@ public enum SidebarSelection: Hashable {
         }
     }
 
+    var isPinnedDetailSelection: Bool {
+        if case .pin = self {
+            return true
+        }
+        return false
+    }
+
     static func selection(
         for destination: NavigationCoordinator.Destination,
         fallback: SidebarSelection?
     ) -> SidebarSelection {
         switch destination {
-        case .displayArtist, .artist:
+        case .displayArtist, .artistDetail, .artist:
             return .library(.artists)
         case .album, .albumDetail:
             return .library(.albums)

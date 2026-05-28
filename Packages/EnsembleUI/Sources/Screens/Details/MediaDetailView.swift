@@ -2,6 +2,14 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
+private struct SendableMediaDetailPlatformImage: @unchecked Sendable {
+    let value: PlatformImage
+
+    init(_ value: PlatformImage) {
+        self.value = value
+    }
+}
+
 // MARK: - Media Header Data
 
 public struct MediaHeaderData {
@@ -80,7 +88,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let customIsPinned: ((Set<String>) -> Bool)?
 
     @State private var artworkImage: PlatformImage?
+    @State private var blurredArtworkImage: PlatformImage?
     @State private var currentLoadPath: String?
+    @State private var headerArtworkRetryToken = 0
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -222,6 +232,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .task {
             await runInitialLoads()
         }
+        .task(id: headerArtworkLoadKey) {
+            await loadHeaderArtworkIfNeeded()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
+        ) { _ in
+            guard headerData.artworkPath?.isEmpty == false else { return }
+            headerArtworkRetryToken &+= 1
+        }
         .nowPlayingTrackListObservation(
             nowPlayingVM: nowPlayingVM,
             currentTrackId: $currentTrackId,
@@ -242,6 +261,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
         let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
         return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
+    }
+
+    private var headerArtworkLoadKey: String {
+        [
+            headerData.sourceKey ?? "",
+            headerData.artworkPath ?? "",
+            headerData.ratingKey ?? "",
+            String(headerArtworkRetryToken)
+        ].joined(separator: "|")
+    }
+
+    private var headerArtworkContinuityIdentity: String {
+        [
+            headerData.sourceKey ?? "",
+            headerData.artworkPath ?? "",
+            headerData.ratingKey ?? ""
+        ].joined(separator: "|")
     }
 
     private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
@@ -714,11 +750,15 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var baseContent: some View {
         MediaDetailSurface(
             artworkImage: artworkImage,
+            preBlurredArtworkImage: blurredArtworkImage,
+            preBlurredArtworkCacheKey: currentHeaderBlurCacheKey,
+            artworkContinuityIdentity: headerArtworkContinuityIdentity,
             contentBleedsUnderTopChrome: true,
             contentBleedsUnderBottomChrome: true
         ) {
             detailContent
         }
+        .coordinateSpace(name: "mediaDetailScroll")
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
         .navigationTitle("")
         #if os(iOS)
@@ -747,11 +787,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private func runInitialLoads() async {
         async let trackLoad: () = loadTracksIfNeeded()
-        async let artworkLoad: () = loadHeaderArtworkIfNeeded()
         if let supplementalLoad {
             await supplementalLoad()
         }
-        _ = await (trackLoad, artworkLoad)
+        _ = await trackLoad
     }
 
     private func loadTracksIfNeeded() async {
@@ -761,80 +800,137 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadHeaderArtworkIfNeeded() async {
-        if let path = headerData.artworkPath {
-            await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
+        guard let path = headerData.artworkPath, !path.isEmpty else {
+            await MainActor.run {
+                currentLoadPath = nil
+                artworkImage = nil
+                blurredArtworkImage = nil
+            }
+            return
         }
+
+        await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
     }
 
     private func loadArtworkImage(path: String, sourceKey: String?) async {
-        await MainActor.run {
+        let existingImage = await MainActor.run { () -> SendableMediaDetailPlatformImage? in
+            if self.currentLoadPath != path {
+                self.artworkImage = nil
+                self.blurredArtworkImage = nil
+            }
             self.currentLoadPath = path
-        }
+            return self.artworkImage.map(SendableMediaDetailPlatformImage.init)
+        }?.value
 
-        guard let url = await deps.artworkLoader.artworkURLAsync(
-            for: path,
-            sourceKey: sourceKey,
-            ratingKey: headerData.ratingKey,
-            fallbackPath: nil,  // No fallback for album/artist/playlist detail views
-            fallbackRatingKey: nil,
-            size: 600
-        ) else {
-            return
-        }
-
-        let request = ImageRequest(url: url)
-
-        // Try synchronous cache lookup first
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+        if let existingImage {
+            let alreadyHasBlur = await MainActor.run { self.blurredArtworkImage != nil }
+            guard !alreadyHasBlur else { return }
+            let blurredImage = await ArtworkImageResolver.preBlurredImage(
+                for: existingImage,
+                cacheKey: headerBlurCacheKey(path: path)
+            )
             await MainActor.run {
                 if self.currentLoadPath == path {
-                    self.artworkImage = cachedImage.image
+                    self.blurredArtworkImage = blurredImage
                 }
             }
             return
         }
 
-        await loadLowResolutionArtworkSeed(path: path, sourceKey: sourceKey)
+        let retryDelays: [UInt64] = [
+            0,
+            300_000_000,
+            900_000_000,
+            1_800_000_000
+        ]
 
-        // Load asynchronously if not cached
-        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
+        for delay in retryDelays {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard await isCurrentArtworkLoad(path: path) else { return }
+
+            let descriptor = ArtworkResolutionDescriptor(
+                path: path,
+                sourceKey: sourceKey,
+                ratingKey: headerData.ratingKey,
+                fallbackPath: nil,  // No fallback for album/artist/playlist detail views
+                fallbackRatingKey: nil,
+                cacheHint: headerArtworkCacheHint(path: path),
+                fallbackCacheHint: nil,
+                size: 600,
+                priority: .high
+            )
+
+            guard let resolved = await ArtworkImageResolver.resolvedImage(
+                for: descriptor,
+                artworkLoader: deps.artworkLoader
+            ) else {
+                continue
+            }
+
             await MainActor.run {
-                // Only update if this is still the current path
                 if self.currentLoadPath == path {
-                    self.artworkImage = uiImage
+                    self.artworkImage = resolved.image
                 }
             }
+
+            let blurredImage = await ArtworkImageResolver.preBlurredImage(
+                for: resolved.image,
+                cacheKey: resolved.blurCacheKey
+            )
+            await MainActor.run {
+                if self.currentLoadPath == path {
+                    self.blurredArtworkImage = blurredImage
+                }
+            }
+            return
         }
     }
 
-    private func loadLowResolutionArtworkSeed(path: String, sourceKey: String?) async {
-        guard let url = await deps.artworkLoader.artworkURLAsync(
-            for: path,
-            sourceKey: sourceKey,
-            ratingKey: headerData.ratingKey,
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            size: ArtworkSize.thumbnail.rawValue
-        ) else {
-            return
-        }
-
-        let request = ImageRequest(url: url)
-        let seedImage: PlatformImage?
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request)?.image {
-            seedImage = cachedImage
-        } else {
-            seedImage = try? await ImagePipeline.shared.image(for: request)
-        }
-
-        guard let seedImage else {
-            return
-        }
-
+    private func isCurrentArtworkLoad(path: String) async -> Bool {
         await MainActor.run {
-            guard self.currentLoadPath == path, self.artworkImage == nil else { return }
-            self.artworkImage = seedImage
+            self.currentLoadPath == path
         }
+    }
+
+    private func headerArtworkCacheHint(path: String) -> PersistentArtworkCacheHint? {
+        guard let mediaType,
+              let kind = PersistentArtworkCacheHint.Kind(mediaType) else {
+            return nil
+        }
+
+        return PersistentArtworkCacheHint(
+            ratingKey: headerData.ratingKey,
+            kind: kind,
+            sourcePath: path
+        )
+    }
+
+    private func headerBlurCacheKey(path: String) -> String {
+        if let cacheHint = headerArtworkCacheHint(path: path) {
+            return [
+                "hint",
+                cacheHint.kind.rawValue,
+                cacheHint.ratingKey,
+                cacheHint.sourcePath,
+                cacheHint.dateModifiedSeconds.map(String.init) ?? "no-date",
+                "600"
+            ].joined(separator: "|")
+        }
+
+        return [
+            "header",
+            headerData.sourceKey ?? "no-source",
+            headerData.ratingKey ?? "no-rating",
+            path,
+            "600"
+        ].joined(separator: "|")
+    }
+
+    private var currentHeaderBlurCacheKey: String? {
+        guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
+        return headerBlurCacheKey(path: path)
     }
 
     /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.
@@ -842,12 +938,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func subtitleView(alignment: TextAlignment) -> some View {
         if let subtitle = headerData.subtitle {
             if let artistId = headerData.artistRatingKey {
-                Button {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: headerData.sourceKey),
-                        in: navigationCoordinator.selectedTab
-                    )
-                } label: {
+                navigationCoordinator.routeLink(
+                    to: .artist(id: artistId, sourceKey: headerData.sourceKey)
+                ) {
                     Text(subtitle)
                         .font(EnsembleDesign.Typography.detailSubtitle)
                         .foregroundColor(EnsembleDesign.Color.accent)
@@ -856,7 +949,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
                 .buttonStyle(.plain)
                 .fixedSize(horizontal: false, vertical: true)
-                .accessibilityAddTraits(.isLink)
             } else {
                 Text(subtitle)
                     .font(EnsembleDesign.Typography.detailSubtitle)
@@ -1053,16 +1145,16 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             },
             onGoToAlbum: (viewModel is AlbumDetailViewModel) ? nil : { track in
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
             },
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }

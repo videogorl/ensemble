@@ -149,6 +149,7 @@ public final class CacheManager: ObservableObject {
             try await clearLibraryMetadata()
         case .albumArtwork:
             try await artworkDownloadManager.clearArtworkCache()
+            ArtworkBlurRenderer.clearCache()
         case .downloadedTracks:
             try await clearAllDownloads()
         case .nukeImageCache:
@@ -167,6 +168,7 @@ public final class CacheManager: ObservableObject {
 
         try await artworkDownloadManager.clearArtworkCache()
         try await clearNukeImageCache()
+        ArtworkBlurRenderer.clearCache()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
@@ -188,6 +190,7 @@ public final class CacheManager: ObservableObject {
             try await artworkDownloadManager.clearArtworkCache()
         }
         try await clearNukeImageCache()
+        ArtworkBlurRenderer.clearCache()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()

@@ -62,9 +62,9 @@ public struct MiniPlayer: View {
                         view.glassEffectID("mini-player-glass-\(id)", in: ns)
                     }
             } else {
-                // iOS 15–25 fallback: handcrafted material stack approximating glass.
+                // iOS 15–25 fallback: low-cost system material stack.
                 pillContent
-                    .background(MiniPlayerBackground(artworkProjection: viewModel.artworkProjection, pillCornerRadius: pillCornerRadius))
+                    .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
                     .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
                     .shadow(
                         color: materialRole.shadowColor,
@@ -98,14 +98,14 @@ public struct MiniPlayer: View {
                     },
                     onGoToAlbum: {
                         if let albumId = track.albumRatingKey {
-                            navigationCoordinator.navigate(
+                            navigationCoordinator.navigateFromMenu(
                                 to: .album(id: albumId, sourceKey: track.sourceCompositeKey)
                             )
                         }
                     },
                     onGoToArtist: {
                         if let artistId = track.artistRatingKey {
-                            navigationCoordinator.navigate(
+                            navigationCoordinator.navigateFromMenu(
                                 to: .artist(id: artistId, sourceKey: track.sourceCompositeKey)
                             )
                         }
@@ -295,6 +295,11 @@ private struct MiniPlayerTrackInfo: View {
                     ratingKey: track.id,
                     fallbackPath: track.fallbackThumbPath,
                     fallbackRatingKey: track.fallbackRatingKey,
+                    fallbackCacheHint: PersistentArtworkCacheHint(
+                        ratingKey: track.fallbackRatingKey,
+                        kind: .album,
+                        sourcePath: track.fallbackThumbPath
+                    ),
                     size: .tiny,
                     cornerRadius: artworkCornerRadius,
                     isResponsive: true

@@ -312,19 +312,14 @@ public struct MainTabView: View {
                         for: tab,
                         libraryVM: libraryVM,
                         nowPlayingVM: nowPlayingVM,
+                        homeVM: homeVM,
                         searchVM: searchVM,
+                        pinnedVM: pinnedVM,
                         isMoreRoot: isMoreRoot
                     )
-                    .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
+                    .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
                     .auroraBackgroundSupport()
-                    .background(
-                        NestedNavigationLink(
-                            path: navigationCoordinator.pathSnapshot(for: tab),
-                            tab: tab,
-                            navigationCoordinator: navigationCoordinator,
-                            destinationBuilder: destinationView
-                        )
-                    )
+                    .background(legacyNavigationBridge(for: tab))
                 }
                 #if os(iOS)
                 .navigationViewStyle(.stack)
@@ -366,12 +361,12 @@ public struct MainTabView: View {
             pinnedVM: pinnedVM,
             isMoreRoot: isMoreRoot
         )
+        .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
         .auroraBackgroundSupport()
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
             destinationView(for: destination)
                 .auroraBackgroundSupport()
         }
-        .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
     }
 
     @ViewBuilder
@@ -384,13 +379,29 @@ public struct MainTabView: View {
             searchVM: searchVM,
             pinnedVM: pinnedVM
         )
-        .environment(\.showsProfileToolbar, false)
+    }
+
+    @ViewBuilder
+    private func legacyNavigationBridge(for tab: TabItem) -> some View {
+        let path = navigationCoordinator.pathSnapshot(for: tab)
+        NestedNavigationLink(
+            path: path,
+            tab: tab,
+            navigationCoordinator: navigationCoordinator,
+            destinationBuilder: legacyDestinationView
+        )
+    }
+
+    private func legacyDestinationView(for destination: NavigationCoordinator.Destination) -> AnyView {
+        AnyView(destinationView(for: destination))
     }
 
     private func shouldShowProfileButton(for tab: TabItem, isMoreRoot: Bool) -> Bool {
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
+        if #unavailable(iOS 16.0) {
+            guard navigationCoordinator.pathSnapshot(for: tab).isEmpty else { return false }
+        }
         return isMoreRoot || barTabs.contains(tab)
         #else
         return false
@@ -399,6 +410,31 @@ public struct MainTabView: View {
 }
 
 private extension View {
+    @ViewBuilder
+    func rootProfileToolbar(isVisible: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self.toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    if isVisible {
+                        ProfileToolbarButton()
+                    }
+                }
+            }
+        } else {
+            self.navigationBarItems(
+                trailing: Group {
+                    if isVisible {
+                        ProfileToolbarButton()
+                    }
+                }
+            )
+        }
+        #else
+        self
+        #endif
+    }
+
     @ViewBuilder
     func tabBarVisibility(isHidden: Bool) -> some View {
         #if os(iOS)
@@ -798,12 +834,15 @@ public struct SidebarView: View {
         guard case .pin(let selectedID, let selectedSourceKey, _) = selection else { return }
         let selectedIdentity = PinnedItem.sourceScopedID(id: selectedID, sourceKey: selectedSourceKey)
         guard identities.contains(selectedIdentity) else { return }
-        selection = fallback
+        selectSidebar(fallback)
     }
 
     private func navigateFromPinnedMenu(to destination: NavigationCoordinator.Destination) {
-        selection = SidebarSelection.selection(for: destination, fallback: selection)
-        navigationCoordinator.push(destination, in: NavigationCoordinator.targetTab(for: destination))
+        selectSidebar(SidebarSelection.selection(for: destination, fallback: selection))
+        navigationCoordinator.routeFromMenu(
+            to: destination,
+            in: NavigationCoordinator.targetTab(for: destination)
+        )
     }
 
     private func startPinnedPlaylistDelete(for playlist: Playlist) {
@@ -1005,24 +1044,50 @@ public struct SidebarView: View {
             _ = await (libRefresh, pinsLoad, playlistsLoad)
             rebuildCachedSidebarPlaylists()
         }
-        // Keep NavigationCoordinator.selectedTab in sync with sidebar selection
-        // so navigate(to:) pushes onto the correct section's NavigationStack
-        .onChange(of: selection) { newSelection in
-            if let tab = newSelection?.correspondingTab {
-                EnsembleLogger.debug("🧭 Sidebar selection changed to=\(String(describing: tab))")
+    }
+
+    private var sidebarSelectionBinding: Binding<SidebarSelection?> {
+        Binding(
+            get: { selection },
+            set: { selectSidebar($0) }
+        )
+    }
+
+    private func selectSidebar(_ newSelection: SidebarSelection?) {
+        if let tab = newSelection?.correspondingTab {
+            EnsembleLogger.debug("🧭 Sidebar selection changed to=\(String(describing: tab))")
+            if navigationCoordinator.selectedTab != tab {
                 navigationCoordinator.selectedTab = tab
             }
-            #if os(iOS)
-            if #available(iOS 17.0, *), newSelection != nil {
-                compactColumnPreference = .detail
-            }
-            #endif
+        }
+
+        if selection != newSelection {
+            selection = newSelection
+        }
+
+        clearPinnedDetailPathAfterSelectionChange(to: newSelection)
+
+        #if os(iOS)
+        if #available(iOS 17.0, *), newSelection != nil {
+            compactColumnPreference = .detail
+        }
+        #endif
+    }
+
+    private func clearPinnedDetailPathAfterSelectionChange(to newSelection: SidebarSelection?) {
+        guard !pinnedDetailPath.isEmpty else { return }
+        guard newSelection?.isPinnedDetailSelection != true else { return }
+
+        Task { @MainActor in
+            await Task.yield()
+            guard selection?.isPinnedDetailSelection != true else { return }
+            guard !pinnedDetailPath.isEmpty else { return }
             pinnedDetailPath.removeAll()
         }
     }
 
     private var sidebarColumn: some View {
-        List(selection: $selection) {
+        List(selection: sidebarSelectionBinding) {
             // Search always appears first
             Label("Search", systemImage: EnsembleDesign.Icon.search)
                 .tag(SidebarSelection.library(.search))
@@ -1136,100 +1201,82 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        Group {
-            switch selection {
-            case .library(let tab):
-                sidebarNavigationStack(for: tab)
-            case .playlist(let id, let sourceKey):
-                playlistDetailNavigationStack(playlistID: id, sourceKey: sourceKey)
-            case .mergedPlaylist(let title, let isSmart):
-                mergedPlaylistDetailNavigationStack(title: title, isSmart: isSmart)
-            case .pin(let id, let sourceKey, let type):
-                pinnedDetailNavigationStack(id: id, sourceKey: sourceKey, type: type)
-            case .none:
-                // Fallback when nothing is selected — show Home
-                sidebarNavigationStack(for: .home)
+        detailColumnNavigationHost {
+            NavigationStack(path: activeDetailPathBinding) {
+                detailChromeRegistrationHost {
+                    detailRootContentView
+                }
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    detailChromeRegistrationHost {
+                        destinationView(for: destination)
+                    }
+                }
             }
         }
         .auroraBackgroundSupport()
     }
 
+    @ViewBuilder
+    private var detailRootContentView: some View {
+        switch selection {
+        case .library(let tab):
+            sidebarContentView(for: tab)
+        case .playlist(let id, let sourceKey):
+            PlaylistDetailLoader(
+                playlistId: id,
+                playlistSourceKey: sourceKey,
+                nowPlayingVM: nowPlayingVM
+            )
+        case .mergedPlaylist(let title, let isSmart):
+            MergedPlaylistDetailLoader(
+                title: title,
+                isSmart: isSmart,
+                nowPlayingVM: nowPlayingVM
+            )
+        case .pin(let id, let sourceKey, let type):
+            pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)
+        case .none:
+            sidebarContentView(for: .home)
+        }
+    }
+
+    private var activeDetailPathBinding: Binding<[NavigationCoordinator.Destination]> {
+        Binding(
+            get: { activeDetailPathSnapshot },
+            set: { setActiveDetailPath($0) }
+        )
+    }
+
+    private var activeDetailPathSnapshot: [NavigationCoordinator.Destination] {
+        switch selection {
+        case .library(let tab):
+            return navigationCoordinator.pathSnapshot(for: tab)
+        case .playlist, .mergedPlaylist:
+            return navigationCoordinator.pathSnapshot(for: .playlists)
+        case .pin:
+            return pinnedDetailPath
+        case .none:
+            return navigationCoordinator.pathSnapshot(for: .home)
+        }
+    }
+
+    private func setActiveDetailPath(_ newPath: [NavigationCoordinator.Destination]) {
+        switch selection {
+        case .library(let tab):
+            navigationCoordinator.setPath(newPath, for: tab)
+        case .playlist, .mergedPlaylist:
+            navigationCoordinator.setPath(newPath, for: .playlists)
+        case .pin:
+            guard pinnedDetailPath != newPath else { return }
+            pinnedDetailPath = newPath
+        case .none:
+            navigationCoordinator.setPath(newPath, for: .home)
+        }
+    }
+
     private var detailContainerView: some View {
         detailView
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    @ViewBuilder
-    private func playlistDetailNavigationStack(playlistID: String, sourceKey: String?) -> some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: navigationCoordinator.pathBinding(for: .playlists)) {
-                detailChromeRegistrationHost {
-                    PlaylistDetailLoader(
-                        playlistId: playlistID,
-                        playlistSourceKey: sourceKey,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                }
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost {
-                        destinationView(for: destination)
-                    }
-                }
-            }
-        }
-        .id("playlist-detail-\(playlistID)-\(sourceKey ?? "none")")
-    }
-
-    @ViewBuilder
-    private func mergedPlaylistDetailNavigationStack(title: String, isSmart: Bool) -> some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: navigationCoordinator.pathBinding(for: .playlists)) {
-                detailChromeRegistrationHost {
-                    MergedPlaylistDetailLoader(
-                        title: title,
-                        isSmart: isSmart,
-                        nowPlayingVM: nowPlayingVM
-                    )
-                }
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost {
-                        destinationView(for: destination)
-                    }
-                }
-            }
-        }
-        .id("merged-playlist-detail-\(title)-\(isSmart)")
-    }
-
-    /// Keep the detail column's navigation container shape consistent across sidebar sections.
-    /// Mixing typed and untyped NavigationStacks can trip SwiftUI's AnyNavigationPath
-    /// comparison logic when the selected section changes.
-    @ViewBuilder
-    private func sidebarNavigationStack(for tab: TabItem) -> some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: navigationCoordinator.pathBinding(for: tab)) {
-                detailChromeRegistrationHost {
-                    sidebarContentView(for: tab)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func pinnedDetailNavigationStack(id: String, sourceKey: String?, type: PinnedItemType) -> some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: $pinnedDetailPath) {
-                detailChromeRegistrationHost {
-                    pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)
-                }
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost {
-                        destinationView(for: destination)
-                    }
-                }
-            }
-        }
-        .id("pin-\(PinnedItem.sourceScopedID(id: id, sourceKey: sourceKey))-\(type)")
     }
 
     @ViewBuilder
@@ -1542,9 +1589,7 @@ public struct SidebarView: View {
                 Text(displayPlaylist.title)
             } icon: {
                 ArtworkView(
-                    path: displayPlaylist.primaryPlaylist.compositePath,
-                    sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey,
-                    ratingKey: displayPlaylist.primaryPlaylist.id,
+                    playlist: displayPlaylist.primaryPlaylist,
                     size: .tiny,
                     cornerRadius: ArtworkCornerRadius.square(for: artworkDimension),
                     isResponsive: true
@@ -1592,6 +1637,11 @@ public struct SidebarView: View {
                 path: playlist.compositePath,
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
+                cacheHint: PersistentArtworkCacheHint(
+                    ratingKey: playlist.playlistID,
+                    kind: .playlist,
+                    sourcePath: playlist.compositePath
+                ),
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.square(for: EnsembleScaffold.Sidebar.artworkDimension),
                 isResponsive: true

@@ -14,6 +14,8 @@ public struct ArtworkView: View {
     let ratingKey: String?
     let fallbackPath: String?
     let fallbackRatingKey: String?
+    let cacheHint: PersistentArtworkCacheHint?
+    let fallbackCacheHint: PersistentArtworkCacheHint?
     let size: ArtworkSize
     let cornerRadius: CGFloat
     let isResponsive: Bool
@@ -30,6 +32,7 @@ public struct ArtworkView: View {
     @State private var currentArtworkPath: String?
     /// Incremented when artwork is invalidated to force a re-load
     @State private var invalidationToken: Int = 0
+    @State private var serverRetryTask: Task<Void, Never>?
     
     /// Whether the primary path is missing, so we fall back to fallbackPath/fallbackRatingKey
     private var usesFallback: Bool {
@@ -69,6 +72,8 @@ public struct ArtworkView: View {
         ratingKey: String? = nil,
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
+        cacheHint: PersistentArtworkCacheHint? = nil,
+        fallbackCacheHint: PersistentArtworkCacheHint? = nil,
         size: ArtworkSize = .medium,
         cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
@@ -78,6 +83,8 @@ public struct ArtworkView: View {
         self.ratingKey = ratingKey
         self.fallbackPath = fallbackPath
         self.fallbackRatingKey = fallbackRatingKey
+        self.cacheHint = cacheHint
+        self.fallbackCacheHint = fallbackCacheHint
         self.size = size
         self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
@@ -134,13 +141,11 @@ public struct ArtworkView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
         ) { _ in
-            // Startup Feed cards can begin loading against a stale pre-health-check
-            // remote endpoint. When servers become available after failover, retry any
-            // unresolved remote URL as well as nil URLs so cards re-resolve against the
-            // healthy server without disturbing local file-backed artwork.
-            if artworkURL == nil || artworkURL?.isFileURL == false {
-                invalidationToken += 1
-            }
+            scheduleServerAvailabilityRetry()
+        }
+        .onDisappear {
+            serverRetryTask?.cancel()
+            serverRetryTask = nil
         }
     }
 
@@ -201,44 +206,53 @@ public struct ArtworkView: View {
             return
         }
 
-        let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: path,
+        let descriptor = ArtworkResolutionDescriptor(
+            path: path,
             sourceKey: sourceKey,
             ratingKey: ratingKey,
             fallbackPath: fallbackPath,
             fallbackRatingKey: fallbackRatingKey,
-            size: size.rawValue
+            cacheHint: cacheHint,
+            fallbackCacheHint: fallbackCacheHint,
+            size: size.rawValue,
+            priority: imagePriority
         )
 
-        if url != artworkURL {
-            artworkURL = url
-        }
-
-        guard let url else {
+        guard let resolved = await ArtworkImageResolver.resolvedImage(
+            for: descriptor,
+            artworkLoader: dependencies.artworkLoader
+        ) else {
+            artworkURL = nil
             resolvedImage = nil
             return
         }
 
-        // Plex already serves a size-specific transcode for each artwork request, so
-        // adding an extra Nuke resize processor here is redundant. Matching the plain
-        // request path used by the detail views also avoids a macOS-only Feed failure
-        // where uncached remote artwork never resolves into a rendered image.
-        let request = ImageRequest(url: url, priority: imagePriority)
-
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
-            previousImage = resolvedImage ?? previousImage
-            resolvedImage = cachedImage.image
-            return
+        if resolved.url != artworkURL {
+            artworkURL = resolved.url
         }
 
-        do {
-            let image = try await ImagePipeline.shared.image(for: request)
-            guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
-            previousImage = resolvedImage ?? previousImage
-            resolvedImage = image
-        } catch {
-            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)] failed url=\(url.absoluteString) error=\(error.localizedDescription)")
+        guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
+        previousImage = resolvedImage ?? previousImage
+        resolvedImage = resolved.image
+    }
+
+    @MainActor
+    private func scheduleServerAvailabilityRetry() {
+        guard resolvedImage == nil || artworkURL == nil || artworkURL?.isFileURL == true else { return }
+
+        serverRetryTask?.cancel()
+        let jitter = UInt64(abs(loadID.hashValue % 700)) * 1_000_000
+        serverRetryTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000 + jitter)
+            guard !Task.isCancelled else { return }
+            let canRetry = await DependencyContainer.shared.foregroundWorkScheduler.waitUntilAllowed(.visibleArtworkRetry, policy: .immediate)
+            guard canRetry else {
+                serverRetryTask = nil
+                return
+            }
+            guard !Task.isCancelled else { return }
+            invalidationToken += 1
+            serverRetryTask = nil
         }
     }
 }
@@ -253,6 +267,8 @@ public extension ArtworkView {
             ratingKey: track.id,
             fallbackPath: track.fallbackThumbPath,
             fallbackRatingKey: track.fallbackRatingKey,
+            cacheHint: nil,
+            fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive
@@ -260,7 +276,17 @@ public extension ArtworkView {
     }
 
     init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
-        self.init(path: album.thumbPath, sourceKey: album.sourceCompositeKey, ratingKey: album.id, fallbackPath: nil, fallbackRatingKey: nil, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
+        self.init(
+            path: album.thumbPath,
+            sourceKey: album.sourceCompositeKey,
+            ratingKey: album.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: PersistentArtworkCacheHint(album: album),
+            size: size,
+            cornerRadius: cornerRadius,
+            isResponsive: isResponsive
+        )
     }
 
     init(artist: Artist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
@@ -270,6 +296,12 @@ public extension ArtworkView {
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
+            cacheHint: PersistentArtworkCacheHint(artist: artist),
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: artist.fallbackRatingKey,
+                kind: .album,
+                sourcePath: artist.fallbackThumbPath
+            ),
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive
@@ -277,6 +309,14 @@ public extension ArtworkView {
     }
 
     init(playlist: Playlist, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
-        self.init(path: playlist.compositePath, sourceKey: playlist.sourceCompositeKey, ratingKey: playlist.id, size: size, cornerRadius: cornerRadius, isResponsive: isResponsive)
+        self.init(
+            path: playlist.compositePath,
+            sourceKey: playlist.sourceCompositeKey,
+            ratingKey: playlist.id,
+            cacheHint: PersistentArtworkCacheHint(playlist: playlist),
+            size: size,
+            cornerRadius: cornerRadius,
+            isResponsive: isResponsive
+        )
     }
 }

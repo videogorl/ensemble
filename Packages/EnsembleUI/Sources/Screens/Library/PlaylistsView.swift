@@ -329,7 +329,6 @@ public struct PlaylistsView: View {
             .refreshCommand {
                 await viewModel.refreshFromServer()
             }
-            .profileToolbar()
             .toolbar {
                 EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
                     playlistMergeButton
@@ -510,6 +509,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -564,6 +564,7 @@ public struct PlaylistsView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
     

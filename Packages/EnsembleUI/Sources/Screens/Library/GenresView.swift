@@ -28,7 +28,7 @@ public struct GenresView: View {
     }
 
     private var filteredGenres: [Genre] {
-        let sorted = libraryVM.sortedGenres
+        let sorted = genreSnapshot.genres.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
         guard !searchText.isEmpty else { return sorted }
         return sorted.filter { genre in
             genre.title.localizedCaseInsensitiveContains(searchText)
@@ -37,9 +37,9 @@ public struct GenresView: View {
 
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.genres.isEmpty {
+            if genreSnapshot.phase != .idle && !genreSnapshot.hasVisibleContent {
                 loadingView
-            } else if libraryVM.genres.isEmpty {
+            } else if !genreSnapshot.hasVisibleContent {
                 emptyView
             } else {
                 rootContent
@@ -57,7 +57,10 @@ public struct GenresView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .profileToolbar()
+    }
+
+    private var genreSnapshot: GenreBrowseSnapshot {
+        libraryVM.genreBrowseSnapshot
     }
 
     @ViewBuilder
@@ -154,6 +157,7 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -175,6 +179,7 @@ public struct GenresView: View {
             }
         }
         .listStyle(.plain)
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -199,6 +204,7 @@ struct GenreDetailContentView: View {
     let genre: Genre
     let nowPlayingVM: NowPlayingViewModel
     @State private var trackListSupplementalMetadataWidth: CGFloat = 0
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
 
     var body: some View {
         let tracks = tracks(for: genre)
@@ -209,7 +215,7 @@ struct GenreDetailContentView: View {
                 currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                 bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                interactionModel: TrackRowInteractionModel()
+                interactionModel: trackInteractionModel
             ),
             tableHeaderContent: AnyView(genreHeader(tracks: tracks)),
             tableFooterContent: tracks.isEmpty ? AnyView(genreEmptyFooter) : nil
@@ -217,6 +223,7 @@ struct GenreDetailContentView: View {
             nowPlayingVM.play(tracks: tracks, startingAt: index)
         }
         .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         #else
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             genreHeader(tracks: tracks)
@@ -231,7 +238,7 @@ struct GenreDetailContentView: View {
                     configuration: .songs(
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
                         supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                        interactionModel: TrackRowInteractionModel()
+                        interactionModel: trackInteractionModel
                     )
                 ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
@@ -239,7 +246,16 @@ struct GenreDetailContentView: View {
                 .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
             }
         }
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         #endif
+    }
+
+    private var trackInteractionModel: TrackRowInteractionModel {
+        TrackRowInteractionModel(
+            onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
+            }
+        )
     }
 
     private func genreHeader(tracks: [Track]) -> some View {
@@ -265,7 +281,7 @@ struct GenreDetailContentView: View {
     }
 
     private func tracks(for genre: Genre) -> [Track] {
-        libraryVM.filteredTracks.filter { track in
+        libraryVM.trackBrowseSnapshot.tracks.filter { track in
             track.genres.contains { $0.caseInsensitiveCompare(genre.title) == .orderedSame }
         }
     }

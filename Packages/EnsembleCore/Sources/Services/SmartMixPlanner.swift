@@ -463,36 +463,62 @@ public protocol SmartMixAnalysisProviding: AnyObject {
     func analysis(for trackId: String, fileURL: URL) async -> SmartMixAnalysis
 }
 
+private actor SmartMixSerialAnalyzer {
+    func analysis(fileURL: URL) -> SmartMixAnalysis {
+        SmartMixAnalysisService.analyze(fileURL: fileURL)
+    }
+}
+
 public final class SmartMixAnalysisService: SmartMixAnalysisProviding {
+    private static let serialAnalyzer = SmartMixSerialAnalyzer()
+
+    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private let lock = NSLock()
     private var cachedAnalyses: [String: SmartMixAnalysis] = [:]
     private var analysisTasks: [String: Task<SmartMixAnalysis, Never>] = [:]
 
-    public init() {}
+    public init(foregroundWorkScheduler: ForegroundWorkScheduling? = nil) {
+        self.foregroundWorkScheduler = foregroundWorkScheduler
+    }
 
     public func analysis(for trackId: String, fileURL: URL) async -> SmartMixAnalysis {
-        if let cached = withLock({ cachedAnalyses[trackId] }) {
+        let cacheKey = Self.cacheKey(trackId: trackId, fileURL: fileURL)
+        if let cached = withLock({ cachedAnalyses[cacheKey] }) {
             return cached
         }
 
-        if let task = withLock({ analysisTasks[trackId] }) {
+        if let task = withLock({ analysisTasks[cacheKey] }) {
             return await task.value
         }
 
+        let scheduler = foregroundWorkScheduler
         let task = Task.detached(priority: .utility) {
-            Self.analyze(fileURL: fileURL)
+            if let scheduler {
+                guard await scheduler.waitUntilAllowed(.smartMixAnalysis, policy: .playbackSafe) else {
+                    return SmartMixAnalysis.unavailable
+                }
+                return await Self.serialAnalyzer.analysis(fileURL: fileURL)
+            }
+            return Self.analyze(fileURL: fileURL)
         }
-        withLock { analysisTasks[trackId] = task }
+        withLock { analysisTasks[cacheKey] = task }
 
         let analysis = await task.value
         withLock {
-            cachedAnalyses[trackId] = analysis
-            analysisTasks.removeValue(forKey: trackId)
+            cachedAnalyses[cacheKey] = analysis
+            analysisTasks.removeValue(forKey: cacheKey)
         }
         return analysis
     }
 
-    private static func analyze(fileURL: URL) -> SmartMixAnalysis {
+    private static func cacheKey(trackId: String, fileURL: URL) -> String {
+        let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modified = values?.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let size = values?.fileSize ?? 0
+        return "\(trackId)|\(Int(modified))|\(size)"
+    }
+
+    fileprivate static func analyze(fileURL: URL) -> SmartMixAnalysis {
         guard let file = try? AVAudioFile(forReading: fileURL) else {
             return .unavailable
         }

@@ -930,7 +930,11 @@ private final class MacNativeTrackTableCell: NSTableCellView {
                 return
             }
 
-            let request = ImageRequest(url: url)
+            let request = ArtworkImageRequest.resized(
+                url: url,
+                size: ArtworkSize.thumbnail.rawValue,
+                priority: .high
+            )
             if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
                 if currentTrackID == track.playbackIdentity {
                     artworkImageView.image = cachedImage.image

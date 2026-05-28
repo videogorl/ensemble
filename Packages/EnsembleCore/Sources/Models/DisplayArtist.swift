@@ -8,12 +8,17 @@ public struct DisplayArtist: Identifiable, Equatable, Sendable {
 
     public var isMerged: Bool { artists.count > 1 }
     public var primaryArtist: Artist { artists[0] }
+    public var artworkArtist: Artist {
+        artists.first { $0.thumbPath?.isEmpty == false }
+            ?? artists.first { $0.fallbackThumbPath?.isEmpty == false }
+            ?? primaryArtist
+    }
     public var sourceKeys: [String] { artists.compactMap(\.sourceCompositeKey) }
     public var dateAdded: Date? { artists.compactMap(\.dateAdded).max() }
     public var dateModified: Date? { artists.compactMap(\.dateModified).max() }
-    public var thumbPath: String? { primaryArtist.thumbPath }
-    public var fallbackThumbPath: String? { primaryArtist.fallbackThumbPath }
-    public var fallbackRatingKey: String? { primaryArtist.fallbackRatingKey }
+    public var thumbPath: String? { artworkArtist.thumbPath }
+    public var fallbackThumbPath: String? { artworkArtist.fallbackThumbPath }
+    public var fallbackRatingKey: String? { artworkArtist.fallbackRatingKey }
     public var sourceScopedID: String { id }
 
     public init(id: String, name: String, artists: [Artist]) {

@@ -48,6 +48,62 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(track.streamId, 456)
     }
 
+    func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+
+        _ = try await repository.upsertTrack(
+            ratingKey: "track-1",
+            key: "/library/metadata/track-1",
+            title: "2085",
+            artistName: "AJR",
+            albumName: "The Maybe Man",
+            albumRatingKey: nil,
+            trackNumber: 13,
+            discNumber: 1,
+            duration: 331_000,
+            thumbPath: "/library/metadata/album-1/thumb/1000",
+            streamKey: "/library/parts/track-1/file.m4a",
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: nil,
+            sourceCompositeKey: "plex/account/server/library-a"
+        )
+
+        _ = try await repository.upsertTrack(
+            ratingKey: "track-2",
+            key: "/library/metadata/track-2",
+            title: "2085",
+            artistName: "AJR",
+            albumName: "The Maybe Man",
+            albumRatingKey: nil,
+            trackNumber: 13,
+            discNumber: 1,
+            duration: 331_000,
+            thumbPath: "/library/metadata/album-2/thumb/1000",
+            streamKey: "/library/parts/track-2/file.m4a",
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: nil,
+            sourceCompositeKey: "plex/account/server/library-b"
+        )
+
+        let fallback = try await repository.fetchTrackArtworkFallback(
+            title: "2085",
+            albumName: "The Maybe Man",
+            artistName: "AJR",
+            excludingRatingKey: "track-1",
+            excludingSourceCompositeKey: "plex/account/server/library-a"
+        )
+
+        XCTAssertEqual(fallback?.ratingKey, "track-2")
+        XCTAssertEqual(fallback?.thumbPath, "/library/metadata/album-2/thumb/1000")
+    }
+
     func testBatchAlbumUpsertRecordsArtworkInvalidationWhenThumbChanges() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
@@ -250,6 +306,49 @@ final class LibraryRepositoryTests: XCTestCase {
             )
             XCTAssertNil(changedDate)
         }
+    }
+
+    func testArtworkDownloadManagerReturnsStaleIdentityForOfflineFallback() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "stale-\(UUID().uuidString)"
+        let artworkURL = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_album.jpg")
+        let identityURL = artworkURL
+            .deletingPathExtension()
+            .appendingPathExtension("identity.json")
+        defer {
+            try? FileManager.default.removeItem(at: artworkURL)
+            try? FileManager.default.removeItem(at: identityURL)
+        }
+
+        try Data("image".utf8).write(to: artworkURL)
+        let identity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb/1000",
+            dateModifiedSeconds: 1_000
+        )
+        try JSONEncoder().encode(identity).write(to: identityURL)
+
+        let strictPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb/1001",
+            dateModifiedSeconds: 1_001
+        )
+        XCTAssertNil(strictPath)
+
+        let stalePath = try await manager.getStaleLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album
+        )
+        XCTAssertEqual(stalePath, artworkURL.path)
+
+        let wrongTypePath = try await manager.getStaleLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .artist
+        )
+        XCTAssertNil(wrongTypePath)
     }
 
     func testArtworkDownloadManagerAcceptsLegacyArtworkWithoutIdentitySidecar() async throws {

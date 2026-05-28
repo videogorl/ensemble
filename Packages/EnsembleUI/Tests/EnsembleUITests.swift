@@ -1,7 +1,11 @@
 import XCTest
 @testable import EnsembleUI
 import EnsembleCore
+import EnsemblePersistence
 import UniformTypeIdentifiers
+#if canImport(UIKit)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -45,6 +49,55 @@ final class EnsembleUITests: XCTestCase {
             EnsembleDesign.Icon.smartMixIconName(modernSymbolSetAvailable: true),
             "circle.dotted.and.circle"
         )
+    }
+
+    func testArtworkResolverSchedulesPersistentCacheHintAfterImageResolution() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL) }
+
+        let hint = PersistentArtworkCacheHint(
+            ratingKey: "album-1",
+            kind: .album,
+            sourcePath: "/library/metadata/album-1/thumb"
+        )
+        let artworkLoader = RecordingArtworkLoader(url: artworkURL)
+        let descriptor = ArtworkResolutionDescriptor(
+            path: "/library/metadata/album-1/thumb",
+            sourceKey: "plex:server:library",
+            ratingKey: "album-1",
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: hint,
+            fallbackCacheHint: nil,
+            size: 44,
+            priority: .high
+        )
+
+        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
+
+        XCTAssertNotNil(resolved)
+        let cacheRequests = await artworkLoader.cacheRequests
+        XCTAssertEqual(cacheRequests.count, 1)
+        XCTAssertEqual(cacheRequests.first?.hint, hint)
+        XCTAssertEqual(cacheRequests.first?.minimumPixelDimension, 44)
+    }
+
+    func testArtworkPreBlurUsesVisibleArtworkSchedulerByDefault() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL) }
+        let image = try XCTUnwrap(makePlatformImage(from: artworkURL))
+        let scheduler = await MainActor.run { RecordingForegroundWorkScheduler() }
+
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+            for: image,
+            cacheKey: "test-visible-blur-\(UUID().uuidString)",
+            scheduler: scheduler
+        )
+
+        XCTAssertNotNil(blurredImage)
+        let waitCalls = await scheduler.waitCalls
+        XCTAssertEqual(waitCalls.map(\.kind), [.visibleArtworkRetry])
+        XCTAssertEqual(waitCalls.map(\.policy), [.immediate])
     }
 
     func testChordLineSegmentsPreserveManualReturnsBeforeWrapping() {
@@ -660,6 +713,7 @@ final class EnsembleUITests: XCTestCase {
             onToggleFavorite: { _ in },
             onGoToAlbum: { _ in },
             onGoToArtist: { _ in },
+            onGetInfo: { _ in },
             onEditMetadata: { _ in },
             onShareLink: { _ in },
             onShareFile: { _ in },
@@ -684,6 +738,7 @@ final class EnsembleUITests: XCTestCase {
                 "Go to Artist",
                 "Share Link…",
                 "Share Audio File…",
+                "Get Info…",
                 "Edit Metadata…",
                 "Delete Track"
             ]
@@ -746,4 +801,87 @@ private extension Array where Element == MediaMenuSection {
     func role(for actionID: MediaMenuActionID) -> MediaMenuActionDescriptor.Role? {
         flatMap(\.actions).first { $0.id == actionID }?.role
     }
+}
+
+private func makeTemporaryPNG() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+        .appendingPathExtension("png")
+    let data = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")!
+    try data.write(to: url)
+    return url
+}
+
+private func makePlatformImage(from url: URL) -> PlatformImage? {
+    #if os(macOS)
+        return NSImage(contentsOf: url)
+    #else
+        return UIImage(contentsOfFile: url.path)
+    #endif
+}
+
+@MainActor
+private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, @unchecked Sendable {
+    struct WaitCall: Equatable {
+        let kind: ForegroundWorkKind
+        let policy: ForegroundWorkPolicy
+    }
+
+    var isIdleForNonessentialWork = true
+    private(set) var waitCalls: [WaitCall] = []
+
+    func beginInteraction(_ state: ForegroundInteractionState) {}
+
+    func endInteraction(_ state: ForegroundInteractionState) {}
+
+    func setStartupSyncInFlight(_ inFlight: Bool) {}
+
+    func setForegroundActive(_ active: Bool) {}
+
+    func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool {
+        waitCalls.append(WaitCall(kind: kind, policy: policy))
+        return true
+    }
+}
+
+private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
+    let url: URL?
+    private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
+
+    init(url: URL?) {
+        self.url = url
+    }
+
+    func artworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        size: Int
+    ) async -> URL? {
+        url
+    }
+
+    func cacheResolvedArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int?
+    ) async {
+        cacheRequests.append((cacheHint, minimumPixelDimension))
+    }
+
+    func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int {
+        0
+    }
+
+    func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int {
+        0
+    }
+
+    func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int {
+        0
+    }
+
+    func invalidateURLCache() async {}
 }

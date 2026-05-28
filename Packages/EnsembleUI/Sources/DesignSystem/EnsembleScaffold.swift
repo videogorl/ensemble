@@ -174,7 +174,6 @@ public enum EnsembleScaffold {
         public static let wideArtworkDimension: CGFloat = 240
         public static let wideActionMaxWidth: CGFloat = 520
         public static let wideHeaderTopPadding: CGFloat = 72
-        public static let toolbarChromeRevealHeight: CGFloat = 44
         public static let sectionTopPadding: CGFloat = 32
         public static let loadingTopPadding = TrackListLayoutMetrics.detailHorizontalPadding
         public static let compactActionTopPadding = EnsembleDesign.Spacing.xxl
@@ -524,12 +523,12 @@ public enum EnsembleScaffold {
     public enum ScrollIndex {
         public static let verticalPadding = EnsembleDesign.Spacing.sm
         public static let horizontalPadding = EnsembleDesign.Spacing.xs
-        public static let letterHeight: CGFloat = 15
+        public static let letterHeight: CGFloat = 13
         public static let letterSpacing = EnsembleDesign.Spacing.none
         public static let letterWidth = EnsembleDesign.Spacing.xl
         public static let letterFont: Font = .system(size: 10, weight: .bold)
         public static let hitTargetWidth: CGFloat = 14
-        public static let bottomLift: CGFloat = 30
+        public static let bottomLift: CGFloat = 8
         public static let compactTrailingPadding: CGFloat = 1
         public static let regularTrailingPadding: CGFloat = 1
         public static let regularBottomPadding = EnsembleDesign.Spacing.lg

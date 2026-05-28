@@ -1131,11 +1131,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
     /// to avoid @MainActor isolation issues with SettingsManager).
-    /// Uses .bool(forKey:) which correctly bridges NSNumber on iOS 15,
-    /// avoiding the object(forKey:) as? Bool cast which can fail and
-    /// default to true even when the user disabled the visualizer.
+    /// Treats an unset value as enabled so startup analysis does not wait for
+    /// SettingsManager to register defaults.
     private var isVisualizerEnabled: Bool {
-        let enabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+        let enabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
         EnsembleLogger.debug("[FrequencyAnalysis] isVisualizerEnabled check: \(enabled)")
         return enabled
     }
@@ -1285,7 +1284,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         networkMonitor: NetworkMonitor,
         artworkLoader: ArtworkLoaderProtocol,
         audioAnalyzer: AudioAnalyzerProtocol,
-        downloadManager: DownloadManagerProtocol
+        downloadManager: DownloadManagerProtocol,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
@@ -1295,7 +1295,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueStore = PlaybackQueueStore()
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
-        smartMixAnalysisService = SmartMixAnalysisService()
+        smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         startupCoordinator = PlaybackStartupCoordinator()
@@ -1321,7 +1321,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         artworkLoader: ArtworkLoaderProtocol,
         audioAnalyzer: AudioAnalyzerProtocol,
         downloadManager: DownloadManagerProtocol,
-        queueStore: PlaybackQueueStore
+        queueStore: PlaybackQueueStore,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
@@ -1331,7 +1332,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queueStore = queueStore
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
-        smartMixAnalysisService = SmartMixAnalysisService()
+        smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
         startupCoordinator = PlaybackStartupCoordinator()

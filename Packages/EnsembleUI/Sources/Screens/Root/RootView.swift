@@ -105,7 +105,6 @@ private struct RootMiniPlayerOverlay: View {
     let namespace: Namespace.ID
     let animationID: String
     let presentNowPlaying: () -> Void
-    @State private var appearanceOpacity = 0.0
 
     private var isPhoneLayout: Bool {
         #if os(iOS)
@@ -145,13 +144,6 @@ private struct RootMiniPlayerOverlay: View {
             }
             .accentColor(accentColor)
             .frame(width: miniPlayerWidth)
-            .opacity(appearanceOpacity)
-            .onAppear {
-                appearanceOpacity = 0
-                withAnimation(appearanceAnimation) {
-                    appearanceOpacity = 1
-                }
-            }
             .padding(.bottom, layout.bottomPadding)
             .frame(
                 width: layout.frame.width,
@@ -168,15 +160,6 @@ private struct RootMiniPlayerOverlay: View {
 
     private var rootChromeLayoutAnimation: Animation {
         .easeInOut(duration: 0.25)
-    }
-
-    private var appearanceAnimation: Animation {
-        #if canImport(UIKit)
-        if #available(iOS 26.0, *) {
-            return .smooth(duration: 0.24)
-        }
-        #endif
-        return .easeInOut(duration: 0.18)
     }
 }
 
@@ -429,9 +412,19 @@ public struct RootView: View {
         let rootBounds = CGRect(origin: .zero, size: proxy.size)
 
         guard rootBounds.width > 0,
-              rootBounds.height > 0,
-              let bounds = registration.bounds else {
+              rootBounds.height > 0 else {
             return .hidden
+        }
+
+        guard let bounds = registration.bounds else {
+            return RootChromeLayout(
+                frame: rootBounds,
+                bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                    safeAreaBottom: proxy.safeAreaInsets.bottom
+                ),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            )
         }
 
         let visibleFrame = proxy[bounds].intersection(rootBounds)
@@ -542,14 +535,26 @@ public struct RootView: View {
     }
 
     private func presentNowPlayingFromMiniPlayer() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
         }
     }
 
     private func dismissNowPlaying() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
         withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
             isNowPlayingPresented = false
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
         }
         if supportsViewportNowPlayingPresentation {
             completeNowPlayingDismissal()

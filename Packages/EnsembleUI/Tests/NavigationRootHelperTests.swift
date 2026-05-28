@@ -9,6 +9,10 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.artists)
         )
         XCTAssertEqual(
+            SidebarSelection.selection(for: .artistDetail(Self.artist()), fallback: nil),
+            .library(.artists)
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .artist(id: "artist", sourceKey: "server/library"), fallback: nil),
             .library(.artists)
         )
@@ -244,7 +248,64 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
     }
 
+    func testConcreteArtistDetailDestinationTargetsArtists() {
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .artistDetail(Self.artist())), .artists)
+    }
+
+    func testLegacyNestedNavigationResolvesDestinationAtDepth() {
+        let album = Self.album()
+        let path: [NavigationCoordinator.Destination] = [
+            .view(.albums),
+            .albumDetail(album),
+            .artist(id: "artist", sourceKey: "server/library")
+        ]
+
+        XCTAssertEqual(
+            NestedNavigationLink.firstDestination(in: path),
+            .view(.albums)
+        )
+        XCTAssertEqual(
+            NestedNavigationLink.destination(in: path, at: 1),
+            .albumDetail(album)
+        )
+        XCTAssertEqual(
+            NestedNavigationLink.destination(in: path, at: 2),
+            .artist(id: "artist", sourceKey: "server/library")
+        )
+        XCTAssertNil(NestedNavigationLink.destination(in: path, at: 3))
+    }
+
+    func testLegacyNestedNavigationIgnoresEmptyPath() {
+        XCTAssertNil(NestedNavigationLink.firstDestination(in: []))
+    }
+
+    func testLegacyNestedNavigationTrimsPathWhenNestedLinkDeactivates() {
+        let album = Self.album()
+        let path: [NavigationCoordinator.Destination] = [
+            .view(.albums),
+            .albumDetail(album),
+            .artist(id: "artist", sourceKey: "server/library")
+        ]
+
+        XCTAssertEqual(
+            NestedNavigationLink.pathAfterDeactivatingLink(at: 2, in: path),
+            [.view(.albums), .albumDetail(album)]
+        )
+        XCTAssertEqual(
+            NestedNavigationLink.pathAfterDeactivatingLink(at: 1, in: path),
+            [.view(.albums)]
+        )
+        XCTAssertEqual(
+            NestedNavigationLink.pathAfterDeactivatingLink(at: 0, in: path),
+            []
+        )
+    }
+
     private static func album() -> Album {
         Album(id: "album", key: "/library/metadata/album", title: "Album", artistName: "Artist")
+    }
+
+    private static func artist() -> Artist {
+        Artist(id: "artist", key: "/library/metadata/artist", name: "Artist")
     }
 }

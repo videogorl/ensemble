@@ -22,14 +22,17 @@ These are core design decisions that must be maintained throughout the app.
 - **Search chrome ownership:** In tab-based navigation, attach `.searchable` only while that tab is the active root screen. Collapse/remove search chrome before pushing detail or switching away so stale `UISearchController` state doesn't leak padding, keyboard state, or toolbar behavior into pushed views or other tabs. Use SwiftUI's `dismissSearch` environment action to collapse search; do not force keyboard dismissal with `UIApplication.sendAction(...)`.
 
 ### Deep Linking
-- **NavigationCoordinator.Destination:** Use typed destinations (artist, album, playlist, view) for all deep links
+- **NavigationCoordinator.Destination:** Use typed destinations (displayArtist, artistDetail, artist, albumDetail, album, playlist, view) for all deep links and route-owned pushes
 - **Pending navigation:** From sheets (like Now Playing), set `pendingNavigation` to defer until sheet dismisses. `RootView` owns the Now Playing presenter dismissal handoff; do not add screen-local `asyncAfter` timers in `MainTabView` or `SidebarView` to wait for the sheet animation.
 - **Tab fallback:** If navigating from Search tab (or hidden tab), fall back via `visibleTabs.first ?? .home`
 - **Root path helpers:** Use `NavigationCoordinator.pathSnapshot(for:)`, `setPath(_:for:)`, and the EnsembleUI `pathBinding(for:)` extension instead of adding new per-tab switch statements in root views. Use `NavigationDestinationFactory` for tab/destination view routing, and use `NavigationCoordinator.targetTab(for:)` plus `SidebarSelection.selection(for:fallback:)` for destination-to-root selection mapping.
 
 ### iOS 15 Compatibility
 - **iOS 16+:** `NavigationStack` with `NavigationLink(value:)` and typed paths
-- **iOS 15:** `NestedNavigationLink` recursive pattern in `MainTabView.swift`
+- **iOS 15:** Use `NestedNavigationLink` only as the root `NavigationView` bridge for coordinator-driven entry into a tab or hidden More destination. Media browse/detail relationship pushes should still go through `NavigationCoordinator.routeLink(to:)` so they append to the current root or More stack; purely local utility drill-ins can use native `NavigationLink(destination:)`.
+- **iOS 15 bridge mounting:** Keep the root `NestedNavigationLink` mounted even when its path is empty. If the hidden link is inserted only after the coordinator path becomes non-empty, SwiftUI sees an already-active link and detail pushes cut instead of animating.
+- **Route-owned links:** For feed cards, hub headers, and other coordinator-owned typed routes that must survive source/list refreshes, use `NavigationCoordinator.routeLink(to:)` instead of local `#available` branches or inline destination closures. When the caller already has a concrete `Album` or `Artist`, route to `.albumDetail(...)` / `.artistDetail(...)` instead of ID-only loaders. Context menu navigation actions should use `routeFromMenu(to:)` or `navigateFromMenu(to:)` so path updates happen after native menu dismissal.
+- **Media relationship links:** Album, artist, playlist, search, pinned, related-item, and detail subtitle links should use `NavigationCoordinator.routeLink(to:)` without an explicit `in:` tab unless they are intentionally leaving the current stack. This keeps More-tab drill-in and iOS 15 recursive fallback navigation on the same stack as the current surface.
 - **Feature detection:** Always wrap iOS 16+ features in `@available(iOS 16.0, *)` checks
 - **Bottom spacing for mini player/tab bar:** Use `.miniPlayerBottomSpacing(...)` from `View+Extensions.swift` instead of ad-hoc per-screen spacer blocks
 - **Shared list spacing:** Use `TrackListLayoutMetrics` for standard row height, leading insets, divider alignment/color, native separator color, and default mini-player clearance instead of repeating `68/54/16/140/70/52` or raw separator alpha across screens. Native table rows and compact SwiftUI track/search rows should share these metrics so Artist pages, Media Detail pages, and Songs/Search rows do not drift.
@@ -62,21 +65,15 @@ These are core design decisions that must be maintained throughout the app.
 
 **NestedNavigationLink Pattern** (in `MainTabView.swift`):
 ```swift
-struct NestedNavigationLink<Content: View>: View {
+struct NestedNavigationLink: View {
     let path: [NavigationCoordinator.Destination]
-    let content: Content
+    let destinationBuilder: (NavigationCoordinator.Destination) -> AnyView
 
     var body: some View {
         if let first = path.first {
-            NavigationLink(destination: nextView(for: first)) { content }
-        } else {
-            content
-        }
-    }
-
-    private func nextView(for destination: Destination) -> some View {
-        NestedNavigationLink(path: Array(path.dropFirst())) {
-            // Render destination view (AlbumDetailLoader, etc.)
+            NavigationLink(destination: destinationBuilder(first)) {
+                EmptyView()
+            }
         }
     }
 }
@@ -154,6 +151,7 @@ if #available(iOS 16.0, macOS 13.0, *) {
 ### Aurora Surfaces
 - `AuroraVisualizationView` should use the shared `MetalAuroraSurface` renderer when Metal is available, with the Canvas path kept as the compatibility fallback.
 - Keep root/sidebar backdrops in the low-cost surface tier and Now Playing/viewport surfaces in the richer tier. Do not throttle playback frequency publishers to reduce visual cost; change renderer tier, pass count, or frame interval at the visual surface instead.
+- Seed aurora render models with the shared idle band envelope and force a single Metal draw when the surface is paused so enabled aurora hosts do not appear blank before playback state or frequency bands hydrate.
 - Preserve the full-width backdrop/fade composition while constraining active aurora bands through `activeContentMaxWidth` when the caller provides it.
 - The Metal renderer should output only premultiplied colored aurora content over a transparent MTKView backing layer. Keep the foreground/bottom fade as a SwiftUI overlay above Metal so the fade stays in front without making the Metal drawable an opaque background band.
 - Preserve the "horizon" read by drawing a stronger accent wash under the foreground fade, not by baking opaque color into the Metal layer. The fade should unify the aurora and horizon band as one composition.
@@ -183,7 +181,7 @@ Button("Remove", role: .destructive) { remove() }
 Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Profile Toolbar Button
-- **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and shown only on root tab destinations: the visible tab-bar tabs plus the root `More` view. Do not add it per-screen, or it will leak into pushed `More` destinations and can disappear on iOS 15 when trailing toolbar items compete.
+- **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and attached once to each visible tab root-content wrapper plus the root `More` wrapper. On iOS 16+, keep it mounted at that root owner instead of toggling it from navigation path emptiness, so it returns with the native root toolbar during pops; iOS 15 may still path-gate the fallback `NavigationView` item to avoid inherited toolbar leakage. Place it after other root actions in the trailing stack. Do not add it inside individual screens, or it will remount during pop transitions and can leak into pushed `More` destinations.
 - **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
 - Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
 - App-level Settings commands route through `NavigationCoordinator.openProfileFromActiveScene(fallback:)`; `RootView` registers its window-scoped coordinator as the active auxiliary command coordinator on appear/scene activation so `⌘,` opens Profile in the active scene instead of the legacy shared coordinator.
@@ -266,13 +264,14 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - **Hub items:** 140x140pt artwork
 - **Corner radius:** Albums/playlists use 8pt; artists use 70pt (circular)
 - **Shadows:** use `EnsembleDesign.Effect` / component bridge tokens for shared card/detail depth; StageFlow keeps its own tuned 3D shadows.
-- **Blurred backgrounds:** NowPlayingView and detail views use `BlurredArtworkBackground`
+- **Blurred backgrounds:** NowPlayingView and detail views may use `BlurredArtworkBackground`, but the blur must be bitmap-backed through `ArtworkBlurRenderer` or an explicit `preBlurredImage`; do not apply live SwiftUI `.blur` to large artwork layers.
+- **Mini-player background:** The root mini player uses a system-color/material background instead of artwork blur because it remains visible under most phone surfaces and compounds every transition.
 - **Shared detail artwork wash:** `MediaDetailView` and `DownloadTargetDetailView` must use `ArtworkDetailBackground` for the blurred header image so dark/light overlay behavior stays identical across detail screens. The wash should cross-fade artwork changes using `EnsembleScaffold.DetailSurface.backgroundFadeDuration` instead of swapping the blurred layer abruptly during navigation or cached artwork loads.
 - **Shared detail shell:** Media-style detail screens should build their hero artwork, metadata block, action row, and list-card styling on `MediaDetailSurface` so `MediaDetailView` and `DownloadTargetDetailView` do not drift on spacing, wide-layout behavior, or light/dark presentation. Artwork-backed detail screens that need content to pass under translucent titlebar/toolbar chrome should set `contentBleedsUnderTopChrome: true` on `MediaDetailSurface` instead of adding local `.ignoresSafeArea(edges: .top)` modifiers.
 - **Detail loading stability:** Album, playlist, artist, and virtual collection detail loads should avoid full-screen centered loaders that later swap to top-aligned headers. Use `MediaDetailSurface.LoadingState` or keep the shared header/table shell mounted with a compact footer loader during initial data fetches. On macOS, keep the detail root top-aligned, let AppKit own native table safe-area/content insets and clip views, use a bottom spacer row for mini-player clearance, let the AppKit backend use a deterministic wide-header row height, preload the initial album/playlist track snapshot in loaders before mounting the shared detail table, and publish virtual collection filtered snapshots before clearing their loading state so the first table layout already has its final rows; do not force the native table host itself to infinite height as a reflow workaround.
-- **Artwork-backed toolbar bleed:** Artwork-backed roots such as Feed, MediaDetail, and Artist detail should apply `artworkBackedToolbarBleed()` from the surface owner so artwork and scrolling content can remain visible behind native translucent toolbar chrome. On macOS 26+, hide only the window-toolbar background and let `ArtworkDetailBackground` use `backgroundExtensionEffect()` so Liquid Glass can sample the artwork wash. On pre-26 macOS, leave the toolbar background native/visible for readability instead of forcing transparent chrome. Keep the main macOS window on the native titlebar style, keep AppKit scroll/clip views transparent, and do not add titlebar drag bridges or AppKit toolbar proxies to leaf views.
+- **Artwork-backed toolbar bleed:** Artwork-backed roots such as Feed, MediaDetail, and Artist detail should apply `artworkBackedToolbarBleed()` from the surface owner so artwork and scrolling content can remain visible behind native translucent toolbar chrome. Collapsing toolbar material and iOS 26 top scroll-edge effects should follow the shared collapsing-title state; do not drive Artist detail toolbar visibility from a separate hero `GeometryReader` preference, because nested route lifetimes can leave transient hero measurements in the view tree after a push. On iOS 15, UIKit navigation-bar fallback probes must restore default appearance only when they still own the active bar appearance, so a source detail route cannot overwrite the destination route after a push settles. On macOS 26+, hide only the window-toolbar background and let `ArtworkDetailBackground` use `backgroundExtensionEffect()` so Liquid Glass can sample the artwork wash. On pre-26 macOS, leave the toolbar background native/visible for readability instead of forcing transparent chrome. Keep the main macOS window on the native titlebar style, keep AppKit scroll/clip views transparent, and do not add titlebar drag bridges or AppKit toolbar proxies to leaf views.
 - **macOS detail footer scrolling:** Do not put horizontal SwiftUI shelves inside `SongsTrackListHost` table footers on macOS. AppKit should own the native track table scroll; related album content in a table footer should be a non-scrolling adaptive grid, while horizontal shelves belong in SwiftUI-owned vertical scroll surfaces such as Feed.
-- **Feed scrolling:** Do not add outer `DragGesture`/scroll-idle detectors around the Feed `ScrollView` to defer hub updates. Hidden Feed refreshes can wait until visibility returns, but visible hub snapshots should apply directly and let native scrolling own gesture arbitration. Do not force Feed's root `ScrollView` under the macOS toolbar with local safe-area padding; that clips the first row on launch.
+- **Feed scrolling:** Feed keeps horizontal hub shelves, but scheduler scroll observation belongs on the root vertical Feed `ScrollView`, not on each horizontal shelf. Do not add outer `DragGesture`/scroll-idle detectors around the Feed `ScrollView` to defer hub updates, and do not attach `foregroundScrollActivity()` to horizontal hub shelves. Hidden Feed refreshes can wait until visibility returns, but visible hub snapshots should apply directly and let native scrolling own gesture arbitration. Do not force Feed's root `ScrollView` under the macOS toolbar with local safe-area padding; that clips the first row on launch.
 - **Shared virtual detail headers:** Favorites, mood, smart playlist, and other virtual collections that do not have album artwork should use `MediaDetailSurface.Header` with `MediaDetailSurface.SymbolArtwork` so compact and large-screen headers inherit the same fluid resizing behavior as media detail screens.
 - **Shared detail actions:** Detail Play/Shuffle-style button labels should use `MediaDetailSurface.ActionLabel`, repeated compact Play/Shuffle action strips should use `MediaDetailSurface.ActionRow`/`PlaybackActionRow`, wide metadata-column headers should use `AdaptivePlaybackActionRow`, nested compact sections should use `CompactPlaybackActionRow`, and icon-only actions such as Radio should use `IconActionLabel` so filled/accent, secondary action, spacing, disabled state, and chromeless button treatment stay aligned across media detail variants.
 
@@ -341,6 +340,8 @@ struct AlbumDetailLoader: View {
 - **Lazy loading:** Use `LazyVGrid`, `LazyVStack`, and lazy image loading via Nuke
 - **Background contexts:** Heavy CoreData operations use `CoreDataStack.performBackgroundTask`
 - **Image caching:** Two-tier (filesystem + Nuke in-memory) with 100MB disk cache limit
+- **Artwork blur caching:** Large artwork washes must use pre-rendered/cached blur bitmaps rather than live SwiftUI blur modifiers.
+- **Artwork requests:** UI surfaces should build Nuke requests through `ArtworkImageRequest.resized(...)` so local cached originals and remote responses are downsampled before display instead of decoding full-size artwork during navigation or scrolling.
 - **Task.detached:** For non-blocking background work
 
 ### Debouncing

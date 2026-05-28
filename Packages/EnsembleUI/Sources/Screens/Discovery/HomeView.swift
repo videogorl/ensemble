@@ -8,6 +8,8 @@ public struct HomeView: View {
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @State private var profileBackgroundImage: PlatformImage?
+    @State private var profileBackgroundBlurredImage: PlatformImage?
+    @State private var profileBackgroundCacheKey: String?
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -23,7 +25,12 @@ public struct HomeView: View {
         ZStack(alignment: .top) {
             // Mount the extension-backed background before profile artwork loads
             // so macOS Liquid Glass keeps the same scroll-edge sampling path.
-            ArtworkDetailBackground(image: profileBackgroundImage, height: profileBackgroundHeight)
+            ArtworkDetailBackground(
+                image: profileBackgroundImage,
+                preBlurredImage: profileBackgroundBlurredImage,
+                preBlurredCacheKey: profileBackgroundStableCacheKey,
+                height: profileBackgroundHeight
+            )
                 .allowsHitTesting(false)
                 .ignoresSafeArea()
 
@@ -42,7 +49,6 @@ public struct HomeView: View {
             }
         }
         .navigationTitle(feedTitle)
-        .profileToolbar()
         .toolbar {
             #if os(macOS)
                 EnsembleToolbarLeadingSpacer()
@@ -69,7 +75,7 @@ public struct HomeView: View {
             await viewModel.loadHubsIfNeeded()
         }
         .task(id: profileBackgroundReloadKey) {
-            loadProfileBackgroundImage()
+            await loadProfileBackgroundImage(reloadKey: profileBackgroundReloadKey)
         }
         .onAppear {
             viewModel.handleViewVisibilityChange(isVisible: true)
@@ -107,6 +113,11 @@ public struct HomeView: View {
         return "\(imagePath)-\(modified)"
     }
 
+    private var profileBackgroundStableCacheKey: String? {
+        guard let url = profileStore.profileImageURL else { return nil }
+        return "profile|\(url.path)|\(profileBackgroundReloadKey)"
+    }
+
     private var profileBackgroundHeight: CGFloat {
         #if os(macOS)
             return 500
@@ -121,6 +132,7 @@ public struct HomeView: View {
 
     @ViewBuilder
     private var emptyView: some View {
+        let readiness = viewModel.readinessSnapshot
         if let errorMessage = viewModel.error {
             EnsembleStateScaffold(
                 kind: .error,
@@ -128,7 +140,7 @@ public struct HomeView: View {
                 message: errorMessage,
                 iconSystemName: EnsembleDesign.Icon.error
             )
-        } else if viewModel.isRestoringCloudSources {
+        } else if readiness.isRestoringCloudSources {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
@@ -136,7 +148,15 @@ public struct HomeView: View {
                 addSource: { navigationCoordinator.showingAddAccount = true },
                 manageSources: { navigationCoordinator.openProfile() }
             )
-        } else if !viewModel.hasConfiguredAccounts {
+        } else if !readiness.isBootstrapSettled {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Welcome Home",
+                iconSystemName: EnsembleDesign.Icon.library,
+                recovery: .syncing,
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openProfile() }
+            )
+        } else if readiness.canShowAddSources {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
@@ -152,7 +172,7 @@ public struct HomeView: View {
                 addSource: { navigationCoordinator.showingAddAccount = true },
                 manageSources: { navigationCoordinator.openProfile() }
             )
-        } else if !viewModel.hasEnabledLibraries {
+        } else if !readiness.hasEnabledLibraries {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",
                 iconSystemName: EnsembleDesign.Icon.library,
@@ -196,6 +216,7 @@ public struct HomeView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
     }
 
@@ -211,21 +232,49 @@ public struct HomeView: View {
             .refreshable {
                 await viewModel.refresh()
             }
+            .foregroundScrollActivity()
             .miniPlayerBottomSpacing()
         }
     }
 
-    private func loadProfileBackgroundImage() {
+    private func loadProfileBackgroundImage(reloadKey: String) async {
         guard let url = profileStore.profileImageURL else {
             profileBackgroundImage = nil
+            profileBackgroundBlurredImage = nil
+            profileBackgroundCacheKey = nil
             return
         }
 
+        let cacheKey = "profile|\(url.path)|\(reloadKey)"
+
         #if canImport(UIKit)
-            profileBackgroundImage = UIImage(contentsOfFile: url.path)
+            let image = UIImage(contentsOfFile: url.path)
         #elseif canImport(AppKit)
-            profileBackgroundImage = NSImage(contentsOf: url)
+            let image = NSImage(contentsOf: url)
         #endif
+
+        if profileBackgroundCacheKey == cacheKey {
+            if let image {
+                profileBackgroundImage = image
+            }
+            if profileBackgroundBlurredImage != nil {
+                return
+            }
+        } else {
+            profileBackgroundCacheKey = cacheKey
+            profileBackgroundImage = image
+            profileBackgroundBlurredImage = ArtworkBlurRenderer.cachedBlurredImage(forStableKey: cacheKey)
+        }
+
+        guard let image else { return }
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+            for: image,
+            cacheKey: cacheKey
+        )
+
+        guard reloadKey == profileBackgroundReloadKey else { return }
+        profileBackgroundCacheKey = cacheKey
+        profileBackgroundBlurredImage = blurredImage
     }
 }
 
@@ -237,13 +286,13 @@ struct HubSection: View {
     let nowPlayingVM: NowPlayingViewModel
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
             // Section header — navigable when hub is artist-scoped
             sectionHeader
 
-            // Horizontal scroll of items
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                     ForEach(hub.items, id: \.sourceScopedID) { item in
@@ -264,24 +313,13 @@ struct HubSection: View {
     private var sectionHeader: some View {
         if let artistId = hub.contextArtistId {
             let sourceKey = hub.contextArtistSourceCompositeKey
-            // Tappable header that navigates to the artist detail view
-            if #available(iOS 16.0, macOS 13.0, *) {
-                NavigationLink(value: NavigationCoordinator.Destination.artist(id: artistId, sourceKey: sourceKey)) {
-                    sectionHeaderLabel
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-            } else {
-                NavigationLink {
-                    ArtistDetailLoader(artistId: artistId, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM)
-                } label: {
-                    sectionHeaderLabel
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+            let destination = NavigationCoordinator.Destination.artist(id: artistId, sourceKey: sourceKey)
+            navigationCoordinator.routeLink(to: destination) {
+                sectionHeaderLabel
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         } else {
             EnsembleContentSectionHeader(hub.title)
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
@@ -316,12 +354,12 @@ struct HubItemCard: View {
                 Button(action: handleTrackTap) {
                     cardContent
                 }
-            } else {
-                NavigationLink {
-                    destinationView
-                } label: {
+            } else if let destination = navigationDestination {
+                navigationCoordinator.routeLink(to: destination) {
                     cardContent
                 }
+            } else {
+                cardContent
             }
         }
         .buttonStyle(.plain)
@@ -337,6 +375,7 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
+                cacheHint: artworkCacheHint,
                 size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
@@ -372,41 +411,57 @@ struct HubItemCard: View {
         }
     }
 
-    @ViewBuilder
-    private var destinationView: some View {
+    private var navigationDestination: NavigationCoordinator.Destination? {
         switch item.type {
         case "album":
             if let album = item.album {
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+                return .albumDetail(album)
             } else {
-                AlbumDetailLoader(
-                    albumId: item.id,
-                    albumSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
+                return .album(id: item.id, sourceKey: item.sourceCompositeKey)
             }
         case "artist":
             if let artist = item.artist {
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-            } else {
-                ArtistDetailLoader(
-                    artistId: item.id,
-                    artistSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
+                return .artistDetail(artist)
             }
+            return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
+        case "playlist":
+            return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
+        default:
+            return nil
+        }
+    }
+
+    private var artworkCacheHint: PersistentArtworkCacheHint? {
+        switch item.type {
+        case "album":
+            if let album = item.album {
+                return PersistentArtworkCacheHint(album: album)
+            }
+            return PersistentArtworkCacheHint(
+                ratingKey: item.id,
+                kind: .album,
+                sourcePath: item.thumbPath
+            )
+        case "artist":
+            if let artist = item.artist {
+                return PersistentArtworkCacheHint(artist: artist)
+            }
+            return PersistentArtworkCacheHint(
+                ratingKey: item.id,
+                kind: .artist,
+                sourcePath: item.thumbPath
+            )
         case "playlist":
             if let playlist = item.playlist {
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
-            } else {
-                PlaylistDetailLoader(
-                    playlistId: item.id,
-                    playlistSourceKey: item.sourceCompositeKey,
-                    nowPlayingVM: nowPlayingVM
-                )
+                return PersistentArtworkCacheHint(playlist: playlist)
             }
+            return PersistentArtworkCacheHint(
+                ratingKey: item.id,
+                kind: .playlist,
+                sourcePath: item.thumbPath
+            )
         default:
-            EmptyView()
+            return nil
         }
     }
 
@@ -451,8 +506,8 @@ struct HubItemCard: View {
             },
             toastNamespace: "hub-album-menu",
             navigateToArtist: { artistId in
-                navigationCoordinator.push(
-                    .artist(id: artistId, sourceKey: item.sourceCompositeKey),
+                navigationCoordinator.routeFromMenu(
+                    to: .artist(id: artistId, sourceKey: item.sourceCompositeKey),
                     in: navigationCoordinator.selectedTab
                 )
             },
@@ -499,16 +554,16 @@ struct HubItemCard: View {
             },
             onGoToAlbum: {
                 if let albumId = track.albumRatingKey {
-                    navigationCoordinator.push(
-                        .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }
             },
             onGoToArtist: {
                 if let artistId = track.artistRatingKey {
-                    navigationCoordinator.push(
-                        .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                    navigationCoordinator.routeFromMenu(
+                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }

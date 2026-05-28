@@ -5,8 +5,18 @@ import Nuke
 import UIKit
 #endif
 
+private struct SendableArtistPlatformImage: @unchecked Sendable {
+    let value: PlatformImage
+
+    init(_ value: PlatformImage) {
+        self.value = value
+    }
+}
+
 final class ArtistDetailArtworkContinuityStore: ObservableObject {
     var lastImage: PlatformImage?
+    var lastBlurredImage: PlatformImage?
+    var lastIdentity: String?
 }
 
 private struct ArtistDetailArtworkContinuityKey: EnvironmentKey {
@@ -48,9 +58,9 @@ public struct ArtistsView: View {
 
     public var body: some View {
         Group {
-            if libraryVM.isLoading && libraryVM.artists.isEmpty {
+            if artistSnapshot.phase != .idle && !artistSnapshot.hasVisibleContent {
                 loadingView
-            } else if libraryVM.artists.isEmpty {
+            } else if !artistSnapshot.hasVisibleContent {
                 emptyView
             } else {
                 rootContent
@@ -64,9 +74,8 @@ public struct ArtistsView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .profileToolbar()
         .toolbar {
-            EnsembleBrowseToolbar(isVisible: !libraryVM.artists.isEmpty) {
+            EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
                 artistFilterButton
                 artistSortMenu
             }
@@ -77,7 +86,7 @@ public struct ArtistsView: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $libraryVM.artistsFilterOptions,
-                availableGenres: libraryVM.availableArtistGenres,
+                availableGenres: artistSnapshot.availableGenres,
                 showGenreFilter: true
             )
         }
@@ -95,6 +104,16 @@ public struct ArtistsView: View {
 
     private var selectedArtist: DisplayArtist? {
         externalSelectedArtist?.wrappedValue ?? localSelectedArtist
+    }
+
+    private var artistSnapshot: ArtistBrowseSnapshot {
+        libraryVM.artistBrowseSnapshot
+    }
+
+    private var isBrowseToolbarVisible: Bool {
+        artistSnapshot.hasVisibleContent &&
+        navigationCoordinator.pathSnapshot(for: .artists).isEmpty &&
+        !navigationCoordinator.isRouteTransitionActive(for: .artists)
     }
 
     private func setSelectedArtist(_ artist: DisplayArtist?) {
@@ -177,7 +196,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.artistSections) { section in
+                                ForEach(artistSnapshot.sections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         ForEach(section.artists) { displayArtist in
                                             artistSelectionRow(displayArtist)
@@ -189,7 +208,7 @@ public struct ArtistsView: View {
                             .padding(.vertical)
                         } else {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.displayArtists) { displayArtist in
+                                ForEach(artistSnapshot.displayArtists) { displayArtist in
                                     artistSelectionRow(displayArtist)
                                 }
                             }
@@ -201,7 +220,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: libraryVM.artistSections.map { $0.letter },
+                            letters: artistSnapshot.sections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -209,6 +228,7 @@ public struct ArtistsView: View {
                         )
                     }
                 }
+                .foregroundScrollActivity()
             }
         }
     }
@@ -261,7 +281,7 @@ public struct ArtistsView: View {
 
                         if libraryVM.artistSortOption == .name {
                             LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                                ForEach(libraryVM.artistSections) { section in
+                                ForEach(artistSnapshot.sections) { section in
                                     Section(header: sectionHeader(section.letter)) {
                                         DisplayArtistGrid(
                                             artists: section.artists,
@@ -274,7 +294,7 @@ public struct ArtistsView: View {
                             .padding(.vertical)
                         } else {
                             DisplayArtistGrid(
-                                artists: libraryVM.displayArtists,
+                                artists: artistSnapshot.displayArtists,
                                 nowPlayingVM: nowPlayingVM
                             )
                             .padding(.vertical)
@@ -285,7 +305,7 @@ public struct ArtistsView: View {
                 .libraryScrollIndexOverlay {
                     if shouldShowScrollIndex(width: geometry.size.width) {
                         ScrollIndex(
-                            letters: libraryVM.artistSections.map { $0.letter },
+                            letters: artistSnapshot.sections.map { $0.letter },
                             currentLetter: .constant(nil),
                             onLetterTap: { letter in
                                 proxy.scrollTo(letter, anchor: .top)
@@ -293,6 +313,7 @@ public struct ArtistsView: View {
                         )
                     }
                 }
+                .foregroundScrollActivity()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -300,7 +321,7 @@ public struct ArtistsView: View {
 
     private var artistGenreChipBar: some View {
         GenreFilterHeader(
-            availableGenres: libraryVM.availableArtistGenres,
+            availableGenres: artistSnapshot.availableGenres,
             selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
             excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
         )
@@ -309,7 +330,7 @@ public struct ArtistsView: View {
     private func shouldShowScrollIndex(width: CGFloat) -> Bool {
         presentationMode == .compactRoot &&
         libraryVM.artistSortOption == .name &&
-        !libraryVM.displayArtists.isEmpty &&
+        !artistSnapshot.displayArtists.isEmpty &&
         ScrollIndex.isVisible(forContainerWidth: width)
     }
 
@@ -325,7 +346,7 @@ private struct DisplayArtistRow: View {
     var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(
-                artist: displayArtist.primaryArtist,
+                artist: displayArtist.artworkArtist,
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
             )
@@ -358,6 +379,7 @@ private struct DisplayArtistGrid: View {
     let artists: [DisplayArtist]
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let columns = EnsembleScaffold.MediaCard.personGridColumns
@@ -383,24 +405,12 @@ private struct DisplayArtistGrid: View {
 
     @ViewBuilder
     private func artistCardLink(_ displayArtist: DisplayArtist) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationLink(value: NavigationCoordinator.Destination.displayArtist(id: displayArtist.id)) {
-                artistCardContent(displayArtist)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                artistContextMenu(for: displayArtist)
-            }
-        } else {
-            NavigationLink {
-                DisplayArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
-            } label: {
-                artistCardContent(displayArtist)
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                artistContextMenu(for: displayArtist)
-            }
+        navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id)) {
+            artistCardContent(displayArtist)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            artistContextMenu(for: displayArtist)
         }
     }
 
@@ -420,7 +430,7 @@ private struct DisplayArtistGrid: View {
     private func artistCardContent(_ displayArtist: DisplayArtist) -> some View {
         VStack(spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(
-                artist: displayArtist.primaryArtist,
+                artist: displayArtist.artworkArtist,
                 size: .thumbnail,
                 cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
             )
@@ -480,14 +490,6 @@ private struct DisplayArtistDetailView: View {
 }
 
 // MARK: - Artist Detail View
-
-private struct ArtistHeroToolbarBackgroundPreferenceKey: PreferenceKey {
-    static var defaultValue = false
-
-    static func reduce(value: inout Bool, nextValue: () -> Bool) {
-        value = value || nextValue()
-    }
-}
 
 private struct StableArtistArtworkImage<Fallback: View>: View {
     let image: PlatformImage?
@@ -565,12 +567,13 @@ public struct ArtistDetailView: View {
     @State private var isArtistPinned: Bool
     @State private var isBioExpanded = false
     @State private var artworkImage: PlatformImage?
+    @State private var blurredArtworkImage: PlatformImage?
     @State private var continuityArtworkImage: PlatformImage?
     @State private var artworkLoadUnavailable = false
     @State private var currentArtworkLoadIdentity: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var showToolbarTitle = false
-    @State private var showToolbarBackground = false
     @State private var artistHeaderActionWidth: CGFloat = 0
     @State private var favoritedTrackListWidth: CGFloat = 0
     @State private var sourceFavoritedTrackListWidths: [String: CGFloat] = [:]
@@ -602,6 +605,9 @@ public struct ArtistDetailView: View {
     public var body: some View {
         MediaDetailSurface(
             artworkImage: artworkImage,
+            preBlurredArtworkImage: blurredArtworkImage,
+            preBlurredArtworkCacheKey: artistBackdropBlurCacheKey,
+            artworkContinuityIdentity: displayArtist.id,
             backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
             darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
             lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity,
@@ -613,8 +619,7 @@ public struct ArtistDetailView: View {
         .collapsingToolbarTitle(
             viewModel.artist.name,
             threshold: 0,
-            showToolbarTitle: $showToolbarTitle,
-            showToolbarBackground: $showToolbarBackground
+            showToolbarTitle: $showToolbarTitle
         )
         .navigationTitle("")
         #if os(iOS)
@@ -625,15 +630,8 @@ public struct ArtistDetailView: View {
                 artistPinMenuButton
             }
         }
-        .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarBackground)
+        .artworkBackedToolbarBleed(hidesTopScrollEdgeEffect: !showToolbarTitle)
         .miniPlayerBottomSpacing()
-        .onPreferenceChange(ArtistHeroToolbarBackgroundPreferenceKey.self) { shouldShowBackground in
-            if shouldShowBackground != showToolbarBackground {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showToolbarBackground = shouldShowBackground
-                }
-            }
-        }
         .trackListRuntimeObservation(
             activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
             availabilityGeneration: $availabilityGeneration
@@ -646,7 +644,7 @@ public struct ArtistDetailView: View {
         .onReceive(pinManager.$pinnedItems) { pinnedItems in
             updateArtistPinState(pinnedItems: pinnedItems)
         }
-        .task {
+        .task(id: viewModel.artist.sourceScopedID) {
             async let artworkLoad: () = loadArtworkImage()
             async let albumsLoad: () = viewModel.loadAlbums()
             async let tracksLoad: () = viewModel.loadTracks()
@@ -660,6 +658,7 @@ public struct ArtistDetailView: View {
             updateArtworkContinuity()
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
 
     private var artistDetailScrollContent: some View {
@@ -710,6 +709,7 @@ public struct ArtistDetailView: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            .foregroundScrollActivity()
         }
     }
 
@@ -776,25 +776,37 @@ public struct ArtistDetailView: View {
         guard displayArtist.isMerged else { return [] }
         return displayArtist.artists.filter { canDownload($0) }
     }
+
+    private var artworkArtist: Artist {
+        displayArtist.artworkArtist
+    }
+
+    private var artistBackdropBlurCacheKey: String? {
+        "\(artworkDescriptor(for: artworkArtist).stableBlurCacheKey)|artist-hero"
+    }
     
     private func loadArtworkImage() async {
-        let artist = viewModel.artist
-        let loadIdentity = artist.sourceScopedID
+        let artist = artworkArtist
+        let loadIdentity = "\(displayArtist.id)|\(artist.sourceScopedID)"
+        let continuityIdentity = displayArtist.id
 
         await MainActor.run {
+            if currentArtworkLoadIdentity != loadIdentity {
+                artworkImage = nil
+                blurredArtworkImage = nil
+                continuityArtworkImage = artistArtworkContinuity.lastIdentity == continuityIdentity
+                    ? artistArtworkContinuity.lastImage
+                    : nil
+            }
             currentArtworkLoadIdentity = loadIdentity
             artworkLoadUnavailable = false
         }
 
-        await loadCachedArtworkSeed(for: artist, loadIdentity: loadIdentity)
+        let descriptor = artworkDescriptor(for: artist)
 
-        guard let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: artist.thumbPath,
-            sourceKey: artist.sourceCompositeKey,
-            ratingKey: artist.id,
-            fallbackPath: artist.fallbackThumbPath,
-            fallbackRatingKey: artist.fallbackRatingKey,
-            size: 600
+        guard let resolved = await ArtworkImageResolver.resolvedImage(
+            for: descriptor,
+            artworkLoader: dependencies.artworkLoader
         ) else {
             await MainActor.run {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
@@ -803,60 +815,49 @@ public struct ArtistDetailView: View {
             return
         }
 
-        let request = ImageRequest(url: url)
-
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            let heroImage = Self.artistHeroImage(from: cachedImage.image)
-            await MainActor.run {
-                guard currentArtworkLoadIdentity == loadIdentity else { return }
-                artworkImage = heroImage
-            }
-            return
+        let heroImage = await Self.artistHeroImage(from: resolved.image)
+        await MainActor.run {
+            guard currentArtworkLoadIdentity == loadIdentity else { return }
+            artworkImage = heroImage
         }
 
-        if let uiImage = try? await ImagePipeline.shared.image(for: request) {
-            let heroImage = Self.artistHeroImage(from: uiImage)
-            await MainActor.run {
-                guard currentArtworkLoadIdentity == loadIdentity else { return }
-                artworkImage = heroImage
-            }
-        } else {
-            await MainActor.run {
-                guard currentArtworkLoadIdentity == loadIdentity else { return }
-                artworkLoadUnavailable = artworkImage == nil
-            }
+        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+            for: heroImage,
+            cacheKey: "\(resolved.blurCacheKey)|artist-hero"
+        )
+        await MainActor.run {
+            guard currentArtworkLoadIdentity == loadIdentity else { return }
+            blurredArtworkImage = blurredImage
+            artistArtworkContinuity.lastBlurredImage = blurredImage
         }
     }
 
-    private func loadCachedArtworkSeed(for artist: Artist, loadIdentity: String) async {
-        guard let url = await dependencies.artworkLoader.artworkURLAsync(
-            for: artist.thumbPath,
+    private func artworkDescriptor(for artist: Artist) -> ArtworkResolutionDescriptor {
+        ArtworkResolutionDescriptor(
+            path: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
-            size: ArtworkSize.thumbnail.rawValue
-        ) else {
-            return
-        }
-
-        let request = ImageRequest(url: url)
-        guard let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) else {
-            return
-        }
-
-        let heroImage = Self.artistHeroImage(from: cachedImage.image)
-        await MainActor.run {
-            guard currentArtworkLoadIdentity == loadIdentity, artworkImage == nil else { return }
-            artworkImage = heroImage
-        }
+            cacheHint: PersistentArtworkCacheHint(artist: artist),
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: artist.fallbackRatingKey,
+                kind: .album,
+                sourcePath: artist.fallbackThumbPath
+            ),
+            size: 1000,
+            priority: .high
+        )
     }
 
     private var displayedArtworkImage: PlatformImage? {
         if artworkImage == nil, artworkLoadUnavailable || !hasArtworkCandidate {
             return nil
         }
-        return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
+        if artistArtworkContinuity.lastIdentity == displayArtist.id {
+            return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
+        }
+        return continuityArtworkImage ?? artworkImage
     }
 
     private var artworkImageIdentity: ObjectIdentifier? {
@@ -864,13 +865,15 @@ public struct ArtistDetailView: View {
     }
 
     private var hasArtworkCandidate: Bool {
-        viewModel.artist.thumbPath?.isEmpty == false || viewModel.artist.fallbackThumbPath?.isEmpty == false
+        artworkArtist.thumbPath?.isEmpty == false || artworkArtist.fallbackThumbPath?.isEmpty == false
     }
 
     private func updateArtworkContinuity() {
         guard let artworkImage else {
             if continuityArtworkImage == nil {
-                continuityArtworkImage = artistArtworkContinuity.lastImage
+                continuityArtworkImage = artistArtworkContinuity.lastIdentity == displayArtist.id
+                    ? artistArtworkContinuity.lastImage
+                    : nil
             }
             return
         }
@@ -879,9 +882,21 @@ public struct ArtistDetailView: View {
             continuityArtworkImage = artworkImage
         }
         artistArtworkContinuity.lastImage = artworkImage
+        artistArtworkContinuity.lastIdentity = displayArtist.id
     }
 
-    private static func artistHeroImage(from image: PlatformImage) -> PlatformImage {
+    private static func artistHeroImage(from image: PlatformImage) async -> PlatformImage {
+        #if os(iOS)
+        let sendableImage = SendableArtistPlatformImage(image)
+        return await Task.detached(priority: .utility) {
+            Self.trimmedArtistHeroImage(from: sendableImage.value)
+        }.value
+        #else
+        return trimmedArtistHeroImage(from: image)
+        #endif
+    }
+
+    nonisolated private static func trimmedArtistHeroImage(from image: PlatformImage) -> PlatformImage {
         #if os(iOS)
         guard let cgImage = image.cgImage else {
             return image
@@ -897,7 +912,7 @@ public struct ArtistDetailView: View {
         #endif
     }
 
-    private static func transparentTrimmedImage(_ image: CGImage) -> CGImage? {
+    nonisolated private static func transparentTrimmedImage(_ image: CGImage) -> CGImage? {
         let width = image.width
         let height = image.height
         guard width > 0, height > 0 else { return nil }
@@ -1132,14 +1147,13 @@ public struct ArtistDetailView: View {
             let globalMinY = geometry.frame(in: .global).minY
             let overscroll = max(globalMinY, 0)
             let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
-            let isHeroPastToolbar = Self.isHeroPastToolbar(geometry)
 
             ZStack(alignment: .bottom) {
                 // The resolved hero image fills the banner directly; ArtworkView is
                 // only the unresolved fallback so it doesn't constrain the final image.
                 StableArtistArtworkImage(image: displayedArtworkImage) {
                     ArtworkView(
-                        artist: viewModel.artist,
+                        artist: artworkArtist,
                         size: .large,
                         cornerRadius: 0,
                         isResponsive: true
@@ -1147,7 +1161,7 @@ public struct ArtistDetailView: View {
                 }
                 .frame(width: geometry.size.width, height: artworkHeight)
                 .clipped()
-                .mask(
+                .mask {
                     LinearGradient(
                         gradient: Gradient(stops: [
                             .init(color: .white, location: 0),
@@ -1157,7 +1171,7 @@ public struct ArtistDetailView: View {
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                )
+                }
                 // Shift up to cover the safe area + overscroll gap
                 .offset(y: -(geometry.safeAreaInsets.top + overscroll))
 
@@ -1194,22 +1208,9 @@ public struct ArtistDetailView: View {
                 .padding()
                 .offset(y: -overscroll)
             }
-            .preference(
-                key: ArtistHeroToolbarBackgroundPreferenceKey.self,
-                value: isHeroPastToolbar
-            )
         }
         .frame(height: compactHeroHeight(containerWidth: containerWidth))
         .frame(maxWidth: .infinity)
-    }
-
-    private static func isHeroPastToolbar(_ geometry: GeometryProxy) -> Bool {
-        #if os(iOS)
-        let revealY = geometry.safeAreaInsets.top + EnsembleScaffold.ArtistDetail.toolbarChromeRevealHeight
-        return geometry.frame(in: .global).maxY <= revealY
-        #else
-        return false
-        #endif
     }
 
     // MARK: - Action Buttons
@@ -1396,9 +1397,9 @@ public struct ArtistDetailView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists, id: \.sourceScopedID) { artist in
-                        NavigationLink {
-                            ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
-                        } label: {
+                        navigationCoordinator.routeLink(
+                            to: .artistDetail(artist)
+                        ) {
                             similarArtistCard(artist: artist)
                         }
                         .buttonStyle(.plain)
@@ -1434,7 +1435,10 @@ public struct ArtistDetailView: View {
             EnsembleContentSectionHeader("Albums")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
-            AlbumGrid(albums: detailAlbums, nowPlayingVM: nowPlayingVM)
+            AlbumGrid(
+                albums: detailAlbums,
+                nowPlayingVM: nowPlayingVM
+            )
         }
     }
 
@@ -1471,7 +1475,10 @@ public struct ArtistDetailView: View {
             .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             if !albums.isEmpty {
-                AlbumGrid(albums: albums, nowPlayingVM: nowPlayingVM)
+                AlbumGrid(
+                    albums: albums,
+                    nowPlayingVM: nowPlayingVM
+                )
             }
 
             if !favoritedTracks.isEmpty {
@@ -1598,8 +1605,14 @@ public struct ArtistDetailView: View {
                 },
                 onGoToAlbum: { track in
                     if let albumId = track.albumRatingKey {
-                        self.navigationCoordinator.push(.album(id: albumId, sourceKey: track.sourceCompositeKey), in: self.navigationCoordinator.selectedTab)
+                        self.navigationCoordinator.routeFromMenu(
+                            to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                            in: self.navigationCoordinator.selectedTab
+                        )
                     }
+                },
+                onGetInfo: { track in
+                    libraryItemInfoRequest = .track(track)
                 },
                 onShareLink: { track in
                     ShareActions.shareTrackLink(track, deps: dependencies)

@@ -44,6 +44,8 @@ public final class DependencyContainer: @unchecked Sendable {
     public let homeHubLoader: HomeHubLoaderProtocol
     public let backgroundRefreshCoordinator: BackgroundRefreshCoordinating
     public let navigationCoordinator: NavigationCoordinator
+    public let appReadinessCoordinator: AppReadinessCoordinator
+    public let foregroundWorkScheduler: ForegroundWorkScheduler
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
     public let pinMutationWorkflow: PinMutationWorkflow
@@ -183,19 +185,35 @@ public final class DependencyContainer: @unchecked Sendable {
         let core = Self.buildCoreBootstrap()
         let network = Self.buildNetworkBootstrap(core: core)
         let sync = Self.buildSyncBootstrap(core: core, network: network)
-        let playback = Self.buildPlaybackBootstrap(core: core, network: network, sync: sync)
+        let builtForegroundWorkScheduler = MainActor.assumeIsolated {
+            ForegroundWorkScheduler()
+        }
+        let builtAppReadinessCoordinator = MainActor.assumeIsolated {
+            AppReadinessCoordinator(
+                accountManager: network.accountManager,
+                syncCoordinator: sync.syncCoordinator
+            )
+        }
+        let playback = Self.buildPlaybackBootstrap(
+            core: core,
+            network: network,
+            sync: sync,
+            foregroundWorkScheduler: builtForegroundWorkScheduler
+        )
         let mutation = Self.buildMutationBootstrap(
             core: core,
             network: network,
             sync: sync,
-            playback: playback
+            playback: playback,
+            foregroundWorkScheduler: builtForegroundWorkScheduler
         )
         let siri = Self.buildSiriBootstrap(
             core: core,
             network: network,
             sync: sync,
             playback: playback,
-            mutation: mutation
+            mutation: mutation,
+            foregroundWorkScheduler: builtForegroundWorkScheduler
         )
 
         keychain = core.keychain
@@ -210,6 +228,8 @@ public final class DependencyContainer: @unchecked Sendable {
         artworkDownloadManager = core.artworkDownloadManager
         settingsManager = core.settingsManager
         navigationCoordinator = core.navigationCoordinator
+        appReadinessCoordinator = builtAppReadinessCoordinator
+        foregroundWorkScheduler = builtForegroundWorkScheduler
         hubOrderManager = core.hubOrderManager
         pinManager = core.pinManager
         pinMutationWorkflow = core.pinMutationWorkflow
@@ -332,6 +352,10 @@ public final class DependencyContainer: @unchecked Sendable {
             guard let self else { return }
             await self.refreshSyncState(reason: "launch")
         }
+        Task { @MainActor [weak builtForegroundWorkScheduler] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            builtForegroundWorkScheduler?.clearLaunchState()
+        }
     }
 
     // MARK: - Bootstrap Builders
@@ -444,7 +468,8 @@ public final class DependencyContainer: @unchecked Sendable {
     private static func buildPlaybackBootstrap(
         core: CoreBootstrap,
         network: NetworkBootstrap,
-        sync: SyncBootstrap
+        sync: SyncBootstrap,
+        foregroundWorkScheduler: ForegroundWorkScheduler
     ) -> PlaybackBootstrap {
         let lyricsService = MainActor.assumeIsolated {
             LyricsService(syncCoordinator: sync.syncCoordinator)
@@ -458,7 +483,8 @@ public final class DependencyContainer: @unchecked Sendable {
             networkMonitor: network.networkMonitor,
             artworkLoader: artworkLoader,
             audioAnalyzer: audioAnalyzer,
-            downloadManager: core.downloadManager
+            downloadManager: core.downloadManager,
+            foregroundWorkScheduler: foregroundWorkScheduler
         )
         let cacheManager = MainActor.assumeIsolated {
             CacheManager(
@@ -498,7 +524,8 @@ public final class DependencyContainer: @unchecked Sendable {
         core: CoreBootstrap,
         network: NetworkBootstrap,
         sync: SyncBootstrap,
-        playback: PlaybackBootstrap
+        playback: PlaybackBootstrap,
+        foregroundWorkScheduler: ForegroundWorkScheduler
     ) -> MutationBootstrap {
         let offlineBackgroundExecutionCoordinator = MainActor.assumeIsolated {
             OfflineBackgroundExecutionCoordinator()
@@ -514,7 +541,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 backgroundExecutionCoordinator: offlineBackgroundExecutionCoordinator,
                 artworkDownloadManager: core.artworkDownloadManager,
                 toastCenter: core.toastCenter,
-                lyricsService: playback.lyricsService
+                lyricsService: playback.lyricsService,
+                foregroundWorkScheduler: foregroundWorkScheduler
             )
         }
         let mutationCoordinator = MainActor.assumeIsolated {
@@ -582,7 +610,8 @@ public final class DependencyContainer: @unchecked Sendable {
         network: NetworkBootstrap,
         sync: SyncBootstrap,
         playback: PlaybackBootstrap,
-        mutation: MutationBootstrap
+        mutation: MutationBootstrap,
+        foregroundWorkScheduler: ForegroundWorkScheduler
     ) -> SiriBootstrap {
         let enabledSystemMediaSourceKeys: SystemMediaEnabledSourceKeysProvider = { @MainActor in
             Set(network.accountManager.enabledSources().map(\.compositeKey))
@@ -628,7 +657,8 @@ public final class DependencyContainer: @unchecked Sendable {
             SystemMediaIntegrationService(
                 siriMediaIndexStore: siriMediaIndexStore,
                 mediaUserContextManager: siriMediaUserContextManager,
-                artworkLoader: playback.artworkLoader
+                artworkLoader: playback.artworkLoader,
+                foregroundWorkScheduler: foregroundWorkScheduler
             )
         }
 
@@ -826,7 +856,7 @@ public final class DependencyContainer: @unchecked Sendable {
     private func wirePlaybackCallbacks() {
         playbackService.setMutationCoordinator(mutationCoordinator)
         if let audioAnalyzer = audioAnalyzer as? FrequencyAnalysisService {
-            audioAnalyzer.visualizationEnabled = UserDefaults.standard.bool(forKey: "auroraVisualizationEnabled")
+            audioAnalyzer.visualizationEnabled = PlaybackSettingsObserver.visualizerEnabled(in: .standard)
         }
     }
 
