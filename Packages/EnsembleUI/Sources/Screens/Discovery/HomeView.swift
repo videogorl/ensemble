@@ -255,31 +255,20 @@ struct HubSection: View {
             // Section header — navigable when hub is artist-scoped
             sectionHeader
 
-            LazyVGrid(columns: hubGridColumns, alignment: .leading, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
-                ForEach(hub.items, id: \.sourceScopedID) { item in
-                    HubItemCard(
-                        item: item,
-                        nowPlayingVM: nowPlayingVM,
-                        playlistActionRequest: $playlistActionRequest,
-                        libraryItemInfoRequest: $libraryItemInfoRequest
-                    )
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+                    ForEach(hub.items, id: \.sourceScopedID) { item in
+                        HubItemCard(
+                            item: item,
+                            nowPlayingVM: nowPlayingVM,
+                            playlistActionRequest: $playlistActionRequest,
+                            libraryItemInfoRequest: $libraryItemInfoRequest
+                        )
+                    }
                 }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
         }
-    }
-
-    private var hubGridColumns: [GridItem] {
-        [
-            GridItem(
-                .adaptive(
-                    minimum: EnsembleScaffold.MediaCard.shelfColumnMinimum,
-                    maximum: EnsembleScaffold.MediaCard.shelfColumnMaximum
-                ),
-                spacing: EnsembleScaffold.Discovery.gridSpacing,
-                alignment: .top
-            )
-        ]
     }
 
     @ViewBuilder
