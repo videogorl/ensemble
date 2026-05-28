@@ -48,6 +48,62 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(track.streamId, 456)
     }
 
+    func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+
+        _ = try await repository.upsertTrack(
+            ratingKey: "track-1",
+            key: "/library/metadata/track-1",
+            title: "2085",
+            artistName: "AJR",
+            albumName: "The Maybe Man",
+            albumRatingKey: nil,
+            trackNumber: 13,
+            discNumber: 1,
+            duration: 331_000,
+            thumbPath: "/library/metadata/album-1/thumb/1000",
+            streamKey: "/library/parts/track-1/file.m4a",
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: nil,
+            sourceCompositeKey: "plex/account/server/library-a"
+        )
+
+        _ = try await repository.upsertTrack(
+            ratingKey: "track-2",
+            key: "/library/metadata/track-2",
+            title: "2085",
+            artistName: "AJR",
+            albumName: "The Maybe Man",
+            albumRatingKey: nil,
+            trackNumber: 13,
+            discNumber: 1,
+            duration: 331_000,
+            thumbPath: "/library/metadata/album-2/thumb/1000",
+            streamKey: "/library/parts/track-2/file.m4a",
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: nil,
+            sourceCompositeKey: "plex/account/server/library-b"
+        )
+
+        let fallback = try await repository.fetchTrackArtworkFallback(
+            title: "2085",
+            albumName: "The Maybe Man",
+            artistName: "AJR",
+            excludingRatingKey: "track-1",
+            excludingSourceCompositeKey: "plex/account/server/library-a"
+        )
+
+        XCTAssertEqual(fallback?.ratingKey, "track-2")
+        XCTAssertEqual(fallback?.thumbPath, "/library/metadata/album-2/thumb/1000")
+    }
+
     func testBatchAlbumUpsertRecordsArtworkInvalidationWhenThumbChanges() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)

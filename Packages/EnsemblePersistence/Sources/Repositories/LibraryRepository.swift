@@ -223,6 +223,13 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchFavoriteTracks() async throws -> [CDTrack]
     func fetchTrack(ratingKey: String) async throws -> CDTrack?
     func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack?
+    func fetchTrackArtworkFallback(
+        title: String,
+        albumName: String?,
+        artistName: String?,
+        excludingRatingKey: String,
+        excludingSourceCompositeKey: String?
+    ) async throws -> CDTrack?
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws
     func upsertTrack(
@@ -324,6 +331,13 @@ public extension LibraryRepositoryProtocol {
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {}
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws {}
+    func fetchTrackArtworkFallback(
+        title _: String,
+        albumName _: String?,
+        artistName _: String?,
+        excludingRatingKey _: String,
+        excludingSourceCompositeKey _: String?
+    ) async throws -> CDTrack? { nil }
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
 }

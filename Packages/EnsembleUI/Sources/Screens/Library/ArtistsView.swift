@@ -347,7 +347,7 @@ private struct DisplayArtistRow: View {
     var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(
-                artist: displayArtist.primaryArtist,
+                artist: displayArtist.artworkArtist,
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.tiny.cgSize.width)
             )
@@ -431,7 +431,7 @@ private struct DisplayArtistGrid: View {
     private func artistCardContent(_ displayArtist: DisplayArtist) -> some View {
         VStack(spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(
-                artist: displayArtist.primaryArtist,
+                artist: displayArtist.artworkArtist,
                 size: .thumbnail,
                 cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
             )
@@ -607,7 +607,7 @@ public struct ArtistDetailView: View {
         MediaDetailSurface(
             artworkImage: artworkImage,
             preBlurredArtworkImage: blurredArtworkImage,
-            artworkContinuityIdentity: viewModel.artist.sourceScopedID,
+            artworkContinuityIdentity: displayArtist.id,
             backgroundHeight: EnsembleScaffold.ArtistDetail.backgroundHeight,
             darkLegibilityOpacity: EnsembleScaffold.ArtistDetail.darkLegibilityOverlayOpacity,
             lightLegibilityOpacity: EnsembleScaffold.ArtistDetail.lightLegibilityOverlayOpacity,
@@ -776,16 +776,21 @@ public struct ArtistDetailView: View {
         guard displayArtist.isMerged else { return [] }
         return displayArtist.artists.filter { canDownload($0) }
     }
+
+    private var artworkArtist: Artist {
+        displayArtist.artworkArtist
+    }
     
     private func loadArtworkImage() async {
-        let artist = viewModel.artist
-        let loadIdentity = artist.sourceScopedID
+        let artist = artworkArtist
+        let loadIdentity = "\(displayArtist.id)|\(artist.sourceScopedID)"
+        let continuityIdentity = displayArtist.id
 
         await MainActor.run {
             if currentArtworkLoadIdentity != loadIdentity {
                 artworkImage = nil
                 blurredArtworkImage = nil
-                continuityArtworkImage = artistArtworkContinuity.lastIdentity == loadIdentity
+                continuityArtworkImage = artistArtworkContinuity.lastIdentity == continuityIdentity
                     ? artistArtworkContinuity.lastImage
                     : nil
             }
@@ -837,7 +842,7 @@ public struct ArtistDetailView: View {
         if artworkImage == nil, artworkLoadUnavailable || !hasArtworkCandidate {
             return nil
         }
-        if artistArtworkContinuity.lastIdentity == viewModel.artist.sourceScopedID {
+        if artistArtworkContinuity.lastIdentity == displayArtist.id {
             return continuityArtworkImage ?? artistArtworkContinuity.lastImage ?? artworkImage
         }
         return continuityArtworkImage ?? artworkImage
@@ -848,13 +853,13 @@ public struct ArtistDetailView: View {
     }
 
     private var hasArtworkCandidate: Bool {
-        viewModel.artist.thumbPath?.isEmpty == false || viewModel.artist.fallbackThumbPath?.isEmpty == false
+        artworkArtist.thumbPath?.isEmpty == false || artworkArtist.fallbackThumbPath?.isEmpty == false
     }
 
     private func updateArtworkContinuity() {
         guard let artworkImage else {
             if continuityArtworkImage == nil {
-                continuityArtworkImage = artistArtworkContinuity.lastIdentity == viewModel.artist.sourceScopedID
+                continuityArtworkImage = artistArtworkContinuity.lastIdentity == displayArtist.id
                     ? artistArtworkContinuity.lastImage
                     : nil
             }
@@ -865,7 +870,7 @@ public struct ArtistDetailView: View {
             continuityArtworkImage = artworkImage
         }
         artistArtworkContinuity.lastImage = artworkImage
-        artistArtworkContinuity.lastIdentity = viewModel.artist.sourceScopedID
+        artistArtworkContinuity.lastIdentity = displayArtist.id
     }
 
     private static func artistHeroImage(from image: PlatformImage) async -> PlatformImage {
@@ -1136,7 +1141,7 @@ public struct ArtistDetailView: View {
                 // only the unresolved fallback so it doesn't constrain the final image.
                 StableArtistArtworkImage(image: displayedArtworkImage) {
                     ArtworkView(
-                        artist: viewModel.artist,
+                        artist: artworkArtist,
                         size: .large,
                         cornerRadius: 0,
                         isResponsive: true

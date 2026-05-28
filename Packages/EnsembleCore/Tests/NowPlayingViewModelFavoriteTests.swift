@@ -46,6 +46,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private(set) var lastShufflePlayTracks: [Track] = []
         private(set) var appliedRatings: [(trackIdentity: String, rating: Int)] = []
 
+        init(initialTrack: Track? = nil) {
+            currentTrackSubject.send(initialTrack)
+        }
+
         var currentTrack: Track? {
             currentTrackSubject.value
         }
@@ -324,6 +328,22 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     }
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
+        private let coreDataStack = CoreDataStack.inMemory()
+        var fetchedTrack: CDTrack?
+
+        func setFetchedTrack(id: String, sourceCompositeKey: String, thumbPath: String) {
+            let track = CDTrack(context: coreDataStack.viewContext)
+            track.ratingKey = id
+            track.key = "/library/metadata/\(id)"
+            track.title = "2085"
+            track.artistName = "AJR"
+            track.albumName = "The Maybe Man"
+            track.duration = 331_000
+            track.thumbPath = thumbPath
+            track.sourceCompositeKey = sourceCompositeKey
+            fetchedTrack = track
+        }
+
         func refreshContext() async {}
         func fetchArtists() async throws -> [CDArtist] {
             []
@@ -385,12 +405,17 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func fetchTrack(ratingKey _: String) async throws -> CDTrack? {
-            nil
+        func fetchTrack(ratingKey: String) async throws -> CDTrack? {
+            guard let fetchedTrack, fetchedTrack.ratingKey == ratingKey else { return nil }
+            return fetchedTrack
         }
 
-        func fetchTrack(ratingKey _: String, sourceCompositeKey _: String?) async throws -> CDTrack? {
-            nil
+        func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
+            guard let fetchedTrack, fetchedTrack.ratingKey == ratingKey else { return nil }
+            if let sourceCompositeKey {
+                return fetchedTrack.sourceCompositeKey == sourceCompositeKey ? fetchedTrack : nil
+            }
+            return fetchedTrack
         }
 
         func upsertTrack(ratingKey _: String, key _: String, title _: String, artistName _: String?, albumName _: String?, albumRatingKey _: String?, trackNumber _: Int?, discNumber _: Int?, duration _: Int?, thumbPath _: String?, streamKey _: String?, dateAdded _: Date?, dateModified _: Date?, lastPlayed _: Date?, lastRatedAt _: Date?, rating _: Int?, playCount _: Int?, genreNames _: String?, sourceCompositeKey _: String?) async throws -> CDTrack {
@@ -628,15 +653,20 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func deleteAllDownloads() async throws {}
     }
 
-    private func makeViewModel() -> (
+    private func makeViewModel(
+        initialTrack: Track? = nil,
+        configureLibraryRepository: ((MockLibraryRepository) -> Void)? = nil
+    ) -> (
         viewModel: NowPlayingViewModel,
         playbackService: MockPlaybackService,
+        libraryRepository: MockLibraryRepository,
         lyricsService: LyricsService
     ) {
         let libraryRepository = MockLibraryRepository()
+        configureLibraryRepository?(libraryRepository)
         let playlistRepository = MockPlaylistRepository()
         let accountManager = AccountManager(keychain: TestKeychain())
-        let playbackService = MockPlaybackService()
+        let playbackService = MockPlaybackService(initialTrack: initialTrack)
         let networkMonitor = NetworkMonitor()
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let syncCoordinator = SyncCoordinator(
@@ -677,6 +707,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         return (
             viewModel,
             playbackService,
+            libraryRepository,
             lyricsService
         )
     }
@@ -685,6 +716,72 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         await Task.yield()
         try? await Task.sleep(nanoseconds: 25_000_000)
         await Task.yield()
+    }
+
+    private func waitForCurrentTrackArtwork(
+        _ viewModel: NowPlayingViewModel,
+        expectedPath: String
+    ) async {
+        for _ in 0 ..< 20 {
+            if viewModel.currentTrack?.thumbPath == expectedPath {
+                return
+            }
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    func testCurrentTrackMissingArtworkRefreshesFromLibraryCache() async {
+        let viewModelTuple = makeViewModel()
+        let sourceKey = "plex:account:server:1"
+        let artworkPath = "/library/metadata/2/thumb/1779114439"
+        viewModelTuple.libraryRepository.setFetchedTrack(
+            id: "14",
+            sourceCompositeKey: sourceKey,
+            thumbPath: artworkPath
+        )
+        let restoredTrack = Track(
+            id: "14",
+            key: "/library/metadata/14",
+            title: "2085",
+            artistName: "AJR",
+            albumName: "The Maybe Man",
+            sourceCompositeKey: sourceKey
+        )
+
+        viewModelTuple.playbackService.setCurrentTrack(restoredTrack)
+        await waitForCurrentTrackArtwork(viewModelTuple.viewModel, expectedPath: artworkPath)
+
+        XCTAssertEqual(viewModelTuple.viewModel.currentTrack?.thumbPath, artworkPath)
+        XCTAssertEqual(viewModelTuple.viewModel.artworkProjection.currentTrack?.thumbPath, artworkPath)
+    }
+
+    func testInitialCurrentTrackMissingArtworkRefreshesFromLibraryCache() async {
+        let sourceKey = "plex:account:server:1"
+        let artworkPath = "/library/metadata/2/thumb/1779114439"
+        let restoredTrack = Track(
+            id: "14",
+            key: "/library/metadata/14",
+            title: "2085",
+            artistName: "AJR",
+            albumName: "The Maybe Man",
+            sourceCompositeKey: sourceKey
+        )
+        let viewModelTuple = makeViewModel(
+            initialTrack: restoredTrack,
+            configureLibraryRepository: { repository in
+                repository.setFetchedTrack(
+                    id: "14",
+                    sourceCompositeKey: sourceKey,
+                    thumbPath: artworkPath
+                )
+            }
+        )
+
+        await waitForCurrentTrackArtwork(viewModelTuple.viewModel, expectedPath: artworkPath)
+
+        XCTAssertEqual(viewModelTuple.viewModel.currentTrack?.thumbPath, artworkPath)
+        XCTAssertEqual(viewModelTuple.viewModel.artworkProjection.currentTrack?.thumbPath, artworkPath)
     }
 
     func testSetTrackFavoriteUsesLovedRating() async {
