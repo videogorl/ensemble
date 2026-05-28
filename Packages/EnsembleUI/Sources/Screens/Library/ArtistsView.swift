@@ -1398,7 +1398,7 @@ public struct ArtistDetailView: View {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
                     ForEach(artists, id: \.sourceScopedID) { artist in
                         navigationCoordinator.routeLink(
-                            to: .artist(id: artist.id, sourceKey: artist.sourceCompositeKey)
+                            to: .artistDetail(artist)
                         ) {
                             similarArtistCard(artist: artist)
                         }

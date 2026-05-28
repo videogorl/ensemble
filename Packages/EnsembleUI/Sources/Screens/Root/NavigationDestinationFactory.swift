@@ -39,6 +39,8 @@ struct NavigationDestinationFactory {
             } else {
                 return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
             }
+        case .artistDetail(let artist):
+            return AnyView(ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM))
         case .artist(let id, let sourceKey):
             return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .album(let id, let sourceKey):

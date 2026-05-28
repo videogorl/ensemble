@@ -415,7 +415,7 @@ public struct SearchView: View {
                 }
             } else if let artist = item.artist {
                 navigationCoordinator.routeLink(
-                    to: .artist(id: artist.id, sourceKey: artist.sourceCompositeKey)
+                    to: .artistDetail(artist)
                 ) {
                     ArtistCard(artist: artist)
                 }
@@ -640,7 +640,7 @@ public struct SearchView: View {
             .disabled(isEditingPins)
         case let .artist(artist, _):
             navigationCoordinator.routeLink(
-                to: .artist(id: artist.id, sourceKey: artist.sourceCompositeKey)
+                to: .artistDetail(artist)
             ) {
                 ArtistCard(artist: artist)
             }

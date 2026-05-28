@@ -106,7 +106,7 @@ public struct ArtistGrid: View {
                     }
                 } else {
                     navigationCoordinator.routeLink(
-                        to: .artist(id: artist.id, sourceKey: artist.sourceCompositeKey)
+                        to: .artistDetail(artist)
                     ) {
                         artistCardContent(artist)
                     }

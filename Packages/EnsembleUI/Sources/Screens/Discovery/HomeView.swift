@@ -420,7 +420,10 @@ struct HubItemCard: View {
                 return .album(id: item.id, sourceKey: item.sourceCompositeKey)
             }
         case "artist":
-            return .artist(id: item.artist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
+            if let artist = item.artist {
+                return .artistDetail(artist)
+            }
+            return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
             return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
         default:

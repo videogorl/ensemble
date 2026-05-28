@@ -5,6 +5,7 @@ import Combine
 final class NavigationCoordinatorTests: XCTestCase {
     func testDestinationTargetTabs() {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .displayArtist(id: "merged:ajr")), .artists)
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .artistDetail(Self.artist())), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .artist(id: "artist")), .artists)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .album(id: "album")), .albums)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .playlist(id: "playlist", sourceKey: nil)), .playlists)
@@ -213,5 +214,9 @@ final class NavigationCoordinatorTests: XCTestCase {
         XCTAssertTrue(NavigationCoordinator.routeExternalSearchInActiveScene(to: destination))
         XCTAssertEqual(coordinator.selectedTab, .albums)
         XCTAssertEqual(coordinator.pathSnapshot(for: .albums), [destination])
+    }
+
+    private static func artist() -> Artist {
+        Artist(id: "artist", key: "/library/metadata/artist", name: "Artist")
     }
 }
