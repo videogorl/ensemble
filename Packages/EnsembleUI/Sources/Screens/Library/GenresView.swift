@@ -222,37 +222,19 @@ struct GenreDetailContentView: View {
         let genreAlbums = albums(for: genre)
         let albums = filteredAndSortedAlbums(from: genreAlbums)
         let sections = albumSections(from: albums)
-        let playbackTracks = playbackTracks(for: albums)
 
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-            if presentationStyle == .splitPane {
-                genreHeader(albums: albums)
-
-                Divider()
-            }
-
             if genreAlbums.isEmpty {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Albums")
             } else {
-                playbackActionButtons(tracks: playbackTracks)
-
-                Divider()
-
-                if albums.isEmpty {
-                    LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Matching Albums")
-                } else {
-                    genreAlbumList(albums: albums, sections: sections)
-                }
+                genreAlbumList(
+                    albums: albums,
+                    sections: sections,
+                    playbackTracks: playbackTracks(for: albums)
+                )
             }
         }
         .navigationTitle(genre.title)
-        .searchable(text: $filterOptions.searchText, prompt: "Filter albums")
-        .toolbar {
-            EnsembleBrowseToolbar(isVisible: !genreAlbums.isEmpty) {
-                filterButton
-                sortMenu
-            }
-        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $filterOptions,
@@ -276,10 +258,52 @@ struct GenreDetailContentView: View {
         .padding(EnsembleDesign.Spacing.lg)
     }
 
+    private func genreControls(tracks: [Track]) -> some View {
+        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+            genreSearchField
+
+            playbackActionButtons(tracks: tracks)
+
+            HStack(spacing: EnsembleDesign.Spacing.sm) {
+                inlineFilterButton
+                inlineSortMenu
+                Spacer(minLength: EnsembleDesign.Spacing.none)
+            }
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.top, presentationStyle == .splitPane ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
+        .padding(.bottom, EnsembleDesign.Spacing.md)
+    }
+
+    private var genreSearchField: some View {
+        HStack(spacing: EnsembleDesign.Spacing.sm) {
+            Image(systemName: EnsembleDesign.Icon.search)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+            TextField("Filter albums", text: $filterOptions.searchText)
+                .disableAutocorrection(true)
+
+            if !filterOptions.searchText.isEmpty {
+                Button {
+                    filterOptions.searchText = ""
+                } label: {
+                    Image(systemName: EnsembleDesign.Icon.closeCircle)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear album filter")
+            }
+        }
+        .padding(.horizontal, EnsembleDesign.Spacing.md)
+        .padding(.vertical, EnsembleDesign.Spacing.sm)
+        .background(EnsembleDesign.Color.groupedSurface)
+        .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.control, style: .continuous))
+    }
+
     private func playbackActionButtons(tracks: [Track]) -> some View {
         MediaDetailSurface<EmptyView>.PlaybackActionRow(
-            horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
-            bottomPadding: EnsembleDesign.Spacing.md,
+            horizontalPadding: EnsembleDesign.Spacing.none,
+            bottomPadding: EnsembleDesign.Spacing.none,
             isDisabled: tracks.isEmpty,
             play: {
                 nowPlayingVM.play(tracks: tracks)
@@ -290,15 +314,29 @@ struct GenreDetailContentView: View {
         ) {
             EmptyView()
         }
-        .padding(.top, EnsembleDesign.Spacing.md)
     }
 
-    private func genreAlbumList(albums: [Album], sections: [LibraryViewModel.AlbumSection]) -> some View {
+    private func genreAlbumList(
+        albums: [Album],
+        sections: [LibraryViewModel.AlbumSection],
+        playbackTracks: [Track]
+    ) -> some View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                        if isSortIndexed {
+                        if presentationStyle == .splitPane {
+                            genreHeader(albums: albums)
+                            Divider()
+                        }
+
+                        genreControls(tracks: playbackTracks)
+
+                        Divider()
+
+                        if albums.isEmpty {
+                            LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Matching Albums")
+                        } else if isSortIndexed {
                             ForEach(sections) { section in
                                 Section(header: sectionHeader(section.letter)) {
                                     AlbumGrid(
@@ -334,16 +372,31 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private var filterButton: some View {
-        EnsembleBrowseFilterButton(
-            title: "Filter Genre Albums",
-            hasActiveFilters: filterOptions.hasActiveFilters
-        ) {
+    private var inlineFilterButton: some View {
+        Button {
             showFilterSheet = true
+        } label: {
+            Label("Filters…", systemImage: EnsembleDesign.Icon.filter)
+                .overlay(alignment: .topTrailing) {
+                    if filterOptions.hasActiveFilters {
+                        Circle()
+                            .fill(EnsembleDesign.Color.destructive)
+                            .frame(
+                                width: EnsembleScaffold.BrowseToolbar.activeBadgeSize,
+                                height: EnsembleScaffold.BrowseToolbar.activeBadgeSize
+                            )
+                            .offset(
+                                x: EnsembleScaffold.BrowseToolbar.activeBadgeOffset,
+                                y: -EnsembleScaffold.BrowseToolbar.activeBadgeOffset
+                            )
+                    }
+                }
         }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Filter Genre Albums")
     }
 
-    private var sortMenu: some View {
+    private var inlineSortMenu: some View {
         Menu {
             ForEach(AlbumSortOption.allCases, id: \.self) { option in
                 Button {
@@ -364,8 +417,9 @@ struct GenreDetailContentView: View {
                 }
             }
         } label: {
-            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+            Label("Sort", systemImage: EnsembleDesign.Icon.sort)
         }
+        .buttonStyle(.bordered)
         .accessibilityLabel("Sort Genre Albums")
     }
 
