@@ -94,7 +94,6 @@ public struct AlbumsView: View {
         .refreshable {
             await libraryVM.refreshFromServer()
         }
-        .profileToolbar()
         .toolbar {
             EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
                 albumFilterButton

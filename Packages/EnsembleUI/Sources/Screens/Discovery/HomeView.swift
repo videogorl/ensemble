@@ -49,7 +49,6 @@ public struct HomeView: View {
             }
         }
         .navigationTitle(feedTitle)
-        .profileToolbar()
         .toolbar {
             #if os(macOS)
                 EnsembleToolbarLeadingSpacer()

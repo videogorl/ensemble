@@ -117,7 +117,6 @@ public struct SongsView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .profileToolbar()
         .toolbar {
             EnsembleBrowseToolbar(isVisible: trackSnapshot.hasVisibleContent && !isStageFlowActive) {
                 songsFilterButton

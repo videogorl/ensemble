@@ -54,7 +54,6 @@ public struct FavoritesView: View {
         }
         .navigationTitle("Favorites")
         .searchable(text: $viewModel.filterOptions.searchText, prompt: "Filter favorites")
-        .profileToolbar()
         .toolbar {
             EnsembleBrowseToolbar(isVisible: !viewModel.tracks.isEmpty) {
                 sortMenu

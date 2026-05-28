@@ -127,7 +127,6 @@ public struct SearchView: View {
             isMoreSearchRootActive = Self.isMoreSearchRootPath(navigationCoordinator.settingsPath)
         }
         .navigationTitle("Search")
-        .profileToolbar()
         // Search chrome belongs to the active root Search screen only.
         // Leaving it attached while Search is offscreen or pushed into detail
         // leaks stale toolbar/search-controller state into other tabs/destinations.

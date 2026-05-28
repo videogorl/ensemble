@@ -57,7 +57,6 @@ public struct GenresView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .profileToolbar()
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {

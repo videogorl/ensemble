@@ -317,7 +317,7 @@ public struct MainTabView: View {
                         pinnedVM: pinnedVM,
                         isMoreRoot: isMoreRoot
                     )
-                    .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
+                    .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
                     .auroraBackgroundSupport()
                     .background(legacyNavigationBridge(for: tab))
                 }
@@ -361,12 +361,12 @@ public struct MainTabView: View {
             pinnedVM: pinnedVM,
             isMoreRoot: isMoreRoot
         )
+        .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
         .auroraBackgroundSupport()
         .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
             destinationView(for: destination)
                 .auroraBackgroundSupport()
         }
-        .environment(\.showsProfileToolbar, shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
     }
 
     @ViewBuilder
@@ -379,7 +379,6 @@ public struct MainTabView: View {
             searchVM: searchVM,
             pinnedVM: pinnedVM
         )
-        .environment(\.showsProfileToolbar, false)
     }
 
     @ViewBuilder
@@ -409,6 +408,31 @@ public struct MainTabView: View {
 }
 
 private extension View {
+    @ViewBuilder
+    func rootProfileToolbar(isVisible: Bool) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            self.toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isVisible {
+                        ProfileToolbarButton()
+                    }
+                }
+            }
+        } else {
+            self.navigationBarItems(
+                trailing: Group {
+                    if isVisible {
+                        ProfileToolbarButton()
+                    }
+                }
+            )
+        }
+        #else
+        self
+        #endif
+    }
+
     @ViewBuilder
     func tabBarVisibility(isHidden: Bool) -> some View {
         #if os(iOS)

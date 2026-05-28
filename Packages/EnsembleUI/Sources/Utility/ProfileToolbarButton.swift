@@ -43,56 +43,6 @@ public struct ProfileToolbarButton: View {
     }
 }
 
-// MARK: - Profile Toolbar Modifier
-
-private struct ShowsProfileToolbarKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
-extension EnvironmentValues {
-    var showsProfileToolbar: Bool {
-        get { self[ShowsProfileToolbarKey.self] }
-        set { self[ShowsProfileToolbarKey.self] = newValue }
-    }
-}
-
-/// Adds the profile button on iPhone root tab views only.
-/// iOS 15 uses `navigationBarItems` because stacked `.toolbar` modifiers
-/// can drop trailing items in `NavigationView`.
-struct ProfileToolbarModifier: ViewModifier {
-    @Environment(\.showsProfileToolbar) private var showsProfileToolbar
-
-    func body(content: Content) -> some View {
-        #if os(iOS)
-        if #available(iOS 16.0, *) {
-            content.toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    if showsProfileToolbar {
-                        ProfileToolbarButton()
-                    }
-                }
-            }
-        } else {
-            content.navigationBarItems(
-                trailing: Group {
-                    if showsProfileToolbar {
-                        ProfileToolbarButton()
-                    }
-                }
-            )
-        }
-        #else
-        content
-        #endif
-    }
-}
-
-extension View {
-    func profileToolbar() -> some View {
-        modifier(ProfileToolbarModifier())
-    }
-}
-
 /// Loads a small profile image for toolbar display using platform-native APIs
 private struct LocalToolbarProfileImage: View {
     let url: URL

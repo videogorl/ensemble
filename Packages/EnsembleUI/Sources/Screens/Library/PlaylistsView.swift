@@ -329,7 +329,6 @@ public struct PlaylistsView: View {
             .refreshCommand {
                 await viewModel.refreshFromServer()
             }
-            .profileToolbar()
             .toolbar {
                 EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
                     playlistMergeButton

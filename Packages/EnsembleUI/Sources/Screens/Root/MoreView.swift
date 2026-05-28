@@ -37,7 +37,6 @@ public struct MoreView: View {
         }
         .miniPlayerBottomSpacing()
         .navigationTitle(isEditing ? "Edit Tabs" : "More")
-        .profileToolbar()
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {

@@ -74,7 +74,6 @@ public struct ArtistsView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
-        .profileToolbar()
         .toolbar {
             EnsembleBrowseToolbar(isVisible: isBrowseToolbarVisible) {
                 artistFilterButton

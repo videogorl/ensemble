@@ -20,7 +20,6 @@ public struct DownloadsView: View {
             }
         }
         .navigationTitle("Downloads")
-        .profileToolbar()
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .navigationBarTrailing) {
