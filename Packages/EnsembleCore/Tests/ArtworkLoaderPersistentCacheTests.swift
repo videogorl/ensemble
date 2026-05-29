@@ -212,6 +212,48 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         XCTAssertEqual(artworkManager.downloadedIdentities.map(\.ratingKey), ["album-1"])
     }
 
+    func testLocalArtworkExistsRequiresRequestedDimension() async throws {
+        let localURL = try makeTemporaryJPEG(width: 500, height: 500)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let album = try await repository.upsertAlbum(
+            ratingKey: "album-1",
+            key: "/library/metadata/album-1",
+            title: "Album",
+            artistName: "Artist",
+            albumArtist: "Artist",
+            artistRatingKey: "artist-1",
+            summary: nil,
+            thumbPath: "/library/metadata/album-1/thumb/2000",
+            artPath: nil,
+            year: nil,
+            trackCount: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            rating: nil,
+            genreNames: nil,
+            sourceCompositeKey: "plex:account-1:server-1:1"
+        )
+        let artworkManager = RecordingArtworkDownloadManager(
+            strictPath: localURL.path,
+            stalePath: nil
+        )
+
+        let satisfiesThumbnailRequest = await artworkManager.localArtworkExists(
+            for: album,
+            minimumPixelDimension: 500
+        )
+        let satisfiesDetailRequest = await artworkManager.localArtworkExists(
+            for: album,
+            minimumPixelDimension: 1000
+        )
+
+        XCTAssertTrue(satisfiesThumbnailRequest)
+        XCTAssertFalse(satisfiesDetailRequest)
+    }
+
     private func makeOfflineSyncCoordinator(
         artworkManager: ArtworkDownloadManagerProtocol
     ) async -> SyncCoordinator {

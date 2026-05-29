@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 public enum ArtworkDownloadError: Error, LocalizedError {
     case noArtworkPath
@@ -83,6 +84,21 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
 }
 
 public extension ArtworkDownloadManagerProtocol {
+    func localArtworkExists(for album: CDAlbum, minimumPixelDimension: Int? = nil) async -> Bool {
+        guard let localPath = try? await getLocalArtworkPath(for: album) else { return false }
+        return artworkFileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
+    }
+
+    func localArtworkExists(for artist: CDArtist, minimumPixelDimension: Int? = nil) async -> Bool {
+        guard let localPath = try? await getLocalArtworkPath(for: artist) else { return false }
+        return artworkFileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
+    }
+
+    func localArtworkExists(for playlist: CDPlaylist, minimumPixelDimension: Int? = nil) async -> Bool {
+        guard let localPath = try? await getLocalArtworkPath(for: playlist) else { return false }
+        return artworkFileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
+    }
+
     func getLocalArtworkPath(
         ratingKey: String,
         type: ArtworkType,
@@ -105,6 +121,20 @@ public extension ArtworkDownloadManagerProtocol {
             .path
         return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
     }
+}
+
+private func artworkFileExists(atPath path: String, minimumPixelDimension: Int?) -> Bool {
+    guard FileManager.default.fileExists(atPath: path) else { return false }
+    guard let minimumPixelDimension, minimumPixelDimension > 0 else { return true }
+    let url = URL(fileURLWithPath: path)
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+        return true
+    }
+
+    let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
+    let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+    return max(width, height) >= minimumPixelDimension
 }
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {

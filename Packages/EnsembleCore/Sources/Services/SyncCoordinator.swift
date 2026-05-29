@@ -121,6 +121,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
     private var playlistArtworkRetryAfter: [String: Date] = [:]
     private let playlistArtworkFailureBackoff: TimeInterval = 5 * 60
+    internal static let fullSizeArtworkCacheDimension = 1000
 
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
@@ -148,6 +149,10 @@ public final class SyncCoordinator: ObservableObject {
     public var sourceCacheCleanupService: SourceCacheCleaning?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
+
+    internal func setSyncProvidersForTesting(_ providers: [String: MusicSourceSyncProvider]) {
+        syncProviders = providers
+    }
 
     public init(
         accountManager: AccountManager,
@@ -1106,13 +1111,18 @@ public final class SyncCoordinator: ObservableObject {
             var cached = 0
 
             for album in sourceAlbums {
-                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: album),
-                   FileManager.default.fileExists(atPath: localPath) {
+                if await artworkDownloadManager.localArtworkExists(
+                    for: album,
+                    minimumPixelDimension: Self.fullSizeArtworkCacheDimension
+                ) {
                     continue
                 }
 
                 guard let thumbPath = album.thumbPath,
-                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                      let artworkURL = try? await provider.getArtworkURL(
+                        path: thumbPath,
+                        size: Self.fullSizeArtworkCacheDimension
+                      ) else {
                     continue
                 }
 
@@ -1149,13 +1159,18 @@ public final class SyncCoordinator: ObservableObject {
             var cached = 0
 
             for artist in sourceArtists {
-                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: artist),
-                   FileManager.default.fileExists(atPath: localPath) {
+                if await artworkDownloadManager.localArtworkExists(
+                    for: artist,
+                    minimumPixelDimension: Self.fullSizeArtworkCacheDimension
+                ) {
                     continue
                 }
 
                 guard let thumbPath = artist.thumbPath,
-                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                      let artworkURL = try? await provider.getArtworkURL(
+                        path: thumbPath,
+                        size: Self.fullSizeArtworkCacheDimension
+                      ) else {
                     continue
                 }
 
@@ -1195,9 +1210,10 @@ public final class SyncCoordinator: ObservableObject {
             let now = nowProviderForTesting()
 
             for playlist in playlists {
-                // Skip if already cached on disk
-                if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: playlist),
-                   FileManager.default.fileExists(atPath: localPath) {
+                if await artworkDownloadManager.localArtworkExists(
+                    for: playlist,
+                    minimumPixelDimension: Self.fullSizeArtworkCacheDimension
+                ) {
                     playlistArtworkRetryAfter.removeValue(forKey: playlist.ratingKey)
                     continue
                 }
@@ -1207,7 +1223,10 @@ public final class SyncCoordinator: ObservableObject {
                 }
 
                 guard let thumbPath = playlist.compositePath,
-                      let artworkURL = try? await provider.getArtworkURL(path: thumbPath, size: 500) else {
+                      let artworkURL = try? await provider.getArtworkURL(
+                        path: thumbPath,
+                        size: Self.fullSizeArtworkCacheDimension
+                      ) else {
                     continue
                 }
 
