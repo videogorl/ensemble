@@ -248,7 +248,7 @@ struct GenreDetailContentView: View {
                 )
             }
         }
-        .navigationTitle(genre.title)
+        .genreDetailNavigationTitle(genre.title, presentationStyle: presentationStyle)
         .genreAlbumSearchable(text: $libraryVM.genreDetailAlbumFilterOptions.searchText)
         .toolbar {
             EnsembleBrowseToolbar(isVisible: !genreAlbums.isEmpty) {
@@ -569,7 +569,28 @@ private struct GenreBrowseSearchModifier: ViewModifier {
     }
 }
 
+private struct GenreDetailNavigationTitleModifier: ViewModifier {
+    let title: String
+    let presentationStyle: GenreDetailContentView.PresentationStyle
+
+    func body(content: Content) -> some View {
+        switch presentationStyle {
+        case .navigationPage:
+            content.navigationTitle(title)
+        case .splitPane:
+            content
+        }
+    }
+}
+
 private extension View {
+    func genreDetailNavigationTitle(
+        _ title: String,
+        presentationStyle: GenreDetailContentView.PresentationStyle
+    ) -> some View {
+        modifier(GenreDetailNavigationTitleModifier(title: title, presentationStyle: presentationStyle))
+    }
+
     func genreAlbumSearchable(text: Binding<String>) -> some View {
         modifier(GenreAlbumSearchModifier(text: text))
     }
