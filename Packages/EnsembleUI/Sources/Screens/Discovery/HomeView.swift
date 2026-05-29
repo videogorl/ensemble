@@ -7,6 +7,7 @@ public struct HomeView: View {
     @ObservedObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
+    @ObservedObject private var cacheManager = DependencyContainer.shared.cacheManager
     @State private var profileBackgroundImage: PlatformImage?
     @State private var profileBackgroundBlurredImage: PlatformImage?
     @State private var profileBackgroundCacheKey: String?
@@ -110,7 +111,7 @@ public struct HomeView: View {
     private var profileBackgroundReloadKey: String {
         let imagePath = profileStore.profile.profileImagePath ?? "none"
         let modified = profileStore.profile.lastModified.timeIntervalSinceReferenceDate
-        return "\(imagePath)-\(modified)"
+        return "\(imagePath)-\(modified)-artwork-cache-\(cacheManager.artworkCacheInvalidationGeneration)"
     }
 
     private var profileBackgroundStableCacheKey: String? {

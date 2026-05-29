@@ -57,6 +57,7 @@ public final class CacheManager: ObservableObject {
     @Published public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
     @Published public private(set) var isRefreshing = false
     @Published public private(set) var totalCacheSize: Int64 = 0
+    @Published public private(set) var artworkCacheInvalidationGeneration: UInt64 = 0
     
     private let libraryRepository: LibraryRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -150,6 +151,7 @@ public final class CacheManager: ObservableObject {
         case .albumArtwork:
             try await artworkDownloadManager.clearArtworkCache()
             ArtworkBlurRenderer.clearCache()
+            invalidateArtworkCacheConsumers()
         case .downloadedTracks:
             try await clearAllDownloads()
         case .nukeImageCache:
@@ -169,6 +171,7 @@ public final class CacheManager: ObservableObject {
         try await artworkDownloadManager.clearArtworkCache()
         try await clearNukeImageCache()
         ArtworkBlurRenderer.clearCache()
+        invalidateArtworkCacheConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
@@ -191,6 +194,7 @@ public final class CacheManager: ObservableObject {
         }
         try await clearNukeImageCache()
         ArtworkBlurRenderer.clearCache()
+        invalidateArtworkCacheConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
@@ -228,6 +232,10 @@ public final class CacheManager: ObservableObject {
         
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return attributes[.size] as? Int64 ?? 0
+    }
+
+    private func invalidateArtworkCacheConsumers() {
+        artworkCacheInvalidationGeneration &+= 1
     }
     
     private func getLibraryItemCount() async throws -> Int {

@@ -320,6 +320,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(before.libraryItemCount, 1)
         XCTAssertEqual(before.sourceCount, 1)
         XCTAssertEqual(before.downloadRecordCount, 1)
+        XCTAssertEqual(cacheManager.artworkCacheInvalidationGeneration, 0)
 
         try await cacheManager.clearArtworkCaches()
 
@@ -331,6 +332,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let targets = try await harness.targetRepository.fetchTargets()
         XCTAssertEqual(targets.count, 1)
         XCTAssertEqual(artworkDownloadManager.clearArtworkCacheCallCount, 1)
+        XCTAssertEqual(cacheManager.artworkCacheInvalidationGeneration, 1)
     }
 
     private struct Harness {

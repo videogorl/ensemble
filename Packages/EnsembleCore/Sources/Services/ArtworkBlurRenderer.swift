@@ -17,6 +17,8 @@ import Foundation
 /// This renderer bakes the color adjustment and Gaussian blur into a bitmap once,
 /// then keeps the result in memory and on disk when callers provide a stable key.
 public enum ArtworkBlurRenderer {
+    private static let renderVersion = "v2"
+    private static let gaussianBlurRadius = 180.0
     private static let cache = NSCache<NSString, PlatformImage>()
     private static let diskCacheDirectoryName = "ArtworkBlurCache"
 
@@ -72,20 +74,20 @@ public enum ArtworkBlurRenderer {
         #if os(iOS) || os(tvOS) || os(watchOS)
             let size = source.size
             let scale = source.scale
-            return "\(identity):\(Int(size.width))x\(Int(size.height))@\(scale)" as NSString
+            return "\(renderVersion):\(identity):\(Int(size.width))x\(Int(size.height))@\(scale)" as NSString
         #elseif os(macOS)
             let size = source.size
-            return "\(identity):\(Int(size.width))x\(Int(size.height))" as NSString
+            return "\(renderVersion):\(identity):\(Int(size.width))x\(Int(size.height))" as NSString
         #endif
     }
 
     private static func cacheKey(forStableKey stableKey: String) -> NSString {
-        "stable:\(stableKeyDigest(stableKey))" as NSString
+        "stable:\(renderVersion):\(stableKeyDigest(stableKey))" as NSString
     }
 
     private static func stableKeyDigest(_ stableKey: String) -> String {
         var hash: UInt64 = 14_695_981_039_346_656_037
-        for byte in stableKey.utf8 {
+        for byte in "\(renderVersion):\(stableKey)".utf8 {
             hash ^= UInt64(byte)
             hash &*= 1_099_511_628_211
         }
@@ -166,9 +168,11 @@ public enum ArtworkBlurRenderer {
 
         guard let colorAdjusted = colorFilter.outputImage else { return nil }
 
+        // Keep Gaussian blur as the final visual filter so the tuned artwork
+        // signal is smeared after contrast/saturation/brightness are baked in.
         guard let blurFilter = CIFilter(name: "CIGaussianBlur") else { return nil }
         blurFilter.setValue(colorAdjusted, forKey: kCIInputImageKey)
-        blurFilter.setValue(40.0, forKey: kCIInputRadiusKey)
+        blurFilter.setValue(gaussianBlurRadius, forKey: kCIInputRadiusKey)
 
         guard let blurred = blurFilter.outputImage else { return nil }
         let output = blurred.cropped(to: ciImage.extent)

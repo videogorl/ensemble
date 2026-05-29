@@ -838,11 +838,14 @@ public struct MediaTrackList: UIViewRepresentable {
         let activeDownloadsChanged = context.coordinator.activeDownloadTrackIdentities != activeDownloadTrackIdentities
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
+        let newFavoriteStateSignature = favoriteStateSignature(for: tracks)
+        let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
 
         // Update coordinator state
         context.coordinator.tracks = tracks
         context.coordinator.groupedTracks = newGroupedTracks
         context.coordinator.groupSignature = newGroupSignature
+        context.coordinator.favoriteStateSignature = newFavoriteStateSignature
         context.coordinator.showArtwork = showArtwork
         context.coordinator.showTrackNumbers = showTrackNumbers
         context.coordinator.showAlbumName = showAlbumName
@@ -959,7 +962,7 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged) {
+        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || favoriteStateChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
             // Bounds-check indexPaths since visible cells may reference stale geometry.
             tableView.visibleCells.forEach { cell in
@@ -1049,6 +1052,12 @@ public struct MediaTrackList: UIViewRepresentable {
         return [MediaTrackGroup(id: "all", title: nil, tracks: tracks, isIndexable: false)]
     }
 
+    private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
+        tracks.map { track in
+            isTrackFavorited?(track) ?? (track.rating >= 8)
+        }
+    }
+
     private func groupTracksByDisc(_ tracks: [Track]) -> [MediaTrackGroup] {
         let grouped = Dictionary(grouping: tracks) { $0.discNumber }
         let sortedKeys = grouped.keys.sorted()
@@ -1071,6 +1080,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var tracks: [Track]
         fileprivate var groupedTracks: [MediaTrackGroup]
         var groupSignature: [String]
+        var favoriteStateSignature: [Bool]
         var showArtwork: Bool
         var showTrackNumbers: Bool
         var showAlbumName: Bool
@@ -1154,6 +1164,9 @@ public struct MediaTrackList: UIViewRepresentable {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
+            self.favoriteStateSignature = tracks.map { track in
+                isTrackFavorited?(track) ?? (track.rating >= 8)
+            }
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
             self.showAlbumName = showAlbumName
