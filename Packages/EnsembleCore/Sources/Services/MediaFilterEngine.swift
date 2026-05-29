@@ -187,8 +187,8 @@ public struct MediaFilterEngine {
 
     public static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
         guard !options.searchText.isEmpty else { return genres }
-        let searchLower = options.searchText.lowercased()
-        return genres.filter { $0.title.lowercased().contains(searchLower) }
+        let normalizedSearch = DisplayGenre.normalizedTitle(options.searchText)
+        return genres.filter { DisplayGenre.normalizedTitle($0.title).contains(normalizedSearch) }
     }
 
     private static func trackMatchesSearch(

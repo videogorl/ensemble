@@ -39,6 +39,17 @@ struct NavigationDestinationFactory {
             } else {
                 return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
             }
+        case .displayGenre(let id):
+            if let displayGenre = displayGenre(for: id, libraryVM: libraryVM) {
+                return AnyView(GenreDetailContentView(
+                    libraryVM: libraryVM,
+                    genre: displayGenre,
+                    nowPlayingVM: nowPlayingVM,
+                    presentationStyle: .navigationPage
+                ))
+            } else {
+                return AnyView(EnsembleStateScaffold(kind: .empty, title: "Genre not found"))
+            }
         case .artistDetail(let artist):
             return AnyView(ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM))
         case .artist(let id, let sourceKey):
@@ -73,6 +84,11 @@ struct NavigationDestinationFactory {
         }
 
         return DisplayArtist.group(libraryVM.artists).first { $0.id == id }
+    }
+
+    @MainActor
+    private static func displayGenre(for id: String, libraryVM: LibraryViewModel) -> DisplayGenre? {
+        libraryVM.immediateGenreBrowseSnapshot.displayGenres.first { $0.id == id }
     }
 }
 

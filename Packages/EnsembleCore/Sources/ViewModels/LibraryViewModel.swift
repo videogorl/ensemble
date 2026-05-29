@@ -28,19 +28,23 @@ public final class LibraryViewModel: ObservableObject {
     @Published public var genreSortOption: GenreSortOption = .title {
         didSet { genresFilterOptions.sortBy = genreSortOption.rawValue }
     }
+    @Published public var genreDetailAlbumSortOption: AlbumSortOption = .title {
+        didSet { genreDetailAlbumFilterOptions.sortBy = genreDetailAlbumSortOption.rawValue }
+    }
 
     // Filter options
     @Published public var tracksFilterOptions: FilterOptions
     @Published public var artistsFilterOptions: FilterOptions
     @Published public var albumsFilterOptions: FilterOptions
     @Published public var genresFilterOptions: FilterOptions
+    @Published public var genreDetailAlbumFilterOptions: FilterOptions
 
     // Cached computed collections — updated by Combine pipelines, not on every render
     @Published public private(set) var filteredTracks: [Track] = []
     @Published public private(set) var filteredArtists: [Artist] = []
     @Published public private(set) var displayArtists: [DisplayArtist] = []
     @Published public private(set) var filteredAlbums: [Album] = []
-    @Published public private(set) var filteredGenres: [Genre] = []
+    @Published public private(set) var filteredGenres: [DisplayGenre] = []
     @Published public private(set) var trackSections: [TrackSection] = []
     @Published public private(set) var artistSections: [ArtistSection] = []
     @Published public private(set) var albumSections: [AlbumSection] = []
@@ -105,10 +109,9 @@ public final class LibraryViewModel: ObservableObject {
             return genreBrowseSnapshot
         }
 
-        let sorted = Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
-        let filtered = Self.filterGenres(sorted, with: genresFilterOptions)
+        let displayGenres = Self.displayGenres(from: genres, albums: albums, with: genresFilterOptions)
         return GenreBrowseSnapshot(
-            genres: filtered,
+            displayGenres: displayGenres,
             phase: genreBrowseSnapshot.phase,
             isShowingStaleSnapshot: genreBrowseSnapshot.isShowingStaleSnapshot
         )
@@ -157,17 +160,20 @@ public final class LibraryViewModel: ObservableObject {
         let savedArtists = FilterPersistence.load(for: "Artists")
         let savedAlbums = FilterPersistence.load(for: "Albums")
         let savedGenres = FilterPersistence.load(for: "Genres")
+        let savedGenreDetailAlbums = FilterPersistence.load(for: "GenreDetailAlbums")
         
         self.tracksFilterOptions = savedTracks
         self.artistsFilterOptions = savedArtists
         self.albumsFilterOptions = savedAlbums
         self.genresFilterOptions = savedGenres
+        self.genreDetailAlbumFilterOptions = savedGenreDetailAlbums
         
         // Load sort options from filters
         if let saved = TrackSortOption(rawValue: savedTracks.sortBy) { self.trackSortOption = saved }
         if let saved = ArtistSortOption(rawValue: savedArtists.sortBy) { self.artistSortOption = saved }
         if let saved = AlbumSortOption(rawValue: savedAlbums.sortBy) { self.albumSortOption = saved }
         if let saved = GenreSortOption(rawValue: savedGenres.sortBy) { self.genreSortOption = saved }
+        if let saved = AlbumSortOption(rawValue: savedGenreDetailAlbums.sortBy) { self.genreDetailAlbumSortOption = saved }
 
         // Observe sync state
         syncCoordinator.$isSyncing
@@ -343,18 +349,17 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
-        Publishers.CombineLatest($genres, $genresFilterOptions)
+        Publishers.CombineLatest3($genres, $albums, $genresFilterOptions)
             .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
-            .map { genres, filterOptions -> [Genre] in
-                let sorted = LibraryViewModel.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
-                return LibraryViewModel.filterGenres(sorted, with: filterOptions)
+            .map { genres, albums, filterOptions -> [DisplayGenre] in
+                LibraryViewModel.displayGenres(from: genres, albums: albums, with: filterOptions)
             }
             .removeDuplicates { old, new in
                 guard old.count == new.count else { return false }
                 return zip(old, new).allSatisfy { $0.id == $1.id }
             }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.commitGenreSnapshot(genres: $0, rawGenreCount: self?.genres.count ?? 0) }
+            .sink { [weak self] in self?.commitGenreSnapshot(displayGenres: $0, rawGenreCount: self?.genres.count ?? 0) }
             .store(in: &cancellables)
 
         // Available genres for chip bar filtering.
@@ -503,6 +508,11 @@ public final class LibraryViewModel: ObservableObject {
         $genresFilterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
             .sink { FilterPersistence.save($0, for: "Genres") }
+            .store(in: &cancellables)
+
+        $genreDetailAlbumFilterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "GenreDetailAlbums") }
             .store(in: &cancellables)
     }
 
@@ -935,16 +945,16 @@ public final class LibraryViewModel: ObservableObject {
         )
     }
 
-    private func commitGenreSnapshot(genres: [Genre], rawGenreCount: Int) {
+    private func commitGenreSnapshot(displayGenres: [DisplayGenre], rawGenreCount: Int) {
         guard rawGenreCount > 0 || !genreBrowseSnapshot.hasVisibleContent || canCommitAuthoritativeEmptyBrowseSnapshot else {
             updateGenreBrowseSnapshot(genreBrowseSnapshot.updating(isShowingStaleSnapshot: true))
             return
         }
 
-        if !Self.idsEqual(filteredGenres, genres, identifier: \.id) { filteredGenres = genres }
+        if !Self.idsEqual(filteredGenres, displayGenres, identifier: \.id) { filteredGenres = displayGenres }
         updateGenreBrowseSnapshot(
             GenreBrowseSnapshot(
-                genres: genres,
+                displayGenres: displayGenres,
                 phase: genreBrowseSnapshot.phase,
                 isShowingStaleSnapshot: false
             )
@@ -1149,6 +1159,11 @@ public final class LibraryViewModel: ObservableObject {
         public let letter: String
         public let albums: [Album]
         public var id: String { letter }
+
+        public init(letter: String, albums: [Album]) {
+            self.letter = letter
+            self.albums = albums
+        }
     }
 
     // MARK: - Filter Implementations (static so Combine pipelines can call them without actor capture)
@@ -1173,5 +1188,13 @@ public final class LibraryViewModel: ObservableObject {
 
     private static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {
         MediaFilterEngine.filterGenres(genres, with: options)
+    }
+
+    static func displayGenres(from genres: [Genre], albums: [Album], with options: FilterOptions) -> [DisplayGenre] {
+        let albumGenreTitles = Set(albums.flatMap(\.genres).map(DisplayGenre.normalizedTitle))
+        let sorted = Self.sortByCachedKey(genres, keyExtractor: { $0.title.sortingKey }, ascending: true)
+        let albumBacked = sorted.filter { albumGenreTitles.contains(DisplayGenre.normalizedTitle($0.title)) }
+        let filtered = Self.filterGenres(albumBacked, with: options)
+        return DisplayGenre.group(filtered)
     }
 }

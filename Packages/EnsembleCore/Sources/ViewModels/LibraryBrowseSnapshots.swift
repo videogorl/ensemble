@@ -112,18 +112,18 @@ public struct AlbumBrowseSnapshot: Equatable, Sendable {
 }
 
 public struct GenreBrowseSnapshot: Equatable, Sendable {
-    public let genres: [Genre]
+    public let displayGenres: [DisplayGenre]
     public let phase: LibraryBrowseRefreshPhase
     public let isShowingStaleSnapshot: Bool
 
     public static let empty = GenreBrowseSnapshot(
-        genres: [],
+        displayGenres: [],
         phase: .idle,
         isShowingStaleSnapshot: false
     )
 
     public var hasVisibleContent: Bool {
-        !genres.isEmpty
+        !displayGenres.isEmpty
     }
 
     public func updating(
@@ -131,7 +131,7 @@ public struct GenreBrowseSnapshot: Equatable, Sendable {
         isShowingStaleSnapshot: Bool? = nil
     ) -> Self {
         GenreBrowseSnapshot(
-            genres: genres,
+            displayGenres: displayGenres,
             phase: phase ?? self.phase,
             isShowingStaleSnapshot: isShowingStaleSnapshot ?? self.isShowingStaleSnapshot
         )

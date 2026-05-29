@@ -37,6 +37,7 @@ public final class NavigationCoordinator: ObservableObject {
     /// Represents a navigation destination using IDs for hashability and deep linking
     public enum Destination: Hashable {
         case displayArtist(id: String)
+        case displayGenre(id: String)
         case artistDetail(Artist)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
@@ -94,6 +95,8 @@ public final class NavigationCoordinator: ObservableObject {
         switch destination {
         case .displayArtist, .artistDetail:
             return .artists
+        case .displayGenre:
+            return .genres
         case .artist:
             return .artists
         case .album, .albumDetail:
