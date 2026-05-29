@@ -41,15 +41,10 @@ public struct GenresView: View {
             }
         }
         .navigationTitle("Genres")
-        #if os(iOS)
-        .searchable(
-            text: $libraryVM.genresFilterOptions.searchText,
-            placement: .navigationBarDrawer(displayMode: .automatic),
-            prompt: "Filter genres"
+        .genreBrowseSearchable(
+            isVisible: isGenreBrowseSearchVisible,
+            text: $libraryVM.genresFilterOptions.searchText
         )
-        #else
-        .searchable(text: $libraryVM.genresFilterOptions.searchText, prompt: "Filter genres")
-        #endif
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -60,6 +55,12 @@ public struct GenresView: View {
 
     private var genreSnapshot: GenreBrowseSnapshot {
         libraryVM.immediateGenreBrowseSnapshot
+    }
+
+    private var isGenreBrowseSearchVisible: Bool {
+        selectedGenre == nil &&
+        navigationCoordinator.pathSnapshot(for: .genres).isEmpty &&
+        !navigationCoordinator.isRouteTransitionActive(for: .genres)
     }
 
     @ViewBuilder
@@ -161,15 +162,18 @@ public struct GenresView: View {
     private var genreSelectionList: some View {
         List {
             ForEach(filteredGenres) { genre in
-                Button {
-                    setSelectedGenre(genre)
-                } label: {
-                    genreRow(genre)
-                }
-                .buttonStyle(.plain)
-                .listRowBackground(
-                    RoundedRectangle(
-                        cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
+                genreRow(genre)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        setSelectedGenre(genre)
+                    }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityAction {
+                        setSelectedGenre(genre)
+                    }
+                    .listRowBackground(
+                        RoundedRectangle(
+                            cornerRadius: EnsembleScaffold.BrowseSelection.cornerRadius,
                             style: .continuous
                         )
                         .fill(selectedGenre?.id == genre.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
@@ -186,9 +190,11 @@ public struct GenresView: View {
             Text(genre.title)
                 .font(EnsembleDesign.Typography.rowPrimary)
                 .lineLimit(1)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
 
             Spacer()
         }
+        .contentShape(Rectangle())
     }
 }
 
@@ -535,8 +541,33 @@ private struct GenreAlbumSearchModifier: ViewModifier {
     }
 }
 
+private struct GenreBrowseSearchModifier: ViewModifier {
+    let isVisible: Bool
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        if isVisible {
+            #if os(iOS)
+            content.searchable(
+                text: $text,
+                placement: .navigationBarDrawer(displayMode: .automatic),
+                prompt: "Filter genres"
+            )
+            #else
+            content.searchable(text: $text, prompt: "Filter genres")
+            #endif
+        } else {
+            content
+        }
+    }
+}
+
 private extension View {
     func genreAlbumSearchable(text: Binding<String>) -> some View {
         modifier(GenreAlbumSearchModifier(text: text))
+    }
+
+    func genreBrowseSearchable(isVisible: Bool, text: Binding<String>) -> some View {
+        modifier(GenreBrowseSearchModifier(isVisible: isVisible, text: text))
     }
 }
