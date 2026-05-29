@@ -228,6 +228,14 @@ private struct CompactBrowseDetailBackButton: ViewModifier {
             }
         #else
         content
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button(action: clearSelection) {
+                        Label("Back", systemImage: EnsembleDesign.Icon.back)
+                    }
+                    .help("Back to list")
+                }
+            }
         #endif
     }
 }
