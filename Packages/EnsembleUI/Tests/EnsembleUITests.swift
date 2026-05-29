@@ -100,6 +100,42 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(cacheRequests.first?.minimumPixelDimension, 44)
     }
 
+    func testArtworkResolverFallsBackToLocalCacheWhenResolvedURLFails() async throws {
+        let localArtworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: localArtworkURL) }
+
+        let missingArtworkURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        let artworkLoader = RecordingArtworkLoader(url: missingArtworkURL, localURL: localArtworkURL)
+        let descriptor = ArtworkResolutionDescriptor(
+            path: "/library/metadata/album-1/thumb",
+            sourceKey: "plex:server:library",
+            ratingKey: "album-1",
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: PersistentArtworkCacheHint(
+                ratingKey: "album-1",
+                kind: .album,
+                sourcePath: "/library/metadata/album-1/thumb"
+            ),
+            fallbackCacheHint: nil,
+            size: 44,
+            priority: .high
+        )
+
+        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
+
+        XCTAssertEqual(resolved?.url, localArtworkURL)
+        XCTAssertNotNil(resolved?.image)
+        let localRequests = await artworkLoader.localRequests
+        XCTAssertEqual(localRequests.count, 1)
+        XCTAssertEqual(localRequests.first?.minimumPixelDimension, nil)
+        XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
+        let cacheRequests = await artworkLoader.cacheRequests
+        XCTAssertTrue(cacheRequests.isEmpty)
+    }
+
     func testArtworkPreBlurUsesVisibleArtworkSchedulerByDefault() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL) }
@@ -863,11 +899,19 @@ private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, 
 }
 
 private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
-    let url: URL?
-    private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
+    struct LocalRequest: Equatable {
+        let minimumPixelDimension: Int?
+        let allowStaleIdentity: Bool
+    }
 
-    init(url: URL?) {
+    let url: URL?
+    let localURL: URL?
+    private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
+    private(set) var localRequests: [LocalRequest] = []
+
+    init(url: URL?, localURL: URL? = nil) {
         self.url = url
+        self.localURL = localURL
     }
 
     func artworkURLAsync(
@@ -879,6 +923,24 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
         size: Int
     ) async -> URL? {
         url
+    }
+
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL? {
+        localRequests.append(
+            LocalRequest(
+                minimumPixelDimension: minimumPixelDimension,
+                allowStaleIdentity: allowStaleIdentity
+            )
+        )
+        return localURL
     }
 
     func cacheResolvedArtwork(

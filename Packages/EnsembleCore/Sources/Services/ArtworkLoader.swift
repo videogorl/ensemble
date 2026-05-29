@@ -111,6 +111,15 @@ public extension PersistentArtworkCacheHint {
 
 public protocol ArtworkLoaderProtocol {
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL?
     func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?) async
     func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
     func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
@@ -119,6 +128,18 @@ public protocol ArtworkLoaderProtocol {
 }
 
 public extension ArtworkLoaderProtocol {
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL? {
+        nil
+    }
+
     func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int? = nil) async {}
 }
 
@@ -515,6 +536,35 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         return nil
+    }
+
+    public func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String? = nil,
+        ratingKey: String? = nil,
+        fallbackPath: String? = nil,
+        fallbackRatingKey: String? = nil,
+        minimumPixelDimension: Int? = nil,
+        allowStaleIdentity: Bool = true
+    ) async -> URL? {
+        let actualPath: String?
+        let actualRatingKey: String?
+        if let path, !path.isEmpty {
+            actualPath = path
+            actualRatingKey = ratingKey
+        } else if let fallbackPath, !fallbackPath.isEmpty {
+            actualPath = fallbackPath
+            actualRatingKey = fallbackRatingKey
+        } else {
+            return nil
+        }
+
+        return await localCachedArtworkURL(
+            ratingKey: actualRatingKey,
+            path: actualPath,
+            allowStaleIdentity: allowStaleIdentity,
+            minimumPixelDimension: minimumPixelDimension
+        )
     }
     
     /// Extract ratingKey from an artwork path like `/library/metadata/{ratingKey}/thumb/...`

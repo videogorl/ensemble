@@ -81,7 +81,11 @@ enum ArtworkImageResolver {
         }
 
         guard let image = try? await ImagePipeline.shared.image(for: request) else {
-            return nil
+            return await resolvedLocalFallbackImage(
+                for: descriptor,
+                failedURL: url,
+                artworkLoader: artworkLoader
+            )
         }
         await artworkLoader.cacheResolvedArtwork(
             from: url,
@@ -90,6 +94,47 @@ enum ArtworkImageResolver {
         )
         return ArtworkResolvedImage(
             url: url,
+            image: image,
+            blurCacheKey: descriptor.stableBlurCacheKey
+        )
+    }
+
+    private static func resolvedLocalFallbackImage(
+        for descriptor: ArtworkResolutionDescriptor,
+        failedURL: URL,
+        artworkLoader: ArtworkLoaderProtocol
+    ) async -> ArtworkResolvedImage? {
+        guard let localURL = await artworkLoader.localArtworkURLAsync(
+            for: descriptor.path,
+            sourceKey: descriptor.sourceKey,
+            ratingKey: descriptor.ratingKey,
+            fallbackPath: descriptor.fallbackPath,
+            fallbackRatingKey: descriptor.fallbackRatingKey,
+            minimumPixelDimension: nil,
+            allowStaleIdentity: true
+        ),
+              localURL != failedURL else {
+            return nil
+        }
+
+        let fallbackRequest = ArtworkImageRequest.resized(
+            url: localURL,
+            size: descriptor.size,
+            priority: descriptor.priority
+        )
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: fallbackRequest) {
+            return ArtworkResolvedImage(
+                url: localURL,
+                image: cachedImage.image,
+                blurCacheKey: descriptor.stableBlurCacheKey
+            )
+        }
+
+        guard let image = try? await ImagePipeline.shared.image(for: fallbackRequest) else {
+            return nil
+        }
+        return ArtworkResolvedImage(
+            url: localURL,
             image: image,
             blurCacheKey: descriptor.stableBlurCacheKey
         )
