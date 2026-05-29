@@ -541,12 +541,10 @@ private struct StableArtistArtworkImage<Fallback: View>: View {
         Image(nsImage: image)
             .resizable()
             .scaledToFill()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         #else
         Image(uiImage: image)
             .resizable()
             .scaledToFill()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         #endif
     }
 
