@@ -152,6 +152,7 @@ public struct GenresView: View {
                     genreRow(genre)
                 }
                 .buttonStyle(.plain)
+                .genreListRowPadding()
             }
         }
         .listStyle(.plain)
@@ -163,6 +164,7 @@ public struct GenresView: View {
         List {
             ForEach(filteredGenres) { genre in
                 genreRow(genre)
+                    .genreListRowPadding()
                     .contentShape(Rectangle())
                     .onTapGesture {
                         setSelectedGenre(genre)
@@ -569,5 +571,22 @@ private extension View {
 
     func genreBrowseSearchable(isVisible: Bool, text: Binding<String>) -> some View {
         modifier(GenreBrowseSearchModifier(isVisible: isVisible, text: text))
+    }
+
+    func genreListRowPadding() -> some View {
+        modifier(GenreListRowPaddingModifier())
+    }
+}
+
+private struct GenreListRowPaddingModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+            .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
+            .listRowInsets(EdgeInsets())
+        #else
+        content
+        #endif
     }
 }
