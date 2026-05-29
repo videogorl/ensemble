@@ -14,6 +14,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - WebSocket library/update/download events accelerate refresh and sync. Debounce, in-flight guards, cooldowns, polling timers, and foreground refresh remain fallback paths.
 - Source cleanup is destructive and must stay outside UI view models. Removed/disabled sources should clean caches, lyrics, artwork, offline targets, downloads, and stale rows through the owning cleanup services.
 - Sync should pre-cache detail-grade album, artist, and playlist artwork before users navigate into artwork-backed detail surfaces. Existing persistent artwork should only skip sync caching when it satisfies the full-size detail requirement; undersized thumbnails remain fallback files and should be replaced during sync while the server is available.
+- If Plex returns source artwork below the requested detail size, the successful detail-size fetch attempt should be recorded with the persistent artwork identity so future syncs do not re-download the same server-limited image until the source path or modified date changes.
 - Siri media index, media context refresh, and automatic startup sync are freshness work where relevant and must stay source-scoped. Defer this work while the device is known offline and route startup sync plus Spotlight/Siri indexing through foreground idle budgeting so launch, scrolling, navigation, Now Playing gestures, share sheets, and audio-critical windows remain responsive on constrained devices.
 
 ## Owners
@@ -38,6 +39,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Mood browse rows are display categories keyed by normalized title. Plex mood keys are library-local, so merge duplicate mood titles across sources for display and carry per-source mood keys when available. Mood detail pages should use the cached per-source key first and only refetch/resolve the current library's mood key when cached metadata is missing or stale.
 - Keep WebSocket event handling idempotent and safe to miss.
 - `SyncCoordinator` owns full-size persistent artwork pre-caching through `cacheAlbumArtwork`, `cacheArtistArtwork`, and `cachePlaylistArtwork`; detail views should treat sync output as the durable cache source and use visible loading only as a recovery path.
+- `ArtworkIdentity.requestedPixelDimension` records the largest persistent artwork request already attempted for the current source identity; `ArtworkDownloadManager.localArtworkExists` uses it to distinguish stale thumbnails from server-limited detail responses.
 
 ## Verification
 

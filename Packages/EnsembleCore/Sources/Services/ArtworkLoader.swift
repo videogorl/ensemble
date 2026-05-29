@@ -415,7 +415,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                         ratingKey: cacheHint.ratingKey,
                         type: artworkType,
                         sourcePath: cacheHint.sourcePath,
-                        dateModifiedSeconds: cacheHint.dateModifiedSeconds
+                        dateModifiedSeconds: cacheHint.dateModifiedSeconds,
+                        requestedPixelDimension: minimumPixelDimension
                     )
                 )
                 await staleTracker.clear(ratingKey: cacheHint.ratingKey, type: artworkType)

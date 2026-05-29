@@ -1,3 +1,6 @@
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 @testable import EnsemblePersistence
 
@@ -372,6 +375,48 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(localPath, artworkURL.path)
     }
 
+    func testArtworkDownloadManagerTreatsServerLimitedDetailAttemptAsCached() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "server-limited-\(UUID().uuidString)"
+        let artworkURL = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_album.jpg")
+        let identityURL = artworkURL
+            .deletingPathExtension()
+            .appendingPathExtension("identity.json")
+        defer {
+            try? FileManager.default.removeItem(at: artworkURL)
+            try? FileManager.default.removeItem(at: identityURL)
+        }
+
+        try makeJPEG(width: 500, height: 500, at: artworkURL)
+        let identity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb",
+            dateModifiedSeconds: 1_000,
+            requestedPixelDimension: 1_000
+        )
+        try JSONEncoder().encode(identity).write(to: identityURL)
+
+        let exists = await manager.localArtworkExists(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb",
+            dateModifiedSeconds: 1_000,
+            minimumPixelDimension: 1_000
+        )
+        XCTAssertTrue(exists)
+
+        let changedIdentityExists = await manager.localArtworkExists(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb/new",
+            dateModifiedSeconds: 1_000,
+            minimumPixelDimension: 1_000
+        )
+        XCTAssertFalse(changedIdentityExists)
+    }
+
     func testArtworkDownloadManagerRejectsIdentityForDifferentRatingKeyOrType() async throws {
         let manager = ArtworkDownloadManager()
         let ratingKey = "identity-mismatch-\(UUID().uuidString)"
@@ -516,5 +561,37 @@ final class LibraryRepositoryTests: XCTestCase {
             dateModified: dateModified,
             rating: nil
         )
+    }
+}
+
+private func makeJPEG(width: Int, height: Int, at url: URL) throws {
+    let colorSpace = CGColorSpaceCreateDeviceRGB()
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: width * 4,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        throw NSError(domain: "LibraryRepositoryTests", code: 1)
+    }
+
+    context.setFillColor(CGColor(red: 0.7, green: 0.2, blue: 0.4, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+    guard let image = context.makeImage(),
+          let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.jpeg.identifier as CFString,
+            1,
+            nil
+          ) else {
+        throw NSError(domain: "LibraryRepositoryTests", code: 2)
+    }
+
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        throw NSError(domain: "LibraryRepositoryTests", code: 3)
     }
 }

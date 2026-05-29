@@ -1133,7 +1133,8 @@ public final class SyncCoordinator: ObservableObject {
                             ratingKey: album.ratingKey,
                             type: .album,
                             sourcePath: thumbPath,
-                            dateModified: album.dateModified
+                            dateModified: album.dateModified,
+                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension
                         )
                     )
                     cached += 1
@@ -1181,7 +1182,8 @@ public final class SyncCoordinator: ObservableObject {
                             ratingKey: artist.ratingKey,
                             type: .artist,
                             sourcePath: thumbPath,
-                            dateModified: artist.dateModified
+                            dateModified: artist.dateModified,
+                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension
                         )
                     )
                     cached += 1
@@ -1237,7 +1239,8 @@ public final class SyncCoordinator: ObservableObject {
                             ratingKey: playlist.ratingKey,
                             type: .playlist,
                             sourcePath: thumbPath,
-                            dateModified: playlist.dateModified
+                            dateModified: playlist.dateModified,
+                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension
                         )
                     )
                     playlistArtworkRetryAfter.removeValue(forKey: playlist.ratingKey)

@@ -203,13 +203,19 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/playlist-1/composite", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(artworkDownloadManager.downloadedRecords.allSatisfy { $0.url.host == "example.com" })
         XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
-            $0.ratingKey == "album-1" && $0.type == .album
+            $0.ratingKey == "album-1"
+                && $0.type == .album
+                && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
         })
         XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
-            $0.ratingKey == "artist-1" && $0.type == .artist
+            $0.ratingKey == "artist-1"
+                && $0.type == .artist
+                && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
         })
         XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
-            $0.ratingKey == "playlist-1" && $0.type == .playlist
+            $0.ratingKey == "playlist-1"
+                && $0.type == .playlist
+                && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
         })
     }
 
