@@ -4,25 +4,18 @@ import SwiftUI
 
 @MainActor
 extension NavigationCoordinator {
-    /// Builds a route-owned navigation control that uses native typed links where
-    /// available and coordinator pushes for legacy root stacks.
+    /// Builds a route-owned navigation control that pushes through the scene-local
+    /// coordinator path.
     @ViewBuilder
     func routeLink<Label: View>(
         to destination: Destination,
         in tab: TabItem? = nil,
         @ViewBuilder label: () -> Label
     ) -> some View {
-        if #available(iOS 16.0, macOS 13.0, *) {
-            NavigationLink(value: destination) {
-                label()
-            }
-            .simultaneousGesture(TapGesture().onEnded(markRouteInteraction))
-        } else {
-            Button {
-                self.pushFromRouteLink(destination, in: tab)
-            } label: {
-                label()
-            }
+        Button {
+            self.pushFromRouteLink(destination, in: tab)
+        } label: {
+            label()
         }
     }
 

@@ -43,6 +43,7 @@ public final class NavigationCoordinator: ObservableObject {
         case album(id: String, sourceKey: String? = nil)
         case albumDetail(Album)
         case playlist(id: String, sourceKey: String?)
+        case playlistDetail(Playlist)
         case mergedPlaylist(title: String, isSmart: Bool)
         case moodTracks(mood: Mood)
         case view(TabItem) // For pushing library views from the More menu
@@ -101,7 +102,7 @@ public final class NavigationCoordinator: ObservableObject {
             return .artists
         case .album, .albumDetail:
             return .albums
-        case .playlist, .mergedPlaylist:
+        case .playlist, .playlistDetail, .mergedPlaylist:
             return .playlists
         case .moodTracks:
             return .home

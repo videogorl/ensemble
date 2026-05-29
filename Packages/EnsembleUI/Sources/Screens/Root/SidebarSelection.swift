@@ -39,6 +39,8 @@ public enum SidebarSelection: Hashable {
             return .library(.albums)
         case .playlist(let id, let sourceKey):
             return .playlist(id: id, sourceKey: sourceKey)
+        case .playlistDetail(let playlist):
+            return .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
         case .mergedPlaylist(let title, let isSmart):
             return .mergedPlaylist(title: title, isSmart: isSmart)
         case .moodTracks:

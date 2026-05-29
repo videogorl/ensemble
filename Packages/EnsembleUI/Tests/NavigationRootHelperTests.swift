@@ -33,6 +33,10 @@ final class NavigationRootHelperTests: XCTestCase {
             .playlist(id: "playlist", sourceKey: "server/library")
         )
         XCTAssertEqual(
+            SidebarSelection.selection(for: .playlistDetail(Self.playlist()), fallback: nil),
+            .playlist(id: "playlist", sourceKey: "server/library")
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .mergedPlaylist(title: "Mix", isSmart: true), fallback: nil),
             .mergedPlaylist(title: "Mix", isSmart: true)
         )
@@ -256,6 +260,10 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .artistDetail(Self.artist())), .artists)
     }
 
+    func testConcretePlaylistDetailDestinationTargetsPlaylists() {
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .playlistDetail(Self.playlist())), .playlists)
+    }
+
     func testLegacyNestedNavigationResolvesDestinationAtDepth() {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
@@ -311,5 +319,14 @@ final class NavigationRootHelperTests: XCTestCase {
 
     private static func artist() -> Artist {
         Artist(id: "artist", key: "/library/metadata/artist", name: "Artist")
+    }
+
+    private static func playlist() -> Playlist {
+        Playlist(
+            id: "playlist",
+            key: "/playlists/playlist/items",
+            title: "Playlist",
+            sourceCompositeKey: "server/library"
+        )
     }
 }

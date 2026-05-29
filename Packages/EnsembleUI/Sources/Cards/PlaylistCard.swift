@@ -84,10 +84,7 @@ public struct PlaylistRow: View {
                     .buttonStyle(.plain)
                 } else {
                     navigationCoordinator.routeLink(
-                        to: .playlist(
-                            id: displayPlaylist.primaryPlaylist.id,
-                            sourceKey: displayPlaylist.primaryPlaylist.sourceCompositeKey
-                        )
+                        to: .playlistDetail(displayPlaylist.primaryPlaylist)
                     ) {
                         playlistRowContent
                     }

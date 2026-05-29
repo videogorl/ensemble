@@ -60,6 +60,8 @@ struct NavigationDestinationFactory {
             return AnyView(AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM))
         case .playlist(let id, let sourceKey):
             return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
+        case .playlistDetail(let playlist):
+            return AnyView(PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM))
         case .mergedPlaylist(let title, let isSmart):
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):
