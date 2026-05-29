@@ -1142,11 +1142,12 @@ public struct ArtistDetailView: View {
     private func heroBanner(containerWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             let bannerHeight = geometry.size.height
-            // Detect overscroll: when the banner's top in global coords is > 0,
-            // the user is pulling down past the top edge
-            let globalMinY = geometry.frame(in: .global).minY
-            let overscroll = max(globalMinY, 0)
-            let artworkHeight = bannerHeight + geometry.safeAreaInsets.top + overscroll
+            let safeAreaInsets = geometry.safeAreaInsets
+            let frameInScroll = geometry.frame(in: .named("artistDetailScroll"))
+            // Keep overscroll tied to this detail surface, not global chrome.
+            let overscroll = max(frameInScroll.minY, 0)
+            let artworkWidth = geometry.size.width + safeAreaInsets.leading + safeAreaInsets.trailing
+            let artworkHeight = bannerHeight + safeAreaInsets.top + overscroll
 
             ZStack(alignment: .bottom) {
                 // The resolved hero image fills the banner directly; ArtworkView is
@@ -1159,7 +1160,7 @@ public struct ArtistDetailView: View {
                         isResponsive: true
                     )
                 }
-                .frame(width: geometry.size.width, height: artworkHeight)
+                .frame(width: artworkWidth, height: artworkHeight)
                 .clipped()
                 .mask {
                     LinearGradient(
@@ -1173,7 +1174,7 @@ public struct ArtistDetailView: View {
                     )
                 }
                 // Shift up to cover the safe area + overscroll gap
-                .offset(y: -(geometry.safeAreaInsets.top + overscroll))
+                .offset(x: -safeAreaInsets.leading, y: -(safeAreaInsets.top + overscroll))
 
                 // Artist info overlay — offset counteracts overscroll so
                 // the text stays visually pinned instead of drifting down
