@@ -202,8 +202,6 @@ struct GenreDetailContentView: View {
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
     let presentationStyle: PresentationStyle
-    @State private var filterOptions = FilterOptions()
-    @State private var sortOption: AlbumSortOption = .title
     @State private var showFilterSheet = false
 
     init(
@@ -235,7 +233,7 @@ struct GenreDetailContentView: View {
             }
         }
         .navigationTitle(genre.title)
-        .genreAlbumSearchable(text: $filterOptions.searchText)
+        .genreAlbumSearchable(text: $libraryVM.genreDetailAlbumFilterOptions.searchText)
         .toolbar {
             EnsembleBrowseToolbar(isVisible: !genreAlbums.isEmpty) {
                 filterButton
@@ -244,7 +242,7 @@ struct GenreDetailContentView: View {
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $filterOptions,
+                filterOptions: $libraryVM.genreDetailAlbumFilterOptions,
                 availableArtists: availableArtists(from: genreAlbums),
                 showYearFilter: true,
                 showArtistFilter: true,
@@ -347,7 +345,7 @@ struct GenreDetailContentView: View {
     private var filterButton: some View {
         EnsembleBrowseFilterButton(
             title: "Filter Genre Albums",
-            hasActiveFilters: filterOptions.hasActiveFilters
+            hasActiveFilters: libraryVM.genreDetailAlbumFilterOptions.hasActiveFilters
         ) {
             showFilterSheet = true
         }
@@ -357,17 +355,18 @@ struct GenreDetailContentView: View {
         Menu {
             ForEach(AlbumSortOption.allCases, id: \.self) { option in
                 Button {
-                    if sortOption == option {
-                        filterOptions.sortDirection = filterOptions.sortDirection == .ascending ? .descending : .ascending
+                    if libraryVM.genreDetailAlbumSortOption == option {
+                        libraryVM.genreDetailAlbumFilterOptions.sortDirection =
+                            libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending ? .descending : .ascending
                     } else {
-                        sortOption = option
-                        filterOptions.sortDirection = option.defaultDirection
+                        libraryVM.genreDetailAlbumSortOption = option
+                        libraryVM.genreDetailAlbumFilterOptions.sortDirection = option.defaultDirection
                     }
                 } label: {
                     HStack {
                         Text(option.rawValue)
-                        if sortOption == option {
-                            Image(systemName: filterOptions.sortDirection == .ascending
+                        if libraryVM.genreDetailAlbumSortOption == option {
+                            Image(systemName: libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending
                                 ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
                         }
                     }
@@ -392,14 +391,18 @@ struct GenreDetailContentView: View {
     }
 
     private func filteredAndSortedAlbums(from albums: [Album]) -> [Album] {
-        let filtered = MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .library)
+        let filtered = MediaFilterEngine.filterAlbums(
+            albums,
+            with: libraryVM.genreDetailAlbumFilterOptions,
+            configuration: .library
+        )
         return sortedAlbums(filtered)
     }
 
     private func sortedAlbums(_ albums: [Album]) -> [Album] {
-        let ascending = filterOptions.sortDirection == .ascending
+        let ascending = libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending
 
-        switch sortOption {
+        switch libraryVM.genreDetailAlbumSortOption {
         case .title:
             return sortByString(albums, ascending: ascending) { $0.title.sortingKey }
         case .artist:
@@ -445,12 +448,14 @@ struct GenreDetailContentView: View {
         let grouped = Dictionary(grouping: albums) { indexingLetter(for: $0) }
         return grouped.map { LibraryViewModel.AlbumSection(letter: $0.key, albums: $0.value) }
             .sorted {
-                filterOptions.sortDirection == .ascending ? $0.letter < $1.letter : $0.letter > $1.letter
+                libraryVM.genreDetailAlbumFilterOptions.sortDirection == .ascending
+                    ? $0.letter < $1.letter
+                    : $0.letter > $1.letter
             }
     }
 
     private var isSortIndexed: Bool {
-        switch sortOption {
+        switch libraryVM.genreDetailAlbumSortOption {
         case .title, .artist, .albumArtist:
             return true
         case .year, .dateAdded, .dateModified, .rating:
@@ -459,7 +464,7 @@ struct GenreDetailContentView: View {
     }
 
     private func indexingLetter(for album: Album) -> String {
-        switch sortOption {
+        switch libraryVM.genreDetailAlbumSortOption {
         case .title:
             return album.title.indexingLetter
         case .artist:

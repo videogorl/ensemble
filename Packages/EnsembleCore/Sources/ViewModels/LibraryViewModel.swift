@@ -28,12 +28,16 @@ public final class LibraryViewModel: ObservableObject {
     @Published public var genreSortOption: GenreSortOption = .title {
         didSet { genresFilterOptions.sortBy = genreSortOption.rawValue }
     }
+    @Published public var genreDetailAlbumSortOption: AlbumSortOption = .title {
+        didSet { genreDetailAlbumFilterOptions.sortBy = genreDetailAlbumSortOption.rawValue }
+    }
 
     // Filter options
     @Published public var tracksFilterOptions: FilterOptions
     @Published public var artistsFilterOptions: FilterOptions
     @Published public var albumsFilterOptions: FilterOptions
     @Published public var genresFilterOptions: FilterOptions
+    @Published public var genreDetailAlbumFilterOptions: FilterOptions
 
     // Cached computed collections — updated by Combine pipelines, not on every render
     @Published public private(set) var filteredTracks: [Track] = []
@@ -156,17 +160,20 @@ public final class LibraryViewModel: ObservableObject {
         let savedArtists = FilterPersistence.load(for: "Artists")
         let savedAlbums = FilterPersistence.load(for: "Albums")
         let savedGenres = FilterPersistence.load(for: "Genres")
+        let savedGenreDetailAlbums = FilterPersistence.load(for: "GenreDetailAlbums")
         
         self.tracksFilterOptions = savedTracks
         self.artistsFilterOptions = savedArtists
         self.albumsFilterOptions = savedAlbums
         self.genresFilterOptions = savedGenres
+        self.genreDetailAlbumFilterOptions = savedGenreDetailAlbums
         
         // Load sort options from filters
         if let saved = TrackSortOption(rawValue: savedTracks.sortBy) { self.trackSortOption = saved }
         if let saved = ArtistSortOption(rawValue: savedArtists.sortBy) { self.artistSortOption = saved }
         if let saved = AlbumSortOption(rawValue: savedAlbums.sortBy) { self.albumSortOption = saved }
         if let saved = GenreSortOption(rawValue: savedGenres.sortBy) { self.genreSortOption = saved }
+        if let saved = AlbumSortOption(rawValue: savedGenreDetailAlbums.sortBy) { self.genreDetailAlbumSortOption = saved }
 
         // Observe sync state
         syncCoordinator.$isSyncing
@@ -501,6 +508,11 @@ public final class LibraryViewModel: ObservableObject {
         $genresFilterOptions
             .debounce(for: 0.5, scheduler: DispatchQueue.main)
             .sink { FilterPersistence.save($0, for: "Genres") }
+            .store(in: &cancellables)
+
+        $genreDetailAlbumFilterOptions
+            .debounce(for: 0.5, scheduler: DispatchQueue.main)
+            .sink { FilterPersistence.save($0, for: "GenreDetailAlbums") }
             .store(in: &cancellables)
     }
 
