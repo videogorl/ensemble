@@ -519,7 +519,7 @@ private struct GenreAlbumSearchModifier: ViewModifier {
         #if os(iOS)
         content.searchable(
             text: $text,
-            placement: .navigationBarDrawer(displayMode: .always),
+            placement: .navigationBarDrawer(displayMode: .automatic),
             prompt: "Filter albums"
         )
         #else
