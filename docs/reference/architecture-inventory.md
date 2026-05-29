@@ -286,7 +286,7 @@ Persistent artwork caching that survives app restarts:
 2. **ArtworkLoader** (`EnsembleCore`) -- Coordinates with local-first strategy
    - `artworkURLAsync()` checks local cache first using `ratingKey`
    - Falls back to network fetch via `SyncCoordinator` if not cached
-   - `predownloadArtwork()` methods for batch downloading during sync
+   - `cacheResolvedArtwork()` persists resolved detail artwork as an online recovery path
    - Configures Nuke's `ImagePipeline` with 100MB disk cache
    - `invalidateArtwork(ratingKey:type:)` clears URL cache + local file + targeted Nuke cache eviction (per ratingKey via `ArtworkURLTracker`) and posts `artworkDidInvalidate` notification
 
@@ -312,8 +312,8 @@ Persistent artwork caching that survives app restarts:
 
 **Usage:**
 ```swift
-// During sync - pre-download artwork
-let count = try await artworkLoader.predownloadArtwork(for: albums, sourceKey: key, size: 500)
+// During sync - persist detail-grade artwork before detail navigation
+await syncCoordinator.syncAll()
 
 // In UI - loads from cache automatically
 ArtworkView(album: album, size: .medium)

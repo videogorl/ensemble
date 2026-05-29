@@ -86,17 +86,17 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
 public extension ArtworkDownloadManagerProtocol {
     func localArtworkExists(for album: CDAlbum, minimumPixelDimension: Int? = nil) async -> Bool {
         guard let localPath = try? await getLocalArtworkPath(for: album) else { return false }
-        return artworkFileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
+        return ArtworkFileInspector.fileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
     }
 
     func localArtworkExists(for artist: CDArtist, minimumPixelDimension: Int? = nil) async -> Bool {
         guard let localPath = try? await getLocalArtworkPath(for: artist) else { return false }
-        return artworkFileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
+        return ArtworkFileInspector.fileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
     }
 
     func localArtworkExists(for playlist: CDPlaylist, minimumPixelDimension: Int? = nil) async -> Bool {
         guard let localPath = try? await getLocalArtworkPath(for: playlist) else { return false }
-        return artworkFileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
+        return ArtworkFileInspector.fileExists(atPath: localPath, minimumPixelDimension: minimumPixelDimension)
     }
 
     func getLocalArtworkPath(
@@ -123,18 +123,26 @@ public extension ArtworkDownloadManagerProtocol {
     }
 }
 
-private func artworkFileExists(atPath path: String, minimumPixelDimension: Int?) -> Bool {
-    guard FileManager.default.fileExists(atPath: path) else { return false }
-    guard let minimumPixelDimension, minimumPixelDimension > 0 else { return true }
-    let url = URL(fileURLWithPath: path)
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-        return true
+/// Shared file inspection for persistent artwork cache entries.
+public enum ArtworkFileInspector {
+    /// Returns true when the file exists and, when requested, meets a minimum width or height.
+    public static func fileExists(atPath path: String, minimumPixelDimension: Int? = nil) -> Bool {
+        fileExists(at: URL(fileURLWithPath: path), minimumPixelDimension: minimumPixelDimension)
     }
 
-    let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
-    let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
-    return max(width, height) >= minimumPixelDimension
+    /// Returns true when the file exists and, when requested, meets a minimum width or height.
+    public static func fileExists(at url: URL, minimumPixelDimension: Int? = nil) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        guard let minimumPixelDimension, minimumPixelDimension > 0 else { return true }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+            return true
+        }
+
+        let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
+        let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
+        return max(width, height) >= minimumPixelDimension
+    }
 }
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {

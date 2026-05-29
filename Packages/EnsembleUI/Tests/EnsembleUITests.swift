@@ -387,6 +387,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(ArtworkSize.medium.rawValue, 300)
         XCTAssertEqual(ArtworkSize.large.rawValue, 500)
         XCTAssertEqual(ArtworkSize.extraLarge.rawValue, 800)
+        XCTAssertEqual(ArtworkSize.detail.rawValue, 1000)
     }
 
     func testTrackListLayoutMetricsLeadingInsets() {
@@ -949,18 +950,6 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
         minimumPixelDimension: Int?
     ) async {
         cacheRequests.append((cacheHint, minimumPixelDimension))
-    }
-
-    func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int {
-        0
-    }
-
-    func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int {
-        0
-    }
-
-    func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int {
-        0
     }
 
     func invalidateURLCache() async {}

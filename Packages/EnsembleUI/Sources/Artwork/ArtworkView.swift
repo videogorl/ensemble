@@ -63,6 +63,8 @@ public struct ArtworkView: View {
             return .low
         case .medium, .large, .extraLarge:
             return .normal
+        case .detail:
+            return .high
         }
     }
 

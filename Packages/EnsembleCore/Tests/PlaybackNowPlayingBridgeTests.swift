@@ -446,18 +446,6 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
         }
     }
 
-    func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int {
-        0
-    }
-
-    func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int {
-        0
-    }
-
-    func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int {
-        0
-    }
-
     func invalidateURLCache() async {}
 
     private func locked<T>(_ body: () -> T) -> T {

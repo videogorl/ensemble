@@ -99,6 +99,7 @@ struct CompositeArtworkView: View {
         case .medium: return .small
         case .large: return .medium
         case .extraLarge: return .large
+        case .detail: return .large
         }
     }
 }

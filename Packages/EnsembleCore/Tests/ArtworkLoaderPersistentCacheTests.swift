@@ -205,7 +205,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
                 kind: .album,
                 sourcePath: "/library/metadata/album-1/thumb/2000"
             ),
-            minimumPixelDimension: 1000
+            minimumPixelDimension: ArtworkSize.detail.rawValue
         )
 
         await fulfillment(of: [downloadExpectation], timeout: 1)
@@ -241,16 +241,16 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             stalePath: nil
         )
 
-        let satisfiesThumbnailRequest = await artworkManager.localArtworkExists(
+        let satisfiesLargeRequest = await artworkManager.localArtworkExists(
             for: album,
-            minimumPixelDimension: 500
+            minimumPixelDimension: ArtworkSize.large.rawValue
         )
         let satisfiesDetailRequest = await artworkManager.localArtworkExists(
             for: album,
-            minimumPixelDimension: 1000
+            minimumPixelDimension: ArtworkSize.detail.rawValue
         )
 
-        XCTAssertTrue(satisfiesThumbnailRequest)
+        XCTAssertTrue(satisfiesLargeRequest)
         XCTAssertFalse(satisfiesDetailRequest)
     }
 

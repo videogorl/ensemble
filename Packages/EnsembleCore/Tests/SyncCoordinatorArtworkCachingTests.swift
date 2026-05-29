@@ -198,9 +198,9 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         await coordinator.syncAll()
 
         XCTAssertTrue(provider.artworkRequests.allSatisfy { $0.size == SyncCoordinator.fullSizeArtworkCacheDimension })
-        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/album-1/thumb", size: 1000)))
-        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/artist-1/thumb", size: 1000)))
-        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/playlist-1/composite", size: 1000)))
+        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/album-1/thumb", size: ArtworkSize.detail.rawValue)))
+        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/artist-1/thumb", size: ArtworkSize.detail.rawValue)))
+        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/playlist-1/composite", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(artworkDownloadManager.downloadedRecords.allSatisfy { $0.url.host == "example.com" })
         XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
             $0.ratingKey == "album-1" && $0.type == .album

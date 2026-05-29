@@ -121,7 +121,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
     private var playlistArtworkRetryAfter: [String: Date] = [:]
     private let playlistArtworkFailureBackoff: TimeInterval = 5 * 60
-    internal static let fullSizeArtworkCacheDimension = 1000
+    internal static let fullSizeArtworkCacheDimension = ArtworkSize.detail.rawValue
 
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
@@ -1095,7 +1095,7 @@ public final class SyncCoordinator: ObservableObject {
     // MARK: - Artwork Pre-Caching
 
     /// Cache artwork for all albums, artists, and playlists in a source.
-    /// Each helper skips items already cached on disk, so repeat calls are lightweight.
+    /// Each helper skips items already cached at detail size, so repeat calls are lightweight.
     private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         await cacheAlbumArtwork(sourceId: sourceId, provider: provider)
         await cacheArtistArtwork(sourceId: sourceId, provider: provider)
@@ -1103,7 +1103,7 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Cache artwork for all albums belonging to a source.
-    /// Lightweight — skips albums that already have cached artwork on disk.
+    /// Lightweight — skips albums that already have detail-grade cached artwork on disk.
     private func cacheAlbumArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
             let allAlbums = try await libraryRepository.fetchAlbums()
@@ -1151,7 +1151,7 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Cache artwork for all artists belonging to a source.
-    /// Lightweight — skips artists that already have cached artwork on disk.
+    /// Lightweight — skips artists that already have detail-grade cached artwork on disk.
     private func cacheArtistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
             let allArtists = try await libraryRepository.fetchArtists()
@@ -1199,7 +1199,7 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Cache composite artwork for all playlists belonging to a source.
-    /// Lightweight — skips playlists that already have cached artwork on disk.
+    /// Lightweight — skips playlists that already have detail-grade cached artwork on disk.
     private func cachePlaylistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
             // Playlists use a server-level key (plex:account:server), not the
