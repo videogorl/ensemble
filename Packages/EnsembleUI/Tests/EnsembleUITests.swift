@@ -11,6 +11,24 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testCompactArtistHeroOverscrollStartsBeforeSafeAreaClears() {
+        XCTAssertEqual(
+            ArtistDetailView.compactHeroOverscroll(frameMinY: -59, restingMinY: -59),
+            0,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ArtistDetailView.compactHeroOverscroll(frameMinY: -48, restingMinY: -59),
+            11,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ArtistDetailView.compactHeroOverscroll(frameMinY: 0, restingMinY: -59),
+            59,
+            accuracy: 0.001
+        )
+    }
+
     func testControlsCardLayoutShrinksArtworkBeforeControlRows() {
         let layout = ControlsCardLayoutMetrics.resolve(for: CGSize(width: 320, height: 520))
 
