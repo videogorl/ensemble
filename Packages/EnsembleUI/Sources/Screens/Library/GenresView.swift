@@ -235,6 +235,13 @@ struct GenreDetailContentView: View {
             }
         }
         .navigationTitle(genre.title)
+        .genreAlbumSearchable(text: $filterOptions.searchText)
+        .toolbar {
+            EnsembleBrowseToolbar(isVisible: !genreAlbums.isEmpty) {
+                filterButton
+                sortMenu
+            }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
                 filterOptions: $filterOptions,
@@ -259,45 +266,10 @@ struct GenreDetailContentView: View {
     }
 
     private func genreControls(tracks: [Track]) -> some View {
-        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
-            genreSearchField
-
-            playbackActionButtons(tracks: tracks)
-
-            HStack(spacing: EnsembleDesign.Spacing.sm) {
-                inlineFilterButton
-                inlineSortMenu
-                Spacer(minLength: EnsembleDesign.Spacing.none)
-            }
-        }
+        playbackActionButtons(tracks: tracks)
         .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
         .padding(.top, presentationStyle == .splitPane ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
         .padding(.bottom, EnsembleDesign.Spacing.md)
-    }
-
-    private var genreSearchField: some View {
-        HStack(spacing: EnsembleDesign.Spacing.sm) {
-            Image(systemName: EnsembleDesign.Icon.search)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-            TextField("Filter albums", text: $filterOptions.searchText)
-                .disableAutocorrection(true)
-
-            if !filterOptions.searchText.isEmpty {
-                Button {
-                    filterOptions.searchText = ""
-                } label: {
-                    Image(systemName: EnsembleDesign.Icon.closeCircle)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Clear album filter")
-            }
-        }
-        .padding(.horizontal, EnsembleDesign.Spacing.md)
-        .padding(.vertical, EnsembleDesign.Spacing.sm)
-        .background(EnsembleDesign.Color.groupedSurface)
-        .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.control, style: .continuous))
     }
 
     private func playbackActionButtons(tracks: [Track]) -> some View {
@@ -372,31 +344,16 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private var inlineFilterButton: some View {
-        Button {
+    private var filterButton: some View {
+        EnsembleBrowseFilterButton(
+            title: "Filter Genre Albums",
+            hasActiveFilters: filterOptions.hasActiveFilters
+        ) {
             showFilterSheet = true
-        } label: {
-            Label("Filters…", systemImage: EnsembleDesign.Icon.filter)
-                .overlay(alignment: .topTrailing) {
-                    if filterOptions.hasActiveFilters {
-                        Circle()
-                            .fill(EnsembleDesign.Color.destructive)
-                            .frame(
-                                width: EnsembleScaffold.BrowseToolbar.activeBadgeSize,
-                                height: EnsembleScaffold.BrowseToolbar.activeBadgeSize
-                            )
-                            .offset(
-                                x: EnsembleScaffold.BrowseToolbar.activeBadgeOffset,
-                                y: -EnsembleScaffold.BrowseToolbar.activeBadgeOffset
-                            )
-                    }
-                }
         }
-        .buttonStyle(.bordered)
-        .accessibilityLabel("Filter Genre Albums")
     }
 
-    private var inlineSortMenu: some View {
+    private var sortMenu: some View {
         Menu {
             ForEach(AlbumSortOption.allCases, id: \.self) { option in
                 Button {
@@ -417,9 +374,8 @@ struct GenreDetailContentView: View {
                 }
             }
         } label: {
-            Label("Sort", systemImage: EnsembleDesign.Icon.sort)
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
         }
-        .buttonStyle(.bordered)
         .accessibilityLabel("Sort Genre Albums")
     }
 
@@ -553,5 +509,27 @@ struct GenreDetailContentView: View {
 
     private func sectionHeader(_ letter: String) -> some View {
         EnsembleBrowseSectionHeader(letter)
+    }
+}
+
+private struct GenreAlbumSearchModifier: ViewModifier {
+    @Binding var text: String
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.searchable(
+            text: $text,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Filter albums"
+        )
+        #else
+        content.searchable(text: $text, prompt: "Filter albums")
+        #endif
+    }
+}
+
+private extension View {
+    func genreAlbumSearchable(text: Binding<String>) -> some View {
+        modifier(GenreAlbumSearchModifier(text: text))
     }
 }
