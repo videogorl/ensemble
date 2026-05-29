@@ -491,27 +491,20 @@ private struct DisplayArtistDetailView: View {
 
 // MARK: - Artist Detail View
 
-struct ArtistHeroFrame: Equatable {
-    let minY: CGFloat
-    let width: CGFloat
-}
-
-private struct ArtistHeroFramePreferenceKey: PreferenceKey {
-    static var defaultValue: ArtistHeroFrame?
-
-    static func reduce(value: inout ArtistHeroFrame?, nextValue: () -> ArtistHeroFrame?) {
-        value = nextValue() ?? value
-    }
-}
-
 private struct StableArtistArtworkImage<Fallback: View>: View {
     let image: PlatformImage?
+    let targetSize: CGSize?
     @ViewBuilder let fallback: () -> Fallback
 
     @State private var currentImage: PlatformImage?
 
-    init(image: PlatformImage?, @ViewBuilder fallback: @escaping () -> Fallback) {
+    init(
+        image: PlatformImage?,
+        targetSize: CGSize? = nil,
+        @ViewBuilder fallback: @escaping () -> Fallback
+    ) {
         self.image = image
+        self.targetSize = targetSize
         self.fallback = fallback
         self._currentImage = State(initialValue: image)
     }
@@ -538,14 +531,20 @@ private struct StableArtistArtworkImage<Fallback: View>: View {
     @ViewBuilder
     private func platformImage(_ image: PlatformImage) -> some View {
         #if os(macOS)
-        Image(nsImage: image)
+        let resolvedImage = Image(nsImage: image)
             .resizable()
             .scaledToFill()
         #else
-        Image(uiImage: image)
+        let resolvedImage = Image(uiImage: image)
             .resizable()
             .scaledToFill()
         #endif
+        if let targetSize {
+            resolvedImage
+                .frame(width: targetSize.width, height: targetSize.height)
+        } else {
+            resolvedImage
+        }
     }
 
     private func updateImage() {
@@ -582,7 +581,6 @@ public struct ArtistDetailView: View {
     @State private var artworkImage: PlatformImage?
     @State private var blurredArtworkImage: PlatformImage?
     @State private var continuityArtworkImage: PlatformImage?
-    @State private var compactHeroRestingFrame: ArtistHeroFrame?
     @State private var artworkLoadUnavailable = false
     @State private var currentArtworkLoadIdentity: String?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -635,9 +633,6 @@ public struct ArtistDetailView: View {
             threshold: 0,
             showToolbarTitle: $showToolbarTitle
         )
-        .onPreferenceChange(ArtistHeroFramePreferenceKey.self) { frame in
-            updateCompactHeroRestingFrame(frame)
-        }
         .navigationTitle("")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -1053,7 +1048,13 @@ public struct ArtistDetailView: View {
     }
 
     private var wideArtistArtwork: some View {
-        StableArtistArtworkImage(image: displayedArtworkImage) {
+        StableArtistArtworkImage(
+            image: displayedArtworkImage,
+            targetSize: CGSize(
+                width: EnsembleScaffold.ArtistDetail.wideArtworkDimension,
+                height: EnsembleScaffold.ArtistDetail.wideArtworkDimension
+            )
+        ) {
             ArtworkView(
                 artist: viewModel.artist,
                 size: .medium,
@@ -1156,27 +1157,25 @@ public struct ArtistDetailView: View {
         #endif
     }
 
-    static func compactHeroOverscroll(frameMinY: CGFloat, restingMinY: CGFloat?) -> CGFloat {
-        guard let restingMinY else { return 0 }
-        return max(frameMinY - restingMinY, 0)
+    static func compactHeroOverscroll(globalMinY: CGFloat) -> CGFloat {
+        max(globalMinY, 0)
     }
 
     private func heroBanner(containerWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             let bannerHeight = geometry.size.height
-            let safeAreaInsets = geometry.safeAreaInsets
             let globalMinY = geometry.frame(in: .global).minY
-            let overscroll = Self.compactHeroOverscroll(
-                frameMinY: globalMinY,
-                restingMinY: compactHeroRestingFrame?.minY
-            )
-            let artworkWidth = geometry.size.width + safeAreaInsets.leading + safeAreaInsets.trailing
-            let artworkHeight = bannerHeight + safeAreaInsets.top + overscroll
+            let overscroll = Self.compactHeroOverscroll(globalMinY: globalMinY)
+            let artworkWidth = geometry.size.width
+            let artworkHeight = bannerHeight + overscroll
 
             ZStack(alignment: .bottom) {
                 // The resolved hero image fills the banner directly; ArtworkView is
                 // only the unresolved fallback so it doesn't constrain the final image.
-                StableArtistArtworkImage(image: displayedArtworkImage) {
+                StableArtistArtworkImage(
+                    image: displayedArtworkImage,
+                    targetSize: CGSize(width: artworkWidth, height: artworkHeight)
+                ) {
                     ArtworkView(
                         artist: artworkArtist,
                         size: .large,
@@ -1197,12 +1196,7 @@ public struct ArtistDetailView: View {
                         endPoint: .bottom
                     )
                 }
-                // Shift up to cover the safe area + overscroll gap
-                .offset(x: -safeAreaInsets.leading, y: -(safeAreaInsets.top + overscroll))
-                .preference(
-                    key: ArtistHeroFramePreferenceKey.self,
-                    value: ArtistHeroFrame(minY: globalMinY, width: geometry.size.width)
-                )
+                .offset(y: -overscroll)
 
                 // Artist info overlay — offset counteracts overscroll so
                 // the text stays visually pinned instead of drifting down
@@ -1240,18 +1234,6 @@ public struct ArtistDetailView: View {
         }
         .frame(height: compactHeroHeight(containerWidth: containerWidth))
         .frame(maxWidth: .infinity)
-    }
-
-    private func updateCompactHeroRestingFrame(_ frame: ArtistHeroFrame?) {
-        guard let frame else { return }
-        guard let restingFrame = compactHeroRestingFrame else {
-            compactHeroRestingFrame = frame
-            return
-        }
-
-        if abs(restingFrame.width - frame.width) > 1 {
-            compactHeroRestingFrame = frame
-        }
     }
 
     // MARK: - Action Buttons

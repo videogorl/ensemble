@@ -13,17 +13,17 @@ import AppKit
 final class EnsembleUITests: XCTestCase {
     func testCompactArtistHeroOverscrollStartsBeforeSafeAreaClears() {
         XCTAssertEqual(
-            ArtistDetailView.compactHeroOverscroll(frameMinY: -59, restingMinY: -59),
+            ArtistDetailView.compactHeroOverscroll(globalMinY: -59),
             0,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            ArtistDetailView.compactHeroOverscroll(frameMinY: -48, restingMinY: -59),
+            ArtistDetailView.compactHeroOverscroll(globalMinY: 11),
             11,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            ArtistDetailView.compactHeroOverscroll(frameMinY: 0, restingMinY: -59),
+            ArtistDetailView.compactHeroOverscroll(globalMinY: 59),
             59,
             accuracy: 0.001
         )
