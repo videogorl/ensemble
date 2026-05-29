@@ -66,20 +66,6 @@ public struct SongsView: View {
             } label: {
                 Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
             }
-
-            Divider()
-
-            Button {
-                nowPlayingVM.shufflePlay(tracks: trackSnapshot.tracks)
-            } label: {
-                Label("Shuffle All", systemImage: EnsembleDesign.Icon.shuffle)
-            }
-
-            Button {
-                nowPlayingVM.play(tracks: trackSnapshot.tracks)
-            } label: {
-                Label("Play All", systemImage: EnsembleDesign.Icon.play)
-            }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
@@ -214,7 +200,7 @@ public struct SongsView: View {
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsGenreChipTableHeader
+                        tableHeaderContent: songsTableHeaderContent
                     ) { track, _ in
                         playAvailableTrack(track)
                     }
@@ -230,7 +216,7 @@ public struct SongsView: View {
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsGenreChipTableHeader
+                        tableHeaderContent: songsTableHeaderContent
                     ) { track, _ in
                         playTrack(track)
                     }
@@ -246,7 +232,7 @@ public struct SongsView: View {
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsGenreChipTableHeader
+                        tableHeaderContent: songsTableHeaderContent
                     ) { track, index in
                         playAvailableTrack(track, index: index)
                     }
@@ -268,9 +254,35 @@ public struct SongsView: View {
         )
     }
 
-    private var songsGenreChipTableHeader: AnyView? {
-        guard !trackSnapshot.availableGenres.isEmpty else { return nil }
-        return AnyView(songsGenreChipBar)
+    private var songsPlaybackActionRow: some View {
+        MediaDetailSurface<EmptyView>.PlaybackActionRow(
+            horizontalPadding: EnsembleDesign.Spacing.none,
+            bottomPadding: EnsembleDesign.Spacing.none,
+            isDisabled: trackSnapshot.tracks.isEmpty,
+            play: {
+                nowPlayingVM.play(tracks: trackSnapshot.tracks)
+            },
+            shuffle: {
+                nowPlayingVM.shufflePlay(tracks: trackSnapshot.tracks)
+            }
+        ) {
+            EmptyView()
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.top, EnsembleDesign.Spacing.md)
+        .padding(.bottom, trackSnapshot.availableGenres.isEmpty ? EnsembleDesign.Spacing.md : EnsembleDesign.Spacing.xs)
+    }
+
+    private var songsTableHeaderContent: AnyView {
+        AnyView(
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                songsPlaybackActionRow
+
+                if !trackSnapshot.availableGenres.isEmpty {
+                    songsGenreChipBar
+                }
+            }
+        )
     }
 
     private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
@@ -282,21 +294,19 @@ public struct SongsView: View {
         #if os(macOS)
         Group {
             if libraryVM.trackSortOption == .title {
-                largeScreenIndexedSongList(width: width, tableHeaderContent: songsGenreChipTableHeader)
+                largeScreenIndexedSongList(width: width, tableHeaderContent: songsTableHeaderContent)
             } else {
-                largeScreenFlatSongList(width: width, tableHeaderContent: songsGenreChipTableHeader)
+                largeScreenFlatSongList(width: width, tableHeaderContent: songsTableHeaderContent)
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         #else
-        VStack(spacing: EnsembleDesign.Spacing.none) {
-            songsGenreChipBar
-
+        Group {
             if libraryVM.trackSortOption == .title {
-                largeScreenIndexedSongList(width: width)
+                largeScreenIndexedSongList(width: width, tableHeaderContent: songsTableHeaderContent)
             } else {
-                largeScreenFlatSongList(width: width)
+                largeScreenFlatSongList(width: width, tableHeaderContent: songsTableHeaderContent)
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
@@ -456,7 +466,7 @@ public struct SongsView: View {
                 usesDynamicTableHeaderHeight: true,
                 supplementalMetadataWidth: width,
                 interactionModel: largeScreenTrackInteractionModel,
-                tableHeaderContent: songsGenreChipTableHeader
+                tableHeaderContent: songsTableHeaderContent
             ) { track, _ in
                 playTrack(track)
             }
