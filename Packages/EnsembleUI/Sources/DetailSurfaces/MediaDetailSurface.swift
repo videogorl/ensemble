@@ -172,6 +172,7 @@ extension MediaDetailSurface {
         let cornerRadius: CGFloat
         let horizontalPadding: CGFloat
         let expands: Bool
+        @Environment(\.isEnabled) private var isEnabled
 
         init(
             _ title: String,
@@ -196,11 +197,11 @@ extension MediaDetailSurface {
         var body: some View {
             if #available(iOS 26, macOS 26, *) {
                 labelContent
-                    .foregroundColor(role.glassForegroundColor)
+                    .foregroundColor(isEnabled ? role.glassForegroundColor : EnsembleDesign.Color.primaryText)
             } else {
                 labelContent
                     .background(role.backgroundColor)
-                    .foregroundColor(role.foregroundColor)
+                    .foregroundColor(isEnabled ? role.foregroundColor : EnsembleDesign.Color.primaryText)
                     .clipShape(Capsule())
             }
         }
