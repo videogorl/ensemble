@@ -15,9 +15,11 @@ This is the canonical verification policy. Other skills may add task-specific de
 | Shell/script/tooling change | `bash -n` or equivalent static check, plus a safe dry run or targeted execution. |
 | Package business logic | Affected package tests with `swift test --package-path Packages/<Package>`. |
 | CoreData model/repository | `scripts/compile_coredata_model.sh`, `swift test --package-path Packages/EnsemblePersistence`, and dependent package tests as needed. |
-| UI, navigation, playback, sync workflow, or user-visible bug fix | Affected package tests plus visual runtime validation of the affected flow on each touched platform when feasible. Capture screenshots or equivalent UI inspection evidence; if visual validation is blocked, document the blocker and residual risk. |
+| UI, navigation, playback, sync workflow, or user-visible bug fix | Affected package tests plus visual runtime validation of the changed flow on each touched platform when feasible. Navigate to the changed surface and exercise the changed behavior; launching the app, landing on the default tab, or checking an unrelated screen is not sufficient. Capture screenshots or equivalent UI inspection evidence; if visual validation is blocked, document the blocker and residual risk. |
 | Performance-sensitive SwiftUI/playback/download change | Targeted tests plus simulator/device evidence. Use `scripts/capture_performance_gate.sh` when changing observation, root chrome, Feed launch/refresh, or Downloads queue behavior. |
 | Broad architectural refactor | Tests for new services/repositories, affected package tests, app build, and simulator verification for user-facing paths. |
+
+Every completed turn with code, UI, behavior, script, or policy changes needs targeted verification before handoff. Select the smallest verification that proves the changed contract, but make it specific to the changed area. For example, after fixing Albums on iOS, build/run the iOS app and navigate to Albums to verify the Albums behavior itself; a Feed launch screenshot does not verify an Albums change.
 
 If runtime verification is blocked by credentials, third-party service availability, simulator state, or an external dependency, report the blocker precisely and do not present the task as fully verified.
 
@@ -64,7 +66,7 @@ Load `simulator-test` when runtime proof is required. Use the iOS Simulator MCP 
 
 Typical expectations:
 - Bug fix: reproduce the old path when feasible, then verify the corrected path visually.
-- New UI: navigate to the surface, exercise key interactions, including representative row swipe actions when the surface exposes swipeable rows, and confirm visible labels/state with screenshots or accessibility/UI hierarchy evidence.
+- New UI or UI fix: navigate to the affected surface, exercise the specific changed interaction/state, including representative row swipe actions when the surface exposes swipeable rows, and confirm visible labels/state with screenshots or accessibility/UI hierarchy evidence.
 - Playback/networking: combine UI interaction with focused log capture.
 
 For macOS-visible UI changes, use the built app with Computer Use, Xcode UI tooling, screenshots, or another direct UI inspection path. A build-only check is not sufficient unless the changed surface cannot be reached because of a documented environment blocker such as missing credentials, unavailable data, or a locked desktop.

@@ -49,10 +49,11 @@ Start with `git status --short` and preserve unrelated user changes.
 For implementation work:
 - Make the smallest coherent change that satisfies the request.
 - Commit after each logical step when implementing a plan, and always commit before handing work back for manual testing.
-- Follow the canonical verification policy in `testing`. In short: run affected package tests after non-trivial code changes, and visually validate user-visible behavior with screenshots or equivalent UI inspection unless a blocker is documented.
+- Follow the canonical verification policy in `testing`. Every completed turn with code, UI, behavior, script, or policy changes must include targeted verification before handoff unless a blocker is documented. In short: run affected package tests after non-trivial code changes, and visually validate the changed surface itself with screenshots or equivalent UI inspection. Opening the app or landing on an unrelated/default tab is not sufficient; for example, an Albums view fix on iOS must navigate to Albums and verify the changed Albums behavior.
 
 For bug reports:
-- Ask clarifying questions first when the symptom, trigger, or expected behavior is unclear.
+- If the report needs troubleshooting, reproduce the issue first whenever feasible before changing code. Capture the exact path, current UI/app state, logs, screenshots/accessibility output, database rows, network responses, or other evidence that can narrow the failing owner and show how broad the issue is.
+- Ask clarifying questions first when the symptom, trigger, expected behavior, affected surface/platform, or blast radius is unclear. For straightforward localized failures, proceed with the available repro path and document the assumption.
 - Treat reported symptoms as real regressions until proven otherwise.
 - Add focused logs when they materially improve diagnosis; remove or reduce noisy logs after fixing.
 
