@@ -444,7 +444,9 @@ struct GenreDetailContentView: View {
     private func albumSections(from albums: [Album]) -> [LibraryViewModel.AlbumSection] {
         let grouped = Dictionary(grouping: albums) { indexingLetter(for: $0) }
         return grouped.map { LibraryViewModel.AlbumSection(letter: $0.key, albums: $0.value) }
-            .sorted { $0.letter < $1.letter }
+            .sorted {
+                filterOptions.sortDirection == .ascending ? $0.letter < $1.letter : $0.letter > $1.letter
+            }
     }
 
     private var isSortIndexed: Bool {
