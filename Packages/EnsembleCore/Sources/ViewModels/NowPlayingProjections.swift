@@ -313,6 +313,7 @@ public final class NowPlayingLyricsProjection: ObservableObject {
 public final class NowPlayingRatingProjection: ObservableObject {
     @Published public private(set) var currentTrack: Track?
     @Published public private(set) var currentRating: TrackRating = .none
+    @Published public private(set) var displayRatingsRevision: UInt64 = 0
 
     private var displayRatingsByTrackIdentity: [String: Int] = [:]
 
@@ -336,6 +337,8 @@ public final class NowPlayingRatingProjection: ObservableObject {
     }
 
     func updateDisplayRatings(_ ratingsByTrackIdentity: [String: Int]) {
+        guard displayRatingsByTrackIdentity != ratingsByTrackIdentity else { return }
         displayRatingsByTrackIdentity = ratingsByTrackIdentity
+        displayRatingsRevision &+= 1
     }
 }

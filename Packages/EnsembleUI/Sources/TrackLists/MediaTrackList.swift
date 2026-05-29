@@ -548,6 +548,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let searchTextBinding: Binding<String>?
 
     @Environment(\.dependencies) private var dependencies
+    @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
 
     public init(
         tracks: [Track],
@@ -838,8 +839,9 @@ public struct MediaTrackList: UIViewRepresentable {
         let activeDownloadsChanged = context.coordinator.activeDownloadTrackIdentities != activeDownloadTrackIdentities
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
+        let displayRatingsChanged = context.coordinator.lastDisplayRatingsRevision != displayRatingsRevision
         let newFavoriteStateSignature = favoriteStateSignature(for: tracks)
-        let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
+        let favoriteStateChanged = !dataChanged && (displayRatingsChanged || context.coordinator.favoriteStateSignature != newFavoriteStateSignature)
 
         // Update coordinator state
         context.coordinator.tracks = tracks
@@ -876,6 +878,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
+        context.coordinator.lastDisplayRatingsRevision = displayRatingsRevision
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
@@ -972,6 +975,7 @@ public struct MediaTrackList: UIViewRepresentable {
                    indexPath.row < newGroupedTracks[indexPath.section].tracks.count {
                     let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
                     let isPlaying = track.playbackIdentity == currentTrackId
+                    let resolvedActions = context.coordinator.interactionModel.resolve(for: track)
                     trackCell.configure(
                         with: track,
                         showArtwork: showArtwork,
@@ -980,12 +984,12 @@ public struct MediaTrackList: UIViewRepresentable {
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                        isFavorited: context.coordinator.isTrackFavorited?(track) ?? (track.rating >= 8),
+                        isFavorited: resolvedActions.isFavorited,
                         supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
                         menu: context.coordinator.makeContextMenu(
                             for: track,
                             at: indexPath,
-                            resolvedActions: context.coordinator.interactionModel.resolve(for: track)
+                            resolvedActions: resolvedActions
                         ),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
@@ -1054,7 +1058,7 @@ public struct MediaTrackList: UIViewRepresentable {
 
     private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
         tracks.map { track in
-            isTrackFavorited?(track) ?? (track.rating >= 8)
+            interactionModel.resolve(for: track).isFavorited
         }
     }
 
@@ -1113,6 +1117,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var activeDownloadTrackIdentities: Set<String>
         var rowHeight: CGFloat
         var lastAvailabilityGeneration: UInt64 = 0
+        var lastDisplayRatingsRevision: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
         /// Retains the UIHostingController used for the table footer view
@@ -1165,7 +1170,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
             self.favoriteStateSignature = tracks.map { track in
-                isTrackFavorited?(track) ?? (track.rating >= 8)
+                interactionModel.resolve(for: track).isFavorited
             }
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
@@ -1235,6 +1240,7 @@ public struct MediaTrackList: UIViewRepresentable {
             cell.backgroundColor = .clear
             guard let track = track(at: indexPath) else { return cell }
             let isPlaying = track.playbackIdentity == currentTrackId
+            let resolvedActions = interactionModel.resolve(for: track)
             cell.configure(
                 with: track,
                 showArtwork: showArtwork,
@@ -1243,9 +1249,9 @@ public struct MediaTrackList: UIViewRepresentable {
                 isPlaying: isPlaying,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
+                isFavorited: resolvedActions.isFavorited,
                 supplementalMetadataWidth: supplementalMetadataWidth,
-                menu: makeContextMenu(for: track, at: indexPath, resolvedActions: interactionModel.resolve(for: track)),
+                menu: makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader
             )

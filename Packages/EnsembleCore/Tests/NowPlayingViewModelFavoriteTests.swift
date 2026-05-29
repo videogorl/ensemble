@@ -1145,11 +1145,13 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         viewModel.trackRatingStoreHandlerForTesting = { _, _ in }
 
         XCTAssertFalse(viewModel.ratingProjection.isTrackFavorited(track))
+        XCTAssertEqual(viewModel.ratingProjection.displayRatingsRevision, 0)
 
         await viewModel.setTrackFavorite(true, for: track)
         await waitForProjectionPropagation()
 
         XCTAssertTrue(viewModel.ratingProjection.isTrackFavorited(track))
+        XCTAssertEqual(viewModel.ratingProjection.displayRatingsRevision, 1)
     }
 
     func testLyricsProjectionTracksCurrentLine() async {
