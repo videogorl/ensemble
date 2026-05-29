@@ -148,7 +148,9 @@ public struct GenresView: View {
     private var genreListView: some View {
         List {
             ForEach(filteredGenres) { genre in
-                navigationCoordinator.routeLink(to: .displayGenre(id: genre.id)) {
+                Button {
+                    openGenrePage(genre)
+                } label: {
                     genreRow(genre)
                 }
                 .buttonStyle(.plain)
@@ -158,6 +160,12 @@ public struct GenresView: View {
         .listStyle(.plain)
         .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
+    }
+
+    private func openGenrePage(_ genre: DisplayGenre) {
+        let targetTab = navigationCoordinator.selectedTab
+        navigationCoordinator.beginRouteTransition(in: targetTab)
+        navigationCoordinator.push(.displayGenre(id: genre.id), in: targetTab)
     }
 
     private var genreSelectionList: some View {
