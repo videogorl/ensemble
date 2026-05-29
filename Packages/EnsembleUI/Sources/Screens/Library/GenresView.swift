@@ -305,12 +305,9 @@ struct GenreDetailContentView: View {
                     LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         if presentationStyle == .splitPane {
                             genreHeader(albums: albums)
-                            Divider()
                         }
 
                         genreControls(tracks: playbackTracks)
-
-                        Divider()
 
                         if albums.isEmpty {
                             LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Matching Albums")
