@@ -199,6 +199,65 @@ public enum ArtworkFileInspector {
     }
 }
 
+/// Synchronous persistent artwork lookup for first-frame UI seeds.
+public enum PersistentArtworkCacheLookup {
+    public static func localArtworkURL(
+        ratingKey: String,
+        type: ArtworkType,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?,
+        allowStaleIdentity: Bool,
+        minimumPixelDimension: Int? = nil
+    ) -> URL? {
+        let localURL = artworkFileURL(ratingKey: ratingKey, type: type)
+        guard FileManager.default.fileExists(atPath: localURL.path) else { return nil }
+
+        let storedIdentity = readIdentity(for: localURL)
+        if let storedIdentity {
+            guard storedIdentity.ratingKey == ratingKey,
+                  storedIdentity.type == type else {
+                return nil
+            }
+
+            if !allowStaleIdentity,
+               !storedIdentity.matches(
+                   sourcePath: sourcePath,
+                   dateModifiedSeconds: dateModifiedSeconds
+               ) {
+                return nil
+            }
+        }
+
+        if ArtworkFileInspector.fileExists(
+            at: localURL,
+            minimumPixelDimension: minimumPixelDimension
+        ) {
+            return localURL
+        }
+
+        guard let storedIdentity,
+              storedIdentity.satisfiesAttemptedPixelDimension(minimumPixelDimension) else {
+            return nil
+        }
+        return localURL
+    }
+
+    static func artworkFileURL(ratingKey: String, type: ArtworkType) -> URL {
+        ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
+    }
+
+    static func identityURL(for artworkURL: URL) -> URL {
+        artworkURL.deletingPathExtension().appendingPathExtension("identity.json")
+    }
+
+    static func readIdentity(for artworkURL: URL) -> ArtworkIdentity? {
+        let url = identityURL(for: artworkURL)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(ArtworkIdentity.self, from: data)
+    }
+}
+
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
     private let session: URLSession
     
@@ -259,36 +318,23 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         sourcePath: String?,
         dateModifiedSeconds: Int?
     ) async throws -> String? {
-        let localURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
-        guard FileManager.default.fileExists(atPath: localURL.path) else { return nil }
-
-        guard let storedIdentity = Self.readIdentity(for: localURL) else {
-            return localURL.path
-        }
-
-        guard storedIdentity.ratingKey == ratingKey,
-              storedIdentity.type == type,
-              storedIdentity.matches(sourcePath: sourcePath, dateModifiedSeconds: dateModifiedSeconds) else {
-            return nil
-        }
-
-        return localURL.path
+        PersistentArtworkCacheLookup.localArtworkURL(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModifiedSeconds,
+            allowStaleIdentity: false
+        )?.path
     }
 
     public func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String? {
-        let localURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
-        guard FileManager.default.fileExists(atPath: localURL.path) else { return nil }
-
-        guard let storedIdentity = Self.readIdentity(for: localURL) else {
-            return localURL.path
-        }
-
-        guard storedIdentity.ratingKey == ratingKey,
-              storedIdentity.type == type else {
-            return nil
-        }
-
-        return localURL.path
+        PersistentArtworkCacheLookup.localArtworkURL(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: nil,
+            dateModifiedSeconds: nil,
+            allowStaleIdentity: true
+        )?.path
     }
 
     public func localArtworkExists(
@@ -298,31 +344,17 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         dateModifiedSeconds: Int?,
         minimumPixelDimension: Int?
     ) async -> Bool {
-        guard let localPath = try? await getLocalArtworkPath(
+        guard let localURL = PersistentArtworkCacheLookup.localArtworkURL(
             ratingKey: ratingKey,
             type: type,
             sourcePath: sourcePath,
-            dateModifiedSeconds: dateModifiedSeconds
+            dateModifiedSeconds: dateModifiedSeconds,
+            allowStaleIdentity: false,
+            minimumPixelDimension: minimumPixelDimension
         ) else {
             return false
         }
-
-        if ArtworkFileInspector.fileExists(
-            atPath: localPath,
-            minimumPixelDimension: minimumPixelDimension
-        ) {
-            return true
-        }
-
-        let localURL = URL(fileURLWithPath: localPath)
-        guard let storedIdentity = Self.readIdentity(for: localURL),
-              storedIdentity.matches(
-                sourcePath: sourcePath,
-                dateModifiedSeconds: dateModifiedSeconds
-              ) else {
-            return false
-        }
-        return storedIdentity.satisfiesAttemptedPixelDimension(minimumPixelDimension)
+        return FileManager.default.fileExists(atPath: localURL.path)
     }
 
     // MARK: - Private Download Methods
@@ -408,11 +440,11 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     }
 
     private static func artworkFileURL(ratingKey: String, type: ArtworkType) -> URL {
-        artworkDirectory.appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
+        PersistentArtworkCacheLookup.artworkFileURL(ratingKey: ratingKey, type: type)
     }
 
     private static func identityURL(for artworkURL: URL) -> URL {
-        artworkURL.deletingPathExtension().appendingPathExtension("identity.json")
+        PersistentArtworkCacheLookup.identityURL(for: artworkURL)
     }
 
     private static func dateModifiedSeconds(_ date: Date?) -> Int? {
@@ -420,9 +452,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     }
 
     private static func readIdentity(for artworkURL: URL) -> ArtworkIdentity? {
-        let url = identityURL(for: artworkURL)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(ArtworkIdentity.self, from: data)
+        PersistentArtworkCacheLookup.readIdentity(for: artworkURL)
     }
 
     private static func writeIdentity(_ identity: ArtworkIdentity, for artworkURL: URL) throws {

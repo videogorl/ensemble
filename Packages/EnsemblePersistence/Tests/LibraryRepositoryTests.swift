@@ -417,6 +417,50 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertFalse(changedIdentityExists)
     }
 
+    func testPersistentArtworkCacheLookupReturnsValidatedServerLimitedArtworkSynchronously() throws {
+        let ratingKey = "sync-lookup-\(UUID().uuidString)"
+        let artworkURL = ArtworkDownloadManager.artworkDirectory
+            .appendingPathComponent("\(ratingKey)_album.jpg")
+        let identityURL = artworkURL
+            .deletingPathExtension()
+            .appendingPathExtension("identity.json")
+        defer {
+            try? FileManager.default.removeItem(at: artworkURL)
+            try? FileManager.default.removeItem(at: identityURL)
+        }
+
+        let sourcePath = "/library/metadata/\(ratingKey)/thumb"
+        try makeJPEG(width: 500, height: 500, at: artworkURL)
+        let identity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000,
+            requestedPixelDimension: 1_000
+        )
+        try JSONEncoder().encode(identity).write(to: identityURL)
+
+        let matchedURL = PersistentArtworkCacheLookup.localArtworkURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000,
+            allowStaleIdentity: false,
+            minimumPixelDimension: 1_000
+        )
+        XCTAssertEqual(matchedURL, artworkURL)
+
+        let changedURL = PersistentArtworkCacheLookup.localArtworkURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "\(sourcePath)/changed",
+            dateModifiedSeconds: 1_000,
+            allowStaleIdentity: false,
+            minimumPixelDimension: 1_000
+        )
+        XCTAssertNil(changedURL)
+    }
+
     func testArtworkDownloadManagerRejectsIdentityForDifferentRatingKeyOrType() async throws {
         let manager = ArtworkDownloadManager()
         let ratingKey = "identity-mismatch-\(UUID().uuidString)"

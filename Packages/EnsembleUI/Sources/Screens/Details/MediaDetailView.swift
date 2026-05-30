@@ -146,6 +146,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
 
+        let initialArtwork = Self.synchronousHeaderArtworkSeed(
+            headerData: headerData,
+            mediaType: mediaType
+        )
+        self._artworkImage = State(initialValue: initialArtwork?.image)
+        self._blurredArtworkImage = State(initialValue: initialArtwork?.blurredImage)
+        self._currentLoadPath = State(initialValue: initialArtwork?.path)
+
         let initialPinState: Bool
         let initialPinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
         if let customIsPinned {
@@ -971,6 +979,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func headerArtworkCacheHint(path: String) -> PersistentArtworkCacheHint? {
+        Self.headerArtworkCacheHint(headerData: headerData, mediaType: mediaType, path: path)
+    }
+
+    private static func headerArtworkCacheHint(
+        headerData: MediaHeaderData,
+        mediaType: PinnedItemType?,
+        path: String
+    ) -> PersistentArtworkCacheHint? {
         guard let mediaType,
               let kind = PersistentArtworkCacheHint.Kind(mediaType) else {
             return nil
@@ -984,7 +1000,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func headerBlurCacheKey(path: String) -> String {
-        if let cacheHint = headerArtworkCacheHint(path: path) {
+        Self.headerBlurCacheKey(headerData: headerData, mediaType: mediaType, path: path)
+    }
+
+    private static func headerBlurCacheKey(
+        headerData: MediaHeaderData,
+        mediaType: PinnedItemType?,
+        path: String
+    ) -> String {
+        if let cacheHint = headerArtworkCacheHint(
+            headerData: headerData,
+            mediaType: mediaType,
+            path: path
+        ) {
             return [
                 "hint",
                 cacheHint.kind.rawValue,
@@ -1002,6 +1030,44 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             path,
             "600"
         ].joined(separator: "|")
+    }
+
+    private struct HeaderArtworkSeed {
+        let path: String
+        let image: PlatformImage
+        let blurredImage: PlatformImage?
+    }
+
+    private static func synchronousHeaderArtworkSeed(
+        headerData: MediaHeaderData,
+        mediaType: PinnedItemType?
+    ) -> HeaderArtworkSeed? {
+        guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
+
+        let descriptor = ArtworkResolutionDescriptor(
+            path: path,
+            sourceKey: headerData.sourceKey,
+            ratingKey: headerData.ratingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: headerArtworkCacheHint(
+                headerData: headerData,
+                mediaType: mediaType,
+                path: path
+            ),
+            fallbackCacheHint: nil,
+            size: 600,
+            priority: .high
+        )
+        guard let resolved = ArtworkImageResolver.synchronousPersistentImage(for: descriptor) else {
+            return nil
+        }
+
+        return HeaderArtworkSeed(
+            path: path,
+            image: resolved.image,
+            blurredImage: ArtworkBlurRenderer.cachedBlurredImage(forStableKey: resolved.blurCacheKey)
+        )
     }
 
     private var currentHeaderBlurCacheKey: String? {
