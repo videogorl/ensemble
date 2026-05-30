@@ -71,6 +71,32 @@ public final class CoreDataStack: @unchecked Sendable {
         }
     }
 
+    public func performViewContext<T>(_ block: @escaping (NSManagedObjectContext) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = viewContext
+            context.perform {
+                do {
+                    continuation.resume(returning: try block(context))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func performBackgroundContext<T>(_ block: @escaping (NSManagedObjectContext) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            context.perform {
+                do {
+                    continuation.resume(returning: try block(context))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     /// Reset the view context so the next fetch reads the latest store data.
     /// Call this after background sync operations to ensure UI sees updated data.
     /// Uses reset() instead of refreshAllObjects() to avoid a crash when

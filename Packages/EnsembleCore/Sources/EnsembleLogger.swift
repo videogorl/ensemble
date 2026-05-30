@@ -10,9 +10,18 @@ enum LogRedactor {
     ]
 
     static func redactSensitiveValues(in message: String) -> String {
-        sensitiveNames.reduce(message) { partial, name in
+        let urlRedacted = redactURLLiterals(in: message)
+        return sensitiveNames.reduce(urlRedacted) { partial, name in
             redactValue(named: name, in: partial)
         }
+    }
+
+    private static func redactURLLiterals(in message: String) -> String {
+        message.replacingOccurrences(
+            of: #"https?://[^\s,\)\]\}>]+"#,
+            with: "<redacted-url>",
+            options: [.regularExpression, .caseInsensitive]
+        )
     }
 
     private static func redactValue(named name: String, in message: String) -> String {

@@ -8,8 +8,9 @@ final class EnsembleLoggerRedactionTests: XCTestCase {
         let redacted = LogRedactor.redactSensitiveValues(in: message)
 
         XCTAssertFalse(redacted.contains("secret-token"))
-        XCTAssertTrue(redacted.contains("X-Plex-Token=<redacted>"))
-        XCTAssertTrue(redacted.contains("X-Plex-Client-Identifier=client-id"))
+        XCTAssertFalse(redacted.contains("example.test"))
+        XCTAssertFalse(redacted.contains("/library/metadata/1"))
+        XCTAssertEqual(redacted, "[assembleStream] progressiveTranscode -> <redacted-url>")
     }
 
     func testRedactsSensitiveHeaderStyleMessages() {
@@ -38,6 +39,6 @@ final class EnsembleLoggerRedactionTests: XCTestCase {
 
         EnsembleLogger.debug("Request https://example.test?X-Plex-Token=secret-token&ratingKey=1")
 
-        XCTAssertEqual(capturedMessage, "Request https://example.test?X-Plex-Token=<redacted>&ratingKey=1")
+        XCTAssertEqual(capturedMessage, "Request <redacted-url>")
     }
 }

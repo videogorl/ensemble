@@ -478,12 +478,14 @@ public final class DependencyContainer: @unchecked Sendable {
         let audioAnalyzer = MainActor.assumeIsolated {
             FrequencyAnalysisService()
         }
+        let trackRatingLocalStore = TrackRatingLocalStore(coreDataStack: core.coreDataStack)
         let playbackService = PlaybackService(
             syncCoordinator: sync.syncCoordinator,
             networkMonitor: network.networkMonitor,
             artworkLoader: artworkLoader,
             audioAnalyzer: audioAnalyzer,
             downloadManager: core.downloadManager,
+            trackRatingLocalStore: trackRatingLocalStore,
             foregroundWorkScheduler: foregroundWorkScheduler
         )
         let cacheManager = MainActor.assumeIsolated {

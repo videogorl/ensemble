@@ -1116,6 +1116,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
+    private let trackRatingLocalStore: TrackRatingLocalStoring
     private let queueStore: PlaybackQueueStore
     private let queueController: PlaybackQueueController
     private let prefetchController: PlaybackPrefetchController
@@ -1285,6 +1286,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         artworkLoader: ArtworkLoaderProtocol,
         audioAnalyzer: AudioAnalyzerProtocol,
         downloadManager: DownloadManagerProtocol,
+        trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.syncCoordinator = syncCoordinator
@@ -1292,6 +1294,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
+        self.trackRatingLocalStore = trackRatingLocalStore
         queueStore = PlaybackQueueStore()
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
@@ -1322,6 +1325,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioAnalyzer: AudioAnalyzerProtocol,
         downloadManager: DownloadManagerProtocol,
         queueStore: PlaybackQueueStore,
+        trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.syncCoordinator = syncCoordinator
@@ -1329,6 +1333,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
+        self.trackRatingLocalStore = trackRatingLocalStore
         self.queueStore = queueStore
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
@@ -2412,23 +2417,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func storeTrackRating(track: Track, rating: Int) async throws {
-        let context = CoreDataStack.shared.newBackgroundContext()
-        try await context.perform {
-            let request = CDTrack.fetchRequest()
-            if let sourceCompositeKey = track.sourceCompositeKey {
-                request.predicate = NSPredicate(
-                    format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                    track.id,
-                    sourceCompositeKey
-                )
-            } else {
-                request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
-            }
-            if let cdTrack = try context.fetch(request).first {
-                cdTrack.rating = Int16(rating)
-                try context.save()
-            }
-        }
+        try await trackRatingLocalStore.storeTrackRating(track: track, rating: rating)
     }
 
     private func applyTrackRatingLocally(track: Track, rating: Int) {

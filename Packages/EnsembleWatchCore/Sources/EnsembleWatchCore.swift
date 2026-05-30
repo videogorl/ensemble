@@ -211,14 +211,15 @@ public final class WatchPlaybackController: ObservableObject {
     @Published public private(set) var errorMessage: String?
 
     private var player: AVPlayer?
+    private weak var timeObserverPlayer: AVPlayer?
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
 
     public init() {}
 
     deinit {
-        if let timeObserver {
-            player?.removeTimeObserver(timeObserver)
+        MainActor.assumeIsolated {
+            tearDownPlaybackObservers()
         }
     }
 
@@ -237,10 +238,7 @@ public final class WatchPlaybackController: ObservableObject {
         errorMessage = nil
         status = .loading
 
-        if let timeObserver {
-            player?.removeTimeObserver(timeObserver)
-            self.timeObserver = nil
-        }
+        tearDownPlaybackObservers()
 
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
@@ -263,6 +261,7 @@ public final class WatchPlaybackController: ObservableObject {
 
     public func stop() {
         player?.pause()
+        tearDownPlaybackObservers()
         player = nil
         currentTime = 0
         status = .idle
@@ -277,6 +276,7 @@ public final class WatchPlaybackController: ObservableObject {
                 self?.currentTime = time.seconds.isFinite ? time.seconds : 0
             }
         }
+        timeObserverPlayer = player
 
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .sink { [weak self] _ in
@@ -296,6 +296,15 @@ public final class WatchPlaybackController: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func tearDownPlaybackObservers() {
+        if let timeObserver {
+            timeObserverPlayer?.removeTimeObserver(timeObserver)
+            self.timeObserver = nil
+            timeObserverPlayer = nil
+        }
+        cancellables.removeAll()
     }
 }
 
@@ -322,6 +331,7 @@ public final class WatchExperienceModel: ObservableObject {
     private var discoveredServers: [EnsemblePlexServer] = []
     private var authPIN: PlexPIN?
     private var bootstrapTask: Task<Void, Never>?
+    private var bootstrapTaskID: UUID?
     private var linkPollTask: Task<Void, Never>?
 
     public init(
@@ -346,16 +356,12 @@ public final class WatchExperienceModel: ObservableObject {
 
     public func start() {
         guard bootstrapTask == nil else { return }
-        bootstrapTask = Task { [weak self] in
-            await self?.bootstrap()
-        }
+        startBootstrapTask(forceRefresh: false)
     }
 
     public func refresh() {
         bootstrapTask?.cancel()
-        bootstrapTask = Task { [weak self] in
-            await self?.bootstrap(forceRefresh: true)
-        }
+        startBootstrapTask(forceRefresh: true)
     }
 
     public func startLinkFlow() {
@@ -471,6 +477,21 @@ public final class WatchExperienceModel: ObservableObject {
                 statusMessage = error.localizedDescription
             }
         }
+    }
+
+    private func startBootstrapTask(forceRefresh: Bool) {
+        let taskID = UUID()
+        bootstrapTaskID = taskID
+        bootstrapTask = Task { [weak self] in
+            await self?.bootstrap(forceRefresh: forceRefresh)
+            self?.clearBootstrapTask(id: taskID)
+        }
+    }
+
+    private func clearBootstrapTask(id: UUID) {
+        guard bootstrapTaskID == id else { return }
+        bootstrapTask = nil
+        bootstrapTaskID = nil
     }
 
     private func bootstrap(forceRefresh: Bool = false) async {

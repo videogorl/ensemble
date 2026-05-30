@@ -13,7 +13,7 @@ final class EnsembleLoggerRedactionTests: XCTestCase {
 
         EnsembleLogger.debug("Playback URL https://example.test?X-Plex-Token=secret-token&ratingKey=1")
 
-        XCTAssertEqual(capturedMessage, "Playback URL https://example.test?X-Plex-Token=<redacted>&ratingKey=1")
+        XCTAssertEqual(capturedMessage, "Playback URL <redacted-url>")
     }
 
     func testRedactsPlaybackCategoryMessages() {
