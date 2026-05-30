@@ -1054,6 +1054,9 @@ public struct SidebarView: View {
     }
 
     private func selectSidebar(_ newSelection: SidebarSelection?) {
+        let previousSelection = selection
+        let didChangeSelection = previousSelection != newSelection
+
         if let tab = newSelection?.correspondingTab {
             EnsembleLogger.debug("🧭 Sidebar selection changed to=\(String(describing: tab))")
             if navigationCoordinator.selectedTab != tab {
@@ -1065,6 +1068,10 @@ public struct SidebarView: View {
             selection = newSelection
         }
 
+        if didChangeSelection {
+            resetNestedDetailPathAfterRootSelectionChange(to: newSelection)
+        }
+
         clearPinnedDetailPathAfterSelectionChange(to: newSelection)
 
         #if os(iOS)
@@ -1072,6 +1079,19 @@ public struct SidebarView: View {
             compactColumnPreference = .detail
         }
         #endif
+    }
+
+    private func resetNestedDetailPathAfterRootSelectionChange(to newSelection: SidebarSelection?) {
+        switch newSelection {
+        case .library(.playlists), .playlist, .mergedPlaylist:
+            guard !navigationCoordinator.pathSnapshot(for: .playlists).isEmpty else { return }
+            navigationCoordinator.setPath([], for: .playlists)
+        case .pin:
+            guard !pinnedDetailPath.isEmpty else { return }
+            pinnedDetailPath.removeAll()
+        case .library, .none:
+            return
+        }
     }
 
     private func clearPinnedDetailPathAfterSelectionChange(to newSelection: SidebarSelection?) {
@@ -1205,6 +1225,7 @@ public struct SidebarView: View {
             NavigationStack(path: activeDetailPathBinding) {
                 detailChromeRegistrationHost {
                     detailRootContentView
+                        .id(detailRootIdentity)
                 }
                 .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                     detailChromeRegistrationHost {
@@ -1214,6 +1235,10 @@ public struct SidebarView: View {
             }
         }
         .auroraBackgroundSupport()
+    }
+
+    private var detailRootIdentity: SidebarSelection {
+        selection ?? .library(.home)
     }
 
     @ViewBuilder
