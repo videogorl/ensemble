@@ -2,12 +2,6 @@ import EnsembleCore
 import Foundation
 import Nuke
 
-#if os(iOS) || os(tvOS) || os(watchOS)
-import UIKit
-#elseif os(macOS)
-import AppKit
-#endif
-
 struct ArtworkResolutionDescriptor {
     let path: String?
     let sourceKey: String?
@@ -57,30 +51,6 @@ struct ArtworkResolvedImage {
 }
 
 enum ArtworkImageResolver {
-    static func synchronousPersistentImage(
-        for descriptor: ArtworkResolutionDescriptor
-    ) -> ArtworkResolvedImage? {
-        guard let cacheHint = descriptor.effectiveCacheHint,
-              let artworkType = cacheHint.kind.artworkType,
-              let url = PersistentArtworkCacheLookup.localArtworkURL(
-                  ratingKey: cacheHint.ratingKey,
-                  type: artworkType,
-                  sourcePath: cacheHint.sourcePath,
-                  dateModifiedSeconds: cacheHint.dateModifiedSeconds,
-                  allowStaleIdentity: false,
-                  minimumPixelDimension: descriptor.size
-              ),
-              let image = platformImage(contentsOf: url) else {
-            return nil
-        }
-
-        return ArtworkResolvedImage(
-            url: url,
-            image: image,
-            blurCacheKey: descriptor.stableBlurCacheKey
-        )
-    }
-
     static func resolvedImage(
         for descriptor: ArtworkResolutionDescriptor,
         artworkLoader: ArtworkLoaderProtocol
@@ -203,14 +173,6 @@ enum ArtworkImageResolver {
         }.value
         return blurred?.value
     }
-
-    private static func platformImage(contentsOf url: URL) -> PlatformImage? {
-        #if os(iOS) || os(tvOS) || os(watchOS)
-        return UIImage(contentsOfFile: url.path)
-        #elseif os(macOS)
-        return NSImage(contentsOf: url)
-        #endif
-    }
 }
 
 private struct SendableArtworkPlatformImage: @unchecked Sendable {
@@ -218,18 +180,5 @@ private struct SendableArtworkPlatformImage: @unchecked Sendable {
 
     init(_ value: PlatformImage) {
         self.value = value
-    }
-}
-
-private extension PersistentArtworkCacheHint.Kind {
-    var artworkType: ArtworkType? {
-        switch self {
-        case .album:
-            return .album
-        case .artist:
-            return .artist
-        case .playlist:
-            return .playlist
-        }
     }
 }
