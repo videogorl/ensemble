@@ -885,6 +885,7 @@ public struct PlaylistDetailView: View {
     @State private var deletingToastID: UUID?
     /// When true, Cancel in edit mode dismisses the sheet instead of just toggling edit off
     private let startedInEditMode: Bool
+    private let initialArtworkImage: PlatformImage?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
 
@@ -892,7 +893,8 @@ public struct PlaylistDetailView: View {
         playlist: Playlist,
         nowPlayingVM: NowPlayingViewModel,
         startInEditMode: Bool = false,
-        initialTracks: [Track]? = nil
+        initialTracks: [Track]? = nil,
+        initialArtworkImage: PlatformImage? = nil
     ) {
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
@@ -903,6 +905,7 @@ public struct PlaylistDetailView: View {
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
         self.startedInEditMode = startInEditMode
+        self.initialArtworkImage = initialArtworkImage
     }
 
     public init(
@@ -914,6 +917,7 @@ public struct PlaylistDetailView: View {
         self.nowPlayingVM = nowPlayingVM
         self._isEditingPlaylist = State(initialValue: startInEditMode)
         self.startedInEditMode = startInEditMode
+        self.initialArtworkImage = nil
     }
 
     public var body: some View {
@@ -959,7 +963,8 @@ public struct PlaylistDetailView: View {
                         onPlayLast: {
                             nowPlayingVM.playLast(viewModel.filteredTracks)
                         }
-                    )
+                    ),
+                    initialArtworkImage: initialArtworkImage
                 )
             }
         }

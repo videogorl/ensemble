@@ -126,6 +126,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         albumMenuActions: AlbumDetailMenuActions? = nil,
         additionalFooterContent: AnyView? = nil,
         supplementalLoad: (() async -> Void)? = nil,
+        initialArtworkImage: PlatformImage? = nil,
         customPinAction: ((Bool) -> Void)? = nil,
         customIsPinned: ((Set<String>) -> Bool)? = nil
     ) {
@@ -145,6 +146,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.supplementalLoad = supplementalLoad
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
+        self._artworkImage = State(initialValue: initialArtworkImage)
+        self._currentLoadPath = State(initialValue: initialArtworkImage == nil ? nil : headerData.artworkPath)
 
         let initialPinState: Bool
         let initialPinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
