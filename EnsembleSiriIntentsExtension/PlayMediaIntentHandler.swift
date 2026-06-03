@@ -62,7 +62,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         let requestedMediaType = resolvedMediaType(from: intent, query: query)
         let requestedShuffle = effectivePlayShuffled(from: intent, mediaType: requestedMediaType)
         logger.info(
-            "resolveMediaItems: query=\(normalizedQuery, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\((requestedShuffle ?? false), privacy: .public)"
+            "resolveMediaItems: queryLength=\(normalizedQuery.count, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\((requestedShuffle ?? false), privacy: .public)"
         )
 
         let artistHint = intent.mediaSearch?.artistName
@@ -110,7 +110,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             }
         }
 
-        logger.debug("resolveMediaItems: selected top candidate \(top.item.displayName, privacy: .public)")
+        logger.debug("resolveMediaItems: selected top candidate kind=\(top.item.kind.rawValue, privacy: .public)")
         completion([.success(with: makeMediaItem(from: top, artistHint: artistHint, shuffle: requestedShuffle))])
     }
 
@@ -226,7 +226,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 )
             }
 
-            logger.debug("payloadIdentifier: building fallback payload from query=\(fallbackQuery, privacy: .public)")
+            logger.debug("payloadIdentifier: building fallback payload from queryLength=\(fallbackQuery.count, privacy: .public)")
             return SiriPayloadIdentifier(
                 schemaVersion: Self.currentPayloadSchemaVersion,
                 kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),

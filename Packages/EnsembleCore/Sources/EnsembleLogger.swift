@@ -4,14 +4,16 @@ import OSLog
 enum LogRedactor {
     private static let sensitiveNames = [
         "X-Plex-Token",
+        "Authorization",
         "accessToken",
         "authToken",
-        "rawToken"
+        "rawToken",
+        "token"
     ]
 
     static func redactSensitiveValues(in message: String) -> String {
-        let urlRedacted = redactURLLiterals(in: message)
-        return sensitiveNames.reduce(urlRedacted) { partial, name in
+        let pathRedacted = redactPathLiterals(in: redactURLLiterals(in: message))
+        return sensitiveNames.reduce(pathRedacted) { partial, name in
             redactValue(named: name, in: partial)
         }
     }
@@ -24,10 +26,32 @@ enum LogRedactor {
         )
     }
 
+    private static func redactPathLiterals(in message: String) -> String {
+        message
+            .replacingOccurrences(
+                of: #"(?:file://)?/(Users|private/var|var/mobile|var/folders|tmp)/.*?(?=\s+\w+\s*[:=]|$|[,)\]\}>])"#,
+                with: "<redacted-path>",
+                options: [.regularExpression, .caseInsensitive]
+            )
+            .replacingOccurrences(
+                of: #"/(?:library|playlists|hubs)/[^\s,\)\]\}>]+"#,
+                with: "<redacted-path>",
+                options: [.regularExpression, .caseInsensitive]
+            )
+    }
+
     private static func redactValue(named name: String, in message: String) -> String {
+        if name.caseInsensitiveCompare("Authorization") == .orderedSame {
+            return message.replacingOccurrences(
+                of: #"(?i)(\bAuthorization\s*[:=]\s*)(?:Bearer\s+[^&\s,\)\]\}><]+|[^&\s,\)\]\}><]+)"#,
+                with: "$1<redacted>",
+                options: .regularExpression
+            )
+        }
+
         let escapedName = NSRegularExpression.escapedPattern(for: name)
-        let plainPattern = #"(?i)(\b\#(escapedName)\s*[:=]\s*)[^&\s,\)\]\}>]+"#
-        let encodedPattern = #"(?i)(\b\#(escapedName)%3D)[^%&\s,\)\]\}>]+"#
+        let plainPattern = #"(?i)(\b\#(escapedName)\s*[:=]\s*)[^&\s,\)\]\}><]+"#
+        let encodedPattern = #"(?i)(\b\#(escapedName)%3D)[^%&\s,\)\]\}><]+"#
 
         return message
             .replacingOccurrences(

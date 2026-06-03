@@ -276,17 +276,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Timeline Loading
 
     public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility, throttled: Bool = false) async {
-        logger.debug("loadTimeline called for \(trackId), url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
+        logger.debug("loadTimeline called isFile=\(fileURL.isFileURL)")
 
         // Already cached or loading
         if timelines[trackId] != nil || analysisTasks[trackId] != nil {
-            logger.debug("loadTimeline skipped \(trackId): cached=\(self.timelines[trackId] != nil), loading=\(self.analysisTasks[trackId] != nil)")
+            logger.debug("loadTimeline skipped cached=\(self.timelines[trackId] != nil), loading=\(self.analysisTasks[trackId] != nil)")
             return
         }
 
         // Only analyze local files (not remote stream URLs)
         guard fileURL.isFileURL else {
-            logger.debug("loadTimeline skipped \(trackId): not a file URL")
+            logger.debug("loadTimeline skipped: not a file URL")
             return
         }
 
@@ -296,7 +296,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             do {
                 let timeline = try FrequencyTimelinePersistence.load(from: sidecarURL)
                 timelines[trackId] = timeline
-                logger.debug("Loaded sidecar timeline for \(trackId): \(timeline.snapshots.count) frames")
+                logger.debug("Loaded sidecar timeline frames=\(timeline.snapshots.count)")
                 return
             } catch {
                 logger.debug("Failed to load sidecar for \(trackId), will re-analyze: \(error)")
@@ -633,7 +633,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         progressHandler: ProgressHandler? = nil
     ) -> FrequencyTimeline? {
         let startTime = CACurrentMediaTime()
-        logger.debug("Frequency analysis started file=\(fileURL.lastPathComponent, privacy: .public)")
+        logger.debug("Frequency analysis started isFile=\(fileURL.isFileURL)")
 
         // Open audio file — try directly first, then fall back to symlink probing
         // for files with unrecognized extensions (e.g. ".audio" from stream cache).

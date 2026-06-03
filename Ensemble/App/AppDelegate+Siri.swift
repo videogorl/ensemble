@@ -126,7 +126,7 @@ extension AppDelegate {
 
             let decoder = JSONDecoder()
             let payload = try decoder.decode(SiriAddToPlaylistRequestPayload.self, from: data)
-            AppLogger.info("SIRI_APP: Executing add-to-playlist: playlist=\(payload.playlistDisplayName ?? "unknown")")
+            AppLogger.info("SIRI_APP: Executing add-to-playlist playlistNameLength=\(payload.playlistDisplayName?.count ?? 0)")
 
             Task { @MainActor in
                 try? await DependencyContainer.shared.siriAddToPlaylistCoordinator.execute(payload: payload)
@@ -326,7 +326,7 @@ extension AppDelegate {
             let sanitizedQuery = normalizedSiriQuery(query)
 
             let kind = siriMediaKind(from: intent)
-            AppLogger.debug("AppDelegate: Siri fallback payload for query='\(sanitizedQuery)' kind=\(kind.rawValue)")
+            AppLogger.debug("AppDelegate: Siri fallback payload queryLength=\(sanitizedQuery.count) kind=\(kind.rawValue)")
 
             return SiriPlaybackRequestPayload(
                 kind: kind,
@@ -731,7 +731,7 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 return nil
             }
 
-            AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler - using fallback query: \(sanitizedQuery)")
+            AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler - using fallback queryLength=\(sanitizedQuery.count)")
             let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
             return SiriPlaybackRequestPayload(
                 kind: kind,
