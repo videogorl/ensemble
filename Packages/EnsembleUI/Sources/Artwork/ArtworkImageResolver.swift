@@ -51,6 +51,47 @@ struct ArtworkResolvedImage {
 }
 
 enum ArtworkImageResolver {
+    static func locallyCachedImage(
+        for descriptor: ArtworkResolutionDescriptor,
+        artworkLoader: ArtworkLoaderProtocol
+    ) async -> ArtworkResolvedImage? {
+        guard let localURL = await artworkLoader.localArtworkURLAsync(
+            for: descriptor.path,
+            sourceKey: descriptor.sourceKey,
+            ratingKey: descriptor.ratingKey,
+            fallbackPath: descriptor.fallbackPath,
+            fallbackRatingKey: descriptor.fallbackRatingKey,
+            minimumPixelDimension: descriptor.size,
+            allowStaleIdentity: true
+        ) else {
+            return nil
+        }
+
+        let request = ArtworkImageRequest.resized(
+            url: localURL,
+            size: descriptor.size,
+            priority: descriptor.priority
+        )
+
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            return ArtworkResolvedImage(
+                url: localURL,
+                image: cachedImage.image,
+                blurCacheKey: descriptor.stableBlurCacheKey
+            )
+        }
+
+        guard let image = try? await ImagePipeline.shared.image(for: request) else {
+            return nil
+        }
+
+        return ArtworkResolvedImage(
+            url: localURL,
+            image: image,
+            blurCacheKey: descriptor.stableBlurCacheKey
+        )
+    }
+
     static func resolvedImage(
         for descriptor: ArtworkResolutionDescriptor,
         artworkLoader: ArtworkLoaderProtocol

@@ -1,5 +1,4 @@
 import EnsembleCore
-import EnsemblePersistence
 import SwiftUI
 
 struct PlaylistDetailLoader: View {
@@ -8,6 +7,7 @@ struct PlaylistDetailLoader: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var playlist: Playlist?
     @State private var initialTracks: [Track]?
+    @State private var initialArtworkImage: PlatformImage?
     @State private var isLoading = true
     @State private var error: Error?
     @State private var hasStartedLoading = false
@@ -27,7 +27,8 @@ struct PlaylistDetailLoader: View {
                 PlaylistDetailView(
                     playlist: playlist,
                     nowPlayingVM: nowPlayingVM,
-                    initialTracks: initialTracks
+                    initialTracks: initialTracks,
+                    initialArtworkImage: initialArtworkImage
                 )
             } else if isLoading {
                 MediaDetailSurface<EmptyView>.LoadingState(title: "Loading playlist…")
@@ -56,37 +57,54 @@ struct PlaylistDetailLoader: View {
     @MainActor
     private func loadPlaylist() async {
         do {
-            guard let cdPlaylist = try await loadPlaylistMetadata(
+            guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
             ) else {
-                finishLoading(playlist: nil, initialTracks: nil, error: nil)
+                finishLoading(playlist: nil, initialTracks: nil, initialArtworkImage: nil, error: nil)
                 return
             }
 
             let loadedPlaylist = Playlist(from: cdPlaylist)
-            finishLoading(playlist: loadedPlaylist, initialTracks: nil, error: nil)
+            let loadedTracks = cdPlaylist.tracksArray.map { Track(from: $0) }
+            let loadedArtworkImage = await loadCachedArtwork(for: loadedPlaylist)
+            finishLoading(
+                playlist: loadedPlaylist,
+                initialTracks: loadedTracks.isEmpty ? nil : loadedTracks,
+                initialArtworkImage: loadedArtworkImage,
+                error: nil
+            )
         } catch {
-            finishLoading(playlist: nil, initialTracks: nil, error: error)
+            finishLoading(playlist: nil, initialTracks: nil, initialArtworkImage: nil, error: error)
         }
     }
 
-    private func loadPlaylistMetadata(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
-        let playlists: [CDPlaylist]
-        if let sourceCompositeKey {
-            playlists = try await deps.playlistRepository.fetchPlaylists(sourceCompositeKey: sourceCompositeKey)
-        } else {
-            playlists = try await deps.playlistRepository.fetchPlaylists()
-        }
+    private func loadCachedArtwork(for playlist: Playlist) async -> PlatformImage? {
+        let descriptor = ArtworkResolutionDescriptor(
+            path: playlist.compositePath,
+            sourceKey: playlist.sourceCompositeKey,
+            ratingKey: playlist.id,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: PersistentArtworkCacheHint(playlist: playlist),
+            fallbackCacheHint: nil,
+            size: 600,
+            priority: .high
+        )
 
-        return playlists
-            .filter { $0.ratingKey == ratingKey }
-            .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-            .first
+        return await ArtworkImageResolver.locallyCachedImage(
+            for: descriptor,
+            artworkLoader: deps.artworkLoader
+        )?.image
     }
 
     @MainActor
-    private func finishLoading(playlist: Playlist?, initialTracks: [Track]?, error: Error?) {
+    private func finishLoading(
+        playlist: Playlist?,
+        initialTracks: [Track]?,
+        initialArtworkImage: PlatformImage?,
+        error: Error?
+    ) {
         guard !Task.isCancelled else { return }
 
         var transaction = Transaction()
@@ -95,6 +113,7 @@ struct PlaylistDetailLoader: View {
 
         withTransaction(transaction) {
             self.initialTracks = initialTracks
+            self.initialArtworkImage = initialArtworkImage
             self.playlist = playlist
             self.error = error
             self.isLoading = false
