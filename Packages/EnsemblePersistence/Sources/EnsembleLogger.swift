@@ -1,3 +1,4 @@
+import EnsembleSupport
 import OSLog
 
 /// Package-level logger for EnsemblePersistence. Writes to the unified log and
@@ -12,7 +13,7 @@ public enum EnsembleLogger {
     private static let category = "persistence"
 
     static func debug(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
     }

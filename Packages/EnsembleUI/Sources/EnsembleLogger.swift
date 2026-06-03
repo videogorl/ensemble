@@ -1,3 +1,4 @@
+import EnsembleSupport
 import OSLog
 
 /// Package-level logger for EnsembleUI. Writes to the unified log and the
@@ -12,7 +13,7 @@ public enum EnsembleLogger {
     private static let category = "ui"
 
     static func debug(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
     }

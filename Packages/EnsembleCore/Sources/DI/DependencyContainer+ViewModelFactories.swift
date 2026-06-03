@@ -41,6 +41,7 @@ public extension DependencyContainer {
             navigationCoordinator: navigationCoordinator ?? self.navigationCoordinator,
             toastCenter: toastCenter,
             mutationCoordinator: mutationCoordinator,
+            trackRatingLocalStore: TrackRatingLocalStore(coreDataStack: coreDataStack),
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
             trackAvailabilityResolver: trackAvailabilityResolver,

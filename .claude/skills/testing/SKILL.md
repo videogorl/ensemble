@@ -43,6 +43,7 @@ For a major architectural feature, test each public service/repository behavior 
 ```bash
 # Affected package examples
 swift test --package-path Packages/EnsembleAPI
+swift test --package-path Packages/EnsembleSupport
 swift test --package-path Packages/EnsembleDomain
 swift test --package-path Packages/EnsemblePlex
 swift test --package-path Packages/EnsembleWatchCore
@@ -77,6 +78,7 @@ Each package owns tests beside its sources:
 
 ```text
 Packages/EnsembleAPI/Tests/
+Packages/EnsembleSupport/Tests/
 Packages/EnsembleDomain/Tests/
 Packages/EnsemblePlex/Tests/
 Packages/EnsembleWatchCore/Tests/
@@ -84,6 +86,7 @@ Packages/EnsembleCore/Tests/
 Packages/EnsemblePersistence/Tests/
 Packages/EnsembleUI/Tests/
 Packages/EnsembleSiriShared/Tests/
+EnsembleUITests/
 ```
 
 Use `@testable import` for internal package behavior. Prefer protocol mocks for service dependencies and in-memory CoreData stacks for persistence tests. Never use `CoreDataStack.shared` in tests.

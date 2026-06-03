@@ -15,11 +15,13 @@ let package = Package(
             targets: ["EnsemblePersistence"]
         ),
     ],
-    dependencies: [],
+    dependencies: [
+        .package(path: "../EnsembleSupport"),
+    ],
     targets: [
         .target(
             name: "EnsemblePersistence",
-            dependencies: [],
+            dependencies: ["EnsembleSupport"],
             path: "Sources",
             resources: [
                 .process("CoreData/Ensemble.xcdatamodeld"),

@@ -15,9 +15,13 @@ let package = Package(
             targets: ["EnsembleSiriShared"]
         ),
     ],
+    dependencies: [
+        .package(path: "../EnsembleSupport"),
+    ],
     targets: [
         .target(
             name: "EnsembleSiriShared",
+            dependencies: ["EnsembleSupport"],
             path: "Sources"
         ),
         .testTarget(

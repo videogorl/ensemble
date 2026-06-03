@@ -39,7 +39,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             return
         }
 
-        logger.info("resolveMediaDestination: query=\(playlistName, privacy: .public)")
+        logger.info("resolveMediaDestination: queryLength=\(playlistName.count, privacy: .public)")
 
         guard let index = SiriMatchingHelpers.loadIndex() else {
             logger.warning("resolveMediaDestination: index unavailable; returning needsValue")
@@ -68,7 +68,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             }
         }
 
-        logger.info("resolveMediaDestination: matched playlist \(top.item.displayName, privacy: .public)")
+        logger.info("resolveMediaDestination: matched playlist")
         completion(.success(with: INMediaDestination.playlist(top.item.displayName)))
     }
 
@@ -84,7 +84,7 @@ public final class AddMediaIntentHandler: NSObject, INAddMediaIntentHandling {
             return
         }
 
-        logger.info("handle: playlist=\(playlistName, privacy: .public)")
+        logger.info("handle: playlistNameLength=\(playlistName.count, privacy: .public)")
 
         // Find the playlist in the index to get its ratingKey
         guard let index = SiriMatchingHelpers.loadIndex() else {

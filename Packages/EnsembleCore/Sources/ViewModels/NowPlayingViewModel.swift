@@ -189,6 +189,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
     private let mutationCoordinator: MutationCoordinator
+    private let trackRatingLocalStore: TrackRatingLocalStoring
     private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private let playlistActionService = PlaylistActionService()
     private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
@@ -223,6 +224,7 @@ public final class NowPlayingViewModel: ObservableObject {
         navigationCoordinator: NavigationCoordinator,
         toastCenter: ToastCenter,
         mutationCoordinator: MutationCoordinator,
+        trackRatingLocalStore: TrackRatingLocalStoring = TrackRatingLocalStore(coreDataStack: .shared),
         playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
         trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
@@ -234,6 +236,7 @@ public final class NowPlayingViewModel: ObservableObject {
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
         self.mutationCoordinator = mutationCoordinator
+        self.trackRatingLocalStore = trackRatingLocalStore
         self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
         self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
@@ -1738,34 +1741,12 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
-    private func updateTrackRatingInDatabase(track: Track, rating: Int) async throws {
-        // Use LibraryRepository implementation's CoreDataStack
-        let context = CoreDataStack.shared.newBackgroundContext()
-        try await context.perform {
-            let request = CDTrack.fetchRequest()
-            if let sourceCompositeKey = track.sourceCompositeKey {
-                request.predicate = NSPredicate(
-                    format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                    track.id,
-                    sourceCompositeKey
-                )
-            } else {
-                request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
-            }
-
-            if let cdTrack = try context.fetch(request).first {
-                cdTrack.rating = Int16(rating)
-                try context.save()
-            }
-        }
-    }
-
     private func storeTrackRating(track: Track, rating: Int) async throws {
         if let trackRatingStoreHandlerForTesting {
             try await trackRatingStoreHandlerForTesting(track, rating)
-        } else {
-            try await updateTrackRatingInDatabase(track: track, rating: rating)
+            return
         }
+        try await trackRatingLocalStore.storeTrackRating(track: track, rating: rating)
     }
 
     private func applyCurrentTrackRatingIfNeeded(track: Track, rating: Int) {

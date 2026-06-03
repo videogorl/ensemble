@@ -144,7 +144,7 @@ enum SiriPendingIntentBridge {
         do {
             let data = try JSONEncoder().encode(payload)
             try data.write(to: fileURL, options: .atomic)
-            logger.info("\(context, privacy: .public): wrote pending payload to \(fileURL.path, privacy: .public)")
+            logger.info("\(context, privacy: .public): wrote pending payload file=\(fileURL.lastPathComponent, privacy: .public)")
             return true
         } catch {
             logger.error("\(context, privacy: .public): failed to write pending payload: \(error.localizedDescription, privacy: .public)")

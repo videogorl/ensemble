@@ -16,12 +16,16 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../EnsembleSupport"),
         .package(url: "https://github.com/kishikawakatsumi/KeychainAccess.git", from: "4.2.0"),
     ],
     targets: [
         .target(
             name: "EnsembleAPI",
-            dependencies: ["KeychainAccess"],
+            dependencies: [
+                "EnsembleSupport",
+                "KeychainAccess",
+            ],
             path: "Sources"
         ),
         .testTarget(
