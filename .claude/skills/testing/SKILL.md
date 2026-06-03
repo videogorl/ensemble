@@ -86,6 +86,7 @@ Packages/EnsembleCore/Tests/
 Packages/EnsemblePersistence/Tests/
 Packages/EnsembleUI/Tests/
 Packages/EnsembleSiriShared/Tests/
+EnsembleUITests/
 ```
 
 Use `@testable import` for internal package behavior. Prefer protocol mocks for service dependencies and in-memory CoreData stacks for persistence tests. Never use `CoreDataStack.shared` in tests.

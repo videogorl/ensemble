@@ -42,6 +42,7 @@
 		E0F100020000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100040000000000000004 /* PrivacyInfo.xcprivacy */; };
 		E0002011 /* WatchCompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002010 /* WatchCompanionModels.swift */; };
 		E0002012 /* WatchCompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0002010 /* WatchCompanionModels.swift */; };
+		E0001081 /* EnsembleLaunchUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0001080 /* EnsembleLaunchUITests.swift */; };
 		E0003001 /* EnsembleUI in Frameworks */ = {isa = PBXBuildFile; productRef = E0003000 /* EnsembleUI */; };
 		E0003005 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 		E0003006 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
@@ -97,6 +98,7 @@
 		E0000001 /* Ensemble.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ensemble.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0000002 /* Ensemble Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Ensemble Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0000003 /* EnsembleSiriIntentsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EnsembleSiriIntentsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		E0000004 /* EnsembleUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EnsembleUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E0001000 /* EnsembleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleApp.swift; sourceTree = "<group>"; };
 		E0001050 /* AppLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLogger.swift; sourceTree = "<group>"; };
 		E0001002 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -132,6 +134,7 @@
 		E0F100040000000000000004 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E0002006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		E0002010 /* WatchCompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchCompanionModels.swift; sourceTree = "<group>"; };
+		E0001080 /* EnsembleLaunchUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnsembleLaunchUITests.swift; sourceTree = "<group>"; };
 		E0004000 /* EnsembleAPI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleAPI; path = Packages/EnsembleAPI; sourceTree = "<group>"; };
 		E0004001 /* EnsembleCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleCore; path = Packages/EnsembleCore; sourceTree = "<group>"; };
 		E0004002 /* EnsembleUI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; name = EnsembleUI; path = Packages/EnsembleUI; sourceTree = "<group>"; };
@@ -168,6 +171,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E0010004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -179,6 +189,7 @@
 				E0100001 /* Ensemble */,
 				E0100002 /* EnsembleWatch */,
 				E0100005 /* EnsembleSiriIntentsExtension */,
+				E0100006 /* EnsembleUITests */,
 				E0100003 /* Packages */,
 				E0100004 /* Products */,
 				9926CB072F43A106004A19A3 /* AppIcon.icon */,
@@ -229,6 +240,7 @@
 				E0000001 /* Ensemble.app */,
 				E0000002 /* Ensemble Watch.app */,
 				E0000003 /* EnsembleSiriIntentsExtension.appex */,
+				E0000004 /* EnsembleUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -246,6 +258,14 @@
 				E0001014 /* EnsembleSiriIntentsExtension.entitlements */,
 			);
 			path = EnsembleSiriIntentsExtension;
+			sourceTree = "<group>";
+		};
+		E0100006 /* EnsembleUITests */ = {
+			isa = PBXGroup;
+			children = (
+				E0001080 /* EnsembleLaunchUITests.swift */,
+			);
+			path = EnsembleUITests;
 			sourceTree = "<group>";
 		};
 		E0100010 /* App */ = {
@@ -383,6 +403,25 @@
 			productReference = E0000003 /* EnsembleSiriIntentsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		E0200004 /* EnsembleUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E0300004 /* Build configuration list for PBXNativeTarget "EnsembleUITests" */;
+			buildPhases = (
+				E0010004 /* Frameworks */,
+				E0210004 /* Sources */,
+				E0220004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = EnsembleUITests;
+			packageProductDependencies = (
+			);
+			productName = EnsembleUITests;
+			productReference = E0000004 /* EnsembleUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -401,6 +440,10 @@
 					};
 					E0200003 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					E0200004 = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = E0200001;
 					};
 				};
 			};
@@ -426,6 +469,7 @@
 				E0200001 /* Ensemble */,
 				E0200002 /* EnsembleWatch */,
 				E0200003 /* EnsembleSiriIntentsExtension */,
+				E0200004 /* EnsembleUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -458,6 +502,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				E0001072 /* SystemMedia.intentdefinition in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0220004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -557,6 +608,14 @@
 				E0001017 /* UpdateMediaAffinityIntentHandler.swift in Sources */,
 				E0001018 /* AddMediaIntentHandler.swift in Sources */,
 				E0001019 /* SiriMatchingHelpers.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0210004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E0001081 /* EnsembleLaunchUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -905,6 +964,61 @@
 			};
 			name = Release;
 		};
+		E0640001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.3.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Ensemble;
+			};
+			name = Debug;
+		};
+		E0640002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 86QFS2R7RZ;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.3.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.videogorl.ensemble.UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Ensemble;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -940,6 +1054,15 @@
 			buildConfigurations = (
 				E0630001 /* Debug */,
 				E0630002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E0300004 /* Build configuration list for PBXNativeTarget "EnsembleUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E0640001 /* Debug */,
+				E0640002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

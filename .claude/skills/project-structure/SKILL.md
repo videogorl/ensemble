@@ -35,6 +35,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 |---|---|
 | `Ensemble/App/` | App entry point, app delegates, launch pipeline, scene and integration glue. |
 | `Ensemble/Resources/` | Assets, app intent vocabulary, SiriKit intent definitions, and app resources. |
+| `EnsembleUITests/` | App UI smoke and regression tests launched by the `Ensemble` scheme. |
 | `EnsembleSiriIntentsExtension/` | SiriKit Media Intents extension. Keep extension logic thin. |
 | `EnsembleWatch/` | Independent watchOS app target and watch SwiftUI. |
 | `EnsembleWatch/Shared/` | Codable iOS/watch payload contracts compiled into both targets. |
@@ -67,6 +68,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 - New CoreData entity: `Packages/EnsemblePersistence/Sources/CoreData/`
 - New API endpoint logic: the matching `PlexAPIClient+*.swift` file in `Packages/EnsembleAPI/Sources/Client/`.
 - New test: the owning package's `Tests/` directory.
+- New app UI test: `EnsembleUITests/`.
 - Long investigation or resolved issue: `docs/investigations/`.
 - Long reference inventory: `docs/reference/`.
 
