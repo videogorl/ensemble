@@ -43,6 +43,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 
 | Package | Owns | Do not do |
 |---|---|---|
+| `Packages/EnsembleSupport` | Low-level shared Foundation utilities used across packages and app targets, including privacy-safe log redaction. | Do not put app behavior, UI, persistence, network clients, or platform service orchestration here. |
 | `Packages/EnsembleAPI` | Plex HTTP/auth clients, request builders, API models, connection policy, WebSocket transport. | Do not import UI, CoreData, or app target code. |
 | `Packages/EnsemblePersistence` | CoreData stack, managed objects, repositories, downloads/artwork persistence. | Do not put UI or network orchestration here. |
 | `Packages/EnsembleSiriShared` | Pure Siri/system-media identity, index models, payload codecs, resolver/ranking logic, phrase normalization/scoring, and App Group constants. | Do not import CoreData, Intents UI, SwiftUI, Spotlight, or playback services. |
@@ -58,6 +59,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 - New Core service: `Packages/EnsembleCore/Sources/Services/`
 - New playback planner/analysis service: `Packages/EnsembleCore/Sources/Services/`
 - Shared artwork wash renderer/cache: `Packages/EnsembleCore/Sources/Services/ArtworkBlurRenderer.swift`
+- Shared Foundation-only utility: `Packages/EnsembleSupport/Sources/`
 - New shared Siri/system media identity or resolver logic: `Packages/EnsembleSiriShared/Sources/`
 - New SiriKit intent definition resource: `Ensemble/Resources/*.intentdefinition`, then add it to the app and relevant extension target resources in `Ensemble.xcodeproj`.
 - New UI screen/component: `Packages/EnsembleUI/Sources/Screens/`, `.../Components/`, `.../NowPlaying/`, or an existing feature folder.

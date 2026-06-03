@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../EnsembleSupport"),
         .package(path: "../EnsembleCore"),
         .package(url: "https://github.com/kean/Nuke.git", from: "12.0.0"),
     ],
@@ -22,6 +23,7 @@ let package = Package(
         .target(
             name: "EnsembleUI",
             dependencies: [
+                "EnsembleSupport",
                 "EnsembleCore",
                 .product(name: "NukeUI", package: "Nuke"),
             ],

@@ -1,11 +1,12 @@
 import XCTest
 @testable import EnsembleAPI
+@testable import EnsembleSupport
 
 final class EnsembleLoggerRedactionTests: XCTestCase {
     func testRedactsPlexTokenQueryItemFromURLMessages() {
         let message = "[assembleStream] progressiveTranscode -> https://example.test/music/:/transcode/universal/start.mp3?path=/library/metadata/1&X-Plex-Token=secret-token&X-Plex-Client-Identifier=client-id"
 
-        let redacted = LogRedactor.redactSensitiveValues(in: message)
+        let redacted = EnsembleLogRedactor.redactSensitiveValues(in: message)
 
         XCTAssertFalse(redacted.contains("secret-token"))
         XCTAssertFalse(redacted.contains("example.test"))
@@ -16,7 +17,7 @@ final class EnsembleLoggerRedactionTests: XCTestCase {
     func testRedactsSensitiveHeaderStyleMessages() {
         let message = "Headers: X-Plex-Token: secret-token, Authorization: Bearer bearer-secret, accessToken=account-secret authToken=session-secret rawToken=jwt-secret token=generic-secret"
 
-        let redacted = LogRedactor.redactSensitiveValues(in: message)
+        let redacted = EnsembleLogRedactor.redactSensitiveValues(in: message)
 
         XCTAssertFalse(redacted.contains("secret-token"))
         XCTAssertFalse(redacted.contains("bearer-secret"))
@@ -35,7 +36,7 @@ final class EnsembleLoggerRedactionTests: XCTestCase {
     func testRedactsPlexAndFilesystemPathMessages() {
         let message = "Request path=/library/metadata/7551 file=/Users/test/Music/Secret Track.mp3"
 
-        let redacted = LogRedactor.redactSensitiveValues(in: message)
+        let redacted = EnsembleLogRedactor.redactSensitiveValues(in: message)
 
         XCTAssertFalse(redacted.contains("/library/metadata/7551"))
         XCTAssertFalse(redacted.contains("/Users/test/Music/Secret"))
