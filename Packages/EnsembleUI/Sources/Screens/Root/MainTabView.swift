@@ -1352,7 +1352,8 @@ public struct SidebarView: View {
                 content()
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
 
-                RootChromeFrameRegistrationView(
+                RootChromeResolvedFrameRegistrationView(
+                    frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name)),
                     bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     ),
@@ -1451,7 +1452,8 @@ public struct SidebarView: View {
                 content()
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
 
-                RootChromeFrameRegistrationView(
+                RootChromeResolvedFrameRegistrationView(
+                    frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name)),
                     bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     ),

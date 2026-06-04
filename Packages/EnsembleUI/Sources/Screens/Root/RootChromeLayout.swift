@@ -20,6 +20,7 @@ extension EnvironmentValues {
 
 struct RootChromeRegistration {
     let bounds: Anchor<CGRect>?
+    let resolvedFrame: CGRect?
     let bottomPadding: CGFloat
     let contentLeadingInset: CGFloat
     let centersInRootHorizontalSpace: Bool
@@ -28,6 +29,7 @@ struct RootChromeRegistration {
 
     static let hidden = RootChromeRegistration(
         bounds: nil,
+        resolvedFrame: nil,
         bottomPadding: 0,
         contentLeadingInset: 0,
         centersInRootHorizontalSpace: false,
@@ -83,6 +85,7 @@ struct RootChromeFrameRegistrationView: View {
         ) { bounds in
             RootChromeRegistration(
                 bounds: bounds,
+                resolvedFrame: nil,
                 bottomPadding: bottomPadding,
                 contentLeadingInset: contentLeadingInset,
                 centersInRootHorizontalSpace: centersInRootHorizontalSpace,
@@ -90,6 +93,30 @@ struct RootChromeFrameRegistrationView: View {
                 priority: priority
             )
         }
+    }
+}
+
+struct RootChromeResolvedFrameRegistrationView: View {
+    let frame: CGRect
+    let bottomPadding: CGFloat
+    var contentLeadingInset: CGFloat = 0
+    var centersInRootHorizontalSpace = false
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    var body: some View {
+        Color.clear.preference(
+            key: RootChromeRegistrationPreferenceKey.self,
+            value: RootChromeRegistration(
+                bounds: nil,
+                resolvedFrame: frame,
+                bottomPadding: bottomPadding,
+                contentLeadingInset: contentLeadingInset,
+                centersInRootHorizontalSpace: centersInRootHorizontalSpace,
+                showsMiniPlayer: showsMiniPlayer,
+                priority: priority
+            )
+        )
     }
 }
 
@@ -105,7 +132,7 @@ enum RootChromeLayoutResolver {
             return .hidden
         }
 
-        guard let bounds = registration.bounds else {
+        guard registration.bounds != nil || registration.resolvedFrame != nil else {
             return RootChromeLayout(
                 frame: rootBounds,
                 bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
@@ -116,7 +143,16 @@ enum RootChromeLayoutResolver {
             )
         }
 
-        let visibleFrame = proxy[bounds].intersection(rootBounds)
+        let registeredFrame: CGRect
+        if let resolvedFrame = registration.resolvedFrame {
+            registeredFrame = resolvedFrame
+        } else if let bounds = registration.bounds {
+            registeredFrame = proxy[bounds]
+        } else {
+            registeredFrame = rootBounds
+        }
+
+        let visibleFrame = registeredFrame.intersection(rootBounds)
 
         guard visibleFrame.width > 0, visibleFrame.height > 0 else {
             return .hidden
