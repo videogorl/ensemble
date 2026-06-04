@@ -216,7 +216,7 @@ public struct RootView: View {
                     AuroraVisualizationView(
                         playbackService: DependencyContainer.shared.playbackService,
                         consumer: .rootBackdrop,
-                        accentColor: EnsembleDesign.Color.accent,
+                        accentColor: settingsManager.accentColor.color,
                         isLowPowerMode: isLowPowerMode,
                         activeContentMaxWidth: 670
                     )
@@ -231,7 +231,7 @@ public struct RootView: View {
                     AuroraVisualizationView(
                         playbackService: DependencyContainer.shared.playbackService,
                         consumer: .rootBackdrop,
-                        accentColor: EnsembleDesign.Color.accent,
+                        accentColor: settingsManager.accentColor.color,
                         isLowPowerMode: isLowPowerMode,
                         activeContentMaxWidth: 670
                     )
@@ -255,7 +255,7 @@ public struct RootView: View {
                     RootMiniPlayerOverlay(
                         nowPlayingVM: nowPlayingVM,
                         layout: resolvedRootChromeLayout(from: registration, in: proxy),
-                        accentColor: EnsembleDesign.Color.accent,
+                        accentColor: settingsManager.accentColor.color,
                         namespace: playerNamespace,
                         animationID: artworkAnimationID,
                         presentNowPlaying: presentNowPlayingFromMiniPlayer
