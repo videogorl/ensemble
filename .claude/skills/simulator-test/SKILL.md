@@ -5,14 +5,16 @@ description: "Build, launch, and capture debug logs from the iOS simulator. Use 
 
 # Simulator Test — Build, Launch & Log Capture
 
-Use this skill whenever a change must be validated in the running app. The default path is:
+Use this skill when the `testing` skill calls for runtime proof in the running app. The default path is:
 
 1. Build the app.
 2. Install and launch it in Simulator.
 3. Drive the relevant UI with the iOS Simulator MCP server.
 4. Capture screenshots, accessibility output, and logs as evidence.
 
-Do not treat simulator validation as optional for user-visible work. This skill exists so the agent can iterate without asking the user to manually operate the app.
+This skill exists so the agent can iterate without asking the user to manually operate the app.
+
+For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.sh --capture-startup` after the app is installed. It captures both the simulator OS log stream and the latest `PersistentLogService` session log, then prints a filtered summary.
 
 ---
 
@@ -30,6 +32,17 @@ Use the iOS Simulator MCP server for interaction and state inspection:
 - `screenshot` saves a real screenshot when you need visual proof.
 
 Use shell commands for build/log work, and MCP tools for interaction. That split keeps the iteration loop fast and agent-driven.
+
+## Physical Device Screenshots Via iPhone Mirroring
+
+When validating on a real iPhone through iPhone Mirroring, do not use plain `screencapture` for evidence. It captures the full desktop display and can save the wrong window. Resolve the `iPhone Mirroring` window id first, then target that window explicitly:
+
+```bash
+swift -e 'import CoreGraphics; let opts = CGWindowListOption(arrayLiteral: [.optionOnScreenOnly, .excludeDesktopElements]); if let list = CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]] { for w in list { let owner = w[kCGWindowOwnerName as String] as? String ?? ""; let name = w[kCGWindowName as String] as? String ?? ""; if owner.localizedCaseInsensitiveContains("iPhone") || name.localizedCaseInsensitiveContains("iPhone") { print("\\(w[kCGWindowNumber as String] ?? "?") owner=\\(owner) name=\\(name) bounds=\\(w[kCGWindowBounds as String] ?? [:])") } } }'
+screencapture -x -l <window-id> /tmp/ensemble-device-profile/artifacts/iphone-mirroring-now-playing.png
+```
+
+Use the window-targeted artifact for before/after performance comparisons, especially when collecting Time Profiler or Instruments evidence from a physical device.
 
 ---
 
@@ -233,9 +246,9 @@ echo "=== Captured $(wc -l < /tmp/ensemble-test-log.txt) lines ==="
 
 ---
 
-## Validation Expectations
+## Evidence To Capture
 
-Before calling a task complete, capture enough evidence to support the claim:
+Capture enough evidence to support the claim:
 
 - A passing package test run for the affected package, if the change is non-trivial.
 - Simulator confirmation of the relevant flow using MCP-driven interaction.

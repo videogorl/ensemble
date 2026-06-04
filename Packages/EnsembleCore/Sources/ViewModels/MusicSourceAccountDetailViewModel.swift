@@ -10,6 +10,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let serverPlatform: String?
         public let capabilities: PlexServerCapabilities?
         public let hasPlexPass: Bool
+        public let plexPassSupport: PlexFeatureSupport
+        public let lyricsSupport: PlexFeatureSupport
+        public let radioSupport: PlexFeatureSupport
         public let libraries: [LibraryRow]
 
         public init(
@@ -18,13 +21,19 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             serverPlatform: String?,
             capabilities: PlexServerCapabilities? = nil,
             hasPlexPass: Bool = false,
+            plexPassSupport: PlexFeatureSupport? = nil,
+            lyricsSupport: PlexFeatureSupport? = nil,
+            radioSupport: PlexFeatureSupport? = nil,
             libraries: [LibraryRow]
         ) {
             self.id = id
             self.serverName = serverName
             self.serverPlatform = serverPlatform
             self.capabilities = capabilities
-            self.hasPlexPass = hasPlexPass
+            self.plexPassSupport = plexPassSupport ?? (hasPlexPass ? .supported : capabilities?.plexPassSupport ?? .unknown)
+            self.lyricsSupport = lyricsSupport ?? capabilities?.lyricsSupport ?? .unknown
+            self.radioSupport = radioSupport ?? capabilities?.radioSupport ?? .unknown
+            self.hasPlexPass = self.plexPassSupport.isSupported
             self.libraries = libraries
         }
     }
@@ -240,9 +249,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         error = nil
         defer { isRemovingAccount = false }
 
-        let enabledSources = account.servers.flatMap { server in
+        let accountSources = account.servers.flatMap { server in
             server.libraries.compactMap { library -> MusicSourceIdentifier? in
-                guard library.isEnabled else { return nil }
                 return MusicSourceIdentifier(
                     type: .plex,
                     accountId: account.id,
@@ -255,7 +263,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         accountManager.removePlexAccount(id: account.id)
 
-        for source in enabledSources {
+        for source in accountSources {
             await syncCoordinator.cleanupRemovedSource(source)
         }
 
@@ -360,7 +368,6 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
                 if let existingServer {
                     for removedLibrary in existingServer.libraries where !discoveredKeys.contains(removedLibrary.key) {
-                        guard removedLibrary.isEnabled else { continue }
                         removedSources.insert(
                             MusicSourceIdentifier(
                                 type: .plex,
@@ -380,8 +387,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     url: discoveredServer.url,
                     connections: discoveredServer.connections,
                     token: discoveredServer.token,
+                    owned: discoveredServer.owned,
                     platform: discoveredServer.platform,
-                    capabilities: discoveredServer.capabilities,
+                    capabilities: discoveredServer.capabilities ?? existingServer?.capabilities,
                     libraries: resolvedLibraries
                 )
             )
@@ -389,7 +397,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         // Servers no longer present in discovery are considered removed.
         for existingServer in account.servers where !discoveredServerIDs.contains(existingServer.id) {
-            for library in existingServer.libraries where library.isEnabled {
+            for library in existingServer.libraries {
                 removedSources.insert(
                     MusicSourceIdentifier(
                         type: .plex,
@@ -474,12 +482,18 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                 )
             }
 
+            let serverPlexPassSupport: PlexFeatureSupport = accountHasPlexPass
+                ? .supported
+                : (server.capabilities?.plexPassSupport ?? .unknown)
+
             return ServerSection(
                 id: server.id,
                 serverName: server.name,
                 serverPlatform: server.platform,
                 capabilities: server.capabilities,
-                hasPlexPass: accountHasPlexPass || (server.capabilities?.hasPlexPass ?? false),
+                plexPassSupport: serverPlexPassSupport,
+                lyricsSupport: server.capabilities?.lyricsSupport ?? .unknown,
+                radioSupport: server.capabilities?.radioSupport ?? .unknown,
                 libraries: libraries
             )
         }

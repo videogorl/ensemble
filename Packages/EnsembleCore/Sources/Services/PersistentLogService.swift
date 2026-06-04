@@ -36,9 +36,6 @@ public final class PersistentLogService: ObservableObject {
     /// Maximum number of session files to retain on disk.
     private static let maxSessions = 5
 
-    /// How many writes between forced disk flushes (synchronizeFile).
-    private static let flushInterval = 50
-
     /// UserDefaults key for the logging toggle.
     private static let enabledKey = "persistentLoggingEnabled"
 
@@ -341,7 +338,7 @@ private final class LogFileWriter: @unchecked Sendable {
     /// Flush pending writes to disk without closing the handle.
     /// Keeps the file open so logging continues during background activity.
     func flush() {
-        queue.async { [weak self] in
+        queue.sync { [weak self] in
             self?.fileHandle?.synchronizeFile()
             self?.writeCount = 0
         }

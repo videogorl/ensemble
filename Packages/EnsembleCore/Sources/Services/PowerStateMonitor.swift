@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import os
 
 /// Monitors device low power mode state and publishes changes.
 /// Consumers (Aurora, LyricsCard, OfflineDownloadService) observe `isLowPowerMode`
@@ -28,9 +27,7 @@ public final class PowerStateMonitor: ObservableObject {
                 guard self?.isLowPowerMode != newValue else { return }
                 self?.isLowPowerMode = newValue
 
-                #if DEBUG
                 EnsembleLogger.info("⚡ PowerStateMonitor: Low Power Mode \(newValue ? "enabled" : "disabled")")
-                #endif
             }
     }
 }

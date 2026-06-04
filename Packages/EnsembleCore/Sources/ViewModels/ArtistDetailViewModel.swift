@@ -37,6 +37,7 @@ public final class ArtistDetailViewModel: ObservableObject {
 
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
+        observeMetadataChanges()
     }
 
     private func setupFilterPersistence() {
@@ -51,7 +52,12 @@ public final class ArtistDetailViewModel: ObservableObject {
         error = nil
 
         do {
-            let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
+            let cachedAlbums: [CDAlbum]
+            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
+            } else {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
+            }
             if !cachedAlbums.isEmpty {
                 albums = cachedAlbums.map { Album(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
@@ -69,7 +75,12 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     public func loadTracks() async {
         do {
-            let cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
+            let cachedTracks: [CDTrack]
+            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
+            } else {
+                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
+            }
             if !cachedTracks.isEmpty {
                 tracks = cachedTracks.map { Track(from: $0) }
             } else if let sourceKey = artist.sourceCompositeKey {
@@ -110,6 +121,18 @@ public final class ArtistDetailViewModel: ObservableObject {
             .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadAlbums()
                     await self?.loadTracks()
                 }
             }
@@ -171,44 +194,10 @@ public final class ArtistDetailViewModel: ObservableObject {
     // MARK: - Filter Application
 
     private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {
-        var filtered = albums
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower)
-            }
-        }
-
-        // Year range filter
-        if let yearRange = options.yearRange {
-            filtered = filtered.filter {
-                guard let year = $0.year else { return false }
-                return yearRange.contains(year)
-            }
-        }
-
-        return filtered
+        MediaFilterEngine.filterAlbums(albums, with: options, configuration: .artistDetail)
     }
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        // Downloaded only filter
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .artistDetail)
     }
 }

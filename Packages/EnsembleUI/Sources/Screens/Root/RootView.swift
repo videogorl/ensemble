@@ -1,0 +1,942 @@
+import Combine
+import EnsembleCore
+import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+#if os(macOS)
+import AppKit
+#endif
+
+enum RootChromeCoordinateSpace {
+    static let name = "RootChromeCoordinateSpace"
+}
+
+private struct SoftwareKeyboardVisibleKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isSoftwareKeyboardVisible: Bool {
+        get { self[SoftwareKeyboardVisibleKey.self] }
+        set { self[SoftwareKeyboardVisibleKey.self] = newValue }
+    }
+}
+
+struct RootChromeRegistration {
+    let bounds: Anchor<CGRect>?
+    let bottomPadding: CGFloat
+    let contentLeadingInset: CGFloat
+    let centersInRootHorizontalSpace: Bool
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    static let hidden = RootChromeRegistration(
+        bounds: nil,
+        bottomPadding: 0,
+        contentLeadingInset: 0,
+        centersInRootHorizontalSpace: false,
+        showsMiniPlayer: false,
+        priority: .min
+    )
+}
+
+struct RootChromeLayout: Equatable {
+    let frame: CGRect
+    let bottomPadding: CGFloat
+    let horizontalOffset: CGFloat
+    let showsMiniPlayer: Bool
+
+    static let hidden = RootChromeLayout(
+        frame: .zero,
+        bottomPadding: 0,
+        horizontalOffset: 0,
+        showsMiniPlayer: false
+    )
+
+    var hasRenderableFrame: Bool {
+        frame.width > 0 && frame.height > 0
+    }
+
+    var horizontalAnchor: CGFloat {
+        frame.midX + horizontalOffset
+    }
+}
+
+private struct RootChromeRegistrationPreferenceKey: PreferenceKey {
+    static var defaultValue: RootChromeRegistration = .hidden
+
+    static func reduce(value: inout RootChromeRegistration, nextValue: () -> RootChromeRegistration) {
+        let next = nextValue()
+        if next.priority >= value.priority {
+            value = next
+        }
+    }
+}
+
+struct RootChromeFrameRegistrationView: View {
+    let bottomPadding: CGFloat
+    var contentLeadingInset: CGFloat = 0
+    var centersInRootHorizontalSpace = false
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    var body: some View {
+        Color.clear.anchorPreference(
+            key: RootChromeRegistrationPreferenceKey.self,
+            value: .bounds
+        ) { bounds in
+            RootChromeRegistration(
+                bounds: bounds,
+                bottomPadding: bottomPadding,
+                contentLeadingInset: contentLeadingInset,
+                centersInRootHorizontalSpace: centersInRootHorizontalSpace,
+                showsMiniPlayer: showsMiniPlayer,
+                priority: priority
+            )
+        }
+    }
+}
+
+private struct RootMiniPlayerOverlay: View {
+    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let layout: RootChromeLayout
+    let accentColor: Color
+    let namespace: Namespace.ID
+    let animationID: String
+    let presentNowPlaying: () -> Void
+
+    private var isPhoneLayout: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
+    private var miniPlayerHorizontalPadding: CGFloat {
+        isPhoneLayout ? 8 : 20
+    }
+
+    private var miniPlayerWidth: CGFloat {
+        if isPhoneLayout {
+            // Keep the mini player aligned to the tab bar capsule while leaving
+            // just enough extra width to avoid looking visually under-hung.
+            return max(layout.frame.width - 28, 0)
+        }
+        return min(620, max(layout.frame.width - 32, 0))
+    }
+
+    var body: some View {
+        if layout.showsMiniPlayer && layout.hasRenderableFrame && miniPlayerWidth > 0 {
+            MiniPlayer(
+                viewModel: nowPlayingVM,
+                isFloating: true,
+                showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
+                waveformColor: accentColor,
+                horizontalPadding: miniPlayerHorizontalPadding,
+                namespace: namespace,
+                animationID: animationID
+            ) {
+                withAnimation(.interactiveSpring(response: 0.45, dampingFraction: 0.85)) {
+                    presentNowPlaying()
+                }
+            }
+            .accentColor(accentColor)
+            .frame(width: miniPlayerWidth)
+            .padding(.bottom, layout.bottomPadding)
+            .frame(
+                width: layout.frame.width,
+                height: layout.frame.height,
+                alignment: .bottom
+            )
+            .offset(x: layout.frame.minX, y: layout.frame.minY)
+            .offset(x: layout.horizontalOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .animation(rootChromeLayoutAnimation, value: layout.horizontalAnchor)
+            .transition(.identity)
+        }
+    }
+
+    private var rootChromeLayoutAnimation: Animation {
+        .easeInOut(duration: 0.25)
+    }
+}
+
+/// Root view that renders the main content directly (no auth gate)
+@available(iOS 15.0, macOS 12.0, *)
+public struct RootView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @StateObject private var navigationCoordinator: NavigationCoordinator
+    @StateObject private var nowPlayingVM: NowPlayingViewModel
+    @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
+    @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
+    @State private var isNowPlayingPresented = false
+    @State private var sidebarSelection: SidebarSelection? = .library(.home)
+    @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
+    @State private var isSoftwareKeyboardVisible = false
+    @Namespace private var playerNamespace
+    private let artworkAnimationID = "nowPlayingArtwork"
+
+    private var auroraAboveContent: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        true
+        #endif
+    }
+
+    private var showsRootBackgroundAurora: Bool {
+        #if os(iOS)
+        UIDevice.current.userInterfaceIdiom != .phone
+        #else
+        true
+        #endif
+    }
+
+    public init() {
+        let navigationCoordinator = NavigationCoordinator()
+        _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
+        _nowPlayingVM = StateObject(
+            wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel(
+                navigationCoordinator: navigationCoordinator
+            )
+        )
+    }
+
+    public var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                if settingsManager.auroraVisualizationEnabled &&
+                    !isNowPlayingPresented &&
+                    showsRootBackgroundAurora &&
+                    !auroraAboveContent {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        consumer: .rootBackdrop,
+                        accentColor: EnsembleDesign.Color.accent,
+                        isLowPowerMode: isLowPowerMode,
+                        activeContentMaxWidth: 670
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(0)
+                }
+
+                mainContentView
+                    .zIndex(1)
+
+                if settingsManager.auroraVisualizationEnabled && !isNowPlayingPresented && auroraAboveContent {
+                    AuroraVisualizationView(
+                        playbackService: DependencyContainer.shared.playbackService,
+                        consumer: .rootBackdrop,
+                        accentColor: EnsembleDesign.Color.accent,
+                        isLowPowerMode: isLowPowerMode,
+                        activeContentMaxWidth: 670
+                    )
+                    .allowsHitTesting(false)
+                    .zIndex(2)
+                }
+
+                if supportsViewportNowPlayingPresentation && isNowPlayingPresented {
+                    NowPlayingViewportRoot(
+                        viewModel: nowPlayingVM,
+                        dismissAction: dismissNowPlaying
+                    )
+                    .accentColor(settingsManager.accentColor.color)
+                    .transition(.opacity)
+                    .zIndex(10)
+                }
+            }
+            .coordinateSpace(name: RootChromeCoordinateSpace.name)
+            .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
+                if !isNowPlayingPresented && !isSoftwareKeyboardVisible {
+                    RootMiniPlayerOverlay(
+                        nowPlayingVM: nowPlayingVM,
+                        layout: resolvedRootChromeLayout(from: registration, in: proxy),
+                        accentColor: EnsembleDesign.Color.accent,
+                        namespace: playerNamespace,
+                        animationID: artworkAnimationID,
+                        presentNowPlaying: presentNowPlayingFromMiniPlayer
+                    )
+                    .zIndex(5)
+                }
+            }
+            .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
+            .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+            .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)
+            .environment(\.artworkDetailBackgroundContinuity, artworkDetailBackgroundContinuity)
+            .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
+            .environmentObject(navigationCoordinator)
+            .accentColor(settingsManager.accentColor.color)
+            .onAppear {
+                NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
+                NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+                updateAppearance()
+                DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            }
+            .onDisappear {
+                NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
+                NavigationCoordinator.clearActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+            }
+            .onChange(of: scenePhase) { phase in
+                if phase == .active {
+                    NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
+                    NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+                }
+            }
+            .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
+                updateAppearance()
+            }
+            .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
+                isLowPowerMode = newValue
+            }
+            #if canImport(UIKit)
+            .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
+                if newValue != isSoftwareKeyboardVisible {
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        isSoftwareKeyboardVisible = newValue
+                    }
+                }
+            }
+            #endif
+            .modifier(NowPlayingPresentationModifier(rootView: self))
+            .task {
+                let deps = DependencyContainer.shared
+                deps.accountManager.loadAccounts()
+                // Pre-populate server health states so tracks from unchecked servers
+                // are dimmed until health checks confirm reachability.
+                deps.serverHealthChecker.prepopulateUnknownStates()
+                deps.syncCoordinator.refreshProviders()
+                _ = await deps.siriMediaIndexStore.rebuildIndex()
+            }
+        }
+        .macRootWindowMinimumFrame()
+        .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
+    }
+
+    #if canImport(UIKit)
+    private static var softwareKeyboardVisibilityPublisher: AnyPublisher<Bool, Never> {
+        Publishers.Merge(
+            NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+                .map { _ in true },
+            NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)
+                .map { _ in false }
+        )
+        .removeDuplicates()
+        .eraseToAnyPublisher()
+    }
+    #endif
+
+    private func updateAppearance() {
+        #if canImport(UIKit)
+        if #available(iOS 16.0, *) {
+            return
+        }
+
+        let tabBarAppearance = UITabBarAppearance()
+
+        if settingsManager.auroraVisualizationEnabled {
+            tabBarAppearance.configureWithTransparentBackground()
+        } else {
+            tabBarAppearance.configureWithDefaultBackground()
+        }
+
+        let navAppearance = UINavigationBarAppearance()
+        if settingsManager.auroraVisualizationEnabled {
+            navAppearance.configureWithTransparentBackground()
+        } else {
+            navAppearance.configureWithDefaultBackground()
+        }
+
+        // iOS 15 fix: scrollEdgeAppearance via appearance proxy doesn't reliably
+        // apply, leaving tab bar/toolbar with no background. Explicitly set a blur
+        // effect so content doesn't scroll behind chrome.
+        let chromeRole = EnsembleDesign.Material.Role.sidebar
+        let bgAlpha = chromeRole.chromeBackgroundAlpha(
+            auroraEnabled: settingsManager.auroraVisualizationEnabled
+        )
+        let blurStyle = chromeRole.chromeBlurStyle
+
+        navAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        navAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+
+        tabBarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        tabBarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+
+        let toolbarAppearance = UIToolbarAppearance()
+        toolbarAppearance.backgroundEffect = UIBlurEffect(style: blurStyle)
+        toolbarAppearance.backgroundColor = .systemBackground.withAlphaComponent(bgAlpha)
+        UIToolbar.appearance().standardAppearance = toolbarAppearance
+        UIToolbar.appearance().scrollEdgeAppearance = toolbarAppearance
+
+        UINavigationBar.appearance().standardAppearance = navAppearance
+        UINavigationBar.appearance().scrollEdgeAppearance = navAppearance
+        UINavigationBar.appearance().compactAppearance = navAppearance
+        UITabBar.appearance().standardAppearance = tabBarAppearance
+        UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+        #endif
+    }
+
+    @ViewBuilder
+    private var mainContentView: some View {
+        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
+        case .sidebar:
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM)
+            }
+            #elseif os(macOS)
+            if #available(macOS 13.0, *) {
+                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
+            } else {
+                MainTabView(nowPlayingVM: nowPlayingVM)
+            }
+            #else
+            MainTabView(nowPlayingVM: nowPlayingVM)
+            #endif
+        case .tabs:
+            MainTabView(nowPlayingVM: nowPlayingVM)
+        }
+    }
+
+    private func resolvedRootChromeLayout(
+        from registration: RootChromeRegistration,
+        in proxy: GeometryProxy
+    ) -> RootChromeLayout {
+        let rootBounds = CGRect(origin: .zero, size: proxy.size)
+
+        guard rootBounds.width > 0,
+              rootBounds.height > 0 else {
+            return .hidden
+        }
+
+        guard let bounds = registration.bounds else {
+            return RootChromeLayout(
+                frame: rootBounds,
+                bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                    safeAreaBottom: proxy.safeAreaInsets.bottom
+                ),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            )
+        }
+
+        let visibleFrame = proxy[bounds].intersection(rootBounds)
+
+        guard visibleFrame.width > 0, visibleFrame.height > 0 else {
+            return .hidden
+        }
+
+        return RootChromeLayout(
+            frame: visibleFrame,
+            bottomPadding: registration.bottomPadding,
+            horizontalOffset: rootChromeHorizontalOffset(
+                for: visibleFrame,
+                rootBounds: rootBounds,
+                contentLeadingInset: registration.contentLeadingInset,
+                centersInRootHorizontalSpace: registration.centersInRootHorizontalSpace
+            ),
+            showsMiniPlayer: registration.showsMiniPlayer
+        )
+    }
+
+    private func rootChromeHorizontalOffset(
+        for visibleFrame: CGRect,
+        rootBounds: CGRect,
+        contentLeadingInset: CGFloat,
+        centersInRootHorizontalSpace: Bool
+    ) -> CGFloat {
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            return 0
+        }
+
+        if centersInRootHorizontalSpace {
+            return rootBounds.midX - visibleFrame.midX
+        }
+
+        guard visibleFrame.minX <= 1 else {
+            return 0
+        }
+
+        let missingLeadingOffset = rootBounds.width - visibleFrame.width
+        if missingLeadingOffset > 1 {
+            return missingLeadingOffset
+        }
+
+        guard contentLeadingInset > 0 else {
+            return 0
+        }
+
+        return contentLeadingInset / 2
+        #else
+        return 0
+        #endif
+    }
+
+    fileprivate var supportsViewportNowPlayingPresentation: Bool {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    fileprivate var usesFullScreenNowPlayingPresentation: Bool {
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return UIDevice.current.userInterfaceIdiom == .pad
+        }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    private var usesSidebarRootNavigationShell: Bool {
+        switch EnsemblePlatformFeaturePolicy.currentRootNavigationShell {
+        case .sidebar:
+            #if os(iOS)
+            if #available(iOS 16.0, *) {
+                return true
+            }
+            return false
+            #elseif os(macOS)
+            if #available(macOS 13.0, *) {
+                return true
+            }
+            return false
+            #else
+            return false
+            #endif
+        case .tabs:
+            return false
+        }
+    }
+
+    fileprivate var nowPlayingPresentationContent: some View {
+        NowPlayingSheetView(
+            viewModel: nowPlayingVM,
+            dismissAction: dismissNowPlaying
+        )
+        .accentColor(settingsManager.accentColor.color)
+        .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
+        .environmentObject(navigationCoordinator)
+    }
+
+    fileprivate var nowPlayingPresentationBinding: Binding<Bool> {
+        $isNowPlayingPresented
+    }
+
+    private func presentNowPlayingFromMiniPlayer() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
+        withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+            isNowPlayingPresented = true
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
+        }
+    }
+
+    private func dismissNowPlaying() {
+        let scheduler = DependencyContainer.shared.foregroundWorkScheduler
+        scheduler.beginInteraction(.nowPlayingInteractive)
+        withAnimation(.interactiveSpring(response: 0.4, dampingFraction: 0.9)) {
+            isNowPlayingPresented = false
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            scheduler.endInteraction(.nowPlayingInteractive)
+        }
+        if supportsViewportNowPlayingPresentation {
+            completeNowPlayingDismissal()
+        }
+    }
+
+    fileprivate func completeNowPlayingDismissal() {
+        guard let pending = navigationCoordinator.pendingNavigation else { return }
+        navigationCoordinator.pendingNavigation = nil
+
+        let targetTab: TabItem
+        if usesSidebarRootNavigationShell {
+            sidebarSelection = SidebarSelection.selection(
+                for: pending.destination,
+                fallback: sidebarSelection
+            )
+            targetTab = NavigationCoordinator.targetTab(for: pending.destination)
+        } else {
+            targetTab = pending.tab
+        }
+
+        navigationCoordinator.selectedTab = targetTab
+        navigationCoordinator.push(pending.destination, in: targetTab)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func macRootWindowMinimumFrame() -> some View {
+        #if os(macOS)
+        self.frame(
+            minWidth: EnsembleScaffold.RootWindow.macMinimumWidth,
+            minHeight: EnsembleScaffold.RootWindow.macMinimumHeight
+        )
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func macViewportNowPlayingWindowChromeHidden(_ isHidden: Bool) -> some View {
+        #if os(macOS)
+        self.background(
+            MacWindowNowPlayingChromeBridge(
+                isHidden: isHidden
+            )
+        )
+        #else
+        self
+        #endif
+    }
+}
+
+#if os(macOS)
+private struct MacWindowNowPlayingChromeBridge: NSViewRepresentable {
+    let isHidden: Bool
+
+    func makeNSView(context: Context) -> NowPlayingChromeProbeView {
+        let view = NowPlayingChromeProbeView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }
+
+    func updateNSView(_ nsView: NowPlayingChromeProbeView, context: Context) {
+        nsView.isToolbarHidden = isHidden
+        nsView.applyWindowChrome()
+    }
+
+    final class NowPlayingChromeProbeView: NSView {
+        var isToolbarHidden = false
+        private weak var appliedWindow: NSWindow?
+        private var didCaptureOriginalChrome = false
+        private var originalTitle: String?
+        private var originalStyleMask: NSWindow.StyleMask?
+        private var originalTitleVisibility: NSWindow.TitleVisibility?
+        private var originalTitlebarAppearsTransparent: Bool?
+        private var originalTitlebarSeparatorStyle: NSTitlebarSeparatorStyle?
+        private var originalToolbarStyle: NSWindow.ToolbarStyle?
+        private var originalToolbarBaselineSeparatorVisibility: Bool?
+        private var originalToolbarChromeViewVisibility: [ObjectIdentifier: (view: NSView, isHidden: Bool)] = [:]
+        private var isReapplyScheduled = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+
+            if let appliedWindow, appliedWindow !== window {
+                restoreAppliedWindowIfNeeded()
+                self.appliedWindow = nil
+            }
+
+            applyWindowChrome()
+        }
+
+        func applyWindowChrome() {
+            guard let window else {
+                restoreAppliedWindowIfNeeded()
+                return
+            }
+
+            if appliedWindow !== window {
+                restoreAppliedWindowIfNeeded()
+                appliedWindow = window
+            }
+
+            if isToolbarHidden {
+                applyNowPlayingChrome(on: window)
+            } else {
+                restoreWindowChrome(on: window)
+            }
+        }
+
+        override func removeFromSuperview() {
+            restoreAppliedWindowIfNeeded()
+            super.removeFromSuperview()
+        }
+
+        deinit {
+            restoreAppliedWindowIfNeeded()
+        }
+
+        private func restoreAppliedWindowIfNeeded() {
+            guard let appliedWindow else { return }
+            restoreWindowChrome(on: appliedWindow)
+            self.appliedWindow = nil
+        }
+
+        private func applyNowPlayingChrome(on window: NSWindow) {
+            captureOriginalChromeIfNeeded(from: window)
+            applyHiddenTitlebarChrome(on: window)
+            setToolbarChromeHidden(true, on: window)
+
+            validateWindowButtons(on: window)
+            scheduleToolbarReapplyIfNeeded(for: window)
+        }
+
+        private func applyHiddenTitlebarChrome(on window: NSWindow) {
+            window.title = ""
+            window.styleMask.insert(.fullSizeContentView)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+        }
+
+        private func captureOriginalChromeIfNeeded(from window: NSWindow) {
+            guard !didCaptureOriginalChrome else { return }
+
+            didCaptureOriginalChrome = true
+            originalTitle = window.title
+            originalStyleMask = window.styleMask
+            originalTitleVisibility = window.titleVisibility
+            originalTitlebarAppearsTransparent = window.titlebarAppearsTransparent
+            originalTitlebarSeparatorStyle = window.titlebarSeparatorStyle
+            originalToolbarStyle = window.toolbarStyle
+        }
+
+        private func restoreWindowChrome(on window: NSWindow) {
+            guard didCaptureOriginalChrome else { return }
+
+            restoreToolbarItems(on: window.toolbar)
+
+            if let originalTitle {
+                window.title = originalTitle
+            }
+
+            if let originalStyleMask {
+                window.styleMask = originalStyleMask
+            }
+
+            if let originalTitleVisibility {
+                window.titleVisibility = originalTitleVisibility
+            }
+
+            if let originalTitlebarAppearsTransparent {
+                window.titlebarAppearsTransparent = originalTitlebarAppearsTransparent
+            }
+
+            if let originalTitlebarSeparatorStyle {
+                window.titlebarSeparatorStyle = originalTitlebarSeparatorStyle
+            }
+
+            if let originalToolbarStyle {
+                window.toolbarStyle = originalToolbarStyle
+            }
+
+            didCaptureOriginalChrome = false
+            originalTitle = nil
+            originalStyleMask = nil
+            originalTitleVisibility = nil
+            originalTitlebarAppearsTransparent = nil
+            originalTitlebarSeparatorStyle = nil
+            originalToolbarStyle = nil
+            isReapplyScheduled = false
+        }
+
+        private func scheduleToolbarReapplyIfNeeded(for window: NSWindow) {
+            guard !isReapplyScheduled else { return }
+            isReapplyScheduled = true
+
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self else { return }
+                self.isReapplyScheduled = false
+                guard self.isToolbarHidden,
+                      let window,
+                      self.appliedWindow === window else {
+                    return
+                }
+
+                self.applyHiddenTitlebarChrome(on: window)
+                self.setToolbarChromeHidden(true, on: window)
+                self.validateWindowButtons(on: window)
+            }
+        }
+
+        private func setToolbarChromeHidden(_ isHidden: Bool, on window: NSWindow) {
+            guard let toolbar = window.toolbar else { return }
+
+            if originalToolbarBaselineSeparatorVisibility == nil {
+                originalToolbarBaselineSeparatorVisibility = toolbar.showsBaselineSeparator
+            }
+            toolbar.showsBaselineSeparator = !isHidden
+
+            let protectedWindowButtons = protectedWindowButtonIdentifiers(in: window)
+
+            toolbar.visibleItems?.forEach { item in
+                toolbarChromeViews(for: item).forEach { chromeView in
+                    guard !protectedWindowButtons.contains(ObjectIdentifier(chromeView)) else { return }
+                    setToolbarChromeView(chromeView, hidden: isHidden)
+                }
+            }
+
+            setTitlebarHostChromeHidden(
+                isHidden,
+                in: window,
+                protectedWindowButtons: protectedWindowButtons
+            )
+        }
+
+        private func protectedWindowButtonIdentifiers(in window: NSWindow) -> Set<ObjectIdentifier> {
+            Set(
+                [
+                    window.standardWindowButton(.closeButton),
+                    window.standardWindowButton(.miniaturizeButton),
+                    window.standardWindowButton(.zoomButton)
+                ]
+                .compactMap { $0 }
+                .map(ObjectIdentifier.init)
+            )
+        }
+
+        private func toolbarChromeViews(for item: NSToolbarItem) -> [NSView] {
+            guard let itemView = item.view else { return [] }
+
+            var views = [itemView]
+            var candidateView = itemView.superview
+
+            while let candidate = candidateView {
+                let className = NSStringFromClass(type(of: candidate))
+                let superviewClassName = candidate.superview.map { NSStringFromClass(type(of: $0)) } ?? ""
+
+                if className.contains("ToolbarItem") ||
+                    className.contains("NSToolbarItem") ||
+                    superviewClassName.contains("ToolbarView") {
+                    views.append(candidate)
+                    break
+                }
+
+                candidateView = candidate.superview
+            }
+
+            return views
+        }
+
+        private func setTitlebarHostChromeHidden(
+            _ isHidden: Bool,
+            in window: NSWindow,
+            protectedWindowButtons: Set<ObjectIdentifier>
+        ) {
+            guard let themeFrame = window.contentView?.superview else { return }
+            themeFrame.allDescendants().forEach { view in
+                guard !protectedWindowButtons.contains(ObjectIdentifier(view)),
+                      shouldHideTitlebarHostChrome(view) else {
+                    return
+                }
+
+                setToolbarChromeView(view, hidden: isHidden)
+            }
+        }
+
+        private func shouldHideTitlebarHostChrome(_ view: NSView) -> Bool {
+            guard isInsideTitlebarContainer(view) else { return false }
+
+            let className = NSStringFromClass(type(of: view))
+            let layerClassName = view.layer.map { NSStringFromClass(type(of: $0)) } ?? ""
+
+            return className.contains("NSToolbarView") ||
+                className.contains("NSGlassContainerView") ||
+                className.contains("NSToolbarPlatterView") ||
+                className.contains("NSGlassEffectView") ||
+                className.contains("_NSTitlebarDecorationView") ||
+                className.contains("NSTitlebarContainerBlockingView") ||
+                layerClassName.contains("CABackdropLayer")
+        }
+
+        private func isInsideTitlebarContainer(_ view: NSView) -> Bool {
+            var candidateView = view.superview
+            while let candidate = candidateView {
+                if NSStringFromClass(type(of: candidate)).contains("NSTitlebarContainerView") {
+                    return true
+                }
+                candidateView = candidate.superview
+            }
+            return false
+        }
+
+        private func setToolbarChromeView(_ view: NSView, hidden: Bool) {
+            let identifier = ObjectIdentifier(view)
+            if originalToolbarChromeViewVisibility[identifier] == nil {
+                originalToolbarChromeViewVisibility[identifier] = (view, view.isHidden)
+            }
+            view.isHidden = hidden
+        }
+
+        private func restoreToolbarItems(on toolbar: NSToolbar?) {
+            if let originalToolbarBaselineSeparatorVisibility {
+                toolbar?.showsBaselineSeparator = originalToolbarBaselineSeparatorVisibility
+                self.originalToolbarBaselineSeparatorVisibility = nil
+            }
+
+            for (_, visibility) in originalToolbarChromeViewVisibility {
+                visibility.view.isHidden = visibility.isHidden
+            }
+            originalToolbarChromeViewVisibility.removeAll()
+        }
+
+        private func validateWindowButtons(on window: NSWindow) {
+            #if DEBUG
+            let buttonTypes: [NSWindow.ButtonType] = [
+                .closeButton,
+                .miniaturizeButton,
+                .zoomButton
+            ]
+
+            for buttonType in buttonTypes {
+                guard let button = window.standardWindowButton(buttonType), !button.isHidden else {
+                    EnsembleLogger.debug("[NowPlayingChrome] Missing or hidden standard window button: \(buttonType.rawValue)")
+                    continue
+                }
+            }
+            #endif
+        }
+    }
+}
+
+private extension NSView {
+    func allDescendants() -> [NSView] {
+        subviews + subviews.flatMap { $0.allDescendants() }
+    }
+}
+#endif
+
+private struct NowPlayingPresentationModifier: ViewModifier {
+    let rootView: RootView
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if rootView.usesFullScreenNowPlayingPresentation {
+            content.fullScreenCover(
+                isPresented: rootView.nowPlayingPresentationBinding,
+                onDismiss: rootView.completeNowPlayingDismissal
+            ) {
+                rootView.nowPlayingPresentationContent
+            }
+        } else {
+            content.sheet(
+                isPresented: rootView.nowPlayingPresentationBinding,
+                onDismiss: rootView.completeNowPlayingDismissal
+            ) {
+                rootView.nowPlayingPresentationContent
+            }
+        }
+        #else
+        content
+        #endif
+    }
+}

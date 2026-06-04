@@ -14,6 +14,7 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let notificationCenter: NotificationCenter
+    private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
     private var observerToken: NSObjectProtocol?
     // Track last published count to skip duplicate updates
     private var lastPublishedItemCount: Int?
@@ -21,11 +22,13 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.notificationCenter = notificationCenter
+        self.enabledSourceKeysProvider = enabledSourceKeysProvider
         
         // Listen for sync completion notifications to update context automatically
         observerToken = notificationCenter.addObserver(
@@ -48,11 +51,25 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
     
     public func updateMediaUserContext() async {
         do {
+            let enabledLibrarySourceKeys = enabledSourceKeysProvider?()
+            let playlistSourceKeys = enabledLibrarySourceKeys.map {
+                SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
+            }
+
             // Gather library statistics
-            let trackCount = try await libraryRepository.fetchTracks().count
-            let albumCount = try await libraryRepository.fetchAlbums().count
-            let playlistCount = try await playlistRepository.fetchPlaylists().count
-            let totalItems = trackCount + albumCount + playlistCount
+            let trackCount = try await libraryRepository.fetchTracks()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .count
+            let albumCount = try await libraryRepository.fetchAlbums()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .count
+            let artistCount = try await libraryRepository.fetchArtists()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .count
+            let playlistCount = try await playlistRepository.fetchPlaylists()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
+                .count
+            let totalItems = trackCount + albumCount + artistCount + playlistCount
 
             // Skip if the count hasn't changed since last publish
             guard totalItems != lastPublishedItemCount else {
@@ -60,19 +77,16 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
                 return
             }
 
-            // Determine subscription status based on whether user has content
-            let subscriptionStatus: INMediaUserContext.SubscriptionStatus = totalItems > 0 ? .subscribed : .notSubscribed
-
             // Create and configure media user context
             let context = INMediaUserContext()
             context.numberOfLibraryItems = totalItems
-            context.subscriptionStatus = subscriptionStatus
+            context.subscriptionStatus = .unknown
 
             // Share context with Siri
             context.becomeCurrent()
             lastPublishedItemCount = totalItems
 
-            EnsembleLogger.debug("🎯 Updated INMediaUserContext: \(totalItems) items (\(trackCount) tracks, \(albumCount) albums, \(playlistCount) playlists), status=\(subscriptionStatus.rawValue)")
+            EnsembleLogger.debug("🎯 Updated INMediaUserContext: \(totalItems) items (\(trackCount) tracks, \(albumCount) albums, \(artistCount) artists, \(playlistCount) playlists), status=unknown")
         } catch {
             EnsembleLogger.debug("⚠️ Failed to update INMediaUserContext: \(error.localizedDescription)")
         }
@@ -90,14 +104,17 @@ public protocol SiriMediaUserContextManagerProtocol: Sendable {
 public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProtocol {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
     
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.enabledSourceKeysProvider = enabledSourceKeysProvider
     }
     
     public func updateMediaUserContext() async {

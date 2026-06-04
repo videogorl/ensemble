@@ -1,0 +1,579 @@
+---
+name: known-issues
+description: "Ensemble known issues and technical debt: critical bugs, feature gaps, infrastructure debt. Use when investigating bugs, planning work, or understanding limitations."
+---
+
+# Known Issues Archive
+
+This is the pre-cleanup long-form known-issues skill archived on May 13, 2026. The canonical hot-path skill is `.claude/skills/known-issues/SKILL.md`; use this file when resolved incident history is useful.
+
+# Ensemble Known Issues & Technical Debt
+
+## Critical
+
+No unresolved critical issues currently documented.
+
+## Known Limitations
+
+### macOS 26 Feed Toolbar Liquid Glass Sampling (May 10, 2026)
+- **Location:** `HomeView.swift`, `CollapsingToolbar.swift`, `ArtworkDetailBackground.swift`
+- **Issue:** Feed's macOS 26 toolbar no longer shows an opaque custom background, but native Liquid Glass scroll-edge color bleed is still not fully equivalent to the post-navigation state. The toolbar starts closer to the desired translucent state after the background host is mounted immediately, yet the OS-provided bleed can still be less vivid until navigation invalidates the detail hierarchy.
+- **Root cause hypothesis:** The Feed artwork wash is loaded asynchronously and the root `NavigationSplitView`/toolbar scroll-edge relationship appears to cache its sampling source before the final artwork-backed surface is in place. Pushing into an item and returning forces SwiftUI/AppKit to rebuild enough of the detail column for native sampling to behave as expected.
+- **Rejected workaround:** Forcing the Feed `ScrollView` under the toolbar with `.ignoresSafeArea(.container, edges: .top)` and a hardcoded top safe-area padding clipped the first row. A window-level `containerBackground(for: .window)` made the whole Feed look washed instead of letting the toolbar sample real content.
+- **Current status:** Keep the extension-backed `ArtworkDetailBackground` mounted from first render, keep macOS 26 toolbar background hidden, and avoid custom scroll padding/window-wide backgrounds. Future work should look for a root `NavigationSplitView`/detail-column ownership fix rather than adding leaf-view toolbar shims.
+
+### watchOS Standalone V1 Limitations (May 11, 2026)
+- **Location:** `Packages/EnsembleDomain`, `Packages/EnsemblePlex`, `Packages/EnsembleWatchCore`, `EnsembleWatch/Views/WatchRootView.swift`
+- **Issue:** The watch target now has standalone Plex Link/iCloud credential bootstrap, selected-library browsing, watch-local playback, and phone remote Now Playing, but it is still a compact V1 implementation.
+- **Current status:** Watch code intentionally avoids `EnsembleCore` and `EnsembleUI`. It uses watch-specific packages, capped metadata snapshots, lazy detail loading, and low-bitrate stream resolution. KVS pins/library flags are only available on watchOS 9+; watchOS 8 degrades to local cached/default selection behavior.
+- **Known limitation:** Downloads are not included in V1. The iOS app target no longer embeds the watch app during simulator builds because SwiftPM watch-only package linking resolves incorrectly under the iPhone simulator configuration; build and run the independent watch app with the `EnsembleWatch` scheme.
+- **Future fix:** Add watch-specific manual downloads later with independent storage/execution and revisit App Store packaging once the independent watch distribution path is finalized.
+
+### iOS 26 Keyboard Presenter Guardrails (Apr 13, 2026)
+- **Location:** `View+Extensions.swift`, `MainTabView.swift`, `PlaylistsView.swift`, `ProfileView.swift`, filter screens
+- **Issue:** A broad iPhone workaround pushed ordinary text-input flows into `keyboardSafeEditorPresentation(...)` and pre-hidden chrome. That masked the real root-layout issue, swallowed valid presentations, and forced unnecessary full-screen editors.
+- **Root cause found:** Playlists create/rename sheets triggered an iOS 26 `NavigationBarContentView` observation feedback loop because the underlying Playlists searchable/navigation chrome stayed live behind the focused modal. Album-library metadata editing then showed the opposite failure: observing the root metadata editor request from the grid screen caused the underlying Albums navigation/search chrome to hide on open and restore during interactive dismissal, racing the keyboard teardown and re-entering the same UIKit loop. Wrapping `TextInputView` itself in a sheet-local `NavigationStack` reproduced the loop on text-field focus even after the album grid owned presentation locally. A final Album repro showed `AlbumsView` repeatedly registering/unregistering StageFlow rotation tokens while the metadata sheet was visible, freezing the app even before the keyboard appeared.
+- **Current rule:** Ordinary short rename/create/filter flows should use native presentation again: playlist rename is a `TextField` alert, while playlist creation, profile-name editing, filters, and metadata editors use normal sheets. Parent screens may suppress only their own active navigation/search chrome while presenting a local modal if logs prove that parent chrome is the loop source. Album card/grid context menus own their metadata sheet locally, while remaining root-owned context-menu metadata editors use normal sheets backed by the shared `TextInputView`; library/grid screens should not observe the root metadata request just to mutate their own chrome. Keep short iPhone text editors out of sheet-local navigation stacks unless they genuinely need navigation. StageFlow rotation is root-owned in `MainTabView`; library screens may swap content from `EnvironmentValues.isStageFlowActive` but must not register/unregister their own rotation tokens.
+- **Practical impact:** If a future change reaches for a full-screen keyboard-safe presenter by default, treat that as a likely regression unless the root presenter is demonstrably unstable with a normal sheet.
+
+### iOS 26 Simulator Keyboard Haptics Log Noise (Apr 7, 2026)
+- **Location:** Simulator runtime only, triggered while opening text-input flows such as the Profile name editor
+- **Issue:** The iOS 26 simulator logs repeated CoreHaptics errors like `_UIKBFeedbackGenerator: Error creating CHHapticPattern` and `hapticpatternlibrary.plist couldn’t be opened` when the software keyboard appears
+- **Root cause:** This is UIKit's keyboard haptics path (`_UIKBFeedbackGenerator`), not Ensemble's own haptics code. The simulator is missing `/Library/Audio/Tunings/Generic/Haptics/Library/hapticpatternlibrary.plist`, so CoreHaptics fails while trying to build the keyboard feedback patterns
+- **Impact:** Console noise only in the simulator. No known app behavior regression, and this should not affect physical devices with normal system haptics assets
+- **Verification:** Code search showed no direct `CHHapticPattern`/`CoreHaptics` usage in the Profile editor path; the only app-owned feedback calls are standard `UISelectionFeedbackGenerator`/`UIImpactFeedbackGenerator` usages outside startup text-input presentation
+- **Workarounds:** Ignore in simulator logs, use a connected hardware keyboard, or disable keyboard haptics in the simulator's Settings app if available
+
+### macOS Instrumental Mode — Complement-Based Vocal Removal (Mar 31, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`applyIsolationParameters`, `loadHighQualityVoiceModel`, `createIsolationEffect`)
+- **Issue:** On macOS, AUSoundIsolation always isolates vocals regardless of the `soundToIsolate` parameter or model loaded. On iOS, the v0 model with `soundToIsolate=0.0` directly outputs a clean instrumental stem. macOS has no equivalent direct instrumental output.
+- **Root cause:** AUSoundIsolation on macOS is built for voice isolation (FaceTime, calls). The AU's neural network always targets vocals. Apple Music Sing (which uses this AU) is not available on macOS even as of macOS 26, confirming Apple hasn't shipped direct instrumental isolation on the platform.
+- **Current solution:** Use the high-quality-voice model (`aufx-vois-appl-nnet-vi-high-quality-voice.plist`, MIL2BNNS backend) with `soundToIsolate=1.0` + `wetDryMix=-100` (full complement = original minus vocals). Dereverb network enabled for additional cleanup. This achieves ~95% of iOS quality.
+- **Remaining artifact:** Vocal bleed during loud chorus sections — the complement approach (phase cancellation) is inherently lossy. Vocals "fight through" because the neural network's vocal isolation isn't perfect, so the subtraction leaves residual vocal energy.
+- **Experiments conducted (Mar 31, 2026):**
+
+  | # | Model | soundToIsolate | wetDryMix | Result |
+  |---|-------|---------------|-----------|--------|
+  | 1 | v0 (Espresso) | 1.0 | 92.5 | Clear vocals only (confirmed AU isolates vocals) |
+  | 2 | v0 (Espresso) | 0.0 | 92.5 | Dampened vocals (same params as iOS — doesn't work) |
+  | 3 | v0 (Espresso) | 1.0 | -100 | Mostly instruments, vocals fighting through |
+  | 4 | None (default AU) | 0.0 | 92.5 | Vocals with instrument bleed |
+  | 5 | HQ Voice (MIL2BNNS) | 1.0 | -100 | ~95% of iOS quality |
+  | 6 | HQ Voice + dereverb | 1.0 | -100 | ~95% of iOS (chosen solution) |
+  | 7 | v0 + dereverb | 1.0 | -100 | Worse than HQ Voice |
+
+- **Key findings:**
+  - The `soundToIsolate` parameter has NO effect on macOS — AU always isolates vocals
+  - The high-quality-voice model (MIL2BNNS) produces cleaner vocal isolation than v0 (Espresso) on macOS
+  - Dereverb has minimal audible impact but doesn't hurt — kept enabled as a safety net
+  - Model files exist on macOS at `/System/Library/Components/AudioDSP.component/Contents/Resources/Tunings/Generic/AU/SoundIsolation/`
+  - v0 model plist: `aufx-vois-appl-nnet-vi-v0.plist` (Espresso, CPU, 24kHz mono)
+  - HQ voice model plist: `aufx-vois-appl-nnet-vi-high-quality-voice.plist` (MIL2BNNS, CPU)
+  - Dereverb preset: `aufx-vois-appl-drev.aupreset`
+- **Future improvements:** If Apple adds direct instrumental output to AUSoundIsolation on macOS (e.g., via Apple Music Sing support), revisit with the iOS parameter approach (`soundToIsolate=0.0` + positive `wetDryMix`). Also monitor for new model files in OS updates.
+- **Impact:** Minor quality degradation vs iOS — vocals occasionally bleed through during loud sections. Acceptable for v1 beta.
+
+## Resolved Issues
+
+### Core Warning Budget Blocked By PendingMutationRepository Sendable Warning (RESOLVED May 6, 2026)
+- **Location:** `Packages/EnsemblePersistence/Sources/CoreData/ManagedObjects.swift:454`
+- **Symptom:** `scripts/check_core_warning_budget.sh` failed with 2 warnings against budget 0 because `CDPendingMutation.MutationType` was captured in a `@Sendable` CoreData closure without explicit `Sendable` conformance.
+- **Fix:** Marked `CDPendingMutation.MutationType` and `CDPendingMutation.MutationStatus` as `Sendable`, restoring the warning-budget gate without changing repository behavior.
+
+### No-iCloud Fresh Installs Stuck In Restore State (RESOLVED Apr 14, 2026)
+- **Location:** `DependencyContainer.refreshSyncState`, first-connect bootstrap for sources and KVS-backed sync features
+- **Symptom:** On devices or simulators without an iCloud account, a fresh install could sit indefinitely in "Restoring libraries from iCloud…" even though no cloud restore was possible.
+- **Root cause:** First-connect bootstrap treated missing iCloud credentials as a transport that was still pending. CloudKit correctly reported `.noAccount`, but source restore and KVS-backed features kept waiting for transport delivery instead of degrading to an unavailable state, so first-connect never settled.
+- **Fix:** Cache the current CloudKit account status at bootstrap time and treat `.noAccount` / `.restricted` as an immediate terminal state for source restore and KVS-backed sync features. That clears `isAwaitingCloudSources`, marks the features `transportUnavailable`, and lets empty local states render normally on no-iCloud devices.
+
+### Sparse Genre Chips After Cloud Restore (RESOLVED Apr 14, 2026)
+- **Location:** `SyncCoordinator.performStartupSync`, `LibraryRepository.fetchGenreCoverageStats`, `LibraryViewModel`
+- **Symptom:** Fresh installs restored the genre catalog, but only a tiny subset of album/track `genreNames`, so Albums/Artists/Songs/playlist detail could show zero or one chip even though the library had many genres.
+- **Root cause:** Startup policy trusted recent `lastSyncedAt` and stayed on incremental sync, which cannot backfill unchanged album/track `genreNames`. Even after the repair sync ran, browse surfaces were not guaranteed to reload on that same first launch.
+- **Fix:** Added a per-source genre coverage check that forces a one-time full sync when the genre catalog exists but album/track coverage is implausibly sparse. `LibraryViewModel` now also reloads once when startup sync completes so repaired genre chips appear on the first launch without a relaunch.
+
+### Phase 8 Performance & Bug-Fix — Run 6 Findings (Apr 2, 2026)
+- **Resolved (April 2, 2026)**
+- **Source:** Run 6 session log on iPhone 6s (A9, iOS 15.8.7). Phase 7 fixes confirmed working. Five new issues identified and fixed.
+- **Fixes applied (5 total):**
+  1. **ratedAfter fetch removed** (`PlexMusicSourceSyncProvider.swift`): The Plex API `ratedAfter` (`lastRatedAt>=`) filter returns ALL ever-rated tracks regardless of timestamp — 1913 tracks, 3.6s, ~1MB wasted every incremental sync cycle with 0 changes. Removed the block entirely. Cross-client rating changes sync on next full sync. On-device changes go through MutationCoordinator immediately.
+  2. **PlaylistDetailVM double loadTracks** (`PlaylistViewModel.swift`, `MergedPlaylistDetailViewModel.swift`): Both files subscribed to `playlistsDidRefresh` notification AND `$sourceStatuses` changes, both triggering `loadTracks()`. These fire 36ms apart as part of the same sync completion event (two redundant CoreData fetches). Removed the `$sourceStatuses` fallback subscription from all three observePlaylistRefresh/observePlaylistChanges sites — the notification is the correct, specific signal.
+  3. **PendingMutationsViewModel "Loved" label bug** (`PendingMutationsViewModel.swift`): `rating > 0` mapped rating=2 (disliked) to "Set X as Loved". Fixed to check `rating >= 8` for Loved, 1–7 for Disliked, matching `TrackRating.from(rating:)` thresholds.
+  4. **toggleRating double-tap guard** (`NowPlayingViewModel.swift`): Two rapid taps could create two concurrent Tasks, queueing duplicate mutations (Run 6 showed two mutations 397ms apart). Added `guard !isUpdatingRating else { return }` at start of `toggleRating()`.
+  5. **Offline connection probe storm** (`ServerHealthChecker.swift`, `LyricsService.swift`): Every API request while offline triggered 6 parallel connection probes (all failing). `ServerHealthChecker.performServerCheck()` now checks `isNetworkOffline()` before probing and returns `.offline` immediately. `LyricsService.fetchLyrics()` also checks `syncCoordinator.isOffline` after persistent cache miss to avoid even entering the API path.
+- **Key files:** `PlexMusicSourceSyncProvider.swift`, `PlaylistViewModel.swift`, `MergedPlaylistDetailViewModel.swift`, `PendingMutationsViewModel.swift`, `NowPlayingViewModel.swift`, `ServerHealthChecker.swift`, `LyricsService.swift`
+
+### Phase 4 Performance Optimizations — iPhone 6s A9 Audit (Apr 1, 2026)
+- **Resolved (April 1, 2026)**
+- **Source:** 57-minute real-device session log + Instruments trace on iPhone 6s (A9 dual-core, 2GB RAM, iOS 15.8.7). 57 data drops from CPU saturation, likely Serious thermal state, 33-second continuous CPU burst.
+- **Fixes applied (6 total):**
+  1. **Visualizer UserDefaults observer** (`PlaybackService.setupVisualizerSettingObservation`): Listened to `UserDefaults.didChangeNotification` which fires on ANY key write. 94 wasted Task hops per session, only 1 real toggle. Fix: cache+compare before creating Task.
+  2. **ServerHealthChecker redundant @Published writes** (`ServerHealthChecker`): Every `serverStates[key] = value` published Combine change even when identical, causing 46 TrackAvailabilityResolver generation bumps → mass SwiftUI re-renders. Fix: guard all assignment sites with `!=` check.
+  3. **Timeline reporting without network awareness** (`PlaybackService`, `SyncCoordinator`): 50 failed reports × 6 connection probes = ~300 failed HTTPS attempts when offline for 9 minutes. Fix: check network state before reporting, exponential backoff on failures (10s→30s→60s), added `reportTimelineThrowing` variant.
+  4. **Lyrics negative cache missing** (`LyricsService`): `setCached()` skipped `.notAvailable` results → same 404 stream retried 6 times = 18 HTTP requests. Fix: time-limited negative caching (30-min TTL) that preserves retry intent.
+  5. **CoreData batch saves for downloads** (`DownloadManager`, `OfflineDownloadService`): `reconcileTarget` looped over ~42 tracks individually — 42 CoreData saves with 42 `NSManagedObjectContextDidSave` notifications in 1.3s. Fix: `batchCreateDownloads()` with IN predicates (2 fetches) + single save.
+  6. **Download queue polling offline** (`PlexAPIClient`): Polling loop continued for 120s when network was down. Fix: catch URLError connectivity codes and throw immediately.
+- **Key files:** `PlaybackService.swift`, `ServerHealthChecker.swift`, `SyncCoordinator.swift`, `LyricsService.swift`, `DownloadManager.swift`, `OfflineDownloadService.swift`, `PlexAPIClient.swift`
+
+### Phase 7 Performance Optimizations — Background CPU / SIGKILL Fix (Apr 2, 2026)
+- **Resolved (April 2, 2026)**
+- **Source:** Run 5 real-device session. App crashed (SIGKILL) ~2 minutes after backgrounding. Background CPU was ~95% continuously — well above iOS's 10–15% background CPU budget. Thermal state: Fair → CPU throttled → single FFT took 116s instead of ~20s → SIGKILL.
+- **Root causes (3 total):**
+  1. `SidecarAnalysisQueue` in `OfflineDownloadService` had no suspend/cancel mechanism. A 75-track batch download completing at ~8:43am enqueued 75 serial FFT jobs. When the app backgrounded at ~8:47am, all queued jobs kept running at `.background` priority. The currently-running FFT (116s due to thermal throttling) alone exceeded iOS's background CPU budget.
+  2. `AudioAnalyzer`'s 30Hz display timer (main RunLoop) had no app-lifecycle pause. `pauseUpdates()` was only called by PlaybackService on music pause — the main RunLoop stays active during background audio playback. Timer fired ~30×/sec doing nothing during background playback.
+  3. `EnsembleApp.handleScenePhaseChange(.background)` never called either of the above.
+- **Fixes applied (3 total):**
+  1. **SidecarAnalysisQueue redesign** (`OfflineDownloadService.swift`): Replaced chained `Task` reference pattern with an explicit pending array. Added `suspend()`/`resume()`/`prioritize()` methods. `suspend()` cancels the worker `Task` — `analyzeForSidecar()` now calls `analyzeFile()` directly (no inner `Task.detached`), so `Task.isCancelled` checks inside the FFT loop (~every 0.1s at 10fps) respond to our cancel. Interrupted item is re-queued at front.
+  2. **AudioAnalyzer lifecycle methods** (`AudioAnalyzer.swift`): Added `enterBackground()`/`exitBackground()` that stop/restart the 30Hz timer WITHOUT touching `isPaused`. This decouples app-lifecycle pause from music-pause — `exitBackground()` only restarts the timer if `!isPaused && activeTrackId != nil`.
+  3. **EnsembleApp lifecycle hooks** (`EnsembleApp.swift`): `.background` now calls `enterBackground()` + `suspendSidecarAnalysis()`. `.active` calls `exitBackground()` + `resumeSidecarAnalysis()`.
+- **Bonus:** `observePlayback()` in `OfflineDownloadService` subscribes to `PlaybackService.currentTrackPublisher` and calls `prioritize()` when a track with a local file starts playing — its sidecar moves to the front of the analysis queue for fast visualizer readiness.
+- **Design note:** Use separate lifecycle pause methods (e.g., `enterBackground`/`exitBackground`) rather than reusing user-facing pause flags (e.g., `isPaused` / `pauseUpdates`) for app lifecycle transitions. Sharing state between lifecycle and user-initiated pauses causes incorrect resume behavior when both overlap.
+- **Key files:** `OfflineDownloadService.swift`, `AudioAnalyzer.swift`, `EnsembleApp.swift`, `DependencyContainer.swift`
+
+### Phase 6 Performance Optimizations — Aurora + AttributeGraph Research (Apr 2, 2026)
+- **Resolved (April 2, 2026)**
+- **Source:** Run 4 post-Phase 5 Instruments trace on iPhone 6s (A9 dual-core). Aurora Canvas rendering was 13.2% of total CPU / 20.4% of main thread (`drawSoftGlowLayer()` alone: 9.9%). Research confirmed `withAnimation(.linear)`, `drawingGroup()`, and AsyncCanvas are not applicable — Aurora uses SwiftUI `GraphicsContext` with `@State` mutations in the draw closure. The only lever is frame rate + pass count.
+- **Fixes applied (2 total):**
+  1. **Aurora A9/low-core rendering tier** (`AuroraVisualizationView.swift`): Added a 3-tier system. ≤2-core devices (A9/A10) now run at 15fps with 2 glow passes (was 30fps, 3 passes). `isLowCoreDevice` stored as a `let` at init time — `ProcessInfo.processorCount` is NOT called on the 15-30fps draw hot path. Expected ~67% reduction in Aurora CPU on A9 (~20% main thread → ~7%).
+  2. **NowPlayingCarousel unused `@Environment`** (`NowPlayingCarousel.swift`): Removed `@Environment(\.dependencies) private var deps` which was declared but never read.
+- **Known cosmetic artifact:** `deltaTime` in `drawAurora()` is hardcoded at `1/30.0`. At 15fps, peak decay runs at half speed on A9 devices. Acceptable for ambient visualization — fix if noticeable.
+- **AttributeGraph research conclusion:** 66% main thread cost is structural ObservableObject overhead. `@Observable` macro (iOS 17+) is the real fix; no meaningful workaround exists on iOS 15 beyond the CurrentValueSubject migrations already done in Phase 5.
+- **Key files:** `AuroraVisualizationView.swift`, `NowPlayingCarousel.swift`
+
+### Phase 5 Performance Optimizations — SwiftUI + CPU Audit (Apr 1, 2026)
+- **Resolved (April 1, 2026)**
+- **Source:** Second round of real-device profiling on iPhone 6s (A9 dual-core, 2GB RAM, iOS 15.8.7). Instruments trace: 298K CPU samples over 7 minutes. Main thread averaged 47.5% CPU (peaking at 98%) — SwiftUI AttributeGraph 46.8%, FrequencyAnalysis 22%, 30Hz timer 22% of main thread.
+- **Fixes applied (5 total):**
+  1. **FFT throttle on ≤2-core devices** (`PlaybackService.swift`): All 4 `loadTimeline` call sites now check `ProcessInfo.processorCount <= 2` and use `.utility` priority + 5ms yield pauses (throttled mode). Analysis takes ~84s instead of ~42s per song on A9 — acceptable since visualizer updates progressively.
+  2. **Stop 30Hz timer on pause** (`AudioAnalyzer.swift`): `pauseUpdates()` now calls `stopDisplayTimer()` instead of just setting a flag. Previously the RunLoop timer fired 30×/sec doing nothing during pause.
+  3. **Coalesce download-triggered availability bumps** (`TrackAvailabilityResolver.swift`): Download completions now use 5s debounce instead of 100ms. Network/server state changes keep fast 100ms debounce. During a session with 8 downloads over 90s: 1-2 bumps instead of 8.
+  4. **Pre-rendered blurred artwork** (`NowPlayingViewModel.swift`, `BlurredArtworkBackground.swift`): `.blur(radius:80) + .contrast(2.0) + .saturation(1.9) + .brightness(-0.05)` was 4 GPU render passes on every body evaluation. Now pre-rendered once using Core Image (CIGaussianBlur + CIColorControls) on a background thread when artwork loads. NP sheet, viewport root, and mini player use pre-blurred; other consumers keep live blur.
+  5. **CurrentValueSubject for high-frequency NP properties** (`NowPlayingViewModel.swift`, `ControlsCard.swift`, `LyricsCard.swift`): Moved `waveformHeights`, `currentLyricsLineIndex`, `lyricsScrollTargetIndex`, `instrumentalProgress` from `@Published` to `CurrentValueSubject`. Cards subscribe via `.onReceive` with local `@State`. Expected ~60-70% reduction in NP body evaluations during lyrics playback.
+- **Key files:** `PlaybackService.swift`, `AudioAnalyzer.swift`, `TrackAvailabilityResolver.swift`, `NowPlayingViewModel.swift`, `BlurredArtworkBackground.swift`, `ControlsCard.swift`, `LyricsCard.swift`
+
+### Download Quality Fallback Re-Download Loop (Mar 26, 2026)
+- **Location:** `DownloadManager.swift` (`createDownload`)
+- **Issue:** When download-queue transcode failed (TLS error, cancelled), the system fell back to `direct-original-fallback` which stored the file at `original` quality. On the next session, reconciliation called `createDownload(quality: "medium")` which saw `"original" != "medium"` and reset the download to `.pending`, triggering an infinite re-download loop every session.
+- **Root cause:** `createDownload` used strict quality equality (`!=`) instead of quality ordering. `original` is HIGHER than `medium` and should satisfy the request.
+- **Fix:** Added `qualitySatisfies(existing:desired:)` with ranking `original > high > medium > low`. `createDownload` now only resets to `.pending` when existing quality is LOWER than desired.
+- **Key files:** `DownloadManager.swift`
+
+### Playback Stutter During Bulk Downloads (Mar 26, 2026)
+- **Location:** `PlaybackService.swift` (`refreshQueueDownloadState`)
+- **Issue:** Every download completion posted `downloadsDidChange` → `refreshQueueDownloadState()` detected localFilePath changes → called `audioEngine.clearScheduledFiles()` unconditionally → `playerNode.stop()` flushed the entire FIFO including currently-playing audio buffer → audible stutter every 3-8 seconds during bulk downloads.
+- **Root cause:** `clearScheduledFiles()` was called whenever ANY queue item's download state changed, not just gaplessly-scheduled items. During bulk downloads with 20+ tracks, nearly every completion triggered a FIFO flush even though only the next gapless track needed re-scheduling.
+- **Fix:** Collect changed track IDs during the queue scan and check intersection with `audioEngine.scheduledTrackIds`. Only flush FIFO + re-prefetch when a gaplessly-scheduled track actually changed. Non-scheduled track changes update metadata silently.
+- **Key files:** `PlaybackService.swift`
+
+### Download Worker Context Invalidation (Mar 26, 2026)
+- **Location:** `OfflineDownloadService.swift` (`process(download:)`)
+- **Issue:** Download workers held references to `CDTrack`/`CDDownload` managed objects across async boundaries. When `viewContext.reset()` ran during incremental sync, these references became invalidated — property access returned default/empty values, causing files to be stored as `_unknown_medium.mp3` and `completeDownload()` to throw "object not found".
+- **Root cause:** `viewContext.reset()` invalidates ALL registered managed objects. Download workers captured managed objects before async download work but accessed their properties after the reset.
+- **Fix:** Added `DownloadContext` value-type struct that snapshots all needed CDTrack/CDDownload properties before any async work begins. All downstream code uses `ctx.*` instead of managed object properties. Added `completeDownloadWithRecovery()` that recreates CDDownload if the primary objectID path fails due to cascade deletion.
+- **Key files:** `OfflineDownloadService.swift`
+
+### 89-Byte Transcode Error → Cryptic CoreAudio Error (Mar 26, 2026)
+- **Location:** `ProgressiveStreamLoader.swift`, `PlaybackService.swift`
+- **Issue:** When Plex server storage is unavailable (NAS disconnected, drives sleeping), the `/decision` endpoint succeeds (metadata is cached in PMS), but `/start.mp3` returns an HTML error page (~89 bytes, HTTP 503). `ProgressiveStreamLoader` wrote these bytes to a temp file and reported success. AVAudioEngine rejected the file with cryptic error `com.apple.coreaudio.avfaudio error 1685348671`.
+- **Root causes:** (1) `ProgressiveStreamLoader` never checked HTTP status — no `didReceive response:` delegate. (2) No payload validation before calling `onDownloadComplete`. (3) `waitForDownload()` only wired success callback — if a download failed for ANY reason, the continuation hung forever. (4) Progressive transcode path bypassed `isClearlyInvalidLocalPayload()`.
+- **Fix:** `ProgressiveStreamLoader` now checks HTTP status via `didReceive response:` delegate, diverts error body to diagnostic buffer (not audio file), validates payload size, and fires `onDownloadFailed` callback. `waitForDownload` wires both success/failure callbacks. `mapToPlaybackError` maps 503 to "Server storage unavailable". No auto-retry — user retries manually.
+- **Key files:** `ProgressiveStreamLoader.swift`, `PlaybackService.swift`
+
+### Gapless UI Stuck One Track Behind Audio on Network Switch (Mar 26, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`clearScheduledFiles`)
+- **Issue:** When a Wi-Fi→cellular network transition occurred mid-playback, `rebuildUpcomingQueueForNetworkTransition()` called `clearScheduledFiles()` which emptied the `scheduledFiles` tracking array and bumped the generation counter — but did NOT flush the `playerNode`'s actual FIFO queue. Orphaned audio segments remained in the FIFO while the primary segment's completion handler was silently invalidated (stale generation). Result: audio played the next track seamlessly from the FIFO, but no `onTrackAdvance` fired, leaving the UI persistently one track behind.
+- **Fix:** `clearScheduledFiles()` now flushes the playerNode FIFO (stop + re-schedule current track from current position + resume). The audio gap is imperceptible (microseconds). Added diagnostic logging to completion handlers for future debugging.
+- **Key files:** `AudioPlaybackEngine.swift`, `PlaybackService.swift`
+
+### Download Worker Context Invalidation (Mar 26, 2026)
+- **Location:** `OfflineDownloadService.swift` (`process(download:)`, `completeViaDownloadQueue`)
+- **Issue:** Download worker held CDTrack/CDDownload managed object references from the viewContext throughout async downloads (several seconds). When `SyncCoordinator` ran `refreshViewContext()` → `viewContext.reset()` mid-download, property access returned empty/default values (`track.ratingKey` → `""`, `track.sourceCompositeKey` → `nil`). Additionally, CDTrack→CDDownload cascade delete (deletionRule="Cascade") removed the CDDownload when sync's `removeOrphanedTracks()` deleted the CDTrack. Symptoms: files saved as `_unknown_medium.mp3`, `completeDownload(objectID)` threw "object not found in store", downloads silently failed.
+- **Fix:** `process(download:)` now captures ALL CDTrack/CDDownload properties into a value-type `DownloadContext` struct BEFORE async work begins. All downstream methods (`completeViaDownloadQueue`, `localFileURL`, `cacheArtworkForDownloadedTrack`) use captured values. `completeDownloadWithRecovery()` recreates the CDDownload record if the primary objectID-based completion fails due to cascade delete.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Download Target Shows '0 Tracks' After Data Loss (Mar 25, 2026)
+- **Location:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
+- **Issue:** When CDOfflineDownloadMembership records were lost (iOS update, corruption), `refreshTargetProgress()` found 0 references → aggressively wrote totalTrackCount=0 → UI showed "0 tracks". Recovery required waiting ~15min for sync-triggered reconciliation.
+- **Fix:** Three-part self-healing: preserve stale counts for orphaned targets, immediate reconciliation via `reconcileOrphanedTargets()`, startup + pull-to-refresh file existence checks via `refreshStateWithHealing()`.
+
+### Queue Skipping Cascade (Mar 18, 2026)
+- **Location:** `PlaybackService.swift`
+- **Issue:** Rapid previous()/next() taps caused a cascade: AVPlayer XPC errors (`err=-17221`) → old AVPlayerItem fails asynchronously → `handleQueueExhausted()` fires phantom auto-advance → queue never recovers, even starting a new queue fails.
+- **Root causes:** (1) `handleQueueExhausted()` didn't guard for `isSkipTransitionInProgress` or `.loading` state. (2) `previous()` didn't cancel `skipTransitionTask`, piling up concurrent loads. (3) `consecutivePlaybackFailures` was reset on skip entry, disabling the circuit breaker.
+- **Fix:** Guards in `handleQueueExhausted()`, `previous()` now manages `skipTransitionTask` like `next()`, failure counter only resets on confirmed audio. Added `recreatePlayer()` for corrupted AVPlayer recovery and a 15s stuck-loading watchdog.
+
+### iOS 26 `.searchable()` Crash in Sheets (Mar 18, 2026)
+- **Location:** `PlaylistActionSheets.swift`
+- **Issue:** `NavigationView` + `.searchable()` on iOS 26 triggers 997+ "Observation tracking feedback loop detected!" errors from `ScrollPocketCollectorModel`, freezing/crashing the app.
+- **Fix:** Use `NavigationStack` on iOS 16+ for sheet navigation containers. Tab-level views already use `NavigationStack` via `MainTabView.tabRootView`.
+
+### Fix 8 — Premature Gapless Track Advance (RESOLVED Mar 29, 2026)
+- **Location:** `PlaybackService.swift` (`updateNowPlayingInfo`, `changePlaybackPositionCommand`, `prefetchUpcomingItems`, `playCurrentQueueItem`), `AudioPlaybackEngine.swift` (`scheduleNext`)
+- **Issue:** Songs occasionally skip a whole minute+ early to the next track. Two root causes confirmed:
+  1. **Phantom seek via NowPlayingInfo duration mismatch:** When `playCurrentQueueItem` sets `currentTrack` to the new track but the engine still has the previous track's file loaded, `updateNowPlayingInfo()` publishes the old track's engine `fileDuration` under the new track's title. iOS's NowPlaying scrubber detects the duration discrepancy and sends a `changePlaybackPositionCommand` with a stale position — causing a seek to ~200s into a ~220s track.
+  2. **Truncated cached stream files:** A cached file from an interrupted download or aggressive cache cleanup contains only a fraction of the expected audio (e.g. 25s of a 179s track). When scheduled for gapless playback, the track ends prematurely.
+- **Fix:**
+  1. Use track metadata duration (not engine fileDuration) in `updateNowPlayingInfo()` during `.loading` state.
+  2. Reject `changePlaybackPositionCommand` events that seek >30s from current position within 5s of track start.
+  3. Validate file duration against track metadata before scheduling — if <50% of expected, evict and re-download.
+  4. Improved `scheduleNext()` logging to include frame counts and duration for visibility.
+
+### Stale Artwork After Server-Side Album Reassignment (RESOLVED Mar 30, 2026)
+- **Resolved (March 30, 2026)**
+- **Symptom:** After splitting or merging albums on the Plex server, tracks displayed stale artwork from the old album even after pull-to-refresh. Track metadata (title, album name, artist) updated correctly.
+- **Root Cause:** No mechanism to detect that a track's `parentRatingKey` (album) changed during sync. `LibraryRepository.upsertTrack()` and `batchUpsertTracks()` silently overwrote the album relationship without invalidating cached artwork. WebSocket artwork invalidation only fires on type=9/8 metadata updates with state=5, which doesn't cover tracks moving between albums during library scans.
+- **Fix:** Added `TrackReparentInfo` detection to both upsert paths. `LibraryRepository` compares old vs new `albumRatingKey` for existing tracks and accumulates reparent events in a lock-protected buffer. `SyncCoordinator` drains after every sync path (full, incremental, section-level) and fires `onTrackAlbumChanged`. `DependencyContainer` wires this to `ArtworkLoader.invalidateArtwork()` for both the old album and the track's own ratingKey, triggering `ArtworkView` to re-fetch correct covers.
+- **Key files:** `LibraryRepository.swift` (detection), `SyncCoordinator.swift` (drain + callback), `DependencyContainer.swift` (wiring)
+
+### Plex Transcode MP3s Play Without Encoder Delay Trimming (RESOLVED Mar 30, 2026)
+- **Resolved (March 30, 2026)**
+- **Symptom:** Gapless transitions involving Plex progressive stream transcodes had audible gaps, particularly on album tracks designed for continuous playback (e.g. Metric's Synthetica). Downloaded MP3s had correct trimming, but streamed transcodes did not.
+- **Root Cause:** `readContentBounds()` trusted AudioToolbox's `PacketTableInfo` unconditionally. FFmpeg transcodes (Plex's `/start.mp3`) write a packet table with `mPrimingFrames = 0` even though real LAME encoder delay (576 frames, ~13ms) is present. Downloaded MP3s' packet tables failed, correctly falling through to the 576-frame default.
+- **Fix:** When the packet table reports 0 priming frames for MP3 files, fall through to the LAME header parser / default 576-frame delay fallback instead of trusting the misleading value.
+- **Key files:** `AudioPlaybackEngine.swift` (`readContentBounds`)
+
+### Gapless UI Desync — Audio Advances but UI Stays on Old Track (RESOLVED Mar 30, 2026)
+- **Location:** `AudioPlaybackEngine.swift` (`clearScheduledFiles`)
+- **Issue:** After a queue mutation (autoplay add/trim, playNext, playLast, etc.) while a track was playing with no gapless files scheduled, the next gapless transition would silently fail — audio would advance to the next track but the UI stayed on the old track. The user would hear a different song than what was displayed.
+- **Root cause:** `clearScheduledFiles()` unconditionally bumped the `scheduleGeneration` counter even when there were no scheduled gapless files to clear. This invalidated the currently-playing segment's completion handler. When the track finished, `handleSegmentComplete` was classified as "stale" (gen N vs current N+1) and ignored. Audio played from the FIFO (which still had the next track scheduled), but `onTrackAdvance` never fired so `PlaybackService.currentTrack` never updated.
+- **Trigger sequence:** Play album → last track starts → autoplay fires → `trimAutoplayQueue()` → `invalidateGaplessSchedule()` → `clearScheduledFiles()` with empty queue → gen bumped → current track completion handler dies.
+- **Fix:** Split the early-return path: (1) no scheduled files → return WITHOUT bumping generation; (2) had scheduled files but no current file → bump to invalidate orphaned handlers. Only the case where there ARE scheduled files AND a current file triggers the full FIFO flush + re-schedule.
+- **Also fixed:** TOCTOU race in `prefetchUpcomingItems` where two concurrent calls could both pass `isTrackScheduled` before either completed `scheduleNext()`, causing duplicate scheduling (queueDepth=2). Added `prefetchingTrackIds` in-flight set.
+- **Key files:** `AudioPlaybackEngine.swift`, `PlaybackService.swift`
+
+### Download Truncation Validation (RESOLVED Mar 29, 2026)
+- **Location:** `OfflineDownloadService.swift` (`validateDownloadDuration`, `scanForTruncatedDownloads`), `PlaybackService.swift` (`evictTruncatedFile`)
+- **Issue:** Truncated downloads (interrupted network transfer that closes cleanly with HTTP 200) were accepted as valid completed downloads. The file passes all existing checks (HTTP 200, non-empty, non-HTML), but contains only a fraction of the expected audio. The Downloads view showed these as "completed" despite being broken, and playback would end prematurely.
+- **Root cause:** `URLSession.bytes` async sequence exits normally when server closes the connection mid-stream. `ProgressiveStreamLoader` only rejects files <256 bytes. `DownloadManager.isClearlyInvalidDownloadedPayload` only detects HTML error pages and empty files.
+- **Fix:** Three-layer defense:
+  1. `OfflineDownloadService.validateDownloadDuration()` — rejects truncated files at download completion before marking as "completed" (checks file audio duration via AVAudioFile against track metadata duration)
+  2. `OfflineDownloadService.scanForTruncatedDownloads()` — runs during deferred launch healing and pull-to-refresh to catch existing truncated files, marks them as failed for re-download. It must not run in the immediate launch recovery path because whole-library offline targets can require opening many audio files.
+  3. `PlaybackService.evictTruncatedFile()` — catches truncated files at play/prefetch time, handles both stream cache and offline downloads (deletes file, marks CDDownload as failed, falls through to streaming)
+- **Detection threshold:** file duration < 50% of expected AND < expected - 10s (avoids false positives on short tracks or minor encoding differences)
+- **Transport-level validation:** `downloadWithProgress()` now validates `bytesReceived` against `Content-Length` after the byte loop completes. Incomplete transfers throw `DownloadTransferError` which auto-retries (up to 3 attempts) instead of permanently failing. In beta testing, 21/113 downloads (19%) were truncated — likely from app backgrounding with foreground URLSession.
+- **Key files:** `OfflineDownloadService.swift`, `PlaybackService.swift`, `DownloadManager.swift`
+- **Known limitation:** `URLSession.shared` is foreground-only. Long download sessions (100+ tracks) will be interrupted when the app is backgrounded. A future improvement would be to migrate to `URLSessionConfiguration.background` for offline downloads.
+
+## Feature Completeness Gaps
+
+### Intermittent 404 on /library/streams/ for Lyrics
+- **Location:** `LyricsService.swift`, `PlexAPIClient.getLyricsContent(streamKey:)`
+- **Issue:** Some tracks report a valid `lyricsStream` (streamType=4) in the `/library/metadata/{ratingKey}` response, but the subsequent `GET /library/streams/{streamKey}` call returns HTTP 404. This appears to be a Plex server bug where the stream record exists in metadata but the stream content is not actually stored. More frequent on iOS 15.
+- **Impact:** Lyrics show "No Lyrics" for affected tracks despite the track appearing to have a lyrics attachment.
+- **Current behavior (Mar 18, 2026):** `PlexAPIClient.getLyricsContent` retries 3 times with increasing delays (2s, 3s). If all fail, `LyricsService` schedules a background retry after 10s. If the background retry succeeds and the same track is still playing (lyrics still showing `.notAvailable`), the UI updates automatically. `.notAvailable` results are NOT cached so subsequent playback can retry.
+- **Workaround:** None needed for most cases; the retry logic handles transient PMS cache misses. Persistent 404s are server-side.
+
+### BG Continued Processing Is Best-Effort (iOS 26+)
+- `OfflineBackgroundExecutionCoordinator` submits `BGContinuedProcessingTaskRequest` for user-initiated bulk offline work.
+- The OS may reject queued requests, cancel queued work if the app is removed from switcher, or expire active tasks.
+- **Current behavior:** `OfflineDownloadService` treats BG execution as an accelerator only; persistent queue state remains source of truth and resumes in normal foreground/background opportunities.
+
+### Offline Transcode Availability Varies by Plex Server
+- Some Plex server configurations reject all `/music|audio/:/transcode/universal/*` download requests with HTTP `400` even when direct `/library/parts/...` access succeeds.
+- **Current behavior:** `OfflineDownloadService` treats this as a server capability limitation, marks the server as `offline-transcode-unsupported`, and skips repeated transcode attempts by downloading original quality directly.
+- **User impact:** Download quality settings (`high/medium/low`) may not be attainable for affected servers; downloaded files remain original quality.
+
+### WebSocket Library Notifications Require Plex Pass
+- `PlexWebSocketManager` maintains one `URLSessionWebSocketTask` per server with exponential backoff reconnect.
+- **Plex Pass limitation:** Library change notifications (`timeline`, `activity`) are only delivered to server owner/admin accounts with Plex Pass. Non-Plex Pass shared users only receive session-level notifications (e.g., `playing`). The WebSocket still provides implicit health signals for all account types.
+- Some Plex server configurations (especially behind strict NATs or reverse proxies) may not support WebSocket connections at all.
+- **Current behavior:** `PlexWebSocketCoordinator` treats WS events as acceleration hints; polling-based sync timers remain active as fallback for all account types. If a WebSocket connection fails repeatedly, a circuit breaker activates after 5 failures and switches to 5-minute retry intervals (vs normal 5s→60s backoff). The circuit breaker resets on successful connection, deliberate start(), or endpoint URL change.
+
+### WebSocket Server 1001 (Going Away) Immediate Disconnect
+- **Location:** `PlexWebSocketManager.swift`
+- **Issue:** Some Plex servers (observed on specific PMS configurations) close the WebSocket connection with code 1001 immediately after the client connects, before sending any messages. This causes a reconnect loop.
+- **Impact:** Without the circuit breaker, the connection would retry every 60s forever, burning CPU and network. With the circuit breaker, retries drop to every 5 minutes after the first 5 failures.
+- **Root cause:** Unknown server-side issue. May be related to PMS configuration, NAT, or reverse proxy behavior. The WebSocket URL and auth token are confirmed valid.
+
+### Artwork Pre-Caching Sync-Path Only
+- `ArtworkLoader.predownloadArtwork()` is now called during sync for albums, artists, and playlists
+- However, artwork is only cached for items that pass through a sync path; browsing an uncached item still requires network
+
+### Library Visibility Profile Selector UI Not Shipped Yet
+- `LibraryVisibilityProfile` + `LibraryVisibilityStore` groundwork exists in `EnsembleCore`
+- `LibraryViewModel`, `SearchViewModel`, and `HomeViewModel` already support source-key visibility filtering seams
+- **Missing:** user-facing selector/editor UI to switch and manage profiles in Settings
+- **Current behavior:** filtering is foundation-only; sync-enable state remains unchanged
+
+## Resolved
+
+### Playback Failure Loop with Non-Plex-Pass / Universal Transcode Failures
+- **Resolved (March 7, 2026)**
+- **Issue:** When universal transcode endpoint failed (e.g. non-Plex-Pass users), the app entered an infinite loop: track fails → retry/advance → next track fails → repeat. Users couldn't pause or stop because tracks failed within milliseconds.
+- **Root causes:**
+  - Circuit breaker reset on item insertion instead of confirmed playback, so the counter went 0→1→reset→0→1 and never reached threshold
+  - `handleQueueExhausted` and `handleTLSPlaybackFailure` raced concurrently with no mutual exclusion
+  - "resource unavailable" (transcode pipeline error) was misclassified as TLS error, triggering wasteful connection refresh cycles
+- **Fix:** Circuit breaker resets only when `timeControlStatus == .playing`. TLS handler sets `isHandlingTLSFailure` flag; queue exhaustion handler waits for it. "resource unavailable" classified as transcode pipeline error with direct circuit breaker increment. Play button gated on track availability after queue restoration.
+- **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`, `ControlsCard.swift`, `MiniPlayer.swift`
+
+### Server Offline: Tracks Not Dimmed and Queue Played Unavailable Tracks
+- **Resolved (March 5, 2026)**
+- **Issue:** When a Plex server went offline (but device stayed on Wi-Fi), tracks showed as available, playback queue tried every unavailable track, artwork didn't fall back to cache, and health checks only ran on network transitions (not server failures).
+- **Root causes:**
+  - `NWPathMonitor` doesn't detect server-level outages (network path stays "satisfied")
+  - `serverStates` started empty at launch; `TrackAvailabilityResolver` treated missing entries as "available"
+  - `performStartupSync()` didn't run health checks
+  - `resolvePlayableQueue` only checked device-level offline, not per-server health
+  - `next()`/`handleQueueExhausted` blindly advanced to next queue index
+  - `@Environment` (EnvironmentKey) doesn't create SwiftUI observation bindings for nested ObservableObjects
+- **Fix:** Startup health checks populate `serverStates` before sync. AVPlayer KVO error path classifies server-unreachable errors and triggers targeted health checks. `resolvePlayableQueue`, `next()`, `handleQueueExhausted`, and `playQueueIndex` all filter by per-server availability. `ArtworkLoader` falls back to local cache when server is offline. Track row views use focused availability observation for reactive dimming.
+- **Key files:** `SyncCoordinator.swift`, `PlaybackService.swift`, `ArtworkLoader.swift`, `CompactSearchRows.swift`, `MediaTrackList.swift`
+
+### HomePod Siri Media Intents handle() Never Called
+- **Resolved (February 26, 2026)**
+- **Issue:** For HomePod requests, iOS's SiriKit never calls `handle()` after `confirm()` returns `.ready`. This appears to be an iOS limitation affecting third-party media apps.
+- **Workaround:** Extension writes playback payload to App Group and posts a Darwin notification; app listens for the notification and executes playback directly, bypassing the broken `handle()` flow.
+- **Key files:** `PlayMediaIntentHandler.swift` (confirm + Darwin post), `AppDelegate.swift` (Darwin listener)
+
+### Downloaded Tracks Unplayable After App Reinstall
+- **Resolved (March 5, 2026)**
+- **Issue:** iOS changes the app sandbox UUID on every reinstall/rebuild. Absolute paths stored in `CDDownload.filePath` and `CDTrack.localFilePath` became invalid, causing "cannot play non-downloaded tracks" errors even though files still existed on disk.
+- **Fix:** Store only filenames in CoreData (not absolute paths). Resolve filename → absolute path at the model mapping boundary (`Track(from: CDTrack)`, `Download(from: CDDownload)`). Legacy absolute paths are migrated to filenames on first `fetchDownloads()`.
+- **Key files:** `DownloadManager.swift` (filename storage, `absolutePath(forFilename:)`, `extractFilename(from:)`), `ModelMappers.swift` (resolution at mapping boundary), `OfflineDownloadService.swift` (stores `.lastPathComponent`)
+
+### Instrumental Mode Known Limitations
+- **Toggle gap:** ~100-300ms audio gap when switching between AVQueuePlayer and AVAudioEngine (acceptable tradeoff)
+- **Progressive transcode deferral:** If the transcode is still downloading when instrumental mode is toggled ON, playback continues via AVQueuePlayer until the download completes, then switches
+- **Direct remote streams:** If no local file or stream loader exists (rare edge case), instrumental mode defers until a file becomes available
+- **No slider:** Vocal attenuation is binary (full removal). No partial slider/mix control.
+- **iOS 16+ only:** AUSoundIsolation requires iOS 16.0+ / macOS 13.0+ and A13+ chip. Button is hidden on unsupported devices.
+
+### Infrastructure
+- **Legacy CocoaPods Cleanup** -- Removed unused `ios/Pods/` directory
+
+### Documentation
+- **Documentation Fully Updated** -- CLAUDE.md and README.md reflect all implemented features
+
+### Persistence SwiftPM Test Crash
+- **Resolved (February 21, 2026)**
+- `CoreDataStack` now loads bundled models with resilient `.momd`/`.mom` fallback candidates.
+- `CoreDataStack.inMemory()` now uses a true in-memory store (`/dev/null`).
+- Persistence tests use in-memory stack instead of `.shared`.
+- SwiftPM model compilation workflow is documented and scripted (`scripts/compile_coredata_model.sh`).
+
+### Network Handoff Endpoint Staleness + Health Check Overactivity
+- **Resolved (February 21, 2026)**
+- `PlaybackService` now heals upcoming queue items on reconnect/interface-switch transitions.
+- `NetworkMonitor` lifecycle is restart-safe across background/foreground transitions.
+- `SyncCoordinator` coalesces network-health refreshes and applies cooldown/staleness guards.
+- Feed now lets native `ScrollView` gesture ownership stand alone; hidden-feed auto-refreshes are deferred until the view is visible, but visible hub snapshots apply directly instead of using a scroll-drag idle workaround.
+
+### Plex Endpoint Policy + Auth Lifecycle Parity
+- **Resolved (February 22, 2026)**
+- Discovery requests now include IPv6 resource candidates and common Plex headers.
+- Endpoint selection now follows local-first, relay-last policy with settings-driven insecure fallback rules.
+- Failover now triggers only for transport/connectivity failures, avoiding probe storms on HTTP semantic errors.
+- Server health now reports classified failure reasons instead of generic offline.
+- Auth cutover now enforces token metadata lifecycle and forced re-login migration.
+
+### Residual Risk: Forced Re-Login After Auth/Account Migrations
+- **Status:** Expected behavior
+- **Impact:** Existing beta users are signed out once when migration version bumps (auth lifecycle and account-schema cutovers).
+- **Mitigation:** Add release-note callout for one-time sign-in requirement.
+
+## Performance Notes
+
+### Incremental Sync ratedAfter Fetch Returns All Rated Tracks
+- **Resolved (March 10, 2026)**
+- **Fix:** `ratedAfter` fetch is now skipped when the sync timestamp is older than 10 minutes. Within that window (foreground/background cycling), the full rated-tracks fetch runs. Beyond 10 minutes, rating changes are caught by the next full sync.
+- **Key files:** `PlexMusicSourceSyncProvider.swift` (lines 155-167)
+
+### AirPlay Audio Glitching During Health Check Probes (Watchlist)
+- **Location:** `ServerHealthChecker.swift`, `AudioPlaybackEngine.swift`
+- **Issue:** Observed one-time mid-track audio glitching during AirPlay playback. Correlated with app foreground transition triggering 12 concurrent HTTPS health check probes. The Wi-Fi traffic from TLS handshakes may compete with AirPlay's Wi-Fi audio stream. IO buffer is only 23ms — very tight for AirPlay.
+- **Impact:** Rare — observed once during extended AirPlay session. Not reproducible on demand.
+- **Mitigation if recurs:** Throttle concurrent health probes to 2-3 when AirPlay is the active route, or defer health checks entirely during active AirPlay playback.
+- **Status:** Monitoring — single occurrence, not yet actionable.
+
+### Wall-Clock Boundary Timer Limitations
+- **Location:** `PlaybackService.swift` (wall-clock boundary section in periodic time observer)
+- **Issue:** The wall-clock safety timer estimates track end based on elapsed wall time since last seek. Over AirPlay or with high-latency outputs, actual playback can lag behind wall time. The timer is now suppressed when AVQueuePlayer has items queued (gapless case), but may still fire prematurely for the last track in a queue over high-latency outputs.
+- **Impact:** Minor — only affects the last track in a queue over AirPlay/high-latency. Gapless transitions are protected.
+- **Mitigation:** Grace period is 1.0s; could be increased for AirPlay sessions if needed.
+
+### Pre-Computed Frequency Visualizer: Brief Delay on First Play
+- **Location:** `AudioAnalyzer.swift` (`FrequencyAnalysisService`)
+- **Issue:** When a track is played for the first time (no cached `.freq` sidecar), the frequency analysis runs asynchronously on the audio file. The visualizer shows no data until analysis completes (typically <1s for local files, longer for streamed files that must buffer first).
+- **Impact:** Minor visual delay; playback itself is unaffected since the visualizer is fully decoupled from the audio pipeline.
+- **Mitigation:** Offline downloads generate `.freq` sidecars immediately after download, so cached tracks have instant visualizer data.
+
+### Low Power Mode Awareness
+- **Resolved (March 11, 2026)**
+- **Feature:** `PowerStateMonitor` (@MainActor ObservableObject) observes iOS Low Power Mode via `NSProcessInfoPowerStateDidChange` and publishes `isLowPowerMode: Bool`.
+- **GPU throttling:** Aurora visualizer drops to 1 glow pass at 15fps (from 3 at 30fps) when LPM active. LyricsCard disables progressive blur (returns 0 for all lines).
+- **Network throttling:** Downloads are auto-paused on LPM activation and auto-resumed on deactivation via `DependencyContainer` wiring.
+- **Key files:** `PowerStateMonitor.swift`, `AuroraVisualizationView.swift`, `LyricsCard.swift`, `DependencyContainer.swift`, `MainTabView.swift`
+
+### Aurora Visualizer Optimized to 30fps + 3 Passes + 4fps Breathing
+- **Resolved (March 11, 2026)**
+- **Previous:** 60fps `TimelineView(.animation)` with 6 blur passes (144 blur filter applications/frame). Never paused behind Now Playing sheet. Still ran at 30fps during breathing mode (playback paused), causing 25.6% GPU drain.
+- **Fix:** Capped at 30fps via `minimumInterval: 1/30`. Reduced to 3 glow passes (blur=18, 12, 8). Pauses when Now Playing sheet covers it (`isPaused` binding). Skips identical frequency band publishes. Display timer uses `MainActor.assumeIsolated` instead of `Task { @MainActor }`. Breathing mode (paused) drops to 4fps — the slow sine waves look smooth at very low rates, saving ~87% GPU vs 30fps.
+- **Key files:** `AuroraVisualizationView.swift`, `MainTabView.swift`, `AudioAnalyzer.swift`
+
+### Download Target Shows "0 Tracks" After Data Loss
+- **Resolved (March 25, 2026)**
+- **Previous:** When CDOfflineDownloadMembership records were lost (e.g., after iOS update or data corruption), `refreshTargetProgress()` found 0 memberships and aggressively wrote `totalTrackCount: 0, completedTrackCount: 0` to the CDOfflineDownloadTarget. The UI showed "0 tracks" even though the target itself survived. Recovery only happened after sync completed and triggered reconciliation (~15 min delay).
+- **Fix:** Three-part self-healing: (1) `refreshTargetProgress` now preserves stale total count and sets status to `.pending` when memberships are empty but the target previously had tracks, so UI shows "37 tracks - Queued" instead of "0 tracks". (2) `refreshAllTargetProgresses` calls `reconcileOrphanedTargets()` which immediately rebuilds memberships from existing library data. (3) Startup and pull-to-refresh both run download metadata self-healing (`fetchDownloads()` file-existence check) before computing progress.
+- **Key files:** `OfflineDownloadService.swift`, `DownloadsViewModel.swift`
+
+### Downloads Stuck in "Downloading" After App Kill
+- **Resolved (March 18, 2026)**
+- **Previous:** When the app was killed mid-download, CoreData status stayed `.downloading`. On next launch, `fetchPendingDownloads()` counted them (includes `.downloading`) so workers spawned, but `fetchNextPendingDownload()` found 0 (only `.pending`) so workers immediately exited — endlessly.
+- **Fix:** `OfflineDownloadService.init()` resets stale `.downloading` → `.pending` before starting the queue. At init time, no download can be actively in-progress.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Download Queue Workers Spawned With No Pending Downloads
+- **Resolved (March 11, 2026)**
+- **Previous:** `startQueueIfNeeded()` (called from `init` and ~15 other sites) only checked `queueTask == nil`, so 3 worker tasks were spawned on every app launch even with zero pending downloads. Each worker ran a CoreData query, found nothing, and exited — 18+ "Worker exit: no pending download" log lines.
+- **Fix:** `runQueueLoop()` now checks `fetchPendingDownloads().count` before spawning the task group. If zero pending, exits immediately without creating worker tasks.
+- **Key files:** `OfflineDownloadService.swift`
+
+### WebSocket Circuit Breaker for Repeated Failures
+- **Resolved (March 11, 2026)**
+- **Previous:** WebSocket reconnect backoff capped at 60s, retrying forever even when the server always returned 1001 (Going Away). This burned CPU and network during foreground.
+- **Fix:** Circuit breaker activates after 5 consecutive failures and switches to 5-minute retry intervals. Resets on successful message receipt, `start()`, or endpoint URL change.
+- **Key files:** `PlexWebSocketManager.swift`
+
+### Download System Query Batching
+- **Resolved (March 11, 2026)**
+- **Previous:** After each download completion, `refreshAllTargetProgresses()` ran O(targets x tracks) individual CoreData queries. iPhone 6s crawled during bulk downloads.
+- **Fix:** Targeted refresh only updates owning targets (`fetchTargetKeys(containing:)`). Batch download status queries use single `IN` predicate (`fetchDownloadsBatch`). Dynamic debounce: 3s when >3 pending, 1s otherwise.
+- **Key files:** `OfflineDownloadService.swift`, `DownloadManager.swift`, `OfflineDownloadTargetRepository.swift`
+
+### PlaybackService objectWillChange Fired at 30Hz
+- **Resolved (March 11, 2026)**
+- **Previous:** `@Published var frequencyBands` caused `objectWillChange` to fire 30x/sec, re-rendering all views observing `PlaybackService`.
+- **Fix:** Replaced with `CurrentValueSubject<[Double], Never>`. `objectWillChange` no longer fires for band updates. `NowPlayingViewModel.applyLyricsPosition()` also guards against no-change assignments.
+- **Key files:** `PlaybackService.swift`, `NowPlayingViewModel.swift`
+
+### Legacy SwiftUI Track Row Mass Re-Render on Availability Change
+- **Resolved (March 11, 2026)**
+- **Previous:** `@ObservedObject availabilityResolver` (singleton) caused all visible SwiftUI track rows to re-render when the generation counter bumped. The old `TrackRow` type was removed in the May 2026 native-behavior cleanup.
+- **Fix:** Replaced large track-row surfaces with native track-list hosts and focused runtime observation modifiers. The unused `CompactTrackRow` fallback was removed in the May 2026 dead-code cleanup.
+- **Key files:** `MediaTrackList.swift`, `SongsTrackListHost.swift`, `TrackListRuntimeObservation.swift`
+
+### Songs View 1500+ Track Choppiness
+- **Resolved (March 11, 2026)**
+- **Previous:** `SongsView` wrapped `MediaTrackList` (UITableView) in a fixed-height frame (`CGFloat(trackCount * 68)`), defeating both `LazyVStack` lazy loading and UITableView cell recycling. Search filtering ran synchronously on every keystroke.
+- **Fix:** Non-indexed sort renders `MediaTrackList` directly without ScrollView wrapper or fixed-height frame. Search text filtering debounced at 150ms via Combine pipeline.
+- **Key files:** `SongsView.swift`, `LibraryViewModel.swift`
+
+### LyricsCard Full Re-Render Every 0.5s
+- **Resolved (March 11, 2026)**
+- **Previous:** When `currentLyricsLineIndex` changed, ALL lyrics lines recalculated visual params and triggered animations.
+- **Fix:** Extracted `LyricsLineView` as `Equatable` struct with pre-computed params. Wrapped in `EquatableView` so SwiftUI skips unchanged lines (~2 re-renders per tick instead of N).
+- **Key files:** `LyricsCard.swift`
+
+### Download Queue Polling + WebSocket Routing
+- **Resolved (March 11, 2026)**
+- **Previous:** `PlexAPIClient.downloadTranscodedMediaViaQueue()` polled PMS every 1s with fixed interval. WebSocket `media.download` activity events were parsed but not routed — only `library.refresh`/`library.update` types were handled by `PlexWebSocketCoordinator`. This meant PMS download queue completions never notified the download service, so the queue could stall after workers exited.
+- **Fix:** Polling uses exponential backoff (1s→2s→4s→8s, capped 15s). `PlexWebSocketCoordinator` now handles `media.download ended` events via `onDownloadQueueCompleted` callback, which triggers `OfflineDownloadService.handleDownloadQueueCompleted()` to restart the queue.
+- **Key files:** `PlexAPIClient.swift`, `PlexWebSocketCoordinator.swift`, `OfflineDownloadService.swift`, `DependencyContainer.swift`
+
+### MediaTrackList Layout Outside View Hierarchy
+- **Resolved (March 11, 2026)**
+- **Previous:** SwiftUI eagerly created `MediaTrackList` UITableView instances for navigation destinations not yet displayed. UITableView performed layout on init even without a window, causing "layout outside view hierarchy" warnings and unnecessary work at launch.
+- **Fix:** `DeferredLayoutTableView` subclass skips `layoutSubviews()` when not in a window and triggers `reloadData()` on `didMoveToWindow`. `updateUIView` early-returns when the table has no window.
+- **Key files:** `MediaTrackList.swift`
+
+### WebSocket Settings Changed Event Spam
+- **Resolved (March 11, 2026)**
+- **Previous:** Rapid bursts of PMS settings-changed WebSocket events (e.g. 5 pairs in 3s) each logged and processed individually.
+- **Fix:** Settings events debounced per server with 5s window in `PlexWebSocketCoordinator`.
+- **Key files:** `PlexWebSocketCoordinator.swift`
+
+### NowPlaying Carousel Cards Rendered Off-Screen
+- **Resolved (March 11, 2026)**
+- **Previous:** TabView `.page` style renders ALL child views simultaneously. LyricsCard's `.blur()` effects, QueueCard's UIKit QueueTableView, and InfoCard's async fetches all ran off-screen. LyricsCard blur alone was 3.8% of GPU trace (`RB::Filter::GaussianBlur`). QueueCard triggered "UITableView layout outside view hierarchy" warnings.
+- **Fix:** Each card gates its expensive content behind a `currentPage == N` check. Off-screen cards show a lightweight `Color.clear` placeholder. InfoCard also defers its async album fetch until the card becomes visible.
+- **Key files:** `LyricsCard.swift`, `QueueCard.swift`, `InfoCard.swift`
+
+### WebSocket Scan Progress Event Spam
+- **Resolved (March 11, 2026)**
+- **Previous:** `PlexWebSocketCoordinator.serverScanProgress` (@Published) was updated every ~10ms during library scans with zero throttling. Each update fired `objectWillChange` on the singleton, causing cascading UI invalidations.
+- **Fix:** Only publish when progress changes by >=5 percentage points (or on started/ended), cutting ~95% of scan-related objectWillChange events.
+- **Key files:** `PlexWebSocketCoordinator.swift`
+
+### MediaTrackList Singleton Observer Cascade (N×3 Subscriptions)
+- **Resolved (March 11, 2026)**
+- **Previous:** `MediaTrackList` directly observed 3 singletons as `@ObservedObject` (networkMonitor, offlineDownloadService, trackAvailabilityResolver). When SongsView rendered 26 alphabetic sections, this created 78 independent subscriptions (26×3). Every publish triggered `updateUIView` on ALL instances → reconfigured ALL visible cells.
+- **Fix:** Removed the 3 `@ObservedObject` declarations from MediaTrackList. Parent views observe the singletons once and pass `availabilityGeneration: UInt` and `activeDownloadTrackIdentities: Set<String>` as value parameters. Network state read from DependencyContainer at updateUIView time (not observed).
+- **Key files:** `MediaTrackList.swift`, `SongsView.swift`, `MediaDetailView.swift`, `FavoritesView.swift`, `SearchView.swift`, `ArtistsView.swift`, `StageFlowTrackPanel.swift`
+
+### Per-Track activeDownloadTrackIdentities Refresh During Bulk Downloads
+- **Resolved (March 11, 2026)**
+- **Previous:** Each track completion called `refreshActiveDownloadRatingKeys()` via `refreshTargetsForTrack()`, firing the @Published property per-track and causing N UI updates during bulk downloads.
+- **Fix:** Removed redundant per-track call. The debounced `scheduleDownloadChangeNotification()` (1-3s window) already handles this, batching spinner updates.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Premature "Downloads Complete" Toast
+- **Resolved (March 11, 2026)**
+- **Previous:** Toast appeared at 73/79 tracks, then queue got stuck. Workers exited when `fetchNextPendingDownload()` returned nil, but PMS was still preparing remaining downloads. `queueTask` was only nil'd after the toast, so WebSocket-triggered `handleDownloadQueueCompleted()` couldn't restart the queue.
+- **Fix:** Nil `queueTask` before the wind-down check. Add 500ms grace period, then re-check for pending downloads. If more work arrived, restart the queue instead of showing toast.
+- **Key files:** `OfflineDownloadService.swift`
+
+### Downloads View Artwork Flashing
+- **Resolved (March 11, 2026)**
+- **Previous:** `DownloadsViewModel` replaced the `items` array wholesale on every `offlineDownloadService.$targets` publish, causing ForEach to re-render all rows (including artwork) even when only progress numbers changed.
+- **Fix:** Made `DownloadedItemSummary` Equatable. Only assign `items` when mapped values actually differ. Guard `resolveThumbPaths()` against redundant publishes.
+- **Key files:** `DownloadsViewModel.swift`
+
+### Large Playlist Detail View Hang (1400+ tracks)
+- **Resolved (March 11, 2026)**
+- **Previous:** `MediaDetailView.tracksSection` applied `.frame(height: CGFloat(trackCount * 68))` to MediaTrackList, forcing all 1436 cells to render at once — same anti-pattern fixed for unsorted SongsView.
+- **Fix:** Added `managesOwnScrolling: Bool` parameter to MediaTrackList. When track count >200, uses a regular UITableView with scroll enabled for cell recycling. Small lists (albums) keep embedded behavior. Removed fixed `.frame(height:)` for large lists.
+- **Key files:** `MediaTrackList.swift`, `MediaDetailView.swift`
+
+### Queue View Hang with Large Playlists + Artwork Race on Rearrange
+- **Resolved (March 11, 2026)**
+- **Previous:** `QueueTableView` used `IntrinsicTableView` inside a SwiftUI `ScrollView`. `IntrinsicTableView` reported full content height as `intrinsicContentSize`, forcing all 1436 cells to render. Artwork could also flash incorrectly during drag-to-rearrange due to stale async loads.
+- **Fix:** Replaced `IntrinsicTableView` with regular `UITableView` (scroll enabled). Removed `ScrollView` wrapper in `QueueCard`. Added `configureGeneration` counter to `QueueItemCell` — async artwork loads check their generation matches before assigning.
+- **Key files:** `QueueTableView.swift`, `QueueCard.swift`
+
+### TLS Error Not Auto-Retried / Aurora Mid-Song Toggle / Gapless MP3 Skip (Mar 29, 2026)
+- **Resolved (March 29, 2026)**
+- **Symptoms:** (1) Tapping shuffle on a merged playlist caused "TLS error" until manual retry, (2) enabling Aurora visualizer mid-song didn't activate frequency analysis, (3) slight audible skip between gapless MP3 tracks
+- **Root Causes:** (1) `handleTLSPlaybackFailure()` existed but was never wired into `playCurrentQueueItem`'s failure path — TLS errors (code -1200) broke out of the retry loop immediately, (2) `isVisualizerEnabled` was only checked at track transitions in `playCurrentQueueItem` and `prefetchUpcomingItems`, no observation of the setting change, (3) MP3 encoder delay (576 priming frames for LAME) and padding (~1700 remainder frames) were included in `scheduleSegment` calls, creating ~50ms of silence at each gapless boundary
+- **Fix:** (1) Detect TLS errors after retry loop and dispatch to `handleTLSPlaybackFailure()` which refreshes connection + retries, (2) added `UserDefaults.didChangeNotification` observer in `setupVisualizerSettingObservation()` that triggers `loadTimeline` + `activateTimeline` + `resumeUpdates` for current track when toggled ON, (3) added `readContentBounds()` using `AudioFilePacketTableInfo` to read priming/remainder frames, trimmed all `scheduleSegment` calls in `load()`, `scheduleNext()`, `seek()`, `play(from:)`, and `clearScheduledFiles()`
+- **Key files:** `PlaybackService.swift`, `AudioPlaybackEngine.swift`
+
+### Queue Reorder Plays Wrong Song / Stream Cache Deletes Active Files / MediaTrackList Crash
+- **Resolved (March 29, 2026)**
+- **Symptoms:** (1) Drag-reordering up-next queue caused old next track to play, (2) downloaded stream file became unplayable (avfaudio error 2003334207) when transitioning while backgrounded, (3) crash with "Index out of range" in MediaTrackList on fast scroll
+- **Root Causes:** (1) Queue-mutating methods didn't call `clearScheduledFiles()` to invalidate AudioEngine's gapless FIFO, (2) `cleanupStreamCacheFiles()` didn't protect files scheduled in the AudioEngine or being downloaded by streamLoaders, (3) `groupedTracks` updated 85 lines before `reloadData()`, leaving UIKit with stale geometry
+- **Fix:** (1) Added `invalidateGaplessSchedule()` helper called by all 10 queue-mutating methods, (2) expanded keepIds to include `audioEngine.scheduledTrackIds` and `streamLoaders.keys`, plus cache invalidation on load/prefetch failure, (3) bounds-safe accessor on all 9 delegate methods + moved `reloadData()` immediately after data assignment
+- **Key files:** `PlaybackService.swift`, `MediaTrackList.swift`
+
+### NPV Does Not Show Loading Spinner When Opened During Track Loading
+- **Resolved (March 29, 2026)**
+- **Symptom:** Mini player showed buffering spinner but NPV showed a play button when opened while a track was loading
+- **Root Cause:** `ControlsCard.showLoadingIndicator` is a debounced `@State` flag updated only via `onChange(of: playbackState)`. When NPV opens while state is already `.loading`, `onChange` doesn't fire (only triggers on subsequent changes). Mini player works because it checks `playbackState` directly in its body.
+- **Fix:** Added `onAppear` to sync `showLoadingIndicator` and `wasPlayingBeforeTransition` with current state when the view mounts.
+- **Key files:** `ControlsCard.swift`
+
+### PMS Decision Endpoint Returns 400 on macOS
+- **Resolved (March 29, 2026)**
+- **Symptom:** Every `makeStreamDecision` call failed with HTTP 400 on macOS, causing fallback to full FLAC direct downloads instead of smaller MP3 transcodes (10s+ loading times)
+- **Root Cause:** PMS's `/music/:/transcode/universal/decision` endpoint rejects `X-Plex-Platform=macOS`. Confirmed via curl: iOS→200, macOS→400, even with Plex Pass tokens.
+- **Fix:** Override `X-Plex-Platform` to `iOS` in both query params and headers for all transcode-related endpoints. AVAudioEngine has identical codec support across platforms.
+- **Key files:** `PlexAPIClient.swift`
+
+### A9 Performance Audit: Memory, CPU Idle, CoreData (Apr 1, 2026)
+- **Resolved (April 1, 2026)**
+- **Previous:** Profiling on iPhone 6s simulator revealed 96 MB footprint at idle (50 MB CG raster from Nuke image cache), download workers polling CoreData every 2s even when paused, 30Hz frequency analyzer timer running with aurora disabled, and missing `fetchBatchSize`/`relationshipKeyPathsForPrefetching` on CoreData queries.
+- **Fix (memory):** Reduced Nuke in-memory image cache from 50 MB / 100 images to 20 MB / 40 images. Disk cache (100 MB) unchanged.
+- **Fix (CPU — downloads):** Workers now exit immediately when network prevents downloads instead of sleep-polling. Network state observer restarts queue reactively.
+- **Fix (CPU — analyzer):** Added `visualizationEnabled` gate on the 30Hz display timer in `FrequencyAnalysisService`. Timer only starts when aurora is enabled. `didSet` stops/starts timer reactively on setting toggle.
+- **Fix (CoreData):** Added `fetchBatchSize=50` to 3 `DownloadManager` fetch methods. Added `relationshipKeyPathsForPrefetching=["album","album.artist"]` to 5 `LibraryRepository` track fetch methods.
+- **Key files:** `ArtworkLoader.swift`, `OfflineDownloadService.swift`, `AudioAnalyzer.swift`, `PlaybackService.swift`, `DependencyContainer.swift`, `DownloadManager.swift`, `LibraryRepository.swift`
+- **Phase 2 fixes (observation cascades):** HubItemCard `@ObservedObject pinManager` → `let` (context menus are demand-evaluated). MainTabView networkMonitor/powerStateMonitor → `@State` + `.onReceive`. ControlsCard 3×TimelineView → 1×TimelineView. SyncCoordinator progress handlers throttled to 200ms via `throttledProgressUpdate`.
+- **Key Phase 2 files:** `HomeView.swift`, `MainTabView.swift`, `ControlsCard.swift`, `SyncCoordinator.swift`
+- **Phase 3 fix (download CPU pressure):** Post-download frequency analysis (FFT ~2s/track) now serialized via `SidecarAnalysisQueue` actor — only 1 analysis at a time, `.background` priority, 500ms delay before each to let download workers breathe.
+- **Key Phase 3 files:** `OfflineDownloadService.swift`, `AudioAnalyzer.swift`
+
+## Future Enhancements (Waveform System)
+
+- Implement waveform seeking (jump to specific parts of track)
+- Show visual indicators for silent portions or hidden tracks
+- Extract colors from waveform for additional UI theming

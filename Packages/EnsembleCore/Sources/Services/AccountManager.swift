@@ -8,6 +8,20 @@ public final class AccountManager: ObservableObject {
     private struct LibraryFlagEntry: Codable, Equatable, Sendable {
         let key: String
         let isEnabled: Bool
+        let updatedAt: TimeInterval?
+        let originDeviceID: String?
+
+        init(
+            key: String,
+            isEnabled: Bool,
+            updatedAt: TimeInterval? = nil,
+            originDeviceID: String? = nil
+        ) {
+            self.key = key
+            self.isEnabled = isEnabled
+            self.updatedAt = updatedAt
+            self.originDeviceID = originDeviceID
+        }
     }
 
     public struct ServerPlaylistCleanup: Hashable, Sendable {
@@ -41,17 +55,30 @@ public final class AccountManager: ObservableObject {
     }
 
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
+    @Published public private(set) var isAwaitingCloudSources = false
 
     private let keychain: KeychainServiceProtocol
     private let connectionRegistry: ServerConnectionRegistry?
+    private let isNetworkAvailable: @Sendable () async -> Bool
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
-    private var syncedLibraryFlags: [String: Bool] = [:]
+    private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
+    private var libraryFlagModifiedAt: [String: TimeInterval]
+    private let libraryFlagOriginDeviceID: String
     private static let authMigrationVersionKey = "plex_auth_migration_version"
     private static let authMigrationVersion = 2
+    private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
+    private static let libraryFlagOriginDeviceIDKey = "sync.libraryFlagOriginDeviceID"
 
-    public init(keychain: KeychainServiceProtocol, connectionRegistry: ServerConnectionRegistry? = nil) {
+    public init(
+        keychain: KeychainServiceProtocol,
+        connectionRegistry: ServerConnectionRegistry? = nil,
+        isNetworkAvailable: @escaping @Sendable () async -> Bool = { true }
+    ) {
         self.keychain = keychain
         self.connectionRegistry = connectionRegistry
+        self.isNetworkAvailable = isNetworkAvailable
+        self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
+        self.libraryFlagOriginDeviceID = Self.loadOrCreateLibraryFlagOriginDeviceID()
     }
 
     // MARK: - Load / Save
@@ -69,6 +96,12 @@ public final class AccountManager: ObservableObject {
 
         plexAccounts = (try? JSONDecoder().decode([PlexAccountConfig].self, from: data)) ?? []
         _ = enforceAuthTokenPolicy()
+    }
+
+    /// Tracks whether first-connect source hydration is still waiting on iCloud.
+    public func setAwaitingCloudSources(_ awaiting: Bool) {
+        guard isAwaitingCloudSources != awaiting else { return }
+        isAwaitingCloudSources = awaiting
     }
 
     private func saveAccounts() {
@@ -150,10 +183,23 @@ public final class AccountManager: ObservableObject {
                 }
             }
         }
-        let entries = flags.keys.sorted().map { key in
-            LibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
+
+        guard !shouldSuppressLibraryFlagsDuringFirstConnect(flags) else {
+            EnsembleLogger.debug("Sync library flags: skipped local export while first-connect source discovery is unsettled")
+            return nil
         }
-        return try? JSONEncoder().encode(entries)
+
+        let entries = flags.keys.sorted().map { key in
+            LibraryFlagEntry(
+                key: key,
+                isEnabled: flags[key] ?? false,
+                updatedAt: ensureLibraryFlagModifiedAt(for: key),
+                originDeviceID: libraryFlagOriginDeviceID
+            )
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(entries)
     }
 
     /// Apply synced library flags from iCloud KVS.
@@ -161,11 +207,24 @@ public final class AccountManager: ObservableObject {
     /// Returns a change-set so callers can trigger cleanup and refresh side effects.
     @discardableResult
     public func applyLibraryFlags(_ data: Data) -> LibraryFlagApplicationResult {
-        guard let flags = decodeLibraryFlags(from: data) else {
+        guard let entriesByKey = decodeLibraryFlagEntries(from: data) else {
+            return LibraryFlagApplicationResult()
+        }
+        let flags = entriesByKey.mapValues(\.isEnabled)
+
+        guard !shouldSuppressLibraryFlagsDuringFirstConnect(flags) else {
+            EnsembleLogger.debug("Sync library flags: ignored empty/all-disabled remote payload while first-connect source discovery is unsettled")
             return LibraryFlagApplicationResult()
         }
 
-        syncedLibraryFlags = flags
+        guard !shouldSuppressAllDisabledRemoteLibraryFlags(entriesByKey) else {
+            EnsembleLogger.info(
+                "Sync library flags: ignored all-disabled remote payload while local libraries are enabled"
+            )
+            return LibraryFlagApplicationResult()
+        }
+
+        syncedLibraryFlagEntries = entriesByKey
 
         var didChange = false
         var enabledSources: [MusicSourceIdentifier] = []
@@ -185,15 +244,24 @@ public final class AccountManager: ObservableObject {
                         serverId: server.id,
                         libraryKey: updatedLibraries[k].key
                     )
-                    if let remoteEnabled = flags[key],
-                       updatedLibraries[k].isEnabled != remoteEnabled {
+                    guard let remoteEntry = entriesByKey[key] else { continue }
+                    guard shouldApplyRemoteLibraryFlag(remoteEntry) else {
+                        EnsembleLogger.debug(
+                            "Sync library flags: ignored stale remote flag for \(key)"
+                        )
+                        continue
+                    }
+
+                    recordRemoteLibraryFlagTimestamp(remoteEntry)
+
+                    if updatedLibraries[k].isEnabled != remoteEntry.isEnabled {
                         let sourceId = MusicSourceIdentifier(
                             type: .plex,
                             accountId: plexAccounts[i].id,
                             serverId: server.id,
                             libraryId: updatedLibraries[k].key
                         )
-                        if remoteEnabled {
+                        if remoteEntry.isEnabled {
                             enabledSources.append(sourceId)
                         } else {
                             disabledSources.append(sourceId)
@@ -202,7 +270,7 @@ public final class AccountManager: ObservableObject {
                             id: updatedLibraries[k].id,
                             key: updatedLibraries[k].key,
                             title: updatedLibraries[k].title,
-                            isEnabled: remoteEnabled,
+                            isEnabled: remoteEntry.isEnabled,
                             allowSync: updatedLibraries[k].allowSync
                         )
                         serverChanged = true
@@ -226,6 +294,7 @@ public final class AccountManager: ObservableObject {
                         url: server.url,
                         connections: server.connections,
                         token: server.token,
+                        owned: server.owned,
                         platform: server.platform,
                         capabilities: server.capabilities,
                         libraries: updatedLibraries
@@ -260,18 +329,23 @@ public final class AccountManager: ObservableObject {
     /// before it is persisted locally. This preserves remote library selection across
     /// first-connect flows where account discovery finishes after the KVS payload arrives.
     public func applyingSyncedLibraryFlags(to account: PlexAccountConfig) -> PlexAccountConfig {
-        guard !syncedLibraryFlags.isEmpty else { return account }
+        guard !syncedLibraryFlagEntries.isEmpty else { return account }
+
+        let existingLibrariesByKey = localLibrariesByFlagKey(for: account.id)
 
         let updatedServers = account.servers.map { server in
             let updatedLibraries = server.libraries.map { library in
                 let key = libraryFlagKey(accountId: account.id, serverId: server.id, libraryKey: library.key)
-                guard let remoteEnabled = syncedLibraryFlags[key] else { return library }
-                guard library.isEnabled != remoteEnabled else { return library }
+                guard let remoteEntry = syncedLibraryFlagEntries[key] else { return library }
+                guard shouldApplyCachedRemoteLibraryFlag(remoteEntry, existingLibrary: existingLibrariesByKey[key]) else {
+                    return library
+                }
+                guard library.isEnabled != remoteEntry.isEnabled else { return library }
                 return PlexLibraryConfig(
                     id: library.id,
                     key: library.key,
                     title: library.title,
-                    isEnabled: remoteEnabled,
+                    isEnabled: remoteEntry.isEnabled,
                     allowSync: library.allowSync
                 )
             }
@@ -281,6 +355,66 @@ public final class AccountManager: ObservableObject {
                 url: server.url,
                 connections: server.connections,
                 token: server.token,
+                owned: server.owned,
+                platform: server.platform,
+                capabilities: server.capabilities,
+                libraries: updatedLibraries
+            )
+        }
+
+        return PlexAccountConfig(
+            id: account.id,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
+            authToken: account.authToken,
+            authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
+            servers: updatedServers
+        )
+    }
+
+    /// Apply the library selection embedded in synced source credentials.
+    /// This is a bootstrap fallback for new devices before the dedicated KVS
+    /// library-flags payload has arrived.
+    public func applyingCredentialLibrarySelection(
+        to account: PlexAccountConfig,
+        credential: SyncableAccountCredential
+    ) -> PlexAccountConfig {
+        var credentialFlags: [String: Bool] = [:]
+        for server in credential.servers {
+            for library in server.libraries {
+                let key = libraryFlagKey(
+                    accountId: credential.accountId,
+                    serverId: server.serverId,
+                    libraryKey: library.key
+                )
+                credentialFlags[key] = library.isEnabled
+            }
+        }
+
+        guard !credentialFlags.isEmpty else { return account }
+
+        let updatedServers = account.servers.map { server in
+            let updatedLibraries = server.libraries.map { library in
+                let key = libraryFlagKey(accountId: account.id, serverId: server.id, libraryKey: library.key)
+                guard let credentialEnabled = credentialFlags[key] else { return library }
+                guard library.isEnabled != credentialEnabled else { return library }
+                return PlexLibraryConfig(
+                    id: library.id,
+                    key: library.key,
+                    title: library.title,
+                    isEnabled: credentialEnabled,
+                    allowSync: library.allowSync
+                )
+            }
+            return PlexServerConfig(
+                id: server.id,
+                name: server.name,
+                url: server.url,
+                connections: server.connections,
+                token: server.token,
+                owned: server.owned,
                 platform: server.platform,
                 capabilities: server.capabilities,
                 libraries: updatedLibraries
@@ -302,7 +436,7 @@ public final class AccountManager: ObservableObject {
     // MARK: - Account Management
 
     public func addPlexAccount(_ account: PlexAccountConfig) {
-        let resolvedAccount = applyingSyncedLibraryFlags(to: account)
+        let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingLibrarySelection(in: account))
         // Replace if same account ID already exists
         plexAccounts.removeAll { $0.id == resolvedAccount.id }
         plexAccounts.append(resolvedAccount)
@@ -350,6 +484,11 @@ public final class AccountManager: ObservableObject {
             isEnabled: false,
             allowSync: updatedLibraries[libraryIndex].allowSync
         )
+        recordLocalLibraryFlagMutation(
+            accountId: account.id,
+            serverId: server.id,
+            libraryKey: updatedLibraries[libraryIndex].key
+        )
 
         // Create new server with updated libraries
         var updatedServers = account.servers
@@ -359,6 +498,7 @@ public final class AccountManager: ObservableObject {
             url: server.url,
             connections: server.connections,
             token: server.token,
+            owned: server.owned,
             platform: server.platform,
             capabilities: server.capabilities,
             libraries: updatedLibraries
@@ -409,6 +549,11 @@ public final class AccountManager: ObservableObject {
             isEnabled: isEnabled,
             allowSync: library.allowSync
         )
+        recordLocalLibraryFlagMutation(
+            accountId: accountId,
+            serverId: serverId,
+            libraryKey: libraryKey
+        )
 
         var updatedServers = account.servers
         updatedServers[serverIndex] = PlexServerConfig(
@@ -417,6 +562,7 @@ public final class AccountManager: ObservableObject {
             url: server.url,
             connections: server.connections,
             token: server.token,
+            owned: server.owned,
             platform: server.platform,
             capabilities: server.capabilities,
             libraries: updatedLibraries
@@ -433,6 +579,16 @@ public final class AccountManager: ObservableObject {
             servers: updatedServers
         )
 
+        let sourceId = MusicSourceIdentifier(
+            type: .plex,
+            accountId: accountId,
+            serverId: serverId,
+            libraryId: libraryKey
+        )
+        EnsembleLogger.info(
+            "AccountManager: library selection changed source=\(sourceId.compositeKey) enabled=\(isEnabled)"
+        )
+
         saveAccounts()
         return true
     }
@@ -445,6 +601,24 @@ public final class AccountManager: ObservableObject {
         for account in plexAccounts {
             for server in account.servers {
                 for library in server.libraries where library.isEnabled {
+                    sources.append(MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    ))
+                }
+            }
+        }
+        return sources
+    }
+
+    /// Returns all disabled MusicSourceIdentifiers across all accounts.
+    public func disabledSources() -> [MusicSourceIdentifier] {
+        var sources: [MusicSourceIdentifier] = []
+        for account in plexAccounts {
+            for server in account.servers {
+                for library in server.libraries where !library.isEnabled {
                     sources.append(MusicSourceIdentifier(
                         type: .plex,
                         accountId: account.id,
@@ -479,6 +653,51 @@ public final class AccountManager: ObservableObject {
             }
         }
         return sources
+    }
+
+    public struct SourceLibraryContext: Sendable, Equatable {
+        public let accountId: String
+        public let accountName: String
+        public let serverId: String
+        public let serverName: String
+        public let libraryId: String
+        public let libraryTitle: String
+        public let allowSync: Bool?
+
+        public var displayName: String {
+            "\(serverName) - \(libraryTitle)"
+        }
+
+        public var displaySubtitle: String {
+            "\(displayName) · \(accountName)"
+        }
+    }
+
+    /// Resolves the configured account/server/library tuple for a sourceCompositeKey.
+    public func sourceLibraryContext(for sourceCompositeKey: String?) -> SourceLibraryContext? {
+        guard
+            let sourceCompositeKey,
+            let source = MusicSourceIdentifier(compositeKey: sourceCompositeKey),
+            let account = plexAccounts.first(where: { $0.id == source.accountId }),
+            let server = account.servers.first(where: { $0.id == source.serverId }),
+            let library = server.libraries.first(where: { $0.key == source.libraryId })
+        else {
+            return nil
+        }
+
+        return SourceLibraryContext(
+            accountId: account.id,
+            accountName: account.accountIdentifier,
+            serverId: server.id,
+            serverName: server.name,
+            libraryId: library.key,
+            libraryTitle: library.title,
+            allowSync: library.allowSync
+        )
+    }
+
+    public func sourceDisplaySubtitle(for sourceCompositeKey: String?) -> String? {
+        sourceLibraryContext(for: sourceCompositeKey)?.displaySubtitle
     }
 
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
@@ -552,7 +771,8 @@ public final class AccountManager: ObservableObject {
             connection: connection,
             keychain: keychain,
             connectionRegistry: connectionRegistry,
-            serverKey: cacheKey
+            serverKey: cacheKey,
+            isNetworkAvailable: isNetworkAvailable
         )
         apiClientCache[cacheKey] = client
         return client
@@ -622,8 +842,21 @@ public final class AccountManager: ObservableObject {
 
     private func applyAuthMigrationIfNeeded() -> Bool {
         let defaults = UserDefaults.standard
+        let hasStoredMigrationVersion = defaults.object(forKey: Self.authMigrationVersionKey) != nil
         let previousVersion = defaults.integer(forKey: Self.authMigrationVersionKey)
         guard previousVersion < Self.authMigrationVersion else {
+            return false
+        }
+
+        // A true fresh install has no stored account payload yet. In that case
+        // there is nothing to migrate, so mark the migration as satisfied and
+        // let iCloud-synced accounts hydrate normally.
+        if !hasStoredMigrationVersion,
+           (try? keychain.get(KeychainKey.plexAccounts)) == nil {
+            defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
+            EnsembleLogger.debug(
+                "🔐 AccountManager: Marked auth migration v\(Self.authMigrationVersion) complete on fresh install"
+            )
             return false
         }
 
@@ -639,6 +872,156 @@ public final class AccountManager: ObservableObject {
 
     private func libraryFlagKey(accountId: String, serverId: String, libraryKey: String) -> String {
         "\(accountId):\(serverId):\(libraryKey)"
+    }
+
+    private func shouldSuppressLibraryFlagsDuringFirstConnect(_ flags: [String: Bool]) -> Bool {
+        guard isAwaitingCloudSources else { return false }
+        return flags.isEmpty || flags.values.allSatisfy { !$0 }
+    }
+
+    private func shouldSuppressAllDisabledRemoteLibraryFlags(_ entriesByKey: [String: LibraryFlagEntry]) -> Bool {
+        guard !entriesByKey.isEmpty, entriesByKey.values.allSatisfy({ !$0.isEnabled }) else { return false }
+
+        let hasLocalEnabledLibrary = plexAccounts.contains { account in
+            account.servers.contains { server in
+                server.libraries.contains(where: \.isEnabled)
+            }
+        }
+        guard hasLocalEnabledLibrary else { return false }
+
+        return entriesByKey.values.allSatisfy { entry in
+            guard let remoteTimestamp = entry.updatedAt else { return true }
+            return remoteTimestamp <= (libraryFlagModifiedAt[entry.key] ?? 0)
+        }
+    }
+
+    private func shouldApplyRemoteLibraryFlag(_ entry: LibraryFlagEntry) -> Bool {
+        guard let remoteTimestamp = entry.updatedAt else { return true }
+        return remoteTimestamp >= (libraryFlagModifiedAt[entry.key] ?? 0)
+    }
+
+    private func shouldApplyCachedRemoteLibraryFlag(
+        _ entry: LibraryFlagEntry,
+        existingLibrary: PlexLibraryConfig?
+    ) -> Bool {
+        if let remoteTimestamp = entry.updatedAt {
+            return remoteTimestamp >= (libraryFlagModifiedAt[entry.key] ?? 0)
+        }
+
+        // Untimestamped flags are legacy bootstrap hints. They are valid for a
+        // newly discovered account, but an existing local library selection is
+        // more trustworthy during later server/account refreshes.
+        return existingLibrary == nil && libraryFlagModifiedAt[entry.key] == nil
+    }
+
+    private func recordRemoteLibraryFlagTimestamp(_ entry: LibraryFlagEntry) {
+        guard let remoteTimestamp = entry.updatedAt else { return }
+        guard remoteTimestamp >= (libraryFlagModifiedAt[entry.key] ?? 0) else { return }
+        libraryFlagModifiedAt[entry.key] = remoteTimestamp
+        saveLibraryFlagModifiedAt()
+    }
+
+    private func recordLocalLibraryFlagMutation(accountId: String, serverId: String, libraryKey: String) {
+        let key = libraryFlagKey(accountId: accountId, serverId: serverId, libraryKey: libraryKey)
+        libraryFlagModifiedAt[key] = Date().timeIntervalSince1970
+        saveLibraryFlagModifiedAt()
+    }
+
+    private func ensureLibraryFlagModifiedAt(for key: String) -> TimeInterval {
+        if let timestamp = libraryFlagModifiedAt[key] {
+            return timestamp
+        }
+        let timestamp = Date().timeIntervalSince1970
+        libraryFlagModifiedAt[key] = timestamp
+        saveLibraryFlagModifiedAt()
+        return timestamp
+    }
+
+    private func preservingExistingLibrarySelection(in account: PlexAccountConfig) -> PlexAccountConfig {
+        let existingLibrariesByKey = localLibrariesByFlagKey(for: account.id)
+        guard !existingLibrariesByKey.isEmpty else { return account }
+
+        var didChange = false
+        let updatedServers = account.servers.map { server in
+            let updatedLibraries = server.libraries.map { library in
+                let key = libraryFlagKey(accountId: account.id, serverId: server.id, libraryKey: library.key)
+                guard let existingLibrary = existingLibrariesByKey[key],
+                      existingLibrary.isEnabled != library.isEnabled else {
+                    return library
+                }
+
+                didChange = true
+                return PlexLibraryConfig(
+                    id: library.id,
+                    key: library.key,
+                    title: library.title,
+                    isEnabled: existingLibrary.isEnabled,
+                    allowSync: library.allowSync
+                )
+            }
+
+            guard updatedLibraries != server.libraries else { return server }
+            return PlexServerConfig(
+                id: server.id,
+                name: server.name,
+                url: server.url,
+                connections: server.connections,
+                token: server.token,
+                owned: server.owned,
+                platform: server.platform,
+                capabilities: server.capabilities,
+                libraries: updatedLibraries
+            )
+        }
+
+        guard didChange else { return account }
+        return PlexAccountConfig(
+            id: account.id,
+            email: account.email,
+            plexUsername: account.plexUsername,
+            displayTitle: account.displayTitle,
+            authToken: account.authToken,
+            authTokenMetadata: account.authTokenMetadata,
+            subscription: account.subscription,
+            servers: updatedServers
+        )
+    }
+
+    private func localLibrariesByFlagKey(for accountId: String) -> [String: PlexLibraryConfig] {
+        guard let existingAccount = plexAccounts.first(where: { $0.id == accountId }) else {
+            return [:]
+        }
+
+        var librariesByKey: [String: PlexLibraryConfig] = [:]
+        for server in existingAccount.servers {
+            for library in server.libraries {
+                let key = libraryFlagKey(accountId: existingAccount.id, serverId: server.id, libraryKey: library.key)
+                librariesByKey[key] = library
+            }
+        }
+        return librariesByKey
+    }
+
+    private func saveLibraryFlagModifiedAt() {
+        guard let data = try? JSONEncoder().encode(libraryFlagModifiedAt) else { return }
+        UserDefaults.standard.set(data, forKey: Self.libraryFlagModifiedAtKey)
+    }
+
+    private static func loadLibraryFlagModifiedAt() -> [String: TimeInterval] {
+        guard let data = UserDefaults.standard.data(forKey: libraryFlagModifiedAtKey),
+              let timestamps = try? JSONDecoder().decode([String: TimeInterval].self, from: data) else {
+            return [:]
+        }
+        return timestamps
+    }
+
+    private static func loadOrCreateLibraryFlagOriginDeviceID() -> String {
+        if let existing = UserDefaults.standard.string(forKey: libraryFlagOriginDeviceIDKey) {
+            return existing
+        }
+        let deviceID = UUID().uuidString
+        UserDefaults.standard.set(deviceID, forKey: libraryFlagOriginDeviceIDKey)
+        return deviceID
     }
 
     private func requiresSyncReconciliation(
@@ -723,10 +1106,17 @@ public final class AccountManager: ObservableObject {
             }
     }
 
-    private func decodeLibraryFlags(from data: Data) -> [String: Bool]? {
+    private func decodeLibraryFlagEntries(from data: Data) -> [String: LibraryFlagEntry]? {
         if let entries = try? JSONDecoder().decode([LibraryFlagEntry].self, from: data) {
-            return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0.isEnabled) })
+            return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0) })
         }
-        return try? JSONDecoder().decode([String: Bool].self, from: data)
+        guard let flags = try? JSONDecoder().decode([String: Bool].self, from: data) else {
+            return nil
+        }
+        return Dictionary(
+            uniqueKeysWithValues: flags.map { key, isEnabled in
+                (key, LibraryFlagEntry(key: key, isEnabled: isEnabled))
+            }
+        )
     }
 }

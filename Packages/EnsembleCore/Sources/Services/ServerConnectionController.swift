@@ -104,6 +104,157 @@ final class ServerConnectionController {
         }
     }
 
+    func ensureServerConnection(sourceKey: String) async throws {
+        guard let identity = MediaSourceIdentity.parse(sourceKey),
+              identity.libraryId != nil else {
+            throw PlexAPIError.noServerSelected
+        }
+
+        let currentState = serverHealthChecker.getServerState(
+            accountId: identity.accountId,
+            serverId: identity.serverId
+        )
+
+        EnsembleLogger.debug("🎵 ServerConnectionController: current state for \(identity.accountId):\(identity.serverId) = \(currentState.description)")
+
+        if case .connected = currentState {
+            return
+        }
+        if case .degraded = currentState {
+            return
+        }
+
+        EnsembleLogger.debug("🔍 ServerConnectionController: Checking server connection before playback")
+        let newState = await serverHealthChecker.checkServer(
+            accountId: identity.accountId,
+            serverId: identity.serverId,
+            forceRefresh: false
+        )
+
+        switch newState {
+        case .connected(let url), .degraded(let url):
+            if let apiClient = accountManager.makeAPIClient(accountId: identity.accountId, serverId: identity.serverId) {
+                await apiClient.updateCurrentServerURL(url)
+                EnsembleLogger.debug("✅ ServerConnectionController: Server connection ready for playback: \(url)")
+            }
+        case .offline:
+            EnsembleLogger.debug("⚠️ ServerConnectionController: Health check reported offline; attempting optimistic failover refresh")
+            if let apiClient = accountManager.makeAPIClient(accountId: identity.accountId, serverId: identity.serverId) {
+                let refreshResult = try? await apiClient.refreshConnection()
+                let refreshedURL = await apiClient.getCurrentServerURL()
+                EnsembleLogger.debug(
+                    "⚠️ ServerConnectionController: proceeding after refresh with URL host=\(hostForDebugURL(refreshedURL))"
+                )
+                if let refreshResult {
+                    EnsembleLogger.debug(
+                        "⚠️ ServerConnectionController: refresh outcome=\(refreshResult.outcome.rawValue) probes=\(refreshResult.probeCount)"
+                    )
+                }
+            }
+            // Do not fail fast on health-check offline. Stream URL retrieval/playback
+            // performs its own network path and can still succeed on slower paths.
+            return
+        case .connecting, .unknown:
+            EnsembleLogger.debug("⚠️ ServerConnectionController: Server state uncertain, attempting playback anyway")
+        }
+    }
+
+    func serverFailureMessage(sourceKey: String) -> String? {
+        guard let identity = MediaSourceIdentity.parse(sourceKey),
+              identity.libraryId != nil else {
+            return nil
+        }
+
+        return serverHealthChecker.getServerFailureReason(
+            accountId: identity.accountId,
+            serverId: identity.serverId
+        )?.userMessage
+    }
+
+    func apiClient(sourceKey: String?) -> PlexAPIClient? {
+        guard let identity = MediaSourceIdentity.parse(sourceKey) else {
+            return nil
+        }
+
+        return accountManager.makeAPIClient(
+            accountId: identity.accountId,
+            serverId: identity.serverId
+        )
+    }
+
+    func requireAPIClient(sourceKey: String?) throws -> PlexAPIClient {
+        guard let apiClient = apiClient(sourceKey: sourceKey) else {
+            throw PlexAPIError.noServerSelected
+        }
+        return apiClient
+    }
+
+    /// Proactively refresh Plex server connections across configured accounts.
+    /// Playback retry paths use this to recover from transient endpoint failures.
+    func refreshConnections() async throws {
+        var refreshedAnyConnection = false
+        var lastError: Error?
+
+        for account in accountManager.plexAccounts {
+            for server in account.servers {
+                guard let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
+                    continue
+                }
+
+                do {
+                    let result = try await apiClient.refreshConnection()
+                    refreshedAnyConnection = true
+                    EnsembleLogger.debug(
+                        "🔄 ServerConnectionController: Refreshed \(server.name) outcome=\(result.outcome.rawValue), probes=\(result.probeCount)"
+                    )
+                } catch {
+                    lastError = error
+                    EnsembleLogger.debug(
+                        "⚠️ ServerConnectionController: Failed to refresh \(server.name): \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+
+        guard refreshedAnyConnection else {
+            throw lastError ?? PlexAPIError.noServerSelected
+        }
+
+    }
+
+    func connectionStateAfterSuccessfulSync(
+        for source: MusicSourceIdentifier,
+        fallback: ServerConnectionState
+    ) async -> ServerConnectionState {
+        var resolvedURL: String?
+
+        if let apiClient = accountManager.makeAPIClient(accountId: source.accountId, serverId: source.serverId) {
+            let currentURL = await apiClient.getCurrentServerURL().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !currentURL.isEmpty {
+                resolvedURL = currentURL
+            }
+        }
+
+        if resolvedURL == nil,
+           let account = accountManager.plexAccounts.first(where: { $0.id == source.accountId }),
+           let server = account.servers.first(where: { $0.id == source.serverId }) {
+            let fallbackURL = server.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !fallbackURL.isEmpty {
+                resolvedURL = fallbackURL
+            }
+        }
+
+        guard let resolvedURL else {
+            return fallback
+        }
+
+        if case .degraded = fallback {
+            return .degraded(url: resolvedURL)
+        }
+
+        return .connected(url: resolvedURL)
+    }
+
     internal func awaitRegistryPropagationForTesting() async {
         await Task.yield()
         await Task.yield()
@@ -140,5 +291,9 @@ final class ServerConnectionController {
         }
 
         await onConnectionsRefreshed?()
+    }
+
+    private func hostForDebugURL(_ urlString: String) -> String {
+        URL(string: urlString)?.host ?? "invalid"
     }
 }

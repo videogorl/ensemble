@@ -1,7 +1,8 @@
+import EnsembleSupport
 import OSLog
 
-/// Package-level logger for EnsembleAPI. Uses @autoclosure so message strings
-/// are not constructed unless needed — zero cost when file logging is disabled in release.
+/// Package-level logger for EnsembleAPI. Writes to the unified log and the
+/// optional persistent session sink used for TestFlight diagnostics.
 public enum EnsembleLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "api")
 
@@ -12,24 +13,19 @@ public enum EnsembleLogger {
     private static let category = "api"
 
     static func debug(_ message: @autoclosure () -> String) {
-        #if DEBUG
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
-        #else
-        guard let handler = fileLogHandler else { return }
-        handler("DEBUG", category, message())
-        #endif
     }
 
     static func info(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.info("\(msg, privacy: .public)")
         fileLogHandler?("INFO", category, msg)
     }
 
     static func error(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.error("\(msg, privacy: .public)")
         fileLogHandler?("ERROR", category, msg)
     }

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -o pipefail
 
 # Hook script: Runs EnsembleCore tests when queue-related files are modified
 
@@ -18,9 +19,17 @@ if [[ "$FILE_PATH" =~ Queue.*\.swift$ ]]; then
   echo "Running EnsembleCore tests..."
   echo ""
 
-  swift test --package-path Packages/EnsembleCore 2>&1 | tail -25
+  if [[ -n "${CLAUDE_PROJECT_DIR:-}" ]]; then
+    cd "$CLAUDE_PROJECT_DIR" || exit 1
+  fi
 
+  TEST_OUTPUT=$(mktemp)
+  swift test --package-path Packages/EnsembleCore >"$TEST_OUTPUT" 2>&1
   TEST_RESULT=$?
+
+  tail -25 "$TEST_OUTPUT"
+  rm -f "$TEST_OUTPUT"
+
   if [ $TEST_RESULT -eq 0 ]; then
     echo ""
     echo "All tests passed."

@@ -1,6 +1,6 @@
 import AVFoundation
-import XCTest
 @testable import EnsembleCore
+import XCTest
 
 final class PlaybackServiceTests: XCTestCase {
     func testAudioPlaybackEngineResolvedPlaybackPositionFallsBackToSeekOffsetWithoutRenderSample() {
@@ -8,7 +8,7 @@ final class PlaybackServiceTests: XCTestCase {
             renderSampleTime: nil,
             playerTimeBaseOffset: 0,
             seekFrameOffset: 3_282_300,
-            sampleRate: 44_100
+            sampleRate: 44100
         )
 
         XCTAssertEqual(time, 74.428571, accuracy: 0.0001)
@@ -23,6 +23,107 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
+    }
+
+    func testCurrentPlaybackPositionUsesDurablePlayheadWhenRenderClockIsUnavailable() {
+        let time = AudioPlaybackEngine.resolvedCurrentPlaybackPosition(
+            renderClockPosition: nil,
+            durablePlaybackPosition: 132.4,
+            duration: 274.2
+        )
+
+        XCTAssertEqual(time, 132.4, accuracy: 0.0001)
+    }
+
+    func testCurrentPlaybackPositionClampsDurablePlayheadToDuration() {
+        let time = AudioPlaybackEngine.resolvedCurrentPlaybackPosition(
+            renderClockPosition: nil,
+            durablePlaybackPosition: 288.0,
+            duration: 274.2
+        )
+
+        XCTAssertEqual(time, 274.2, accuracy: 0.0001)
+    }
+
+    func testInstrumentalModeUsesLargeRenderSlicesForIsolationHeadroom() {
+        XCTAssertEqual(AudioPlaybackEngine.instrumentalIsolationMaxFramesToRender, 8192)
+        XCTAssertGreaterThan(AudioPlaybackEngine.instrumentalIsolationPreferredIOBufferDuration, 0.12)
+        XCTAssertLessThan(AudioPlaybackEngine.standardPreferredIOBufferDuration, 0.03)
+    }
+
+    func testSmartMixIncomingPositionUsesTempoRate() {
+        let position = AudioPlaybackEngine.smartMixIncomingPosition(
+            incomingStartTime: 10,
+            elapsed: 5,
+            incomingPlaybackRate: 0.98,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 14.9, accuracy: 0.0001)
+    }
+
+    func testSmartMixIncomingPositionClampsToDuration() {
+        let position = AudioPlaybackEngine.smartMixIncomingPosition(
+            incomingStartTime: 175,
+            elapsed: 10,
+            incomingPlaybackRate: 1.04,
+            duration: 180
+        )
+
+        XCTAssertEqual(position, 180, accuracy: 0.0001)
+    }
+
+    func testSmartMixHighPassFrequencyRampsAfterStartProgress() {
+        let sweep = SmartMixHighPassSweep(startFrequency: 80, endFrequency: 700, startProgress: 0.35)
+
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 0.2, sweep: sweep, sampleRate: 44100),
+            80,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 1, sweep: sweep, sampleRate: 44100),
+            700,
+            accuracy: 0.001
+        )
+    }
+
+    func testSmartMixDefaultHighPassSweepIsStrongerAndEased() {
+        let sweep = SmartMixHighPassSweep.subtle
+
+        XCTAssertEqual(sweep.startFrequency, 90)
+        XCTAssertEqual(sweep.endFrequency, 1_400)
+        XCTAssertEqual(sweep.startProgress, 0.25)
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixHighPassFrequency(progress: 0.625, sweep: sweep, sampleRate: 44100),
+            745,
+            accuracy: 0.001
+        )
+    }
+
+    func testSmartMixTempoRateEasesTowardTarget() {
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixTempoRate(progress: 0.05, targetRate: 1.08),
+            1,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.smartMixTempoRate(progress: 1, targetRate: 1.08),
+            1.08,
+            accuracy: 0.0001
+        )
+    }
+
+    func testSmartMixFormatsMatchAllowsSampleRateConversionForEquivalentDeckFormats() {
+        let stereo = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let stereoCopy = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2)
+        let stereo48k = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 2)
+        let mono = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)
+
+        XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereoCopy!))
+        XCTAssertTrue(AudioPlaybackEngine.smartMixFormatsMatch(stereo, stereo48k!))
+        XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(stereo, mono!))
+        XCTAssertFalse(AudioPlaybackEngine.smartMixFormatsMatch(nil, stereo!))
     }
 
     func testRouteRecoveryPrefersObservedPositionWhenLiveTimeDropsToZero() {
@@ -208,7 +309,7 @@ final class PlaybackServiceTests: XCTestCase {
             id: "1",
             key: "/library/metadata/1",
             title: "Test Song",
-            duration: 185  // 3:05
+            duration: 185 // 3:05
         )
 
         XCTAssertEqual(track.formattedDuration, "3:05")
@@ -354,6 +455,33 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(shouldIgnore)
     }
 
+    func testAutomaticAdvanceGateRejectsOldTrackTimeSample() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: 248.0,
+            elapsedSinceAdvance: 0.12
+        )
+
+        XCTAssertTrue(shouldIgnore)
+    }
+
+    func testAutomaticAdvanceGateAcceptsNewTrackTimeSample() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: 0.18,
+            elapsedSinceAdvance: 0.12
+        )
+
+        XCTAssertFalse(shouldIgnore)
+    }
+
+    func testAutomaticAdvanceGateExpiresQuickly() {
+        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
+            observedTime: 248.0,
+            elapsedSinceAdvance: 0.9
+        )
+
+        XCTAssertFalse(shouldIgnore)
+    }
+
     func testPlaybackSnapshotPersistsAfterInterval() {
         XCTAssertTrue(
             PlaybackService.shouldPersistPlaybackSnapshot(
@@ -389,6 +517,122 @@ final class PlaybackServiceTests: XCTestCase {
                 engineTrackID: "8878",
                 isSkipTransitionInProgress: true
             )
+        )
+    }
+
+    func testEngineTrackReconciliationSkipsDuringSmartMixTransition() {
+        XCTAssertFalse(
+            PlaybackService.shouldReconcileEngineTrack(
+                currentTrackID: "8877",
+                engineTrackID: "8878",
+                isSkipTransitionInProgress: false,
+                isSmartMixTransitionActive: true
+            )
+        )
+    }
+
+    func testAutomaticAdvanceIsSuppressedDuringInterruption() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
+
+        XCTAssertTrue(
+            PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
+                coordinator: coordinator,
+                playbackState: .paused,
+                isInterrupted: true,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testAutomaticAdvanceIsSuppressedDuringDisconnectTransition() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(
+            .routeChanged(reason: .oldDeviceUnavailable, now: Date(), settleUntil: nil),
+            playbackState: .playing
+        )
+
+        XCTAssertTrue(
+            PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
+                coordinator: coordinator,
+                playbackState: .paused,
+                isInterrupted: false,
+                isRouteChangeInProgress: true
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsDisabledWhileBuffering() {
+        let coordinator = PlaybackHandoffCoordinator()
+
+        XCTAssertFalse(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .buffering,
+                coordinator: coordinator,
+                isInterrupted: false,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsDisabledDuringInterruption() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .playing)
+
+        XCTAssertFalse(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .paused,
+                coordinator: coordinator,
+                isInterrupted: true,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsEnabledForStablePausedPlayback() {
+        var coordinator = PlaybackHandoffCoordinator()
+        _ = coordinator.handle(.pauseRequested(.user), playbackState: .playing)
+
+        XCTAssertTrue(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .paused,
+                coordinator: coordinator,
+                isInterrupted: false,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testPreviousNavigationRestartsAfterThreshold() {
+        XCTAssertEqual(
+            PlaybackService.previousNavigationTarget(
+                currentTime: 5,
+                currentQueueIndex: 2,
+                playbackHistoryCount: 2
+            ),
+            .seekToZero
+        )
+    }
+
+    func testPreviousNavigationUsesQueueIndexBeforeThreshold() {
+        XCTAssertEqual(
+            PlaybackService.previousNavigationTarget(
+                currentTime: 1,
+                currentQueueIndex: 2,
+                playbackHistoryCount: 2
+            ),
+            .queueIndex(1)
+        )
+    }
+
+    func testPreviousNavigationUsesHistoryAtQueueStartBeforeThreshold() {
+        XCTAssertEqual(
+            PlaybackService.previousNavigationTarget(
+                currentTime: 1,
+                currentQueueIndex: 0,
+                playbackHistoryCount: 2
+            ),
+            .historyIndex(1)
         )
     }
 
@@ -547,7 +791,7 @@ final class PlaybackServiceTests: XCTestCase {
         let now = Date()
         let stalls = [
             now.addingTimeInterval(-10),
-            now.addingTimeInterval(-5)
+            now.addingTimeInterval(-5),
         ]
 
         XCTAssertTrue(
@@ -562,7 +806,7 @@ final class PlaybackServiceTests: XCTestCase {
         let now = Date()
         let stalls = [
             now.addingTimeInterval(-40),
-            now.addingTimeInterval(-35)
+            now.addingTimeInterval(-35),
         ]
 
         XCTAssertFalse(
@@ -608,7 +852,7 @@ final class PlaybackServiceTests: XCTestCase {
 
     func testContiguousBufferedRangeEndReturnsRangeEndWhenPlaybackInsideRange() throws {
         let ranges = [
-            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600))
+            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
         ]
 
         let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
@@ -623,7 +867,7 @@ final class PlaybackServiceTests: XCTestCase {
     func testContiguousBufferedRangeEndReturnsNilWhenPlaybackInGap() {
         let ranges = [
             CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
-            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600))
+            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600)),
         ]
 
         let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
@@ -675,11 +919,11 @@ final class PlaybackServiceTests: XCTestCase {
                         platform: "Linux",
                         libraries: [
                             PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: true),
-                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Library Two", isEnabled: false)
+                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Library Two", isEnabled: false),
                         ]
-                    )
+                    ),
                 ]
-            )
+            ),
         ]
 
         let keys = PlaybackService.enabledSourceCompositeKeys(from: accounts)
@@ -767,7 +1011,7 @@ final class PlaybackServiceTests: XCTestCase {
 
     func testEffectiveDurationRejectsAbsurdlyLongItemDuration() {
         // Guard against malformed media reporting 24h+ durations
-        let absurdDuration = 25 * 60 * 60.0  // 25 hours
+        let absurdDuration = 25 * 60 * 60.0 // 25 hours
         let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: absurdDuration)
         XCTAssertEqual(result, 180)
     }
@@ -802,7 +1046,7 @@ final class PlaybackServiceTests: XCTestCase {
         // AVPlayer reporting slightly longer (within 10%) is normal for transcoded
         // streams — allow it so progress bar doesn't complete early.
         let result = PlaybackService.effectiveDuration(metadataDuration: 180, itemDuration: 195)
-        XCTAssertEqual(result, 195)  // 8.3% over, within 10% threshold
+        XCTAssertEqual(result, 195) // 8.3% over, within 10% threshold
     }
 
     func testPruneDuplicateFutureAutoplayItemsRemovesAlternateAlbumVersion() {
@@ -833,7 +1077,7 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(result.queue.map(\.id), ["current", "manual-teeth", "bang"])
-        XCTAssertEqual(result.removedTrackIds, ["11979"])
+        XCTAssertEqual(result.removedTrackIds, [duplicateAutoplayTeeth.track.playbackIdentity])
         XCTAssertEqual(result.removedItemCount, 1)
     }
 

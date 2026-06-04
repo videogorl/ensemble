@@ -9,10 +9,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
 
-    /// Tracks that failed with direct stream — retries skip to download path.
-    /// Cleared on connection refresh via `resetStreamFallbackState()`.
-    private var directStreamFailedKeys = Set<String>()
-
     /// Read-only access for services that need direct API calls (e.g. LyricsService)
     public var exposedAPIClient: PlexAPIClient { apiClient }
 
@@ -26,10 +22,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.sectionKey = sectionKey
     }
 
-    /// No-op — retained for protocol conformance. The download-to-file approach
-    /// eliminates the AVPlayer HTTP stack issues that required fallback tracking.
-    public func resetUniversalEndpointFallback() {}
-    
     public func syncLibraryIncremental(
         since timestamp: TimeInterval,
         to repository: LibraryRepositoryProtocol,
@@ -192,10 +184,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
         EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
         phaseStart = CFAbsoluteTimeGetCurrent()
-        for track in tracksToSync {
-            // Copy genre from parent album (Plex doesn't return genres on tracks)
+        let trackInputs = tracksToSync.map { track in
             let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
-            _ = try await repository.upsertTrack(
+            return TrackUpsertInput(
                 ratingKey: track.ratingKey,
                 key: track.key,
                 title: track.title,
@@ -207,6 +198,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 duration: track.duration,
                 thumbPath: track.thumb ?? track.parentThumb,
                 streamKey: track.streamURL,
+                streamId: track.audioStreamId,
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -214,9 +206,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 rating: track.userRating.map { Int($0) } ?? 0,
                 playCount: track.viewCount ?? 0,
                 genreNames: trackGenreNames,
-                sourceCompositeKey: sourceKey
             )
         }
+        try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
         // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
         progressHandler(0.55)
@@ -360,6 +352,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 duration: track.duration,
                 thumbPath: track.thumb ?? track.parentThumb,
                 streamKey: track.streamURL,
+                streamId: track.audioStreamId,
                 dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -586,39 +579,24 @@ public func getStreamURL(
         // for transcodes. Direct stream gives instant playback (~<1s) because PMS serves
         // direct files with Accept-Ranges: bytes and Content-Length. Progressive transcode
         // gives ~1-2s startup by streaming chunks via AVAssetResourceLoaderDelegate.
-        if !directStreamFailedKeys.contains(trackRatingKey) {
-            do {
-                let resolution = try await apiClient.resolveStreamURL(
-                    ratingKey: trackRatingKey,
-                    trackStreamKey: trackStreamKey,
-                    quality: quality,
-                    metadataDurationSeconds: metadataDurationSeconds
-                )
-                switch resolution {
-                case .directStream:
-                    EnsembleLogger.debug("🎵 PlexProvider: Using direct stream (quality=\(quality.rawValue))")
-                case .downloadedFile:
-                    EnsembleLogger.debug("🎵 PlexProvider: Downloaded transcode to file (quality=\(quality.rawValue))")
-                case .progressiveTranscode:
-                    EnsembleLogger.debug("🎵 PlexProvider: Progressive transcode (quality=\(quality.rawValue))")
-                }
-                return resolution
-            } catch {
-                EnsembleLogger.debug("⚠️ PlexProvider: resolveStreamURL failed: \(error). Falling back to direct stream.")
+        do {
+            let resolution = try await apiClient.resolveStreamURL(
+                ratingKey: trackRatingKey,
+                trackStreamKey: trackStreamKey,
+                quality: quality,
+                metadataDurationSeconds: metadataDurationSeconds
+            )
+            switch resolution {
+            case .directStream:
+                EnsembleLogger.debug("🎵 PlexProvider: Using direct stream (quality=\(quality.rawValue))")
+            case .downloadedFile:
+                EnsembleLogger.debug("🎵 PlexProvider: Downloaded transcode to file (quality=\(quality.rawValue))")
+            case .progressiveTranscode:
+                EnsembleLogger.debug("🎵 PlexProvider: Progressive transcode (quality=\(quality.rawValue))")
             }
-        } else {
-            // Previously failed with direct stream — skip straight to full download
-            EnsembleLogger.debug("🎵 PlexProvider: ratingKey \(trackRatingKey) in directStreamFailedKeys, using download path")
-            do {
-                let fileURL = try await apiClient.downloadUniversalStreamToFile(
-                    ratingKey: trackRatingKey,
-                    quality: quality,
-                    metadataDurationSeconds: metadataDurationSeconds
-                )
-                return .downloadedFile(fileURL)
-            } catch {
-                EnsembleLogger.debug("⚠️ PlexProvider: Download fallback also failed: \(error)")
-            }
+            return resolution
+        } catch {
+            EnsembleLogger.debug("⚠️ PlexProvider: resolveStreamURL failed: \(error). Falling back to direct stream.")
         }
 
         // Last resort fallback: direct file URL (always original quality)
@@ -641,7 +619,7 @@ public func getStreamURL(
     // MARK: - Two-Phase Stream Resolution
 
     /// Phase 1: Make a streaming decision without embedding the server endpoint URL.
-    /// Applies the same fallback logic as `getStreamURL()` (directStreamFailedKeys, etc.).
+    /// Applies the same direct/progressive routing as `getStreamURL()`.
     /// The returned decision can be cached across network transitions.
     public func makeStreamDecision(
         for trackRatingKey: String,
@@ -651,27 +629,22 @@ public func getStreamURL(
     ) async throws -> StreamDecision {
         EnsembleLogger.debug("[PlexProvider] makeStreamDecision: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
 
-        // Try smart routing through the API client's decision endpoint
-        if !directStreamFailedKeys.contains(trackRatingKey) {
-            do {
-                let decision = try await apiClient.makeStreamDecision(
-                    ratingKey: trackRatingKey,
-                    trackStreamKey: trackStreamKey,
-                    quality: quality,
-                    metadataDurationSeconds: metadataDurationSeconds
-                )
-                switch decision {
-                case .directStream:
-                    EnsembleLogger.debug("[PlexProvider] Decision: directStream (quality=\(quality.rawValue))")
-                case .progressiveTranscode:
-                    EnsembleLogger.debug("[PlexProvider] Decision: progressiveTranscode (quality=\(quality.rawValue))")
-                }
-                return decision
-            } catch {
-                EnsembleLogger.debug("[PlexProvider] makeStreamDecision failed: \(error). Falling back to direct stream decision.")
+        do {
+            let decision = try await apiClient.makeStreamDecision(
+                ratingKey: trackRatingKey,
+                trackStreamKey: trackStreamKey,
+                quality: quality,
+                metadataDurationSeconds: metadataDurationSeconds
+            )
+            switch decision {
+            case .directStream:
+                EnsembleLogger.debug("[PlexProvider] Decision: directStream (quality=\(quality.rawValue))")
+            case .progressiveTranscode:
+                EnsembleLogger.debug("[PlexProvider] Decision: progressiveTranscode (quality=\(quality.rawValue))")
             }
-        } else {
-            EnsembleLogger.debug("[PlexProvider] ratingKey \(trackRatingKey) in directStreamFailedKeys, using direct stream decision")
+            return decision
+        } catch {
+            EnsembleLogger.debug("[PlexProvider] makeStreamDecision failed: \(error). Falling back to direct stream decision.")
         }
 
         // Fallback: direct stream decision with the stream key
@@ -743,23 +716,6 @@ public func getStreamURL(
         try await apiClient.scrobble(ratingKey: ratingKey)
     }
 
-    public func resetStreamFallbackState() {
-        resetUniversalEndpointFallback()
-        directStreamFailedKeys.removeAll()
-    }
-
-    public func disableUniversalEndpoint() {
-        // No-op — the download-to-file approach bypasses the AVPlayer HTTP stack
-        // issues that previously required this cooldown mechanism.
-    }
-
-    /// Mark a track as having failed with direct stream so subsequent attempts
-    /// skip straight to the download path. Cleared on connection refresh.
-    public func markDirectStreamFailed(ratingKey: String) {
-        directStreamFailedKeys.insert(ratingKey)
-        EnsembleLogger.debug("🚫 Marked ratingKey \(ratingKey) as direct-stream-failed (\(directStreamFailedKeys.count) total)")
-    }
-
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {
         let plexTracks = try await apiClient.getAlbumTracks(albumKey: albumKey)
         return plexTracks.map { Track(from: $0, sourceKey: sourceIdentifier.compositeKey) }
@@ -767,7 +723,7 @@ public func getStreamURL(
 
     public func getArtistAlbums(artistKey: String) async throws -> [Album] {
         let plexAlbums = try await apiClient.getArtistAlbums(artistKey: artistKey)
-        return plexAlbums.map { Album(from: $0) }
+        return plexAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
     }
 
     public func getArtistTracks(artistKey: String) async throws -> [Track] {
@@ -791,6 +747,6 @@ public func getStreamURL(
 
     public func getSimilarAlbums(albumKey: String) async throws -> [Album] {
         let plexAlbums = try await apiClient.getSimilarAlbums(albumKey: albumKey)
-        return plexAlbums.map { Album(from: $0) }
+        return plexAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
     }
 }

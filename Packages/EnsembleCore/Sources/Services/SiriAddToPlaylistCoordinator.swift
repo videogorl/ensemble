@@ -1,4 +1,5 @@
 import EnsemblePersistence
+import EnsembleSiriShared
 import Foundation
 
 /// Executes Siri "add to playlist" requests inside the main app process.

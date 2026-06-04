@@ -16,8 +16,6 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
     public let completedTrackCount: Int
     public let downloadedBytes: Int64
     public let progress: Float
-    /// Number of completed tracks whose download quality differs from the current setting
-    public let qualityMismatchCount: Int
     /// Number of tracks in a failed state
     public let failedTrackCount: Int
 
@@ -25,10 +23,7 @@ public struct OfflineDownloadTargetSnapshot: Identifiable {
         totalTrackCount > 0 && completedTrackCount >= totalTrackCount
     }
 
-    /// True when this target has actionable issues a refresh could resolve
-    public var needsRefresh: Bool {
-        qualityMismatchCount > 0 || failedTrackCount > 0
-    }
+    public var hasFailedTracks: Bool { failedTrackCount > 0 }
 }
 
 public struct OfflineDownloadQualityRefreshResult: Sendable {
@@ -38,6 +33,25 @@ public struct OfflineDownloadQualityRefreshResult: Sendable {
     public init(requeuedCount: Int, skippedUnsupportedCount: Int) {
         self.requeuedCount = requeuedCount
         self.skippedUnsupportedCount = skippedUnsupportedCount
+    }
+}
+
+struct OfflineDownloadHealingSummary: Equatable, Sendable {
+    let ranAt: Date?
+    let orphanedCompletedDownloadsRemoved: Int
+    let errorDescription: String?
+
+    static let notRun = OfflineDownloadHealingSummary(
+        ranAt: nil,
+        orphanedCompletedDownloadsRemoved: 0,
+        errorDescription: nil
+    )
+
+    var diagnosticsDescription: String {
+        guard let ranAt else { return "not-run" }
+        let timestamp = ISO8601DateFormatter().string(from: ranAt)
+        let errorText = errorDescription ?? "none"
+        return "removed=\(orphanedCompletedDownloadsRemoved),error=\(errorText),at=\(timestamp)"
     }
 }
 
@@ -63,67 +77,45 @@ enum DownloadWorkMode: Equatable, Sendable {
     case background
 }
 
+enum OfflineDownloadRecoveryReason: Equatable, Sendable {
+    case launch
+    case foreground
+    case backgroundURLSession(String)
+    case systemWillSleep
+    case systemDidWake
+    case backgroundExpiration
+
+    var logDescription: String {
+        switch self {
+        case .launch:
+            return "launch"
+        case .foreground:
+            return "foreground"
+        case .backgroundURLSession(let identifier):
+            return "background-url-session(\(identifier))"
+        case .systemWillSleep:
+            return "system-will-sleep"
+        case .systemDidWake:
+            return "system-did-wake"
+        case .backgroundExpiration:
+            return "background-expiration"
+        }
+    }
+}
+
 @MainActor
 public final class OfflineDownloadService: ObservableObject {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
-    public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
-    private enum DownloadProcessingError: LocalizedError {
-        case invalidHTTPStatus(Int)
-        case emptyPayload(String)
-        case truncatedPayload(fileDuration: Double, expectedDuration: Double)
-
-        var errorDescription: String? {
-            switch self {
-            case .invalidHTTPStatus(let statusCode):
-                return "Download HTTP status \(statusCode)"
-            case .emptyPayload(let url):
-                return "Download payload was empty for \(url)"
-            case .truncatedPayload(let fileDuration, let expectedDuration):
-                return "Download truncated: file is \(String(format: "%.1f", fileDuration))s but expected \(String(format: "%.1f", expectedDuration))s"
-            }
-        }
-    }
-
-    /// Transport-level error for incomplete byte transfer.
-    /// Separate from DownloadProcessingError because these are retryable —
-    /// the download should be re-queued as pending, not permanently failed.
-    private enum DownloadTransferError: LocalizedError {
-        case incompleteTransfer(bytesReceived: Int64, bytesExpected: Int64, percentComplete: Int)
-
-        var errorDescription: String? {
-            switch self {
-            case .incompleteTransfer(let received, let expected, let pct):
-                return "Incomplete transfer: received \(received)/\(expected) bytes (\(pct)%)"
-            }
-        }
-    }
-
-    /// Value-type snapshot of CDDownload + CDTrack properties captured before async download begins.
-    /// Prevents issues when viewContext.reset() invalidates managed objects mid-download
-    /// or when cascade deletes remove the CDDownload from the store during sync.
-    private struct DownloadContext {
-        let downloadObjectID: NSManagedObjectID
-        let trackRatingKey: String
-        let sourceCompositeKey: String
-        let trackDuration: Int64
-        let downloadQuality: String?
-        let domainTrack: Track
-        /// sourceCompositeKey with colons replaced for safe file naming
-        let safeSourceKey: String
-        // For artwork caching
-        let trackThumbPath: String?
-        let albumRatingKey: String?
-        let albumThumbPath: String?
-    }
-
+    nonisolated public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
     @Published public private(set) var targets: [OfflineDownloadTargetSnapshot] = []
     @Published public private(set) var isQueueRunning = false
     /// Current reason the queue is idle/paused — observed by detail views for status banners
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
     @Published public private(set) var removalInProgress: [String: RemovalProgress] = [:]
-    /// Track ratingKeys currently pending or actively downloading — used by TrackRow to show spinners.
-    @Published public private(set) var activeDownloadRatingKeys: Set<String> = []
+    /// Track source-scoped identities currently pending or actively downloading, used by track-list rows to show spinners.
+    @Published public private(set) var activeDownloadTrackIdentities: Set<String> = []
+    internal private(set) var lastHealingSummary: OfflineDownloadHealingSummary = .notRun
 
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
@@ -131,29 +123,26 @@ public final class OfflineDownloadService: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
-    private let backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating
+    private let backgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
+    private let foregroundWorkScheduler: ForegroundWorkScheduling?
+    private let launchRecoveryStartedAt = Date()
 
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
 
-    private var downloadedBytesByTargetKey: [String: Int64] = [:]
-    private var qualityMismatchByTargetKey: [String: Int] = [:]
-    private var failedTracksByTargetKey: [String: Int] = [:]
-
-    /// Debounced notification task so individual download completions don't
-    /// spam `downloadsDidChange` during bulk queue processing.
-    private var downloadChangeNotificationTask: Task<Void, Never>?
     /// Coalesces expensive target progress refreshes so queue/network churn
     /// doesn't rebuild every target on each state transition.
     private var fullProgressRefreshTask: Task<Void, Never>?
     private var hasQueuedFullProgressRefresh = false
+    private var deferredLaunchHealingTask: Task<Void, Never>?
+    private var isRecoverySweepInFlight = false
 
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
-    private let sidecarAnalysisQueue = SidecarAnalysisQueue()
+    private let sidecarAnalysisQueue: SidecarAnalysisQueue
     private var isUserPaused = false
     private var isLowPowerSuspended = false
     private var isAppInBackground = false
@@ -167,6 +156,89 @@ public final class OfflineDownloadService: ObservableObject {
             playlistRepository: playlistRepository,
             downloadManager: downloadManager,
             currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" }
+        )
+    )
+    private lazy var cleanupCoordinator = OfflineDownloadCleanupCoordinator(
+        dependencies: .init(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository
+        )
+    )
+    private lazy var notificationBridge = OfflineDownloadNotificationBridge(
+        dependencies: .init(
+            fetchPendingDownloadCount: { [weak self] in
+                guard let self else { return 0 }
+                return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
+            },
+            refreshActiveDownloadTrackIdentities: { [weak self] in
+                await self?.refreshActiveDownloadTrackIdentities()
+            },
+            refreshViewContext: {
+                CoreDataStack.shared.refreshViewContext()
+            },
+            postDownloadsDidChange: {
+                NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            },
+            showCompletionToast: { [weak self] in
+                self?.toastCenter.show(
+                    ToastPayload(
+                        style: .success,
+                        iconSystemName: "arrow.down.circle.fill",
+                        title: "Downloads Complete"
+                    )
+                )
+            }
+        )
+    )
+    private lazy var targetProgressController = OfflineDownloadTargetProgressController(
+        dependencies: .init(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository,
+            canExecuteDownloads: { [weak self] in self?.canExecuteDownloads ?? false },
+            isQueueRunning: { [weak self] in self?.isQueueRunning ?? false },
+            reconcileTarget: { [weak self] key in
+                guard let self else { return }
+                try await self.reconcileTarget(key: key)
+            }
+        )
+    )
+    private lazy var transferExecutor = DownloadTransferExecutor(
+        dependencies: .init(
+            downloadManager: downloadManager,
+            fetchDirectDownloadURL: { [syncCoordinator] track, quality in
+                try await syncCoordinator.getDownloadURL(for: track, quality: quality)
+            },
+            fetchOfflineDownloadQueueMedia: { [syncCoordinator] track, quality in
+                try await syncCoordinator.getOfflineDownloadQueueMedia(for: track, quality: quality)
+            },
+            shouldAttemptDirectFallback: { [weak self] error, ctx in
+                guard let self else { return false }
+                return self.shouldAttemptDirectFallback(after: error, for: ctx)
+            },
+            performDirectDownload: { [downloadManager] url, downloadID, estimatedSize in
+                try await DownloadTransferExecutor.downloadWithProgress(
+                    from: url,
+                    downloadID: downloadID,
+                    estimatedSize: estimatedSize,
+                    downloadManager: downloadManager
+                )
+            },
+            fetchArtworkURL: { [syncCoordinator] path, sourceKey, size in
+                try await syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size)
+            },
+            artworkDownloadManager: artworkDownloadManager,
+            fetchAndCacheLyrics: { [lyricsService] trackRatingKey, sourceCompositeKey in
+                await lyricsService.fetchAndCacheLyrics(
+                    trackRatingKey: trackRatingKey,
+                    sourceCompositeKey: sourceCompositeKey
+                )
+            },
+            enqueueSidecarAnalysis: { [sidecarAnalysisQueue] sourceURL, sidecarURL in
+                await sidecarAnalysisQueue.enqueue(sourceURL: sourceURL, sidecarURL: sidecarURL)
+            },
+            scheduleDownloadsChanged: { [weak self] in
+                self?.notificationBridge.scheduleDownloadsChanged()
+            }
         )
     )
     private lazy var queueCoordinator = DownloadQueueCoordinator(
@@ -193,11 +265,7 @@ public final class OfflineDownloadService: ObservableObject {
                 self?.backgroundExecutionCoordinator.finishCurrentTask(success: success)
             },
             showCompletionToast: { [weak self] in
-                self?.toastCenter.show(ToastPayload(
-                    style: .success,
-                    iconSystemName: "arrow.down.circle.fill",
-                    title: "Downloads Complete"
-                ))
+                self?.notificationBridge.showQueueCompletionToast()
             }
         )
     )
@@ -208,6 +276,8 @@ public final class OfflineDownloadService: ObservableObject {
     private static let foregroundIdleRefreshDelayNs: UInt64 = 250_000_000
     private static let backgroundRefreshDelayNs: UInt64 = 2_500_000_000
     private static let interactivePlaybackWorkerCooldownNs: UInt64 = 750_000_000
+    private static let deferredLaunchHealingDelayNs: UInt64 = 8_000_000_000
+    private static let launchForegroundRecoveryGrace: TimeInterval = 8
 
     public init(
         downloadManager: DownloadManagerProtocol,
@@ -216,10 +286,11 @@ public final class OfflineDownloadService: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         networkMonitor: NetworkMonitor,
-        backgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating,
+        backgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         toastCenter: ToastCenter,
-        lyricsService: LyricsService
+        lyricsService: LyricsService,
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -231,6 +302,8 @@ public final class OfflineDownloadService: ObservableObject {
         self.artworkDownloadManager = artworkDownloadManager
         self.toastCenter = toastCenter
         self.lyricsService = lyricsService
+        self.foregroundWorkScheduler = foregroundWorkScheduler
+        self.sidecarAnalysisQueue = SidecarAnalysisQueue(foregroundWorkScheduler: foregroundWorkScheduler)
 
         // Clean up legacy keys from the old transcode blacklist approach.
         UserDefaults.standard.removeObject(forKey: "offlineTranscodeUnsupportedServerKeys")
@@ -244,25 +317,31 @@ public final class OfflineDownloadService: ObservableObject {
         backgroundExecutionCoordinator.onExpiration = { [weak self] in
             self?.handleBackgroundTaskExpiration()
         }
+        backgroundExecutionCoordinator.onBackgroundURLSessionEvents = { [weak self] identifier, completion in
+            Task { @MainActor in
+                guard let self else {
+                    completion()
+                    return
+                }
+                await self.handleBackgroundURLSessionEvents(identifier: identifier, completion: completion)
+            }
+        }
+        backgroundExecutionCoordinator.onSystemWillSleep = { [weak self] in
+            Task { @MainActor in
+                await self?.handleSystemWillSleep()
+            }
+        }
+        backgroundExecutionCoordinator.onSystemDidWake = { [weak self] in
+            Task { @MainActor in
+                await self?.handleSystemDidWake()
+            }
+        }
 
         observeNetworkState()
         observeSyncCompletions()
 
         Task {
-            // Self-heal download metadata first: verify files on disk,
-            // mark missing/invalid downloads as failed so progress counts
-            // are accurate before we compute target state.
-            _ = try? await downloadManager.fetchDownloads()
-
-            // Scan for truncated audio files that passed basic payload checks
-            // but have significantly shorter duration than expected (e.g. interrupted downloads)
-            await scanForTruncatedDownloads()
-
-            await refreshState()
-            // Reset stale .downloading status from previous app session.
-            // At init time, no download can be actively in-progress.
-            try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .pending)
-            startQueueIfNeeded()
+            await recoverInterruptedDownloads(reason: .launch, resumeEligibleWork: true)
         }
     }
 
@@ -283,10 +362,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Extended refresh that also runs download file self-healing.
     /// Use for pull-to-refresh to detect missing files and orphaned targets.
     public func refreshStateWithHealing() async {
-        // Verify files on disk, mark missing/invalid downloads as failed
-        _ = try? await downloadManager.fetchDownloads()
-        // Catch truncated audio files (interrupted downloads that passed basic checks)
-        await scanForTruncatedDownloads()
+        await runDownloadHealing()
         await refreshState()
     }
 
@@ -476,8 +552,7 @@ public final class OfflineDownloadService: ObservableObject {
             removalInProgress.removeAll()
             targets.removeAll()
 
-            CoreDataStack.shared.refreshViewContext()
-            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            notificationBridge.notifyDownloadsChangedImmediately()
 
             EnsembleLogger.debug("🗑️ Removed all downloads, targets, and files")
         } catch {
@@ -485,55 +560,71 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    /// Refresh a single target: reconcile memberships, re-queue quality-mismatched and failed downloads
-    public func refreshTarget(key: String) async {
+    /// Re-download completed tracks in a target whose stored quality differs from
+    /// the current download quality setting. Failed tracks remain owned by retry.
+    public func redownloadTargetAtCurrentQuality(key: String) async -> OfflineDownloadQualityRefreshResult {
         do {
-            // Re-reconcile memberships (adds new tracks, drops orphans)
             try await reconcileTarget(key: key)
 
-            // Re-queue completed downloads whose quality doesn't match the current setting
             let desiredQuality = currentDownloadQuality()
             let references = try await targetRepository.fetchTrackReferences(targetKey: key)
+            let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
+            var requeuedCount = 0
+
             for ref in references {
-                guard let download = try? await downloadManager.fetchDownload(
-                    forTrackRatingKey: ref.trackRatingKey,
-                    sourceCompositeKey: ref.trackSourceCompositeKey
-                ) else { continue }
+                let lookupKey = "\(ref.trackSourceCompositeKey)|\(ref.trackRatingKey)"
 
-                let status = download.downloadStatus
-
-                // Re-queue quality-mismatched completed downloads
-                if status == .completed,
-                   let existing = download.quality, existing != desiredQuality {
+                guard let download = downloadsByKey[lookupKey] else {
                     _ = try await downloadManager.createDownload(
                         forTrackRatingKey: ref.trackRatingKey,
                         sourceCompositeKey: ref.trackSourceCompositeKey,
                         quality: desiredQuality
                     )
+                    requeuedCount += 1
                     continue
                 }
 
-                // Retry failed downloads
-                if status == .failed {
-                    try await downloadManager.deleteDownload(
-                        forTrackRatingKey: ref.trackRatingKey,
-                        sourceCompositeKey: ref.trackSourceCompositeKey
-                    )
-                    _ = try await downloadManager.createDownload(
-                        forTrackRatingKey: ref.trackRatingKey,
-                        sourceCompositeKey: ref.trackSourceCompositeKey,
+                let currentQuality = download.quality ?? "original"
+                guard currentQuality != desiredQuality else { continue }
+
+                switch download.downloadStatus {
+                case .completed:
+                    try await downloadManager.requeueDownload(download.objectID, quality: desiredQuality)
+                    requeuedCount += 1
+                case .pending, .downloading, .paused:
+                    try await downloadManager.updateDownloadStatus(
+                        download.objectID,
+                        status: download.downloadStatus,
                         quality: desiredQuality
                     )
+                case .failed:
+                    continue
                 }
             }
 
-            await refreshAllTargetProgresses()
-            startQueueIfNeeded()
+            if requeuedCount > 0 {
+                await refreshAllTargetProgresses()
+                startQueueIfNeeded()
 
-            let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-            backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+                let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+                backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
+                notificationBridge.notifyDownloadsChangedImmediately()
+            } else {
+                await refreshTargetProgress(forTargetKey: key)
+                await refreshTargetSnapshots()
+            }
+
+            EnsembleLogger.debug(
+                "🔄 Redownload target at current quality: key=\(key) quality=\(desiredQuality) requeued=\(requeuedCount)"
+            )
+
+            return OfflineDownloadQualityRefreshResult(
+                requeuedCount: requeuedCount,
+                skippedUnsupportedCount: 0
+            )
         } catch {
-            EnsembleLogger.debug("❌ OfflineDownloadService: Failed refreshing target \(key): \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ OfflineDownloadService: Failed redownloading target \(key): \(error.localizedDescription)")
+            return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
         }
     }
 
@@ -576,116 +667,6 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    /// Re-queue completed downloads that do not match the current quality setting.
-    /// Returns a summary including re-queued tracks and tracks skipped due to known
-    /// server-side transcode limitations.
-    public func requeueCompletedDownloadsForCurrentQuality() async -> OfflineDownloadQualityRefreshResult {
-        do {
-            let desiredQuality = currentDownloadQuality()
-            let completedDownloads = try await downloadManager.fetchCompletedDownloads()
-            var requeuedCount = 0
-
-            for download in completedDownloads {
-                guard let track = download.track,
-                      let sourceCompositeKey = track.sourceCompositeKey else {
-                    continue
-                }
-
-                let currentQuality = download.quality ?? "original"
-                guard currentQuality != desiredQuality else { continue }
-
-                let reference = OfflineTrackReference(
-                    trackRatingKey: track.ratingKey,
-                    trackSourceCompositeKey: sourceCompositeKey
-                )
-
-                // Only refresh downloads still referenced by at least one active target.
-                guard try await targetRepository.hasAnyMembership(for: reference) else {
-                    continue
-                }
-
-                _ = try await downloadManager.createDownload(
-                    forTrackRatingKey: track.ratingKey,
-                    sourceCompositeKey: sourceCompositeKey,
-                    quality: desiredQuality
-                )
-                requeuedCount += 1
-            }
-
-            // Update quality on pending/downloading downloads that have the wrong quality.
-            // Without this, workers pick up stale-quality downloads from a previous
-            // re-queue before the new quality was set.
-            let allDownloads = try await downloadManager.fetchDownloads()
-            for download in allDownloads where download.downloadStatus == .pending || download.downloadStatus == .downloading {
-                let dlQuality = download.quality ?? "original"
-                if dlQuality != desiredQuality {
-                    try? await downloadManager.updateDownloadStatus(
-                        download.objectID,
-                        status: download.downloadStatus,
-                        quality: desiredQuality
-                    )
-                }
-            }
-
-            // Also retry all failed downloads
-            var retriedCount = 0
-            for download in allDownloads where download.downloadStatus == .failed {
-                guard let track = download.track,
-                      let sourceCompositeKey = track.sourceCompositeKey else {
-                    continue
-                }
-
-                let reference = OfflineTrackReference(
-                    trackRatingKey: track.ratingKey,
-                    trackSourceCompositeKey: sourceCompositeKey
-                )
-                guard try await targetRepository.hasAnyMembership(for: reference) else {
-                    continue
-                }
-
-                try await downloadManager.deleteDownload(
-                    forTrackRatingKey: track.ratingKey,
-                    sourceCompositeKey: sourceCompositeKey
-                )
-                _ = try await downloadManager.createDownload(
-                    forTrackRatingKey: track.ratingKey,
-                    sourceCompositeKey: sourceCompositeKey,
-                    quality: desiredQuality
-                )
-                retriedCount += 1
-            }
-
-            let totalRequeued = requeuedCount + retriedCount
-            if totalRequeued > 0 {
-                await refreshAllTargetProgresses()
-                startQueueIfNeeded()
-                let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
-                backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(
-                    pendingTrackCount: pendingCount
-                )
-            }
-
-            EnsembleLogger.debug(
-                "🔄 Refresh: re-queued \(requeuedCount) quality-mismatched + \(retriedCount) failed downloads (targetQuality=\(desiredQuality))"
-            )
-
-            if totalRequeued > 0 {
-                CoreDataStack.shared.refreshViewContext()
-                NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
-            }
-
-            return OfflineDownloadQualityRefreshResult(
-                requeuedCount: totalRequeued,
-                skippedUnsupportedCount: 0
-            )
-        } catch {
-            EnsembleLogger.debug(
-                "❌ Failed re-queueing downloads for refresh: \(error.localizedDescription)"
-            )
-            return OfflineDownloadQualityRefreshResult(requeuedCount: 0, skippedUnsupportedCount: 0)
-        }
-    }
-
     // MARK: - Target Lifecycle
 
     private func enableTarget(
@@ -710,8 +691,7 @@ public final class OfflineDownloadService: ObservableObject {
             let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
 
-            CoreDataStack.shared.refreshViewContext()
-            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            notificationBridge.notifyDownloadsChangedImmediately()
         } catch {
             EnsembleLogger.debug("❌ Failed enabling offline target \(key): \(error.localizedDescription)")
         }
@@ -761,8 +741,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshAllTargetProgresses()
 
             // Notify track-displaying VMs so they re-fetch and reflect updated offline state
-            CoreDataStack.shared.refreshViewContext()
-            NotificationCenter.default.post(name: Self.downloadsDidChange, object: nil)
+            notificationBridge.notifyDownloadsChangedImmediately()
         } catch {
             removalInProgress.removeValue(forKey: key)
             EnsembleLogger.debug("❌ Failed disabling offline target \(key): \(error.localizedDescription)")
@@ -896,8 +875,16 @@ public final class OfflineDownloadService: ObservableObject {
     /// the OS explicitly grants a continued-processing window later.
     public func handleAppDidEnterBackground() async {
         isAppInBackground = true
-        allowsBackgroundContinuation = false
-        await stopQueueForSuspension()
+        allowsBackgroundContinuation = true
+        let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+        let activeOrPendingCount = max(
+            pendingCount,
+            activeDownloadTrackIdentities.count,
+            queueCoordinator.hasActiveTask || isQueueRunning ? 1 : 0
+        )
+        backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: activeOrPendingCount)
+        try? await applyNetworkPolicy()
+        startQueueIfNeeded()
         refreshQueueStatusReason()
         scheduleFullProgressRefresh()
     }
@@ -906,10 +893,22 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleAppWillEnterForeground() async {
         isAppInBackground = false
         allowsBackgroundContinuation = false
-        try? await applyNetworkPolicy()
-        refreshQueueStatusReason()
-        scheduleFullProgressRefresh(forceImmediate: true)
-        startQueueIfNeeded()
+        await recoverInterruptedDownloads(reason: .foreground, resumeEligibleWork: true)
+    }
+
+    public func handleSystemWillSleep() async {
+        allowsBackgroundContinuation = false
+        await stopQueueForSuspension()
+        await recoverInterruptedDownloads(reason: .systemWillSleep, resumeEligibleWork: false)
+    }
+
+    public func handleSystemDidWake() async {
+        await recoverInterruptedDownloads(reason: .systemDidWake, resumeEligibleWork: true)
+    }
+
+    private func handleBackgroundURLSessionEvents(identifier: String, completion: @escaping () -> Void) async {
+        await recoverInterruptedDownloads(reason: .backgroundURLSession(identifier), resumeEligibleWork: true)
+        completion()
     }
 
     // MARK: - Queue Execution
@@ -927,9 +926,7 @@ public final class OfflineDownloadService: ObservableObject {
         allowsBackgroundContinuation = false
         queueCoordinator.cancelCurrentTask()
         Task {
-            try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
-            await refreshAllTargetProgresses()
-            refreshQueueStatusReason()
+            await recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: false)
         }
     }
 
@@ -1021,7 +1018,7 @@ public final class OfflineDownloadService: ObservableObject {
             return
         }
 
-        let ctx = DownloadContext(
+        let ctx = DownloadTransferContext(
             downloadObjectID: download.objectID,
             trackRatingKey: track.ratingKey,
             sourceCompositeKey: sourceCompositeKey,
@@ -1038,8 +1035,6 @@ public final class OfflineDownloadService: ObservableObject {
             trackRatingKey: ctx.trackRatingKey,
             trackSourceCompositeKey: ctx.sourceCompositeKey
         )
-        var attemptedDirectFallback = false
-
         do {
             // Target could be removed while this transfer is waiting.
             let stillReferenced = try await targetRepository.hasAnyMembership(for: reference)
@@ -1055,171 +1050,27 @@ public final class OfflineDownloadService: ObservableObject {
             try await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .downloading, quality: nil)
 
             let requestedQuality = streamingQuality(from: ctx.downloadQuality)
-            var effectiveQuality = requestedQuality
-            let sizeEstimate = estimatedFileSize(durationMs: ctx.trackDuration, quality: requestedQuality)
-
-            // Strategy for non-original quality downloads:
-            // 1. Use the Plex download queue API (server transcodes, we download the result)
-            // 2. Fall back to direct original download if the queue fails
-            //
-            // The universal transcode endpoint (`start.mp3`) is not a valid Plex API path —
-            // it only supports HLS (`start.m3u8`) for streaming, not direct file downloads.
-            // The download queue is the proper mechanism (what Plexamp uses for offline sync).
-
-            var selectedURL: URL
-            var selectedMode: String
-
-            if requestedQuality != .original {
-                // Try the download queue for transcoded downloads.
-                do {
-                    EnsembleLogger.debug(
-                        "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=download-queue quality=\(requestedQuality.rawValue)"
-                    )
-                    let completed = try await completeViaDownloadQueue(
-                        ctx: ctx,
-                        quality: requestedQuality,
-                        mode: "download-queue"
-                    )
-                    if completed { return }
-                } catch is CancellationError {
-                    // Task cancelled (quality change, pause, etc.) — reset to pending
-                    // at the current quality so the worker downloads at the correct setting.
-                    let updatedQuality = currentDownloadQuality()
-                    EnsembleLogger.debug(
-                        "⏸️ Download queue cancelled for track=\(ctx.trackRatingKey); resetting to pending at quality=\(updatedQuality)"
-                    )
-                    try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: updatedQuality)
-                    return
-                } catch {
-                    // Download queue failed — fall through to direct original download.
-                    if !shouldAttemptDirectFallback(after: error, for: ctx) {
-                        throw error
-                    }
-                    EnsembleLogger.debug(
-                        "⚠️ Download queue failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); falling back to direct original"
-                    )
-                    effectiveQuality = .original
-                }
-            }
-
-            // Original quality or download queue failed — download the original file directly.
-            selectedURL = try await syncCoordinator.getDownloadURL(for: ctx.domainTrack, quality: .original)
-            selectedMode = requestedQuality == .original ? "direct-original" : "direct-original-fallback"
-            effectiveQuality = .original
-            attemptedDirectFallback = requestedQuality != .original
-
-            EnsembleLogger.debug(
-                "⬇️ Offline download attempt: track=\(ctx.trackRatingKey) stage=\(selectedMode) url=\(selectedURL)"
-            )
-            let (temporaryURL, response) = try await downloadWithProgress(from: selectedURL, downloadID: ctx.downloadObjectID, estimatedSize: sizeEstimate)
-
-            if let httpResponse = response as? HTTPURLResponse {
-                EnsembleLogger.debug(
-                    "⬇️ Offline download response: track=\(ctx.trackRatingKey) status=\(httpResponse.statusCode) quality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) mode=\(selectedMode)"
-                )
-                if let plexError = httpResponse.value(forHTTPHeaderField: "X-Plex-Error"), !plexError.isEmpty {
-                    EnsembleLogger.debug("⬇️ Offline download X-Plex-Error: \(plexError)")
-                }
-                if !(200...299).contains(httpResponse.statusCode) {
-                    if let data = try? Data(contentsOf: temporaryURL), !data.isEmpty {
-                        let preview = String(decoding: data.prefix(200), as: UTF8.self)
-                            .replacingOccurrences(of: "\n", with: " ")
-                        EnsembleLogger.debug("⬇️ Offline download error body (preview): \(preview)")
-                    }
-                    try? FileManager.default.removeItem(at: temporaryURL)
-                    throw DownloadProcessingError.invalidHTTPStatus(httpResponse.statusCode)
-                }
-            }
-
-            let temporaryAttributes = try? FileManager.default.attributesOfItem(atPath: temporaryURL.path)
-            let temporaryFileSize = (temporaryAttributes?[.size] as? NSNumber)?.int64Value ?? 0
-            guard temporaryFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
-            }
-
-            let destinationURL = localFileURL(
-                ratingKey: ctx.trackRatingKey,
-                safeSourceKey: ctx.safeSourceKey,
-                quality: effectiveQuality,
-                response: response
-            )
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try? FileManager.default.removeItem(at: destinationURL)
-            }
-            try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
-
-            let attributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-            let destinationFileSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-            let persistedFileSize = max(temporaryFileSize, destinationFileSize)
-            guard persistedFileSize > 0 else {
-                throw DownloadProcessingError.emptyPayload(selectedURL.absoluteString)
-            }
-
-            // Diagnostic: log Content-Type and file magic bytes to verify transcode actually happened
-            let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
-            var magicBytesHex = "?"
-            if let handle = FileHandle(forReadingAtPath: destinationURL.path),
-               let header = try? handle.read(upToCount: 12) {
-                magicBytesHex = header.map { String(format: "%02x", $0) }.joined(separator: " ")
-                try? handle.close()
-            }
-            EnsembleLogger.debug(
-                "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(persistedFileSize) mode=\(selectedMode) contentType=\(contentType) requestedQuality=\(requestedQuality.rawValue) effectiveQuality=\(effectiveQuality.rawValue) magic=\(magicBytesHex)"
-            )
-
-            // Validate that the downloaded file isn't truncated (interrupted connection, etc.).
-            // Must happen BEFORE marking complete — a truncated file should stay as "failed"
-            // so the download queue retries it on the next pass.
-            try validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
-
-            // Persist completion to CoreData with recovery for cascade-deleted records.
-            try await completeDownloadWithRecovery(
-                ctx: ctx,
-                filePath: destinationURL.lastPathComponent,
-                fileSize: persistedFileSize,
-                quality: effectiveQuality
-            )
-            await cacheArtworkForDownloadedTrack(ctx: ctx)
-            // Targeted refresh: only update targets that own this track (not all targets)
+            let result = try await transferExecutor.execute(ctx: ctx, requestedQuality: requestedQuality)
             await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
-
-            // Pre-compute frequency analysis sidecar for the visualizer.
-            // Uses the serial queue so only one FFT runs at a time (A9 dual-core friendly).
-            let sidecarURL = destinationURL.appendingPathExtension("freq")
-            await sidecarAnalysisQueue.enqueue(sourceURL: destinationURL, sidecarURL: sidecarURL)
-
-            // Pre-cache lyrics for offline playback
-            let lyricsRatingKey = ctx.trackRatingKey
-            let lyricsSCK = ctx.sourceCompositeKey
-            let lyricsServiceRef = self.lyricsService
-            Task.detached(priority: .utility) {
-                await lyricsServiceRef.fetchAndCacheLyrics(
-                    trackRatingKey: lyricsRatingKey,
-                    sourceCompositeKey: lyricsSCK
-                )
-            }
 
             retryPolicy.recordSuccess(
                 trackRatingKey: ctx.trackRatingKey,
                 sourceCompositeKey: ctx.sourceCompositeKey,
-                attemptedDirectFallback: attemptedDirectFallback
+                attemptedDirectFallback: result.attemptedDirectFallback
             )
-
-            // Notify track-displaying VMs so they re-fetch and reflect updated
-            // offline state (e.g. dimming). Debounced to avoid spamming during
-            // bulk queue processing.
-            scheduleDownloadChangeNotification()
         } catch {
+            let executionError = error as? DownloadTransferExecutionError
+            let underlyingError = executionError?.underlying ?? error
             let resolution = retryPolicy.resolveFailure(
                 .init(
                     trackRatingKey: ctx.trackRatingKey,
                     sourceCompositeKey: ctx.sourceCompositeKey,
-                    attemptedDirectFallback: attemptedDirectFallback,
+                    attemptedDirectFallback: executionError?.attemptedDirectFallback ?? false,
                     updatedQuality: currentDownloadQuality(),
                     isCancellation: Task.isCancelled,
-                    isNetworkLoss: isNetworkLossError(error),
-                    isRetryableTransfer: error is DownloadTransferError || isRetryableTruncation(error),
-                    errorDescription: error.localizedDescription
+                    isNetworkLoss: isNetworkLossError(underlyingError),
+                    isRetryableTransfer: underlyingError is DownloadTransferError || isRetryableTruncation(underlyingError),
+                    errorDescription: underlyingError.localizedDescription
                 )
             )
 
@@ -1244,309 +1095,16 @@ public final class OfflineDownloadService: ObservableObject {
                 // download worker automatically retries. These are transient failures.
                 try? await downloadManager.updateDownloadStatus(ctx.downloadObjectID, status: .pending, quality: nil)
                 EnsembleLogger.debug(
-                    "🔄 Offline download re-queued (attempt \(attempt)/\(maxAttempts)): track=\(ctx.trackRatingKey) reason=\(error.localizedDescription)"
+                    "🔄 Offline download re-queued (attempt \(attempt)/\(maxAttempts)): track=\(ctx.trackRatingKey) reason=\(underlyingError.localizedDescription)"
                 )
             case .fail(let message, _):
                 try? await downloadManager.failDownload(ctx.downloadObjectID, error: message)
                 EnsembleLogger.debug(
-                    "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(error.localizedDescription)"
+                    "❌ Offline download failed: track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey) reason=\(underlyingError.localizedDescription)"
                 )
             }
             // Targeted refresh: only update targets that own this track
             await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
-        }
-    }
-
-    /// Downloads a URL to a temporary file while periodically reporting progress to CoreData.
-    /// Uses URLSession.bytes(from:) to stream data and compare bytes received against Content-Length.
-    /// Falls back to `estimatedSize` when Content-Length is absent (common for transcode streams).
-    /// Progress is throttled to ~1 update/second to avoid excessive CoreData writes.
-    /// Runs the byte-streaming loop off the main actor so UI updates aren't blocked.
-    private func downloadWithProgress(
-        from url: URL,
-        downloadID: NSManagedObjectID,
-        estimatedSize: Int64 = -1
-    ) async throws -> (URL, URLResponse) {
-        let dm = downloadManager
-        let estimate = estimatedSize
-
-        // Run the streaming I/O in a detached task to avoid blocking @MainActor.
-        // withTaskCancellationHandler bridges parent cancellation to the detached task
-        // so the download stops when the queue is paused/cancelled.
-        let detachedTask = Task.detached(priority: .utility) { [dm] () -> (URL, URLResponse) in
-            let (asyncBytes, response) = try await URLSession.shared.bytes(from: url)
-            // Use Content-Length if the server provides it, otherwise fall back to the
-            // bitrate-based estimate passed by the caller
-            let totalExpected = response.expectedContentLength > 0
-                ? response.expectedContentLength
-                : estimate
-
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-            FileManager.default.createFile(atPath: tempURL.path, contents: nil)
-
-            do {
-                let fileHandle = try FileHandle(forWritingTo: tempURL)
-
-                var bytesReceived: Int64 = 0
-                var buffer = Data()
-                let flushThreshold = 65_536 // 64KB chunks
-                var lastProgressUpdate = Date.distantPast
-                let progressInterval: TimeInterval = 1.0
-
-                for try await byte in asyncBytes {
-                    try Task.checkCancellation()
-                    buffer.append(byte)
-
-                    if buffer.count >= flushThreshold {
-                        fileHandle.write(buffer)
-                        bytesReceived += Int64(buffer.count)
-                        buffer.removeAll(keepingCapacity: true)
-
-                        // Report progress when total size is known (or estimated), throttled
-                        if totalExpected > 0 {
-                            let now = Date()
-                            if now.timeIntervalSince(lastProgressUpdate) >= progressInterval {
-                                let progress = min(Float(bytesReceived) / Float(totalExpected), 0.99)
-                                try? await dm.updateDownloadProgress(downloadID, progress: progress)
-                                lastProgressUpdate = now
-                            }
-                        }
-                    }
-                }
-
-                // Flush remaining bytes
-                if !buffer.isEmpty {
-                    bytesReceived += Int64(buffer.count)
-                    fileHandle.write(buffer)
-                }
-                try fileHandle.close()
-
-                // Validate bytes received against Content-Length when available.
-                // URLSession.bytes exits silently when the server closes the connection
-                // mid-stream (e.g. app backgrounded, server timeout, FFmpeg crash).
-                // Without this check, a partial file passes as "complete."
-                let expectedLength = response.expectedContentLength
-                if expectedLength > 0 {
-                    if bytesReceived < expectedLength {
-                        let pctReceived = Int(Double(bytesReceived) / Double(expectedLength) * 100)
-                        EnsembleLogger.debug(
-                            "⚠️ Download incomplete: received \(bytesReceived)/\(expectedLength) bytes (\(pctReceived)%)"
-                        )
-                        try? FileManager.default.removeItem(at: tempURL)
-                        throw DownloadTransferError.incompleteTransfer(
-                            bytesReceived: bytesReceived,
-                            bytesExpected: expectedLength,
-                            percentComplete: pctReceived
-                        )
-                    }
-                } else if estimate > 0, bytesReceived < estimate / 2 {
-                    // No Content-Length (chunked transcode) but received less than half
-                    // the bitrate estimate — likely truncated. Log for diagnostics but
-                    // let validateDownloadDuration() make the final call with audio probing.
-                    let pctOfEstimate = Int(Double(bytesReceived) / Double(estimate) * 100)
-                    EnsembleLogger.debug(
-                        "⚠️ Download suspiciously short: received \(bytesReceived) bytes vs ~\(estimate) estimated (\(pctOfEstimate)%)"
-                    )
-                }
-
-                return (tempURL, response)
-            } catch {
-                // Clean up partial temp file on failure
-                try? FileManager.default.removeItem(at: tempURL)
-                throw error
-            }
-        }
-
-        return try await withTaskCancellationHandler {
-            try await detachedTask.value
-        } onCancel: {
-            detachedTask.cancel()
-        }
-    }
-
-    /// Estimates file size in bytes for a track at a given quality based on duration and bitrate.
-    /// Returns -1 for original quality since the original file size is unknown.
-    private func estimatedFileSize(durationMs: Int64, quality: StreamingQuality) -> Int64 {
-        guard quality != .original else { return -1 }
-        let durationSeconds = Double(durationMs) / 1000.0
-        let bitrateKbps: Double
-        switch quality {
-        case .high: bitrateKbps = 320
-        case .medium: bitrateKbps = 192
-        case .low: bitrateKbps = 128
-        case .original: return -1
-        }
-        // kbps = 1000 bits/s; bytes/s = kbps * 1000 / 8
-        return Int64(durationSeconds * bitrateKbps * 1000.0 / 8.0)
-    }
-
-    /// Download a transcoded track via the Plex download queue API.
-    /// Returns `true` if the download completed successfully, `false` if the payload was empty.
-    /// Uses captured DownloadContext values to avoid accessing invalidated managed objects.
-    private func completeViaDownloadQueue(
-        ctx: DownloadContext,
-        quality: StreamingQuality,
-        mode: String
-    ) async throws -> Bool {
-        let queuePayload = try await syncCoordinator.getOfflineDownloadQueueMedia(
-            for: ctx.domainTrack,
-            quality: quality
-        )
-        guard !queuePayload.data.isEmpty else {
-            return false
-        }
-
-        let destinationURL = localFileURL(
-            ratingKey: ctx.trackRatingKey,
-            safeSourceKey: ctx.safeSourceKey,
-            quality: quality,
-            suggestedFilename: queuePayload.suggestedFilename,
-            mimeType: queuePayload.mimeType,
-            payload: queuePayload.data
-        )
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try? FileManager.default.removeItem(at: destinationURL)
-        }
-        try queuePayload.data.write(to: destinationURL, options: [.atomic])
-
-        let queueAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
-        let queueFileSize = (queueAttributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
-        guard queueFileSize > 0 else {
-            return false
-        }
-
-        // Log magic bytes for format verification
-        var magicBytesHex = "?"
-        if let handle = FileHandle(forReadingAtPath: destinationURL.path),
-           let header = try? handle.read(upToCount: 12) {
-            magicBytesHex = header.map { String(format: "%02x", $0) }.joined(separator: " ")
-            try? handle.close()
-        }
-        EnsembleLogger.debug(
-            "✅ Offline download stored: track=\(ctx.trackRatingKey) path=\(destinationURL.lastPathComponent) size=\(queueFileSize) mode=\(mode) contentType=\(queuePayload.mimeType ?? "unknown") magic=\(magicBytesHex)"
-        )
-
-        // Validate that the downloaded file isn't truncated
-        try validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
-
-        // Persist completion to CoreData with recovery for cascade-deleted records.
-        try await completeDownloadWithRecovery(
-            ctx: ctx,
-            filePath: destinationURL.lastPathComponent,
-            fileSize: queueFileSize,
-            quality: quality
-        )
-        await cacheArtworkForDownloadedTrack(ctx: ctx)
-        // Targeted refresh: only update targets that own this track
-        await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
-
-        // Pre-compute frequency analysis sidecar for the visualizer.
-        // Uses the serial queue so only one FFT runs at a time (A9 dual-core friendly).
-        let sidecarURL2 = destinationURL.appendingPathExtension("freq")
-        await sidecarAnalysisQueue.enqueue(sourceURL: destinationURL, sidecarURL: sidecarURL2)
-
-        scheduleDownloadChangeNotification()
-        return true
-    }
-
-    /// Build local file URL for a direct download using captured value-type properties.
-    private func localFileURL(ratingKey: String, safeSourceKey: String, quality: StreamingQuality, response: URLResponse) -> URL {
-        let responseExtension = response.suggestedFilename.flatMap { URL(fileURLWithPath: $0).pathExtension }
-        let ext = responseExtension?.isEmpty == false
-            ? responseExtension!
-            : inferredFileExtension(mimeType: (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type"), payload: nil)
-        let fileName = "\(ratingKey)_\(safeSourceKey)_\(quality.rawValue).\(ext)"
-        return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
-    }
-
-    /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
-    /// Uses captured value-type properties from DownloadContext to avoid accessing invalidated managed objects.
-    private func cacheArtworkForDownloadedTrack(ctx: DownloadContext) async {
-        var candidates: [(ratingKey: String, path: String)] = []
-        if let path = ctx.trackThumbPath, !path.isEmpty {
-            candidates.append((ctx.trackRatingKey, path))
-        }
-        if let albumRatingKey = ctx.albumRatingKey, let albumThumbPath = ctx.albumThumbPath, !albumThumbPath.isEmpty {
-            candidates.append((albumRatingKey, albumThumbPath))
-        }
-
-        guard !candidates.isEmpty else { return }
-
-        var seen = Set<String>()
-        for candidate in candidates {
-            let dedupeKey = "\(candidate.ratingKey)|\(candidate.path)"
-            guard seen.insert(dedupeKey).inserted else { continue }
-
-            let cachedArtworkPath = ArtworkDownloadManager.artworkDirectory
-                .appendingPathComponent("\(candidate.ratingKey)_album.jpg")
-                .path
-            if FileManager.default.fileExists(atPath: cachedArtworkPath) {
-                continue
-            }
-
-            do {
-                guard let artworkURL = try await syncCoordinator.getArtworkURL(
-                    path: candidate.path,
-                    sourceKey: ctx.sourceCompositeKey,
-                    size: 500
-                ) else {
-                    continue
-                }
-
-                try await artworkDownloadManager.downloadAndCacheArtwork(
-                    from: artworkURL,
-                    ratingKey: candidate.ratingKey,
-                    type: .album
-                )
-
-                EnsembleLogger.debug(
-                    "🖼️ Cached artwork for downloaded track: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
-                )
-            } catch {
-                EnsembleLogger.debug(
-                    "⚠️ Failed caching artwork for downloaded track \(ctx.trackRatingKey): \(error.localizedDescription)"
-                )
-            }
-        }
-    }
-
-    /// Validate that a downloaded audio file's duration is consistent with the track's metadata.
-    /// Catches truncated downloads from interrupted connections or server-side errors.
-    /// Throws `truncatedPayload` if the file is less than 50% of expected duration.
-    private func validateDownloadDuration(
-        fileURL: URL,
-        ctx: DownloadContext
-    ) throws {
-        let expectedDurationMs = ctx.trackDuration
-        guard expectedDurationMs > 10_000 else { return } // Skip very short tracks
-        let expectedSeconds = Double(expectedDurationMs) / 1000.0
-
-        do {
-            let audioFile = try AVAudioFile(forReading: fileURL)
-            let sampleRate = audioFile.processingFormat.sampleRate
-            guard sampleRate > 0 else { return }
-            let fileDuration = Double(audioFile.length) / sampleRate
-
-            if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
-                EnsembleLogger.debug(
-                    "⚠️ Truncated download for track=\(ctx.trackRatingKey): file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — rejecting"
-                )
-                // Clean up the truncated file
-                try? FileManager.default.removeItem(at: fileURL)
-                throw DownloadProcessingError.truncatedPayload(
-                    fileDuration: fileDuration,
-                    expectedDuration: expectedSeconds
-                )
-            }
-        } catch let error as DownloadProcessingError {
-            throw error // Re-throw our own errors
-        } catch {
-            // AVAudioFile failed to open — file may be corrupt. Log but don't block
-            // completion since the format might just be unrecognizable to AVAudioFile.
-            EnsembleLogger.debug(
-                "⚠️ Could not validate download duration for track=\(ctx.trackRatingKey): \(error.localizedDescription)"
-            )
         }
     }
 
@@ -1606,48 +1164,6 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    /// Complete a download in CoreData with recovery for cascade-deleted CDDownload records.
-    /// When sync deletes a CDTrack during an active download, the CDTrack→CDDownload cascade
-    /// delete rule removes the CDDownload from the store. This method tries the primary
-    /// objectID path first, then falls back to recreating the download record by ratingKey.
-    private func completeDownloadWithRecovery(
-        ctx: DownloadContext,
-        filePath: String,
-        fileSize: Int64,
-        quality: StreamingQuality
-    ) async throws {
-        do {
-            try await downloadManager.completeDownload(
-                ctx.downloadObjectID,
-                filePath: filePath,
-                fileSize: fileSize,
-                quality: quality.rawValue
-            )
-        } catch {
-            // CDDownload was likely cascade-deleted when sync removed its CDTrack.
-            // Try to recreate the download record and mark it complete.
-            #if DEBUG
-            EnsembleLogger.debug(
-                "⚠️ completeDownload(\(ctx.trackRatingKey)) objectID not found: \(error.localizedDescription); attempting recovery"
-            )
-            #endif
-            let recovered = try await downloadManager.createDownload(
-                forTrackRatingKey: ctx.trackRatingKey,
-                sourceCompositeKey: ctx.sourceCompositeKey,
-                quality: quality.rawValue
-            )
-            try await downloadManager.completeDownload(
-                recovered.objectID,
-                filePath: filePath,
-                fileSize: fileSize,
-                quality: quality.rawValue
-            )
-            #if DEBUG
-            EnsembleLogger.debug("✅ Download recovery successful for track=\(ctx.trackRatingKey)")
-            #endif
-        }
-    }
-
     /// Cache artwork for a download target (album, artist, or playlist) so it's available offline.
     private func cacheArtworkForTarget(
         ratingKey: String,
@@ -1658,16 +1174,14 @@ public final class OfflineDownloadService: ObservableObject {
         guard let thumbPath, !thumbPath.isEmpty else { return }
 
         // Skip if already cached
-        let typeString: String
-        switch type {
-        case .album: typeString = "album"
-        case .artist: typeString = "artist"
-        case .playlist: typeString = "playlist"
-        case .track: typeString = "track"
+        if let cachedPath = try? await artworkDownloadManager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: thumbPath,
+            dateModifiedSeconds: nil
+        ), FileManager.default.fileExists(atPath: cachedPath) {
+            return
         }
-        let cachedPath = ArtworkDownloadManager.artworkDirectory
-            .appendingPathComponent("\(ratingKey)_\(typeString).jpg").path
-        if FileManager.default.fileExists(atPath: cachedPath) { return }
 
         do {
             guard let artworkURL = try await syncCoordinator.getArtworkURL(
@@ -1678,71 +1192,17 @@ public final class OfflineDownloadService: ObservableObject {
 
             try await artworkDownloadManager.downloadAndCacheArtwork(
                 from: artworkURL,
-                ratingKey: ratingKey,
-                type: type
+                identity: ArtworkIdentity(
+                    ratingKey: ratingKey,
+                    type: type,
+                    sourcePath: thumbPath,
+                    dateModifiedSeconds: nil
+                )
             )
-            EnsembleLogger.debug("🖼️ Cached \(typeString) artwork for download target: \(ratingKey)")
+            EnsembleLogger.debug("🖼️ Cached \(type.rawValue) artwork for download target: \(ratingKey)")
         } catch {
-            EnsembleLogger.debug("⚠️ Failed caching \(typeString) artwork for target \(ratingKey): \(error.localizedDescription)")
+            EnsembleLogger.debug("⚠️ Failed caching \(type.rawValue) artwork for target \(ratingKey): \(error.localizedDescription)")
         }
-    }
-
-    /// Build local file URL for a download queue result using captured value-type properties.
-    private func localFileURL(
-        ratingKey: String,
-        safeSourceKey: String,
-        quality: StreamingQuality,
-        suggestedFilename: String?,
-        mimeType: String?,
-        payload: Data?
-    ) -> URL {
-        let suggestedExtension = suggestedFilename
-            .flatMap { URL(fileURLWithPath: $0).pathExtension }
-        let ext = suggestedExtension?.isEmpty == false
-            ? suggestedExtension!
-            : inferredFileExtension(mimeType: mimeType, payload: payload)
-        let fileName = "\(ratingKey)_\(safeSourceKey)_\(quality.rawValue).\(ext)"
-        return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
-    }
-
-    private func inferredFileExtension(mimeType: String?, payload: Data?) -> String {
-        if let mimeType {
-            let normalized = mimeType.lowercased()
-            if normalized.contains("mpeg") || normalized.contains("mp3") {
-                return "mp3"
-            }
-            if normalized.contains("mp4") || normalized.contains("m4a") {
-                return "m4a"
-            }
-            if normalized.contains("aac") {
-                return "aac"
-            }
-            if normalized.contains("flac") {
-                return "flac"
-            }
-        }
-
-        guard let payload, payload.count >= 4 else {
-            return "m4a"
-        }
-
-        if payload.starts(with: [0x49, 0x44, 0x33]) { // ID3
-            return "mp3"
-        }
-        if payload.starts(with: [0x66, 0x4C, 0x61, 0x43]) { // fLaC
-            return "flac"
-        }
-        if payload.starts(with: [0xFF, 0xFB]) || payload.starts(with: [0xFF, 0xF3]) || payload.starts(with: [0xFF, 0xF2]) {
-            return "mp3"
-        }
-        if payload.count >= 12 {
-            let ftypMarker = Data([0x66, 0x74, 0x79, 0x70]) // ftyp
-            if payload.subdata(in: 4..<8) == ftypMarker {
-                return "m4a"
-            }
-        }
-
-        return "m4a"
     }
 
     /// Returns true if the error indicates a network/connectivity loss rather than a server-side
@@ -1786,7 +1246,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     internal var currentDownloadWorkMode: DownloadWorkMode {
-        if isAppInBackground && !allowsBackgroundContinuation {
+        if isAppInBackground {
             return .background
         }
         if isPlaybackSensitive {
@@ -1797,7 +1257,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     internal var shouldDeferForegroundHealthRefresh: Bool {
         currentDownloadWorkMode == .interactivePlayback
-            && (queueCoordinator.hasActiveTask || isQueueRunning || !activeDownloadRatingKeys.isEmpty || fullProgressRefreshTask != nil)
+            && (queueCoordinator.hasActiveTask || isQueueRunning || !activeDownloadTrackIdentities.isEmpty || fullProgressRefreshTask != nil)
     }
 
     /// Maps current network state to a user-facing queue pause reason
@@ -1832,277 +1292,175 @@ public final class OfflineDownloadService: ObservableObject {
     // MARK: - Progress / Snapshots
 
     private func refreshTargetSnapshots() async {
-        do {
-            let fetched = try await targetRepository.fetchTargets()
-            let existingTargetKeys = Set(fetched.map(\.key))
-            downloadedBytesByTargetKey = downloadedBytesByTargetKey.filter { existingTargetKeys.contains($0.key) }
-            qualityMismatchByTargetKey = qualityMismatchByTargetKey.filter { existingTargetKeys.contains($0.key) }
-            failedTracksByTargetKey = failedTracksByTargetKey.filter { existingTargetKeys.contains($0.key) }
-            targets = fetched.map {
-                OfflineDownloadTargetSnapshot(
-                    id: $0.key,
-                    key: $0.key,
-                    kind: $0.targetKind,
-                    ratingKey: $0.ratingKey,
-                    sourceCompositeKey: $0.sourceCompositeKey,
-                    displayName: $0.displayName ?? defaultDisplayName(for: $0),
-                    status: $0.targetStatus,
-                    totalTrackCount: Int($0.totalTrackCount),
-                    completedTrackCount: Int($0.completedTrackCount),
-                    downloadedBytes: downloadedBytesByTargetKey[$0.key] ?? 0,
-                    progress: $0.progress,
-                    qualityMismatchCount: qualityMismatchByTargetKey[$0.key] ?? 0,
-                    failedTrackCount: failedTracksByTargetKey[$0.key] ?? 0
-                )
-            }
-        } catch {
-            EnsembleLogger.debug("❌ Failed fetching offline target snapshots: \(error.localizedDescription)")
+        if let snapshots = await targetProgressController.refreshTargetSnapshots() {
+            targets = snapshots
         }
     }
 
     /// Refreshes only the targets that contain the given track.
     /// Much cheaper than refreshAllTargetProgresses() during bulk downloads — O(owning targets)
     /// instead of O(all targets × tracks per target).
-    /// Note: activeDownloadRatingKeys is NOT refreshed here — the debounced
+    /// Note: activeDownloadTrackIdentities is NOT refreshed here — the debounced
     /// scheduleDownloadChangeNotification() handles that to batch spinner updates
     /// instead of firing per-track during bulk downloads.
     private func refreshTargetsForTrack(ratingKey: String, sourceCompositeKey: String) async {
-        do {
-            let reference = OfflineTrackReference(
-                trackRatingKey: ratingKey,
-                trackSourceCompositeKey: sourceCompositeKey
-            )
-            let targetKeys = try await targetRepository.fetchTargetKeys(containing: reference)
-            for key in targetKeys {
-                await refreshTargetProgress(forTargetKey: key)
-            }
-            await refreshTargetSnapshots()
-        } catch {
-            EnsembleLogger.debug("❌ Failed targeted refresh for track \(ratingKey): \(error.localizedDescription)")
-            // Fall back to full refresh on error
+        let result = await targetProgressController.refreshTargetsForTrack(
+            ratingKey: ratingKey,
+            sourceCompositeKey: sourceCompositeKey
+        )
+        switch result {
+        case .snapshots(let snapshots):
+            targets = snapshots
+        case .requiresFullRefresh:
             await refreshAllTargetProgresses()
         }
     }
 
     private func refreshAllTargetProgresses() async {
-        do {
-            let allTargets = try await targetRepository.fetchTargets()
-            for target in allTargets {
-                await refreshTargetProgress(forTargetKey: target.key)
+        if let state = await targetProgressController.refreshAllTargetProgresses() {
+            targets = state.snapshots
+            if state.activeDownloadTrackIdentities != activeDownloadTrackIdentities {
+                activeDownloadTrackIdentities = state.activeDownloadTrackIdentities
             }
-            await refreshTargetSnapshots()
-            await refreshActiveDownloadRatingKeys()
-
-            // Self-heal orphaned targets: rebuild memberships for targets that
-            // lost their track references (e.g., after iOS update or data issue).
-            // This runs after the initial snapshot publish so the UI shows stale-
-            // but-useful counts while reconciliation proceeds in the background.
-            await reconcileOrphanedTargets()
-        } catch {
-            EnsembleLogger.debug("❌ Failed refreshing offline target progress: \(error.localizedDescription)")
         }
     }
 
-    /// Detects targets with 0 memberships but non-zero stale total track counts
-    /// (orphaned) and rebuilds their memberships from existing library/playlist data.
-    private func reconcileOrphanedTargets() async {
-        do {
-            let allTargets = try await targetRepository.fetchTargets()
-            var reconciledAny = false
-
-            for target in allTargets {
-                let memberships = try await targetRepository.fetchTrackReferences(targetKey: target.key)
-                guard memberships.isEmpty && target.totalTrackCount > 0 else { continue }
-
-                #if DEBUG
-                EnsembleLogger.debug("🔧 Reconciling orphaned target \(target.key) (stale count: \(target.totalTrackCount))")
-                #endif
-                try? await reconcileTarget(key: target.key)
-                reconciledAny = true
+    /// Recomputes the set of track source-scoped identities that are pending or actively downloading.
+    private func refreshActiveDownloadTrackIdentities() async {
+        if let keys = await targetProgressController.refreshActiveDownloadTrackIdentities() {
+            if keys != activeDownloadTrackIdentities {
+                activeDownloadTrackIdentities = keys
             }
-
-            if reconciledAny {
-                await refreshTargetSnapshots()
-            }
-        } catch {
-            #if DEBUG
-            EnsembleLogger.debug("❌ Failed reconciling orphaned targets: \(error.localizedDescription)")
-            #endif
-        }
-    }
-
-    /// Recomputes the set of track ratingKeys that are pending or actively downloading.
-    private func refreshActiveDownloadRatingKeys() async {
-        do {
-            let pending = try await downloadManager.fetchPendingDownloads()
-            let keys = Set(pending.compactMap { $0.track?.ratingKey })
-            if keys != activeDownloadRatingKeys {
-                activeDownloadRatingKeys = keys
-            }
-        } catch {
-            EnsembleLogger.debug("❌ Failed refreshing active download ratingKeys: \(error.localizedDescription)")
         }
     }
 
     private func refreshTargetProgress(forTargetKey targetKey: String) async {
-        do {
-            let references = try await targetRepository.fetchTrackReferences(targetKey: targetKey)
-            guard !references.isEmpty else {
-                // Check if this is an orphaned target: previously had tracks but
-                // memberships were lost (e.g., after iOS update or data corruption).
-                // Preserve stale total count so UI shows "37 tracks • Queued" instead
-                // of "0 tracks • Downloaded" while reconciliation rebuilds memberships.
-                let existingTarget = try? await targetRepository.fetchTarget(key: targetKey)
-                if let existing = existingTarget, existing.totalTrackCount > 0 {
-                    downloadedBytesByTargetKey[targetKey] = 0
-                    qualityMismatchByTargetKey[targetKey] = 0
-                    failedTracksByTargetKey[targetKey] = 0
-                    try await targetRepository.updateTarget(
-                        key: targetKey,
-                        status: .pending,
-                        totalTrackCount: Int(existing.totalTrackCount),
-                        completedTrackCount: 0,
-                        progress: 0,
-                        lastError: nil
-                    )
-                    #if DEBUG
-                    EnsembleLogger.debug("⚠️ Orphaned download target \(targetKey): preserved stale count of \(existing.totalTrackCount) tracks")
-                    #endif
-                } else {
-                    // Genuinely empty target (newly created or all tracks removed)
-                    downloadedBytesByTargetKey[targetKey] = 0
-                    qualityMismatchByTargetKey[targetKey] = 0
-                    failedTracksByTargetKey[targetKey] = 0
-                    try await targetRepository.updateTarget(
-                        key: targetKey,
-                        status: .completed,
-                        totalTrackCount: 0,
-                        completedTrackCount: 0,
-                        progress: 1,
-                        lastError: nil
-                    )
-                }
-                return
-            }
-
-            // Batch-fetch all downloads for this target in a single CoreData query
-            // instead of N individual queries (was O(N) queries per target refresh)
-            let downloadsByKey = try await downloadManager.fetchDownloadsBatch(forReferences: references)
-
-            let desiredQuality = currentDownloadQuality()
-            var completed = 0
-            var downloading = 0
-            var pending = 0
-            var paused = 0
-            var failed = 0
-            var qualityMismatch = 0
-            var firstFailure: String?
-            var downloadedBytes: Int64 = 0
-
-            for reference in references {
-                let lookupKey = "\(reference.trackSourceCompositeKey)|\(reference.trackRatingKey)"
-                guard let download = downloadsByKey[lookupKey] else {
-                    pending += 1
-                    continue
-                }
-
-                switch download.downloadStatus {
-                case .completed:
-                    completed += 1
-                    downloadedBytes += max(download.fileSize, 0)
-                    // Only count as mismatch when existing quality is LOWER than desired.
-                    // A fallback to "original" when the user wants "medium" is fine — the
-                    // file exceeds the request and shouldn't show the refresh indicator.
-                    if let quality = download.quality,
-                       !DownloadManager.qualitySatisfies(existing: quality, desired: desiredQuality) {
-                        qualityMismatch += 1
-                    }
-                case .downloading:
-                    downloading += 1
-                case .pending:
-                    pending += 1
-                case .paused:
-                    paused += 1
-                case .failed:
-                    failed += 1
-                    if firstFailure == nil {
-                        firstFailure = download.error
-                    }
-                }
-            }
-
-            let total = references.count
-            let progress = total > 0 ? Float(completed) / Float(total) : 1
-
-            let status: CDOfflineDownloadTarget.Status
-            if failed > 0 {
-                status = .failed
-            } else if completed >= total {
-                status = .completed
-            } else if downloading > 0 || (isQueueRunning && pending > 0) {
-                status = .downloading
-            } else if !canExecuteDownloads && (pending > 0 || paused > 0) {
-                status = .paused
-            } else {
-                status = .pending
-            }
-
-            try await targetRepository.updateTarget(
-                key: targetKey,
-                status: status,
-                totalTrackCount: total,
-                completedTrackCount: completed,
-                progress: progress,
-                lastError: firstFailure
-            )
-            downloadedBytesByTargetKey[targetKey] = downloadedBytes
-            qualityMismatchByTargetKey[targetKey] = qualityMismatch
-            failedTracksByTargetKey[targetKey] = failed
-        } catch {
-            EnsembleLogger.debug("❌ Failed refreshing target progress for \(targetKey): \(error.localizedDescription)")
-        }
-    }
-
-    private func defaultDisplayName(for target: CDOfflineDownloadTarget) -> String {
-        switch target.targetKind {
-        case .library:
-            return "Library"
-        case .album:
-            return "Album"
-        case .artist:
-            return "Artist"
-        case .playlist:
-            return "Playlist"
-        case .favorites:
-            return "Favorites"
-        }
+        await targetProgressController.refreshTargetProgress(forTargetKey: targetKey)
     }
 
     // MARK: - Sync / Network Reconciliation
 
-    /// Schedules a debounced `downloadsDidChange` notification so detail views
-    /// re-fetch tracks after individual downloads complete without flooding during
-    /// bulk queue processing. Refreshes the view context first so managed objects
-    /// reflect the latest background-context saves (e.g. CDTrack.localFilePath).
-    private func scheduleDownloadChangeNotification() {
-        downloadChangeNotificationTask?.cancel()
-        downloadChangeNotificationTask = Task { @MainActor [weak self] in
-            // Longer debounce during bulk downloads to avoid spamming UI updates.
-            // Completions arrive faster than 1s so the short debounce never fires.
-            let pendingCount = (try? await self?.downloadManager.fetchPendingDownloads().count) ?? 0
-            let debounceNs: UInt64 = pendingCount > 3 ? 3_000_000_000 : 1_000_000_000
-            try? await Task.sleep(nanoseconds: debounceNs)
-            guard !Task.isCancelled else { return }
-            // Force-refault all view context objects so the next fetch reads
-            // the latest store data (localFilePath, download status, etc.).
-            CoreDataStack.shared.refreshViewContext()
-            // Update active download set so TrackRow spinners reflect completions
-            await self?.refreshActiveDownloadRatingKeys()
-            NotificationCenter.default.post(
-                name: OfflineDownloadService.downloadsDidChange,
-                object: nil
+    /// Runs the best-effort healing steps that keep persisted downloads aligned
+    /// with target memberships before the UI recomputes its snapshots.
+    private func runDownloadHealing() async {
+        if !isAppInBackground {
+            if let foregroundWorkScheduler {
+                guard await foregroundWorkScheduler.waitUntilAllowed(.offlineHealing, policy: .idleOnly) else {
+                    return
+                }
+            }
+        }
+
+        let runStartedAt = Date()
+        // Verify files on disk, mark missing/invalid downloads as failed.
+        _ = try? await downloadManager.fetchDownloads()
+        // Catch truncated audio files (interrupted downloads that passed basic checks).
+        await scanForTruncatedDownloads()
+
+        do {
+            let removedCount = try await cleanupCoordinator.removeOrphanedCompletedDownloads()
+            lastHealingSummary = OfflineDownloadHealingSummary(
+                ranAt: runStartedAt,
+                orphanedCompletedDownloadsRemoved: removedCount,
+                errorDescription: nil
             )
-            self?.downloadChangeNotificationTask = nil
+            if removedCount > 0 {
+                EnsembleLogger.debug("🧹 OfflineDownloadService: removed \(removedCount) orphaned completed download(s)")
+            }
+        } catch {
+            lastHealingSummary = OfflineDownloadHealingSummary(
+                ranAt: runStartedAt,
+                orphanedCompletedDownloadsRemoved: 0,
+                errorDescription: error.localizedDescription
+            )
+            EnsembleLogger.debug("❌ Failed removing orphaned completed downloads: \(error.localizedDescription)")
+        }
+    }
+
+    /// Reconciles interrupted work after launch, foreground, background URLSession wakes,
+    /// and macOS sleep/wake. Persisted downloads should never remain stuck in `.downloading`
+    /// after the process or execution window that owned them has ended.
+    private func recoverInterruptedDownloads(
+        reason: OfflineDownloadRecoveryReason,
+        resumeEligibleWork: Bool
+    ) async {
+        if isRecoverySweepInFlight {
+            EnsembleLogger.debug("📦 Offline download recovery sweep coalesced reason=\(reason.logDescription)")
+            return
+        }
+
+        if reason == .foreground,
+           Date().timeIntervalSince(launchRecoveryStartedAt) < Self.launchForegroundRecoveryGrace,
+           deferredLaunchHealingTask != nil {
+            EnsembleLogger.debug("📦 Offline download foreground recovery coalesced with launch recovery")
+            return
+        }
+
+        isRecoverySweepInFlight = true
+        defer { isRecoverySweepInFlight = false }
+
+        EnsembleLogger.debug("📦 Offline download recovery sweep started reason=\(reason.logDescription)")
+
+        let recoveredStatus: CDDownload.Status = resumeEligibleWork && canRunQueueAutomatically ? .pending : .paused
+        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: recoveredStatus)
+
+        if resumeEligibleWork {
+            try? await applyNetworkPolicy()
+        } else {
+            refreshQueueStatusReason()
+        }
+
+        if shouldUseLightweightStartupRecovery(for: reason) {
+            await refreshTargetSnapshots()
+            scheduleDeferredLaunchHealing()
+            if resumeEligibleWork {
+                startQueueIfNeeded()
+            }
+            EnsembleLogger.debug(
+                "📦 Offline download recovery sweep finished reason=\(reason.logDescription) resume=\(resumeEligibleWork) recoveredStatus=\(recoveredStatus.rawValue) deferredHealing=true"
+            )
+            return
+        }
+
+        await runDownloadHealing()
+        await refreshAllTargetProgresses()
+        scheduleFullProgressRefresh(forceImmediate: true)
+
+        if resumeEligibleWork {
+            startQueueIfNeeded()
+        }
+
+        EnsembleLogger.debug(
+            "📦 Offline download recovery sweep finished reason=\(reason.logDescription) resume=\(resumeEligibleWork) recoveredStatus=\(recoveredStatus.rawValue)"
+        )
+    }
+
+    private func shouldUseLightweightStartupRecovery(for reason: OfflineDownloadRecoveryReason) -> Bool {
+        switch reason {
+        case .launch:
+            return true
+        case .foreground:
+            return Date().timeIntervalSince(launchRecoveryStartedAt) < Self.launchForegroundRecoveryGrace
+        case .backgroundURLSession, .systemWillSleep, .systemDidWake, .backgroundExpiration:
+            return false
+        }
+    }
+
+    /// Defers disk and progress integrity sweeps until after launch has had time
+    /// to render and accept interaction. Whole-library offline targets can own
+    /// thousands of files, so startup must not synchronously parse them.
+    private func scheduleDeferredLaunchHealing() {
+        guard deferredLaunchHealingTask == nil else { return }
+
+        deferredLaunchHealingTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.deferredLaunchHealingDelayNs)
+            guard let self, !Task.isCancelled else { return }
+
+            EnsembleLogger.info("📦 Offline download deferred launch healing started")
+            await self.runDownloadHealing()
+            await self.refreshAllTargetProgresses()
+            self.deferredLaunchHealingTask = nil
+            EnsembleLogger.info("📦 Offline download deferred launch healing finished")
         }
     }
 
@@ -2161,7 +1519,14 @@ public final class OfflineDownloadService: ObservableObject {
             fullProgressRefreshTask = nil
             hasQueuedFullProgressRefresh = false
             Task { @MainActor [weak self] in
-                await self?.refreshAllTargetProgresses()
+                guard let self else { return }
+                if !self.isAppInBackground,
+                   let foregroundWorkScheduler = self.foregroundWorkScheduler {
+                    guard await foregroundWorkScheduler.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly) else {
+                        return
+                    }
+                }
+                await self.refreshAllTargetProgresses()
             }
             return
         }
@@ -2180,6 +1545,12 @@ public final class OfflineDownloadService: ObservableObject {
             }
             guard !Task.isCancelled else { return }
 
+            if let foregroundWorkScheduler = self.foregroundWorkScheduler {
+                guard await foregroundWorkScheduler.waitUntilAllowed(.downloadProgressRecompute, policy: .idleOnly) else {
+                    self.fullProgressRefreshTask = nil
+                    return
+                }
+            }
             await self.refreshAllTargetProgresses()
             self.fullProgressRefreshTask = nil
 
@@ -2201,7 +1572,7 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
-    private func shouldAttemptDirectFallback(after error: Error, for ctx: DownloadContext) -> Bool {
+    private func shouldAttemptDirectFallback(after error: Error, for ctx: DownloadTransferContext) -> Bool {
         switch retryPolicy.directFallbackDecision(
             for: .init(
                 trackRatingKey: ctx.trackRatingKey,
@@ -2363,9 +1734,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private static func serverSourceKey(fromLibrarySourceKey sourceCompositeKey: String) -> String? {
-        let parts = sourceCompositeKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-        return "\(parts[0]):\(parts[1]):\(parts[2])"
+        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
     public static func targetKey(
@@ -2393,12 +1762,17 @@ public final class OfflineDownloadService: ObservableObject {
 ///   FFT loop (~every 0.1s at 10fps) responds to our cancellation.
 /// - The interrupted item is re-queued at the front so it retries on resume().
 private actor SidecarAnalysisQueue {
+    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var pending: [(sourceURL: URL, sidecarURL: URL)] = []
     /// The item currently being analyzed (popped from pending, held here for re-queuing on suspend).
     private var currentItem: (sourceURL: URL, sidecarURL: URL)?
     /// Active worker task. Cancelled on suspend().
     private var workerTask: Task<Void, Never>?
     private var isSuspended = false
+
+    init(foregroundWorkScheduler: ForegroundWorkScheduling? = nil) {
+        self.foregroundWorkScheduler = foregroundWorkScheduler
+    }
 
     // MARK: - Public Interface
 
@@ -2454,6 +1828,12 @@ private actor SidecarAnalysisQueue {
                     await self.requeueCurrentItem()
                     break
                 }
+                if let scheduler = await self.scheduler() {
+                    guard await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe) else {
+                        await self.requeueCurrentItem()
+                        break
+                    }
+                }
                 if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: item.sourceURL) {
                     try? FrequencyTimelinePersistence.save(timeline, to: item.sidecarURL)
                 }
@@ -2489,5 +1869,9 @@ private actor SidecarAnalysisQueue {
     private func markWorkerFinished() {
         workerTask = nil
         startWorkerIfNeeded()
+    }
+
+    private func scheduler() -> ForegroundWorkScheduling? {
+        foregroundWorkScheduler
     }
 }

@@ -157,4 +157,157 @@ final class ServerConnectionControllerTests: XCTestCase {
 
         XCTAssertEqual(refreshCount, 0)
     }
+
+    func testEnsureServerConnectionRejectsInvalidSourceKey() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        do {
+            try await controller.ensureServerConnection(sourceKey: "invalid")
+            XCTFail("Expected invalid source key to throw")
+        } catch PlexAPIError.noServerSelected {
+        } catch {
+            XCTFail("Expected noServerSelected, got \(error)")
+        }
+    }
+
+    func testServerFailureMessageReturnsNilForInvalidSourceKey() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        XCTAssertNil(controller.serverFailureMessage(sourceKey: "invalid"))
+    }
+
+    func testAPIClientLookupAcceptsServerAndLibrarySourceKeys() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        let serverScopedClient = try XCTUnwrap(controller.apiClient(sourceKey: "plex:account-1:server-1"))
+        let libraryScopedClient = try XCTUnwrap(controller.apiClient(sourceKey: "plex:account-1:server-1:1"))
+
+        XCTAssertTrue(serverScopedClient === libraryScopedClient)
+    }
+
+    func testRequireAPIClientRejectsInvalidOrUnknownSourceKey() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        XCTAssertThrowsError(try controller.requireAPIClient(sourceKey: "invalid")) { error in
+            guard case PlexAPIError.noServerSelected = error else {
+                return XCTFail("Expected noServerSelected, got \(error)")
+            }
+        }
+
+        XCTAssertThrowsError(try controller.requireAPIClient(sourceKey: "plex:missing:server-1:1")) { error in
+            guard case PlexAPIError.noServerSelected = error else {
+                return XCTFail("Expected noServerSelected, got \(error)")
+            }
+        }
+    }
+
+    func testRefreshConnectionsThrowsWhenNoConfiguredClients() async throws {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+
+        do {
+            try await controller.refreshConnections()
+            XCTFail("Expected refresh without configured clients to throw")
+        } catch PlexAPIError.noServerSelected {
+        } catch {
+            XCTFail("Expected noServerSelected, got \(error)")
+        }
+    }
+
+    func testConnectionStateAfterSuccessfulSyncUsesAPIClientURLAndPreservesDegradedState() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+        let apiClient = try XCTUnwrap(accountManager.makeAPIClient(accountId: "account-1", serverId: "server-1"))
+        await apiClient.updateCurrentServerURL("https://active.example.com")
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+
+        let state = await controller.connectionStateAfterSuccessfulSync(
+            for: source,
+            fallback: .degraded(url: "https://old.example.com")
+        )
+
+        XCTAssertEqual(state, .degraded(url: "https://active.example.com"))
+    }
+
+    func testConnectionStateAfterSuccessfulSyncFallsBackToConfiguredServerURL() async throws {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+        let apiClient = try XCTUnwrap(accountManager.makeAPIClient(accountId: "account-1", serverId: "server-1"))
+        await apiClient.updateCurrentServerURL("   ")
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+
+        let state = await controller.connectionStateAfterSuccessfulSync(
+            for: source,
+            fallback: .unknown
+        )
+
+        XCTAssertEqual(state, .connected(url: "https://initial.example.com"))
+    }
 }

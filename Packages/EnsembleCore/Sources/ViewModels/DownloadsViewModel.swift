@@ -10,6 +10,7 @@ public struct LibraryDownloadSummary: Identifiable {
     public let sourceCompositeKey: String
     public let serverName: String
     public let libraryName: String
+    public let canDownload: Bool
     /// Whether a library-level download target exists
     public let isEnabled: Bool
     public let downloadedTrackCount: Int
@@ -34,8 +35,7 @@ public struct DownloadedItemSummary: Identifiable, Equatable {
     public let completedTrackCount: Int
     public let totalTrackCount: Int
     public let downloadedBytes: Int64
-    /// True when this target has quality-mismatched or failed tracks that a refresh could fix
-    public let needsRefresh: Bool
+    public let sourceDisplayText: String?
     /// Resolved artwork path for display — populated asynchronously from library/playlist repositories
     public var thumbPath: String?
 }
@@ -57,6 +57,7 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var libraryTogglesInProgress: Set<String> = []
 
     private let offlineDownloadService: OfflineDownloadService
+    private let downloadMutationWorkflow: DownloadMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let mutationCoordinator: MutationCoordinator
@@ -66,6 +67,7 @@ public final class DownloadsViewModel: ObservableObject {
 
     public init(
         offlineDownloadService: OfflineDownloadService,
+        downloadMutationWorkflow: DownloadMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         mutationCoordinator: MutationCoordinator,
@@ -73,6 +75,7 @@ public final class DownloadsViewModel: ObservableObject {
         downloadManager: DownloadManagerProtocol
     ) {
         self.offlineDownloadService = offlineDownloadService
+        self.downloadMutationWorkflow = downloadMutationWorkflow ?? DownloadMutationWorkflow(mutator: offlineDownloadService)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.mutationCoordinator = mutationCoordinator
@@ -83,9 +86,10 @@ public final class DownloadsViewModel: ObservableObject {
         // Without this, every publish creates items with thumbPath=nil which always
         // differs from existing items that have resolved paths, causing artwork flashing.
         offlineDownloadService.$targets
-            .sink { [weak self] snapshots in
+            .combineLatest(accountManager.$plexAccounts)
+            .sink { [weak self] snapshots, _ in
                 guard let self else { return }
-                var mapped = Self.mapItems(from: snapshots)
+                var mapped = Self.mapItems(from: snapshots, accountManager: self.accountManager)
 
                 // Carry forward thumbPaths from existing items to avoid nil→resolved flicker
                 let existingThumbs = Dictionary(
@@ -147,18 +151,18 @@ public final class DownloadsViewModel: ObservableObject {
     }
 
     public func removeDownloadTarget(key: String) async {
-        await offlineDownloadService.removeTarget(key: key)
+        await downloadMutationWorkflow.removeTarget(key: key)
         await refresh()
     }
 
     /// Pauses the download queue — active downloads are stopped and marked paused.
     public func pauseQueue() async {
-        await offlineDownloadService.pauseQueue()
+        await downloadMutationWorkflow.pauseQueue()
     }
 
     /// Resumes a paused download queue.
     public func resumeQueue() async {
-        await offlineDownloadService.resumeQueue()
+        await downloadMutationWorkflow.resumeQueue()
     }
 
     /// Whether a library-level download target exists for the given sourceCompositeKey
@@ -168,8 +172,13 @@ public final class DownloadsViewModel: ObservableObject {
 
     /// Toggle library-level download on or off
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
+        guard DownloadCapabilityPolicy.canAttemptDownload(for: sourceCompositeKey, accountManager: accountManager) else {
+            EnsembleLogger.debug("DownloadsViewModel: rejected library download toggle for unavailable source \(sourceCompositeKey)")
+            return
+        }
+
         libraryTogglesInProgress.insert(sourceCompositeKey)
-        await offlineDownloadService.setLibraryDownloadEnabled(
+        await downloadMutationWorkflow.setLibraryDownloadEnabled(
             sourceCompositeKey: sourceCompositeKey,
             displayName: title,
             isEnabled: isEnabled
@@ -232,6 +241,10 @@ public final class DownloadsViewModel: ObservableObject {
                         sourceCompositeKey: sourceCompositeKey,
                         serverName: server.name,
                         libraryName: library.title,
+                        canDownload: DownloadCapabilityPolicy.canAttemptDownload(
+                            for: sourceCompositeKey,
+                            accountManager: accountManager
+                        ),
                         isEnabled: isEnabled,
                         downloadedTrackCount: completedDownloads.count,
                         totalTrackCount: totalTrackCount,
@@ -268,7 +281,10 @@ public final class DownloadsViewModel: ObservableObject {
 
     // MARK: - Private
 
-    private static func mapItems(from snapshots: [OfflineDownloadTargetSnapshot]) -> [DownloadedItemSummary] {
+    static func mapItems(
+        from snapshots: [OfflineDownloadTargetSnapshot],
+        accountManager: AccountManager
+    ) -> [DownloadedItemSummary] {
         snapshots
             .filter { $0.kind != .library }
             .map {
@@ -284,7 +300,7 @@ public final class DownloadsViewModel: ObservableObject {
                     completedTrackCount: $0.completedTrackCount,
                     totalTrackCount: $0.totalTrackCount,
                     downloadedBytes: $0.downloadedBytes,
-                    needsRefresh: $0.needsRefresh,
+                    sourceDisplayText: sourceDisplayText(for: $0, accountManager: accountManager),
                     thumbPath: nil
                 )
             }
@@ -294,8 +310,20 @@ public final class DownloadsViewModel: ObservableObject {
                 if lhsPriority != rhsPriority {
                     return lhsPriority < rhsPriority
                 }
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                let titleOrder = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+                if titleOrder != .orderedSame {
+                    return titleOrder == .orderedAscending
+                }
+                return (lhs.sourceDisplayText ?? "").localizedCaseInsensitiveCompare(rhs.sourceDisplayText ?? "") == .orderedAscending
             }
+    }
+
+    private static func sourceDisplayText(
+        for snapshot: OfflineDownloadTargetSnapshot,
+        accountManager: AccountManager
+    ) -> String? {
+        guard snapshot.kind == .artist else { return nil }
+        return accountManager.sourceLibraryContext(for: snapshot.sourceCompositeKey)?.displaySubtitle
     }
 
     /// Resolves artwork thumb paths for all items from library/playlist repositories and updates the published list.
@@ -314,9 +342,9 @@ public final class DownloadsViewModel: ObservableObject {
         guard let ratingKey = item.ratingKey, let sourceKey = item.sourceCompositeKey else { return nil }
         switch item.kind {
         case .album:
-            return (try? await libraryRepository.fetchAlbum(ratingKey: ratingKey))?.thumbPath
+            return (try? await libraryRepository.fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.thumbPath
         case .artist:
-            return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey))?.thumbPath
+            return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.thumbPath
         case .playlist:
             return (try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.compositePath
         case .library, .favorites:

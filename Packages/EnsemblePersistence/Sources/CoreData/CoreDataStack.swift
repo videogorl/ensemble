@@ -56,9 +56,7 @@ public final class CoreDataStack: @unchecked Sendable {
             do {
                 try context.save()
             } catch {
-                #if DEBUG
                 EnsembleLogger.debug("CoreData save error: \(error)")
-                #endif
             }
         }
     }
@@ -70,6 +68,32 @@ public final class CoreDataStack: @unchecked Sendable {
             // refresh resolve automatically instead of throwing merge conflicts.
             context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
             block(context)
+        }
+    }
+
+    public func performViewContext<T>(_ block: @escaping (NSManagedObjectContext) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = viewContext
+            context.perform {
+                do {
+                    continuation.resume(returning: try block(context))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func performBackgroundContext<T>(_ block: @escaping (NSManagedObjectContext) throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = newBackgroundContext()
+            context.perform {
+                do {
+                    continuation.resume(returning: try block(context))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
         }
     }
 
@@ -129,12 +153,18 @@ public final class CoreDataStack: @unchecked Sendable {
     }
 
     /// Reject stale compiled model bundles before Core Data boots.
-    /// `genreNames` was added after the initial SwiftPM compiled copy and is a reliable canary
-    /// that the loaded model matches the checked-in managed object subclasses.
+    /// `CDHomeFeedSnapshot` is the current cache/freshness canary. Checking it here
+    /// prevents SwiftPM from silently loading a stale compiled model after schema changes.
     private static func isCurrentModel(_ model: NSManagedObjectModel) -> Bool {
         guard let trackEntity = model.entitiesByName["CDTrack"] else {
             return false
         }
-        return trackEntity.propertiesByName["genreNames"] != nil
+        guard trackEntity.propertiesByName["genreNames"] != nil else {
+            return false
+        }
+        guard trackEntity.propertiesByName["streamId"] != nil else {
+            return false
+        }
+        return model.entitiesByName["CDHomeFeedSnapshot"]?.propertiesByName["hubs"] != nil
     }
 }

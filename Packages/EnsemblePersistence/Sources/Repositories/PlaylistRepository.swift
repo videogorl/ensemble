@@ -30,13 +30,74 @@ public protocol PlaylistRepositoryProtocol: Sendable {
 
     // Bulk timestamp lookup (for incremental sync change detection)
     func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
+
+    /// Returns and clears artwork invalidations accumulated during playlist upserts.
+    func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo]
+}
+
+public extension PlaylistRepositoryProtocol {
+    func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
 }
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
+    private var pendingArtworkInvalidationInfo: [ArtworkInvalidationInfo] = []
+    private let artworkInvalidationLock = NSLock()
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+    }
+
+    public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
+        artworkInvalidationLock.lock()
+        defer { artworkInvalidationLock.unlock() }
+        let info = pendingArtworkInvalidationInfo
+        pendingArtworkInvalidationInfo = []
+        return info
+    }
+
+    func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {
+        artworkInvalidationLock.lock()
+        defer { artworkInvalidationLock.unlock() }
+        guard !pendingArtworkInvalidationInfo.contains(where: {
+            $0.ratingKey == info.ratingKey && $0.type == info.type
+        }) else {
+            return
+        }
+        pendingArtworkInvalidationInfo.append(info)
+    }
+
+    func recordPlaylistArtworkInvalidationIfNeeded(
+        ratingKey: String,
+        oldCompositePath: String?,
+        oldDateModified: Date?,
+        newCompositePath: String?,
+        newDateModified: Date?
+    ) {
+        if oldCompositePath != newCompositePath {
+            recordArtworkInvalidation(ArtworkInvalidationInfo(
+                ratingKey: ratingKey,
+                type: .playlist,
+                reason: .pathChanged
+            ))
+            return
+        }
+
+        let hasArtworkPath = !(newCompositePath ?? oldCompositePath ?? "").isEmpty
+        guard hasArtworkPath,
+              Self.dateModifiedSeconds(oldDateModified) != Self.dateModifiedSeconds(newDateModified) else {
+            return
+        }
+
+        recordArtworkInvalidation(ArtworkInvalidationInfo(
+            ratingKey: ratingKey,
+            type: .playlist,
+            reason: .metadataModified
+        ))
+    }
+
+    private static func dateModifiedSeconds(_ date: Date?) -> Int? {
+        date.map { Int($0.timeIntervalSince1970) }
     }
 
     public func fetchPlaylists() async throws -> [CDPlaylist] {
@@ -166,6 +227,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     // Prefer the freshest copy if multiple servers share a rating key.
                     request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
                 }
+                request.fetchLimit = 1
                 request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                 do {
                     let playlist = try context.fetch(request).first
@@ -203,6 +265,15 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 do {
                     let existing = try context.fetch(request).first
                     let playlist = existing ?? CDPlaylist(context: context)
+                    if let existing {
+                        self.recordPlaylistArtworkInvalidationIfNeeded(
+                            ratingKey: ratingKey,
+                            oldCompositePath: existing.compositePath,
+                            oldDateModified: existing.dateModified,
+                            newCompositePath: compositePath,
+                            newDateModified: dateModified
+                        )
+                    }
 
                     playlist.ratingKey = ratingKey
                     playlist.key = key
@@ -291,14 +362,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     playlist.trackCount = Int32(foundCount)
 
                     try context.save()
-                    #if DEBUG
                     EnsembleLogger.debug("✅ Saved \(foundCount) tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) requested)")
-                    #endif
                     continuation.resume()
                 } catch {
-                    #if DEBUG
                     EnsembleLogger.debug("❌ Error saving playlist tracks: \(error)")
-                    #endif
                     continuation.resume(throwing: error)
                 }
             }

@@ -1,8 +1,10 @@
 import EnsembleCore
+import EnsemblePersistence
+import EnsembleSiriShared
 import EnsembleUI
+import CoreSpotlight
+import Foundation
 import Intents
-import os
-import OSLog
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -11,37 +13,17 @@ import AppKit
 import BackgroundTasks
 #endif
 
-/// App-target logger. Uses @autoclosure so message strings are not constructed
-/// unless needed — zero cost when file logging is disabled in release.
-enum AppLogger {
-    private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "app")
-
-    /// Closure wired by PersistentLogService to receive log entries for file writing.
-    static var fileLogHandler: ((String, String, String) -> Void)?
-
-    private static let category = "app"
-
-    static func debug(_ message: @autoclosure () -> String) {
-        #if DEBUG
-        let msg = message()
-        logger.debug("\(msg, privacy: .public)")
-        fileLogHandler?("DEBUG", category, msg)
-        #else
-        guard let handler = fileLogHandler else { return }
-        handler("DEBUG", category, message())
-        #endif
-    }
-}
-
 @main
 struct EnsembleApp: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    #elseif os(macOS)
-    @NSApplicationDelegateAdaptor(MacAppDelegate.self) var macDelegate
+    #endif
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(MacDockMenuAppDelegate.self) private var macDockMenuDelegate
     #endif
 
     @Environment(\.scenePhase) private var scenePhase
+    @FocusedValue(\.ensembleRefreshAction) private var focusedRefreshAction
     @State private var hasPerformedStartupSync = false
     @State private var hasStartedLogSession = false
     @State private var hasHandledInitialIOSActivePhase = false
@@ -59,11 +41,17 @@ struct EnsembleApp: App {
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
-                    os_log(.info, "SIRI_APP: RootView.onAppear - app UI is visible")
+                    AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                    #if os(iOS)
+                    WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
+                    #endif
                 }
                 .onOpenURL { url in
-                    os_log(.info, "SIRI_APP: onOpenURL called with: %{public}@", url.absoluteString)
+                    AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
                     _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
+                }
+                .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
+                    handleSpotlightActivity(userActivity)
                 }
                 .onContinueUserActivity(SiriPlaybackActivityCodec.activityType) { userActivity in
                     handleSiriPlaybackActivity(userActivity)
@@ -75,24 +63,21 @@ struct EnsembleApp: App {
                     handleSiriAddToPlaylistActivity(userActivity)
                 }
                 .onContinueUserActivity("INPlayMediaIntent") { userActivity in
-                    os_log(.info, "SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
+                    AppLogger.info("SIRI_APP: Received INPlayMediaIntent activity via SwiftUI")
                     handleGenericSiriActivity(userActivity)
                 }
                 .onContinueUserActivity("com.apple.intents.PlayMediaIntent") { userActivity in
-                    os_log(.info, "SIRI_APP: Received com.apple.intents.PlayMediaIntent activity via SwiftUI")
+                    AppLogger.info("SIRI_APP: Received com.apple.intents.PlayMediaIntent activity via SwiftUI")
                     handleGenericSiriActivity(userActivity)
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
-                    os_log(.info, "SIRI_APP: Received web browsing activity: %{public}@", userActivity.webpageURL?.absoluteString ?? "nil")
+                    AppLogger.info("SIRI_APP: Received web browsing activity: \(userActivity.webpageURL?.absoluteString ?? "nil")")
                 }
                 .userActivity("com.videogorl.ensemble.active") { activity in
                     // This registers a user activity so we can track if the app becomes active
                     activity.title = "Ensemble Active"
                 }
         }
-        #if os(macOS)
-        .windowStyle(.hiddenTitleBar)
-        #endif
         .applyBackgroundRefresh()
         .onChange(of: scenePhase) { newPhase in
             handleScenePhaseChange(newPhase)
@@ -100,22 +85,51 @@ struct EnsembleApp: App {
         .commands {
             // Settings shortcut (⌘,) — macOS app menu + iPadOS keyboard shortcut overlay
             CommandGroup(replacing: .appSettings) {
-                Button("Settings...") {
-                    DependencyContainer.shared.navigationCoordinator.openSettings()
+                Button("Settings…") {
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut else { return }
+                    NavigationCoordinator.openProfileFromActiveScene(
+                        fallback: DependencyContainer.shared.navigationCoordinator
+                    )
                 }
                 .keyboardShortcut(",", modifiers: .command)
+                .disabled(!EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesSettingsShortcut)
             }
 
+            #if os(iOS)
+            CommandGroup(after: .toolbar) {
+                Button(focusedRefreshAction?.title ?? "Refresh") {
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand,
+                          let action = focusedRefreshAction else { return }
+                    Task { @MainActor in
+                        await action.perform()
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(focusedRefreshAction == nil || !EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand)
+            }
+            #endif
+
             #if os(macOS)
-            // Remove the sidebar toggle command (Cmd+Option+S) since
-            // the sidebar is always visible and non-collapsible
-            CommandGroup(replacing: .sidebar) {}
+            CommandGroup(after: .sidebar) {
+                Button(focusedRefreshAction?.title ?? "Refresh") {
+                    guard EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand,
+                          let action = focusedRefreshAction else { return }
+                    Task { @MainActor in
+                        await action.perform()
+                    }
+                }
+                .keyboardShortcut("r", modifiers: .command)
+                .disabled(focusedRefreshAction == nil || !EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesRefreshCommand)
+            }
 
             CommandMenu("Playback") {
                 Button("Play/Pause") {
-                    MacPlaybackShortcut.togglePlaybackIfAllowed()
+                    if EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesPlaybackCommandMenu {
+                        MacPlaybackShortcut.togglePlaybackIfAllowed()
+                    }
                 }
                 .keyboardShortcut(.space, modifiers: [])
+                .disabled(!EnsemblePlatformFeaturePolicy.currentCommandPolicy.providesPlaybackCommandMenu)
             }
             #endif
         }
@@ -124,13 +138,26 @@ struct EnsembleApp: App {
             Window("Profile", id: NavigationCoordinator.AuxiliaryPresentation.profile.windowID) {
                 ProfilePresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
-                    .frame(minWidth: 720, minHeight: 560)
+                    .environmentObject(DependencyContainer.shared.navigationCoordinator)
+                    .ensembleAuxiliaryWindowFrame(.profile)
             }
+            .defaultSize(
+                width: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealWidth,
+                height: EnsembleScaffold.AuxiliaryWindow.Configuration.profile.idealHeight
+            )
+            .windowResizability(.contentSize)
+
             Window("Downloads", id: NavigationCoordinator.AuxiliaryPresentation.downloads.windowID) {
                 DownloadsPresentationContainer()
                     .environment(\.dependencies, DependencyContainer.shared)
-                    .frame(minWidth: 900, minHeight: 640)
+                    .environmentObject(DependencyContainer.shared.navigationCoordinator)
+                    .ensembleAuxiliaryWindowFrame(.downloads)
             }
+            .defaultSize(
+                width: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealWidth,
+                height: EnsembleScaffold.AuxiliaryWindow.Configuration.downloads.idealHeight
+            )
+            .windowResizability(.contentSize)
         }
         #endif
     }
@@ -138,8 +165,10 @@ struct EnsembleApp: App {
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         #if os(iOS)
         Task { @MainActor in
+            AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
             switch phase {
             case .active:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {
                     hasHandledInitialIOSActivePhase = true
@@ -175,24 +204,27 @@ struct EnsembleApp: App {
                     DependencyContainer.shared.webSocketCoordinator.start()
                 }
 
-                // Route foreground refresh through SyncCoordinator to coalesce
-                // with network state transitions and cooldown/staleness guards.
-                await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-                await DependencyContainer.shared.reconcileSyncOnForeground()
+                if isInitialActivation {
+                    AppLogger.debug("📱 EnsembleApp: Initial active phase — skipping foreground freshness after cold-launch pipeline")
+                } else {
+                    // Route foreground freshness through one coordinator so iOS 15
+                    // foreground refresh and iOS background refresh share the same work.
+                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
+                    await DependencyContainer.shared.reconcileSyncOnForeground()
+                }
 
                 // Drain any pending offline mutations now that connectivity may have resumed.
                 await DependencyContainer.shared.mutationCoordinator.drainQueue()
-
-                // Update Siri media user context in case library changed while backgrounded
-                await DependencyContainer.shared.siriMediaUserContextManager.updateMediaUserContext()
 
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
                 DependencyContainer.shared.audioAnalyzer.exitBackground()
                 await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
                 await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
+                WatchCompanionBridge.shared.refresh()
 
             case .background:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
@@ -217,6 +249,7 @@ struct EnsembleApp: App {
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
 
             case .inactive:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break
@@ -228,6 +261,7 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 // Start persistent log session on first activation (macOS)
                 if !hasStartedLogSession {
                     hasStartedLogSession = true
@@ -239,6 +273,7 @@ struct EnsembleApp: App {
 
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
+                DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
                 await DependencyContainer.shared.reconcileSyncOnForeground()
 
@@ -300,14 +335,28 @@ struct EnsembleApp: App {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
 
                         AppLogger.debug("💻 macOS: Starting startup sync...")
-                        let syncCoordinator = await MainActor.run {
-                            DependencyContainer.shared.syncCoordinator
+                        let (syncCoordinator, foregroundWorkScheduler) = await MainActor.run {
+                            (
+                                DependencyContainer.shared.syncCoordinator,
+                                DependencyContainer.shared.foregroundWorkScheduler
+                            )
+                        }
+                        await MainActor.run {
+                            foregroundWorkScheduler.setStartupSyncInFlight(true)
+                        }
+                        defer {
+                            Task { @MainActor in
+                                foregroundWorkScheduler.setStartupSyncInFlight(false)
+                            }
                         }
                         await syncCoordinator.performStartupSync()
                         AppLogger.debug("💻 macOS: Startup sync complete")
+                        let dependencyContainer = await MainActor.run { DependencyContainer.shared }
+                        await dependencyContainer.emitColdLaunchDiagnostics()
                     }
                 }
             case .background:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background activity.
                 DependencyContainer.shared.persistentLogService.flushSession()
@@ -318,6 +367,7 @@ struct EnsembleApp: App {
                 // Stop periodic sync timer
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
             case .inactive:
+                DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:
                 break
@@ -327,11 +377,11 @@ struct EnsembleApp: App {
     }
 
     private func handleGenericSiriActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: handleGenericSiriActivity - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: handleGenericSiriActivity - type=\(userActivity.activityType)")
 
         // First try our custom payload
         if let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) {
-            os_log(.info, "SIRI_APP: Found custom payload in generic activity")
+            AppLogger.info("SIRI_APP: Found custom payload in generic activity")
             #if os(iOS)
             executeSiriPlaybackInBackground(payload: payload, origin: "genericActivityCustomPayload")
             #endif
@@ -342,7 +392,7 @@ struct EnsembleApp: App {
         // Try to extract from INInteraction
         if let interaction = userActivity.interaction,
            let playMediaIntent = interaction.intent as? INPlayMediaIntent {
-            os_log(.info, "SIRI_APP: Found INPlayMediaIntent in interaction")
+            AppLogger.info("SIRI_APP: Found INPlayMediaIntent in interaction")
             if let payload = extractPayload(from: playMediaIntent) {
                 executeSiriPlaybackInBackground(payload: payload, origin: "genericActivityInteraction")
                 return
@@ -350,7 +400,13 @@ struct EnsembleApp: App {
         }
         #endif
 
-        os_log(.error, "SIRI_APP: Could not extract playable payload from generic activity")
+        AppLogger.error("SIRI_APP: Could not extract playable payload from generic activity")
+    }
+
+    private func handleSpotlightActivity(_ userActivity: NSUserActivity) {
+        Task { @MainActor in
+            _ = SystemMediaSpotlightRouter.route(userActivity)
+        }
     }
 
     #if os(iOS)
@@ -361,8 +417,8 @@ struct EnsembleApp: App {
         if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
-            // Override shuffle from live intent if not already set in payload
-            if payload.shuffle == nil, let shuffle {
+            // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
+            if let shuffle, payload.shuffle != shuffle {
                 payload = SiriPlaybackRequestPayload(
                     kind: payload.kind,
                     entityID: payload.entityID,
@@ -378,7 +434,8 @@ struct EnsembleApp: App {
         // Fallback to query
         guard let query = intent.mediaItems?.first?.title
                 ?? intent.mediaContainer?.title
-                ?? intent.mediaSearch?.mediaName,
+                ?? intent.mediaSearch?.mediaName
+                ?? intent.mediaSearch?.mediaIdentifier,
               !query.isEmpty else {
             return nil
         }
@@ -394,7 +451,7 @@ struct EnsembleApp: App {
         case .album: kind = .album
         case .artist: kind = .artist
         case .playlist: kind = .playlist
-        default: kind = .track
+        default: kind = SiriMediaIndexResolver.kindInferred(from: query) ?? .track
         }
 
         return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)
@@ -402,26 +459,21 @@ struct EnsembleApp: App {
     #endif
 
     private func handleSiriPlaybackActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: EnsembleApp.handleSiriPlaybackActivity ENTRY - type=%{public}@", userActivity.activityType)
-        os_log(.info, "SIRI_APP: userInfo keys: %{public}@", String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))
+        AppLogger.info("SIRI_APP: EnsembleApp.handleSiriPlaybackActivity ENTRY - type=\(userActivity.activityType)")
+        AppLogger.info("SIRI_APP: userInfo keys: \(String(describing: userActivity.userInfo?.keys.map { "\($0)" } ?? []))")
 
         guard let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
-            os_log(.error, "SIRI_APP: EnsembleApp could not decode Siri payload from userActivity")
+            AppLogger.error("SIRI_APP: EnsembleApp could not decode Siri payload from userActivity")
             // Try to log the raw userInfo for debugging
             if let userInfo = userActivity.userInfo {
                 for (key, value) in userInfo {
-                    os_log(.info, "SIRI_APP: userInfo[%{public}@] = %{public}@", "\(key)", "\(type(of: value))")
+                    AppLogger.info("SIRI_APP: userInfo[\(key)] = \(type(of: value))")
                 }
             }
             return
         }
 
-        os_log(
-            .info,
-            "SIRI_APP: EnsembleApp forwarding payload kind=%{public}@ entity=%{public}@",
-            payload.kind.rawValue,
-            payload.entityID
-        )
+        AppLogger.info("SIRI_APP: EnsembleApp forwarding payload kind=\(payload.kind.rawValue) entity=\(payload.entityID)")
         #if os(iOS)
         executeSiriPlaybackInBackground(payload: payload, origin: "swiftUIContinue")
         #else
@@ -432,118 +484,76 @@ struct EnsembleApp: App {
     }
 
     private func handleSiriAffinityActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: handleSiriAffinityActivity ENTRY - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: handleSiriAffinityActivity ENTRY - type=\(userActivity.activityType)")
         Task { @MainActor in
             await DependencyContainer.shared.siriAffinityCoordinator.handle(userActivity: userActivity)
         }
     }
 
     private func handleSiriAddToPlaylistActivity(_ userActivity: NSUserActivity) {
-        os_log(.info, "SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=%{public}@", userActivity.activityType)
+        AppLogger.info("SIRI_APP: handleSiriAddToPlaylistActivity ENTRY - type=\(userActivity.activityType)")
         Task { @MainActor in
             await DependencyContainer.shared.siriAddToPlaylistCoordinator.handle(userActivity: userActivity)
         }
     }
 }
 
-// MARK: - macOS App Delegate (Sidebar Collapse Prevention)
+enum SystemMediaSpotlightRouter {
+    static let activityType = CSSearchableItemActionType
 
-#if os(macOS)
-
-/// App-level delegate that configures the underlying NSSplitViewController to
-/// prevent sidebar collapse. This runs at the application level — above the
-/// SwiftUI view hierarchy — using window notifications to ensure the split view
-/// is fully set up before we configure it. Re-applies on window updates so the
-/// configuration survives SwiftUI recreating the split view controller.
-class MacAppDelegate: NSObject, NSApplicationDelegate {
-    private var windowObservers: [NSObjectProtocol] = []
-    private var eventMonitor: Any?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Listen for when any window becomes main (the split view is ready)
-        let mainObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeMainNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let window = notification.object as? NSWindow else { return }
-            self?.configureSplitView(in: window)
-        }
-        windowObservers.append(mainObserver)
-
-        // Re-apply after window layout updates (catches SwiftUI recreation)
-        let updateObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didUpdateNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let window = notification.object as? NSWindow else { return }
-            self?.configureSplitView(in: window)
-        }
-        windowObservers.append(updateObserver)
-
-        // Intercept the sidebar toggle keyboard shortcut at the event level,
-        // before it reaches the NSSplitViewController's responder chain.
-        // CommandGroup(replacing: .sidebar) only removes the menu item —
-        // the responder chain still handles the key combo.
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            let sKey: UInt16 = 0x01
-            // Block both Cmd+Option+S and Ctrl+Cmd+S (macOS uses both)
-            if event.keyCode == sKey {
-                let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-                if flags == [.command, .option] || flags == [.command, .control] {
-                    return nil // swallow the event
-                }
-            }
-            return event
-        }
+    static func isSpotlightActivity(_ userActivity: NSUserActivity) -> Bool {
+        userActivity.activityType == activityType
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        for observer in windowObservers {
-            NotificationCenter.default.removeObserver(observer)
+    @MainActor
+    @discardableResult
+    static func route(_ userActivity: NSUserActivity) -> Bool {
+        guard let destination = destination(from: userActivity) else {
+            AppLogger.debug("SPOTLIGHT_APP: Could not route Spotlight activity")
+            return false
         }
-        windowObservers.removeAll()
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-            eventMonitor = nil
-        }
+
+        let routedImmediately = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+        AppLogger.info(
+            "SPOTLIGHT_APP: \(routedImmediately ? "Routed" : "Queued") Spotlight media result to \(String(describing: destination))"
+        )
+        return true
     }
 
-    // MARK: - Split View Configuration
-
-    /// Find and configure the NSSplitView to prevent sidebar collapse.
-    /// Called from window notifications — safe to call multiple times
-    /// (skips if already configured).
-    private func configureSplitView(in window: NSWindow) {
-        guard let contentView = window.contentView,
-              let splitView = findNSSplitView(in: contentView),
-              let splitVC = splitView.delegate as? NSSplitViewController,
-              let sidebarItem = splitVC.splitViewItems.first else { return }
-
-        window.contentMinSize = NSSize(width: 980, height: 700)
-
-        // Skip if already configured to avoid redundant work
-        guard sidebarItem.canCollapse else { return }
-
-        sidebarItem.canCollapse = false
-        sidebarItem.canCollapseFromWindowResize = false
-        sidebarItem.minimumThickness = 220
-        sidebarItem.holdingPriority = .init(999)
-    }
-
-    /// Recursively search the view hierarchy for an NSSplitView.
-    private func findNSSplitView(in view: NSView) -> NSSplitView? {
-        if let splitView = view as? NSSplitView { return splitView }
-        for subview in view.subviews {
-            if let found = findNSSplitView(in: subview) { return found }
+    static func destination(from userActivity: NSUserActivity) -> NavigationCoordinator.Destination? {
+        guard isSpotlightActivity(userActivity),
+              let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+              let sourceScopedIdentifier = SystemMediaSpotlightIdentity.sourceScopedIdentifier(
+                fromSpotlightIdentifier: identifier
+              ) else {
+            return nil
         }
-        return nil
+
+        return NavigationCoordinator.systemMediaDestination(
+            fromSourceScopedIdentifier: sourceScopedIdentifier
+        )
     }
 }
 
+#if os(macOS)
+private extension View {
+    func ensembleAuxiliaryWindowFrame(
+        _ configuration: EnsembleScaffold.AuxiliaryWindow.Configuration
+    ) -> some View {
+        frame(
+            minWidth: configuration.minWidth,
+            idealWidth: configuration.idealWidth,
+            maxWidth: configuration.maxWidth,
+            minHeight: configuration.minHeight,
+            idealHeight: configuration.idealHeight
+        )
+    }
+}
+#endif
+
 // MARK: - Playback Shortcut
 
+#if os(macOS)
 private enum MacPlaybackShortcut {
     static func togglePlaybackIfAllowed() {
         guard !isTextInputActive else { return }
@@ -571,6 +581,386 @@ private enum MacPlaybackShortcut {
         }
 
         return false
+    }
+}
+
+private final class MacDockPinAction: NSObject {
+    let id: String
+    let sourceKey: String?
+    let type: PinnedItemType
+
+    init(pin: PinnedItem) {
+        id = pin.id
+        sourceKey = pin.sourceCompositeKey
+        type = pin.type
+    }
+
+    var destination: NavigationCoordinator.Destination {
+        switch type {
+        case .album:
+            return .album(id: id, sourceKey: sourceKey)
+        case .artist:
+            return .artist(id: id, sourceKey: sourceKey)
+        case .playlist:
+            return .playlist(id: id, sourceKey: sourceKey)
+        }
+    }
+}
+
+@MainActor
+private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
+    private enum RepeatActionTag {
+        static let off = 0
+        static let all = 1
+        static let one = 2
+    }
+
+    private let maxPinnedItems = 8
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        buildDockMenu()
+    }
+
+    private func buildDockMenu() -> NSMenu {
+        let menu = NSMenu()
+        addPinnedItems(to: menu)
+        addNowPlayingItems(to: menu)
+        return menu
+    }
+
+    private func addPinnedItems(to menu: NSMenu) {
+        let pins = Array(DependencyContainer.shared.pinManager.pinnedItems.prefix(maxPinnedItems))
+        guard !pins.isEmpty else { return }
+
+        for pin in pins {
+            let item = NSMenuItem(
+                title: pin.title,
+                action: #selector(openPinnedItem(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = MacDockPinAction(pin: pin)
+            item.toolTip = "\(pin.type.displayName): \(pin.title)"
+            item.image = fallbackImage(for: pin.type)
+            menu.addItem(item)
+            updateArtwork(for: pin, menuItem: item)
+        }
+
+        menu.addItem(.separator())
+    }
+
+    private func addNowPlayingItems(to menu: NSMenu) {
+        let dependencies = DependencyContainer.shared
+        let playbackService = dependencies.playbackService
+        let currentTrack = playbackService.currentTrack
+        let hasCurrentTrack = currentTrack != nil
+
+        let nowPlayingTitle = currentTrack.map(Self.nowPlayingTitle(for:)) ?? "Nothing Playing"
+        let nowPlayingItem = NSMenuItem(title: nowPlayingTitle, action: nil, keyEquivalent: "")
+        nowPlayingItem.isEnabled = false
+        nowPlayingItem.image = symbolImage(named: "music.note")
+        menu.addItem(nowPlayingItem)
+
+        let isFavorited = currentTrack.map { track in
+            if let viewModel = dependencies.activeNowPlayingViewModel {
+                return viewModel.isTrackFavorited(track)
+            }
+            return track.rating >= 8
+        } ?? false
+
+        let favoriteItem = NSMenuItem(
+            title: isFavorited ? "Unfavorite" : "Favorite",
+            action: #selector(toggleFavorite(_:)),
+            keyEquivalent: ""
+        )
+        favoriteItem.target = self
+        favoriteItem.isEnabled = hasCurrentTrack
+        favoriteItem.image = symbolImage(named: isFavorited ? "heart.fill" : "heart")
+        menu.addItem(favoriteItem)
+
+        menu.addItem(.separator())
+
+        let shuffleItem = NSMenuItem(
+            title: playbackService.isShuffleEnabled ? "Shuffle On" : "Shuffle Off",
+            action: #selector(toggleShuffle(_:)),
+            keyEquivalent: ""
+        )
+        shuffleItem.target = self
+        shuffleItem.isEnabled = hasCurrentTrack
+        shuffleItem.state = playbackService.isShuffleEnabled ? .on : .off
+        shuffleItem.image = symbolImage(named: "shuffle")
+        menu.addItem(shuffleItem)
+
+        addRepeatItem(title: "Repeat Off", mode: .off, tag: RepeatActionTag.off, to: menu)
+        addRepeatItem(title: "Repeat All", mode: .all, tag: RepeatActionTag.all, to: menu)
+        addRepeatItem(title: "Repeat One", mode: .one, tag: RepeatActionTag.one, to: menu)
+
+        let autoplayItem = NSMenuItem(
+            title: playbackService.isAutoplayEnabled ? "Autoplay On" : "Autoplay Off",
+            action: #selector(toggleAutoplay(_:)),
+            keyEquivalent: ""
+        )
+        autoplayItem.target = self
+        autoplayItem.isEnabled = hasCurrentTrack
+        autoplayItem.state = playbackService.isAutoplayEnabled ? .on : .off
+        autoplayItem.image = symbolImage(named: "infinity")
+        menu.addItem(autoplayItem)
+
+        menu.addItem(.separator())
+
+        let playbackTitle = playbackService.playbackState == .playing ? "Pause" : "Play"
+        let playPauseItem = NSMenuItem(
+            title: playbackTitle,
+            action: #selector(togglePlayPause(_:)),
+            keyEquivalent: ""
+        )
+        playPauseItem.target = self
+        playPauseItem.isEnabled = hasCurrentTrack
+        playPauseItem.image = symbolImage(named: playbackService.playbackState == .playing ? "pause.fill" : "play.fill")
+        menu.addItem(playPauseItem)
+
+        let previousItem = NSMenuItem(
+            title: "Previous Track",
+            action: #selector(previousTrack(_:)),
+            keyEquivalent: ""
+        )
+        previousItem.target = self
+        previousItem.isEnabled = hasCurrentTrack
+        previousItem.image = symbolImage(named: "backward.end.fill")
+        menu.addItem(previousItem)
+
+        let nextItem = NSMenuItem(
+            title: "Next Track",
+            action: #selector(nextTrack(_:)),
+            keyEquivalent: ""
+        )
+        nextItem.target = self
+        nextItem.isEnabled = canSkipForward()
+        nextItem.image = symbolImage(named: "forward.end.fill")
+        menu.addItem(nextItem)
+    }
+
+    private func addRepeatItem(title: String, mode: RepeatMode, tag: Int, to menu: NSMenu) {
+        let playbackService = DependencyContainer.shared.playbackService
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(setRepeatMode(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.tag = tag
+        item.state = playbackService.repeatMode == mode ? .on : .off
+        item.isEnabled = playbackService.currentTrack != nil
+        item.image = symbolImage(named: mode == .one ? "repeat.1" : "repeat")
+        menu.addItem(item)
+    }
+
+    @objc private func openPinnedItem(_ sender: NSMenuItem) {
+        guard let action = sender.representedObject as? MacDockPinAction else { return }
+        NavigationCoordinator.routeExternalSearchInActiveScene(to: action.destination)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func toggleFavorite(_ sender: NSMenuItem) {
+        let dependencies = DependencyContainer.shared
+        guard let track = dependencies.playbackService.currentTrack else { return }
+        let viewModel = dependencies.activeNowPlayingViewModel ?? dependencies.makeNowPlayingViewModel()
+
+        Task { @MainActor in
+            await viewModel.toggleTrackFavorite(track)
+        }
+    }
+
+    @objc private func toggleShuffle(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.toggleShuffle()
+    }
+
+    @objc private func setRepeatMode(_ sender: NSMenuItem) {
+        let targetMode: RepeatMode
+        switch sender.tag {
+        case RepeatActionTag.all:
+            targetMode = .all
+        case RepeatActionTag.one:
+            targetMode = .one
+        default:
+            targetMode = .off
+        }
+
+        let playbackService = DependencyContainer.shared.playbackService
+        var attempts = 0
+        while playbackService.repeatMode != targetMode,
+              attempts < RepeatMode.allCases.count {
+            playbackService.cycleRepeatMode()
+            attempts += 1
+        }
+    }
+
+    @objc private func toggleAutoplay(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.toggleAutoplay()
+    }
+
+    @objc private func togglePlayPause(_ sender: NSMenuItem) {
+        let dependencies = DependencyContainer.shared
+        if let viewModel = dependencies.activeNowPlayingViewModel {
+            viewModel.togglePlayPause()
+            return
+        }
+
+        let service = dependencies.playbackService
+        switch service.playbackState {
+        case .playing:
+            service.pause()
+        case .paused:
+            service.resume()
+        case .failed:
+            Task { @MainActor in
+                await service.retryCurrentTrack()
+            }
+        default:
+            service.resume()
+        }
+    }
+
+    @objc private func previousTrack(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.previous()
+    }
+
+    @objc private func nextTrack(_ sender: NSMenuItem) {
+        DependencyContainer.shared.playbackService.next()
+    }
+
+    private func updateArtwork(for pin: PinnedItem, menuItem: NSMenuItem) {
+        Task {
+            guard let artworkImage = await artworkImage(for: pin) else { return }
+            await MainActor.run {
+                menuItem.image = artworkImage
+            }
+        }
+    }
+
+    private func artworkImage(for pin: PinnedItem) async -> NSImage? {
+        let dependencies = DependencyContainer.shared
+        let descriptor: ArtworkDescriptor?
+
+        switch pin.type {
+        case .album:
+            if let cdAlbum = try? await dependencies.libraryRepository.fetchAlbum(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ) {
+                let album = Album(from: cdAlbum)
+                descriptor = ArtworkDescriptor(
+                    path: album.thumbPath,
+                    ratingKey: album.id,
+                    fallbackPath: nil,
+                    fallbackRatingKey: nil
+                )
+            } else {
+                descriptor = nil
+            }
+        case .artist:
+            if let cdArtist = try? await dependencies.libraryRepository.fetchArtist(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ) {
+                let artist = Artist(from: cdArtist)
+                descriptor = ArtworkDescriptor(
+                    path: artist.thumbPath,
+                    ratingKey: artist.id,
+                    fallbackPath: artist.fallbackThumbPath,
+                    fallbackRatingKey: artist.fallbackRatingKey
+                )
+            } else {
+                descriptor = nil
+            }
+        case .playlist:
+            if let cdPlaylist = try? await dependencies.playlistRepository.fetchPlaylist(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ) {
+                let playlist = Playlist(from: cdPlaylist)
+                descriptor = ArtworkDescriptor(
+                    path: playlist.compositePath,
+                    ratingKey: playlist.id,
+                    fallbackPath: nil,
+                    fallbackRatingKey: nil
+                )
+            } else {
+                descriptor = nil
+            }
+        }
+
+        guard let descriptor,
+              let url = await dependencies.artworkLoader.artworkURLAsync(
+                  for: descriptor.path,
+                  sourceKey: pin.sourceCompositeKey,
+                  ratingKey: descriptor.ratingKey,
+                  fallbackPath: descriptor.fallbackPath,
+                  fallbackRatingKey: descriptor.fallbackRatingKey,
+                  size: 64
+              ),
+              url.isFileURL,
+              let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }
+
+    private func canSkipForward() -> Bool {
+        let playbackService = DependencyContainer.shared.playbackService
+        guard playbackService.currentTrack != nil else { return false }
+        if playbackService.repeatMode == .all, playbackService.queue.count > 1 {
+            return true
+        }
+        return playbackService.currentQueueIndex + 1 < playbackService.queue.count
+    }
+
+    private static func nowPlayingTitle(for track: Track) -> String {
+        let artist = track.artistName ?? track.albumArtistName ?? "Unknown Artist"
+        return "\(artist) - \(track.title)"
+    }
+
+    private func fallbackImage(for type: PinnedItemType) -> NSImage? {
+        switch type {
+        case .album:
+            return symbolImage(named: "square.stack")
+        case .artist:
+            return symbolImage(named: "music.mic")
+        case .playlist:
+            return symbolImage(named: "music.note.list")
+        }
+    }
+
+    private func symbolImage(named name: String) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
+            return nil
+        }
+        image.isTemplate = true
+        image.size = NSSize(width: 18, height: 18)
+        return image
+    }
+
+    private struct ArtworkDescriptor {
+        let path: String?
+        let ratingKey: String?
+        let fallbackPath: String?
+        let fallbackRatingKey: String?
+    }
+}
+
+private extension PinnedItemType {
+    var displayName: String {
+        switch self {
+        case .album:
+            return "Album"
+        case .artist:
+            return "Artist"
+        case .playlist:
+            return "Playlist"
+        }
     }
 }
 #endif
@@ -605,18 +995,10 @@ private func performBackgroundRefresh() async {
         BackgroundSyncScheduler.shared.scheduleAppRefresh()
     }
 
-    // Incremental library + playlist sync so the app is fresh before the user opens it.
-    // This is cheap — only fetches items added/updated since the last sync timestamp.
-    let syncCoordinator = await MainActor.run {
-        DependencyContainer.shared.syncCoordinator
+    let refreshCoordinator = await MainActor.run {
+        DependencyContainer.shared.backgroundRefreshCoordinator
     }
-    await syncCoordinator.syncAllIncremental()
-
-    // Hub refresh for the home screen
-    let homeVM = await MainActor.run {
-        DependencyContainer.shared.makeHomeViewModel()
-    }
-    await homeVM.refresh()
+    await refreshCoordinator.performAppRefresh()
 
     AppLogger.debug("✅ Background refresh complete")
 }

@@ -21,7 +21,7 @@ final class TrackSwipeLayoutTests: XCTestCase {
         XCTAssertEqual(layout.trailing.count, 2)
     }
 
-    func testSanitizeRemovesDuplicatesAcrossEdges() {
+    func testSanitizeAllowsSameActionOnOppositeEdges() {
         var layout = TrackSwipeLayout(
             leading: [.playNext, .playLast],
             trailing: [.playNext, .favoriteToggle]
@@ -30,7 +30,19 @@ final class TrackSwipeLayoutTests: XCTestCase {
         layout.sanitize()
 
         XCTAssertEqual(layout.leading, [.playNext, .playLast])
-        XCTAssertEqual(layout.trailing, [nil, .favoriteToggle])
+        XCTAssertEqual(layout.trailing, [.playNext, .favoriteToggle])
+    }
+
+    func testSanitizeRemovesDuplicatesWithinEachEdge() {
+        var layout = TrackSwipeLayout(
+            leading: [.playNext, .playNext],
+            trailing: [.favoriteToggle, .favoriteToggle]
+        )
+
+        layout.sanitize()
+
+        XCTAssertEqual(layout.leading, [.playNext, nil])
+        XCTAssertEqual(layout.trailing, [.favoriteToggle, nil])
     }
 
     func testSanitizeRestoresDefaultsWhenAllSlotsEmpty() {

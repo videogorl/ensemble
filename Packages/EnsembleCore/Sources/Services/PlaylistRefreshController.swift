@@ -24,7 +24,46 @@ final class PlaylistRefreshController {
     struct RefreshResult {
         let sourceId: MusicSourceIdentifier
         let serverSourceKey: String
+        let provider: MusicSourceSyncProvider
         let playlistResult: PlaylistSyncResult
+    }
+
+    func refreshAllServers(
+        providers: [String: MusicSourceSyncProvider],
+        playlistRepository: PlaylistRepositoryProtocol,
+        trigger: Trigger,
+        allowFullFallback: Bool
+    ) async -> [RefreshResult] {
+        var refreshedServerKeys = Set<String>()
+        var results: [RefreshResult] = []
+
+        for provider in providers.values {
+            let sourceId = provider.sourceIdentifier
+            let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+
+            guard !refreshedServerKeys.contains(serverKey) else { continue }
+            refreshedServerKeys.insert(serverKey)
+
+            do {
+                if let result = try await refreshServer(
+                    serverSourceKey: "plex:\(serverKey)",
+                    providers: providers,
+                    playlistRepository: playlistRepository,
+                    trigger: trigger,
+                    allowFullFallback: allowFullFallback
+                ) {
+                    results.append(result)
+                }
+            } catch is CancellationError {
+                EnsembleLogger.debug("⏹️ PlaylistRefreshController: \(trigger.description) cancelled for server \(serverKey)")
+            } catch {
+                EnsembleLogger.debug(
+                    "⚠️ PlaylistRefreshController: \(trigger.description) failed for server \(serverKey): \(error.localizedDescription)"
+                )
+            }
+        }
+
+        return results
     }
 
     func refreshServer(
@@ -51,6 +90,7 @@ final class PlaylistRefreshController {
                 return RefreshResult(
                     sourceId: sourceId,
                     serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                    provider: provider,
                     playlistResult: playlistResult
                 )
             } catch is CancellationError {
@@ -72,6 +112,7 @@ final class PlaylistRefreshController {
                     return RefreshResult(
                         sourceId: sourceId,
                         serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                        provider: provider,
                         playlistResult: playlistResult
                     )
                 } catch {

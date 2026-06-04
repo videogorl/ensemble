@@ -4,11 +4,11 @@ import Foundation
 
 /// Describes what PlaybackService should do after a queue navigation action
 public enum QueueNavigationAction {
-    case playIndex(Int)                 // Play the track at this queue index
-    case stop                           // Stop playback (queue exhausted)
-    case seekToZero                     // Restart current track
-    case refreshAutoplay                // Queue ended but autoplay is enabled
-    case repeatAllFromStart             // Queue ended, repeat-all wraps to index 0
+    case playIndex(Int) // Play the track at this queue index
+    case stop // Stop playback (queue exhausted)
+    case seekToZero // Restart current track
+    case refreshAutoplay // Queue ended but autoplay is enabled
+    case repeatAllFromStart // Queue ended, repeat-all wraps to index 0
 }
 
 // MARK: - Queue Manager
@@ -17,7 +17,6 @@ public enum QueueNavigationAction {
 /// This is the single source of truth for queue order, sections, history, shuffle, and autoplay state.
 /// PlaybackService delegates all queue operations to this class.
 public final class QueueManager {
-
     // MARK: - Published State
 
     /// The full playback queue (all sections interleaved)
@@ -91,7 +90,7 @@ public final class QueueManager {
 
     /// Index of the first autoplay item after currentQueueIndex, or queue.count if none
     public var autoplayStartIndex: Int {
-        for i in (currentQueueIndex + 1)..<queue.count {
+        for i in (currentQueueIndex + 1) ..< queue.count {
             if queue[i].source == .autoplay {
                 return i
             }
@@ -192,9 +191,10 @@ public final class QueueManager {
             return .seekToZero
         }
 
-        // Can't go further back
+        // Prefer the queue index when available, otherwise fall back to the
+        // recorded history item that makes the Previous command enabled.
         guard currentQueueIndex > 0 else {
-            return .seekToZero
+            return playFromHistory(at: playbackHistory.count - 1) ?? .seekToZero
         }
 
         // Set flag to prevent recording to history when navigating backward
@@ -221,7 +221,7 @@ public final class QueueManager {
 
         // When jumping forward, record all skipped tracks to history
         if index > currentQueueIndex {
-            for i in (currentQueueIndex + 1)..<index {
+            for i in (currentQueueIndex + 1) ..< index {
                 if i >= 0, i < queue.count {
                     recordToHistory(queue[i])
                 }
@@ -237,10 +237,10 @@ public final class QueueManager {
         guard historyIndex >= 0, historyIndex < playbackHistory.count else { return nil }
 
         let historyItem = playbackHistory[historyIndex]
-        let trackId = historyItem.track.id
+        let trackId = historyItem.track.playbackIdentity
 
         // Check if this track already exists in the queue
-        if let existingIndex = queue.firstIndex(where: { $0.track.id == trackId }) {
+        if let existingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) {
             // Track exists in queue - navigate to it
             playbackHistory.removeSubrange(historyIndex...)
             isNavigatingBackward = true
@@ -274,7 +274,8 @@ public final class QueueManager {
         // Keep originalQueue in sync for shuffle restore
         if isShuffleEnabled {
             if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
-               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id }) {
+               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id })
+            {
                 originalQueue.insert(item, at: originalIdx + 1)
             } else {
                 originalQueue.append(item)
@@ -298,7 +299,8 @@ public final class QueueManager {
         // Keep originalQueue in sync for shuffle restore
         if isShuffleEnabled {
             if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
-               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id }) {
+               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id })
+            {
                 originalQueue.insert(contentsOf: items, at: originalIdx + 1)
             } else {
                 originalQueue.append(contentsOf: items)
@@ -407,35 +409,11 @@ public final class QueueManager {
         // Update currentQueueIndex if needed
         if sourceIndex == currentQueueIndex {
             currentQueueIndex = adjustedDest
-        } else if adjustedDest <= currentQueueIndex && sourceIndex > currentQueueIndex {
+        } else if adjustedDest <= currentQueueIndex, sourceIndex > currentQueueIndex {
             currentQueueIndex -= 1
-        } else if adjustedDest > currentQueueIndex && sourceIndex < currentQueueIndex {
+        } else if adjustedDest > currentQueueIndex, sourceIndex < currentQueueIndex {
             currentQueueIndex += 1
         }
-
-        // Flatten autoplay items that now appear before the moved item
-        flattenAutoplayItemsBeforeIndex(adjustedDest)
-    }
-
-    /// Move a queue item from one relative position to another (relative to currentQueueIndex).
-    /// @deprecated Use moveQueueItem(byId:from:to:) instead.
-    public func moveQueueItem(from sourceIndex: Int, to destinationIndex: Int) {
-        let queueStartIndex = currentQueueIndex + 1
-        let absSource = queueStartIndex + sourceIndex
-        let absDest = queueStartIndex + destinationIndex
-
-        guard absSource >= queueStartIndex, absSource < queue.count,
-              absDest >= queueStartIndex, absDest <= queue.count else { return }
-
-        var item = queue.remove(at: absSource)
-
-        // If an autoplay item is moved by the user, flatten it to continuePlaying
-        if item.source == .autoplay {
-            item.source = .continuePlaying
-        }
-
-        let adjustedDest = absDest > absSource ? absDest - 1 : absDest
-        queue.insert(item, at: adjustedDest)
 
         // Flatten autoplay items that now appear before the moved item
         flattenAutoplayItemsBeforeIndex(adjustedDest)
@@ -463,8 +441,8 @@ public final class QueueManager {
             }
 
             // Filter out candidates that are already in history
-            let historyIds = Set(playbackHistory.map { $0.track.id })
-            candidates.removeAll { historyIds.contains($0.track.id) }
+            let historyIds = Set(playbackHistory.map { $0.track.playbackIdentity })
+            candidates.removeAll { historyIds.contains($0.track.playbackIdentity) }
 
             candidates.shuffle()
 
@@ -522,13 +500,13 @@ public final class QueueManager {
     /// Returns the tracks that were actually added.
     @discardableResult
     public func addAutoplayTracks(_ tracks: [Track]) -> [Track] {
-        let existingQueueIds = Set(queue.map { $0.track.id })
-        let uniqueNewTracks = tracks.filter { !existingQueueIds.contains($0.id) }
+        let existingQueueIds = Set(queue.map { $0.track.playbackIdentity })
+        let uniqueNewTracks = tracks.filter { !existingQueueIds.contains($0.playbackIdentity) }
 
         for track in uniqueNewTracks {
             let item = QueueItem(track: track, source: .autoplay)
             queue.append(item)
-            autoGeneratedTrackIds.insert(track.id)
+            autoGeneratedTrackIds.insert(track.playbackIdentity)
         }
 
         // Trim excess
@@ -545,10 +523,10 @@ public final class QueueManager {
             let tracksToRemove = futureTracksCount - maxQueueLookahead
             let removeStartIndex = queue.count - tracksToRemove
 
-            for i in (removeStartIndex..<queue.count).reversed() {
+            for i in (removeStartIndex ..< queue.count).reversed() {
                 let removedTrack = queue[i].track
-                if autoGeneratedTrackIds.contains(removedTrack.id) {
-                    autoGeneratedTrackIds.remove(removedTrack.id)
+                if autoGeneratedTrackIds.contains(removedTrack.playbackIdentity) {
+                    autoGeneratedTrackIds.remove(removedTrack.playbackIdentity)
                 }
                 queue.remove(at: i)
             }
@@ -564,7 +542,7 @@ public final class QueueManager {
 
     /// Check if a track was auto-generated
     public func isTrackAutoGenerated(trackId: String) -> Bool {
-        return queue.contains { $0.track.id == trackId && $0.source == .autoplay }
+        return queue.contains { $0.track.playbackIdentity == trackId && $0.source == .autoplay }
             || autoGeneratedTrackIds.contains(trackId)
     }
 
@@ -579,7 +557,7 @@ public final class QueueManager {
         }
 
         // Avoid consecutive duplicates
-        if playbackHistory.last?.track.id != item.track.id {
+        if playbackHistory.last?.track.playbackIdentity != item.track.playbackIdentity {
             playbackHistory.append(historyItem)
             if playbackHistory.count > maxHistorySize {
                 playbackHistory.removeFirst()
@@ -610,7 +588,7 @@ public final class QueueManager {
         let start = currentQueueIndex + 1
         let end = min(index, queue.count)
         guard start < end else { return }
-        for i in start..<end {
+        for i in start ..< end {
             if queue[i].source == .autoplay {
                 queue[i].source = .continuePlaying
             }
@@ -622,13 +600,13 @@ public final class QueueManager {
     /// Restore queue state from saved data
     public func restore(queue: [QueueItem], history: [QueueItem], currentIndex: Int) {
         self.queue = queue
-        self.originalQueue = queue
-        self.currentQueueIndex = currentIndex
-        self.playbackHistory = history
+        originalQueue = queue
+        currentQueueIndex = currentIndex
+        playbackHistory = history
     }
 
     /// For testing: directly set the internal queue state
-    internal func _setQueueState(
+    func _setQueueState(
         queue: [QueueItem],
         currentIndex: Int,
         originalQueue: [QueueItem]? = nil,
@@ -638,9 +616,9 @@ public final class QueueManager {
         repeatMode: RepeatMode = .off
     ) {
         self.queue = queue
-        self.currentQueueIndex = currentIndex
+        currentQueueIndex = currentIndex
         self.originalQueue = originalQueue ?? queue
-        self.playbackHistory = history
+        playbackHistory = history
         self.isShuffleEnabled = isShuffleEnabled
         self.isAutoplayEnabled = isAutoplayEnabled
         self.repeatMode = repeatMode

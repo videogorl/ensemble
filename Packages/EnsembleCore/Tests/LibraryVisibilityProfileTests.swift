@@ -85,6 +85,83 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         XCTAssertEqual(playlists.map(\.id), ["playlist-visible"])
     }
 
+    func testMergedMoodVisibilityStaysVisibleWhenAnySourceIsVisible() {
+        let hidden = Set(["plex:a:s:hidden"])
+        let moods = [
+            Mood(
+                id: "mood:acerbic",
+                key: "/library/sections/1/mood/11",
+                title: "Acerbic",
+                sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(
+                    from: ["plex:a:s:hidden", "plex:a:s:visible"]
+                )
+            ),
+            Mood(
+                id: "mood:hidden-only",
+                key: "/library/sections/1/mood/12",
+                title: "Hidden Only",
+                sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(from: ["plex:a:s:hidden"])
+            ),
+        ]
+
+        let filtered = SearchViewModel.filterMoodsForVisibility(
+            moods,
+            hiddenSourceCompositeKeys: hidden
+        )
+
+        XCTAssertEqual(filtered.map(\.id), ["mood:acerbic"])
+    }
+
+    func testMoodTitleNormalizationDedupesCaseAndDiacritics() {
+        XCTAssertEqual(
+            SearchViewModel.normalizedMoodTitleKey("  ÁCERBIC "),
+            SearchViewModel.normalizedMoodTitleKey("acerbic")
+        )
+    }
+
+    func testMergeMoodsForDisplayCollapsesDuplicateTitlesAndSourceKeys() {
+        let merged = SearchViewModel.mergeMoodsForDisplay([
+            Mood(
+                id: "mood-1",
+                key: "/library/sections/1/mood/11",
+                title: "Acerbic",
+                sourceCompositeKey: Mood.sourceReference(
+                    sourceCompositeKey: "plex:a:s:one",
+                    moodKey: "/library/sections/1/mood/11"
+                )
+            ),
+            Mood(
+                id: "mood-2",
+                key: "/library/sections/2/mood/42",
+                title: "acerbic",
+                sourceCompositeKey: Mood.sourceReference(
+                    sourceCompositeKey: "plex:a:s:two",
+                    moodKey: "/library/sections/2/mood/42"
+                )
+            ),
+        ])
+
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].id, "mood:acerbic")
+        XCTAssertEqual(
+            SearchViewModel.moodSourceCompositeKeys(from: merged[0].sourceCompositeKey),
+            ["plex:a:s:one", "plex:a:s:two"]
+        )
+        XCTAssertEqual(
+            Dictionary(
+                uniqueKeysWithValues: SearchViewModel
+                    .moodSourceReferences(from: merged[0].sourceCompositeKey)
+                    .compactMap { reference in
+                        reference.moodKey.map { (reference.sourceCompositeKey, $0) }
+                    }
+            ),
+            [
+                "plex:a:s:one": "/library/sections/1/mood/11",
+                "plex:a:s:two": "/library/sections/2/mood/42",
+            ]
+        )
+    }
+
     func testHomeVisibilityFilterRemovesHiddenItemsAndEmptyHubs() {
         let hidden = Set(["plex:a:s:hidden"])
         let hiddenOnlyHub = Hub(

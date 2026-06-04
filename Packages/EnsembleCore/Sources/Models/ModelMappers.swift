@@ -12,6 +12,7 @@ public extension AudioFileInfo {
         let audioStream = part?.stream?.first(where: { $0.streamType == 2 })
 
         self.init(
+            filePath: part?.file,
             codec: audioStream?.codec ?? media.audioCodec,
             bitrate: audioStream?.bitrate ?? media.bitrate,
             sampleRate: audioStream?.samplingRate,
@@ -27,10 +28,6 @@ public extension AudioFileInfo {
 
 public extension Track {
     init(from plex: PlexTrack) {
-        // Extract audio stream ID for loudness timeline fetching
-        let audioStreamId: Int? = plex.media?.first?.part?.first?.stream?
-            .first(where: { $0.streamType == 2 })?.id  // streamType 2 = audio
-
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -47,7 +44,7 @@ public extension Track {
             fallbackThumbPath: plex.parentThumb,  // Album artwork as fallback
             fallbackRatingKey: plex.parentRatingKey,  // Album ratingKey
             streamKey: plex.streamURL,
-            streamId: audioStreamId,
+            streamId: plex.audioStreamId,
             localFilePath: nil,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -60,10 +57,6 @@ public extension Track {
 
     /// Initialize from PlexTrack with explicit sourceKey for radio providers
     init(from plex: PlexTrack, sourceKey: String) {
-        // Extract audio stream ID for loudness timeline fetching
-        let audioStreamId: Int? = plex.media?.first?.part?.first?.stream?
-            .first(where: { $0.streamType == 2 })?.id  // streamType 2 = audio
-
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -80,7 +73,7 @@ public extension Track {
             fallbackThumbPath: plex.parentThumb,  // Album artwork as fallback
             fallbackRatingKey: plex.parentRatingKey,  // Album ratingKey
             streamKey: plex.streamURL,
-            streamId: audioStreamId,
+            streamId: plex.audioStreamId,
             localFilePath: nil,
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -132,7 +125,7 @@ public extension Track {
             fallbackThumbPath: cd.album?.thumbPath,  // Album artwork as fallback
             fallbackRatingKey: cd.album?.ratingKey,  // Album ratingKey
             streamKey: cd.streamKey,
-            streamId: nil,  // Not stored in CoreData yet (would require migration)
+            streamId: cd.streamId > 0 ? Int(cd.streamId) : nil,
             localFilePath: resolvedLocalFilePath,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
@@ -148,7 +141,7 @@ public extension Track {
 
 public extension Album {
     /// Maps a hub metadata item (from /related endpoint) to an Album
-    init(from hub: PlexHubMetadata) {
+    init(from hub: PlexHubMetadata, sourceKey: String? = nil) {
         self.init(
             id: hub.ratingKey,
             key: hub.key,
@@ -162,11 +155,12 @@ public extension Album {
             artPath: hub.art,
             dateAdded: hub.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: hub.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            rating: 0
+            rating: 0,
+            sourceCompositeKey: sourceKey
         )
     }
 
-    init(from plex: PlexAlbum) {
+    init(from plex: PlexAlbum, sourceKey: String? = nil) {
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -181,7 +175,8 @@ public extension Album {
             dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
-            genres: plex.genreNames
+            genres: plex.genreNames,
+            sourceCompositeKey: sourceKey
         )
     }
 
@@ -541,7 +536,8 @@ public extension Hub {
             id: cd.id,
             title: cd.title,
             type: cd.type,
-            items: cd.itemsArray.map { HubItem(from: $0) }
+            items: cd.itemsArray.map { HubItem(from: $0) },
+            context: cd.context
         )
     }
 }

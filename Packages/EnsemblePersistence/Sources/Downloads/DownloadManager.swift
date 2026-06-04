@@ -47,6 +47,9 @@ public protocol DownloadManagerProtocol: Sendable {
 
     func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws
+    /// Re-queue an existing download at the requested quality while preserving any
+    /// completed file until the replacement download finishes.
+    func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws
     func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws
 
     func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws
@@ -68,9 +71,13 @@ public protocol DownloadManagerProtocol: Sendable {
 }
 
 // Default quality=nil for callers that only update status
-extension DownloadManagerProtocol {
+public extension DownloadManagerProtocol {
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
         try await updateDownloadStatus(downloadId, status: status, quality: nil)
+    }
+
+    func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
+        try await updateDownloadStatus(downloadId, status: .pending, quality: quality)
     }
 }
 
@@ -553,6 +560,31 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
+    public func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
+                        continuation.resume()
+                        return
+                    }
+
+                    download.status = CDDownload.Status.pending.rawValue
+                    download.quality = Self.normalizedQuality(quality)
+                    download.progress = 0
+                    download.error = nil
+                    download.completedAt = nil
+                    download.startedAt = Date()
+
+                    try context.save()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {
         let fromRawValues = statuses.map(\.rawValue)
         guard !fromRawValues.isEmpty else { return }
@@ -795,14 +827,34 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         context.delete(download)
                     }
 
+                    let trackRequest = CDTrack.fetchRequest()
+                    trackRequest.predicate = NSPredicate(format: "localFilePath != nil AND localFilePath != ''")
+                    for track in try context.fetch(trackRequest) {
+                        track.localFilePath = nil
+                    }
+
                     if context.hasChanges {
                         try context.save()
                     }
+
+                    try Self.removeAllDownloadDirectoryFiles()
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    private static func removeAllDownloadDirectoryFiles() throws {
+        guard FileManager.default.fileExists(atPath: downloadsDirectory.path) else { return }
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: downloadsDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        for url in contents {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

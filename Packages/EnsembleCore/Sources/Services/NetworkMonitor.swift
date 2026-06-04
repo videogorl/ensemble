@@ -128,8 +128,8 @@ public final class NetworkMonitor: ObservableObject {
         isMonitoring = true
         monitorGeneration += 1
 
-        #if DEBUG
         EnsembleLogger.debug("📡 NetworkMonitor: Started monitoring (generation \(monitorGeneration))")
+        #if DEBUG
         restoreDebugSimulationIfNeeded()
         #endif
     }

@@ -228,6 +228,33 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         }
     }
 
+    public func countTargets(forSourceCompositeKey sourceKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = NSFetchRequest<NSFetchRequestResult>(entityName: "CDOfflineDownloadTarget")
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countAllTargets() async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = NSFetchRequest<NSFetchRequestResult>(entityName: "CDOfflineDownloadTarget")
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func deleteAllTargets() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in

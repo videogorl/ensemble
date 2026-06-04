@@ -4,10 +4,10 @@ This document defines the canonical names for UI elements across the Ensemble ap
 
 ---
 
-## NowPlayingView
+## Now Playing
 
-- **View name:** `NowPlayingSheetView` (new card-based UI), `NowPlayingView` (legacy)
-- **Canonical name:** NowPlayingView
+- **View name:** `NowPlayingSheetView`, `NowPlayingViewportRoot`, `ExternalDisplayNowPlayingView`
+- **Canonical name:** Now Playing
 - **Area:** Player
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
@@ -20,16 +20,42 @@ The Now Playing interface uses a **card-based carousel** layout with four swipea
 - **Lyrics Card** (center-right): Karaoke-style time-synced lyrics display; shows loading spinner, "No Lyrics" state, or scrolling highlighted lines
 - **Info Card** (right): Track metadata and streaming/connection details
 
-On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on left, Lyrics/Queue carousel on right.
+On iPad and AirPlay external display, the layout switches to a shared **side-by-side** wide panel: Controls on the left and Queue/Lyrics/Info on the right. macOS keeps a viewport-specific variant for window chrome.
 
 ### Elements
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Background gradient | region | Vibrant blurred artwork background with legibility overlay (30% dark, 50% light) | `backgroundView`, `BlurredArtworkBackground` |
+| Now Playing backdrop | region | Shared blurred artwork, legibility overlay, and aurora visualization background for large Now Playing surfaces | `NowPlayingBackdrop`, `BlurredArtworkBackground` |
 | Dismiss pill | control | Capsule-shaped indicator at top for vertical swipe dismissal | `dismissPill` |
 | Horizontal carousel | region | TabView-based page navigation between Lyrics/Controls/Queue | `NowPlayingCarousel` |
+| Detail panel | region | Shared Queue/Lyrics/Info panel renderer for wide Now Playing surfaces | `NowPlayingDetailPanel` |
+| Wide panel layout | region | Shared iPad/AirPlay two-column layout with Controls on the left and selected detail panel on the right | `NowPlayingWidePanelLayout` |
 | Page indicator | indicator | Three-dot indicator showing current page (left/center/right icons) | `PageIndicator` |
+
+## Apple Watch App
+
+- **View name:** `WatchRootView`
+- **Canonical name:** Apple Watch App
+- **Area:** Playback
+- **Platform:** watchOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Watch Home | screen | Pins-first home screen followed by library category rows | `WatchRootView.homeView`, `EnsembleLibraryCategory` |
+| Watch pins section | region | Top home section for pinned or recently added fallback items, displayed as a three-column artwork grid with circular artist artwork and rounded square non-artist artwork | `EnsemblePlexCatalogSnapshot.pins`, `WatchPinArtworkTile` |
+| Watch media artwork thumbnail | artwork | Small artwork shown beside watch media and track rows; artist thumbnails are circular and non-artist thumbnails are rounded square | `WatchMediaArtworkThumbnail`, `WatchMediaRow`, `WatchTrackRow` |
+| Watch library categories | navigation | Albums, Artists, Playlists, and Recently Added rows that navigate to lists | `WatchCategoryView` |
+| Watch source settings | screen | Watch-native account, server, and library sync selection with a manual selected-library sync action | `WatchSourceSettingsView`, `WatchSourceAccountSection` |
+| Watch media detail | screen | Selected album/artist/playlist/track detail with playable track rows | `WatchMediaDetailView` |
+| Watch Now Playing button | toolbar control | Persistent top-right toolbar entry to open watch Now Playing | `WatchNowPlayingView` |
+| Watch Now Playing target toggle | control | Switches Now Playing between watch-local playback and phone remote control | `EnsemblePlaybackTarget.local`, `.remote` |
+| Watch local playback controls | controls | Watch-local play/pause and progress for independently streamed tracks | `WatchPlaybackController` |
+| Watch remote playback controls | controls | Previous, play/pause, next, shuffle, and repeat sent to iPhone through WatchConnectivity | `WatchSessionModel`, `WatchCompanionCommandKind` |
+| Watch Plex Link setup | setup screen | Plex Link code entry flow shown when synced credentials are unavailable | `WatchExperienceModel.startLinkFlow`, `PlexAuthService` |
 
 #### Lyrics Card (Left)
 
@@ -82,8 +108,9 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Recommendations exhausted | indicator | "End of recommendations" text when autoplay depleted | `recommendationsExhausted` |
 | Shuffle button | control | Toggle shuffle mode (accent when active) | `shuffle` |
 | Repeat button | control | Cycle repeat mode (off/all/one, accent when active) | `repeat`, `repeat.1` |
+| SmartMix button | control | Toggle per-device silence-aware, tempo-assisted DJ-style overlap between adjacent tracks | `circle.dotted.and.circle` (`sparkles` fallback), `isSmartMixEnabled` |
 | Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
-| Secondary controls region | region | Bottom row with shuffle/repeat/autoplay | `secondaryControlsView` |
+| Secondary controls region | region | Bottom row with shuffle/repeat/SmartMix/autoplay | `secondaryControlsView` |
 | Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |
 
 #### Info Card (Far Right)
@@ -134,6 +161,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Hub section | region | Individual content hub with title and horizontal scroll | `HubSection` |
 | Hub section title | text | Bold title for each hub (e.g., "Recently Added") | `hub.title` |
 | Hub item card | control | Tappable card showing album/artist/track/playlist artwork and info | `HubItemCard` |
+| Hub item context menu | menu | Catalog-backed long-press menu for hub album/artist/playlist/track actions | `AlbumActionsContextMenu`, `ArtistActionsContextMenu`, `PlaylistActionsContextMenu`, `TrackActionsContextMenu` |
 | Hub item artwork | artwork | Square artwork thumbnail for hub items (140x140) | `ArtworkView` |
 | Hub item title | text | Primary title text on hub cards | `item.title` |
 | Hub item subtitle | text | Secondary text (artist name, year) on hub cards | `item.subtitle` |
@@ -167,7 +195,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Offline indicator | indicator | Device-aware overlay showing network connectivity status | `OfflineIndicatorOverlay` |
 | Mini player | control | Floating persistent player widget above tab bar | `MiniPlayer` |
 | Tab selection | state | Currently active tab | `navigationCoordinator.selectedTab` |
-| Immersive mode | state | Hidden chrome state for StageFlow and other full-screen views | `isImmersiveMode` |
+| StageFlow chrome suppression | state | Hidden root chrome state derived from active iPhone landscape StageFlow geometry | `rootStageFlowActive`, `rootChromeSuppressed` |
 
 ---
 
@@ -191,6 +219,26 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Detail area | region | Main content area showing selected section | `detailView` |
 | Mini player | control | Bottom-aligned persistent player widget | `MiniPlayer` |
 | Sidebar selection | state | Currently selected sidebar section | `selection: SidebarSection` |
+
+---
+
+## Browse Toolbar
+
+- **View name:** `EnsembleBrowseToolbar`
+- **Canonical name:** Browse Toolbar
+- **Area:** Shared
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Browse toolbar group | region | Shared sort/filter/overflow toolbar action host for browse screens | `EnsembleBrowseToolbar` |
+| Filter button | control | Standard browse filter button with active-filter badge | `EnsembleBrowseFilterButton` |
+| Filter presentation | presentation | Native sheet presentation for browse/detail filters | `FilterSheet`, `.sheet` |
+| Active filter badge | indicator | Small red dot shown when a browse filter has active constraints | `hasActiveFilters` |
+| Sort menu | menu | Per-screen sort menu hosted inside the shared toolbar group | `Sort By` |
 
 ---
 
@@ -243,7 +291,7 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 |--------------|------|-------------|---------------------|
 | Track list | list | Main scrollable list of all songs | `trackListView`, `MediaTrackList` |
 | Section header | text | Alphabetical section divider (A, B, C...) | `sectionHeader` |
-| Track row | control | Individual song row with artwork, title, artist, duration | `TrackRow` |
+| Track row | control | Individual song row with artwork, title, artist, duration | `MediaTrackList`, `SongsTrackListHost` |
 | Filter button | control | Toolbar button to open filter sheet (with badge) | `line.3.horizontal.decrease.circle` |
 | Filter badge | indicator | Red dot showing active filters | `hasActiveFilters` |
 | Sort menu | menu | Overflow menu with sort options and actions | `ellipsis.circle` |
@@ -301,6 +349,8 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 | Track list | list | Ordered list of album tracks | `MediaDetailView` |
 | Disc grouping | region | Tracks grouped by disc number for multi-disc albums | `groupByDisc: true` |
 | Track number | text | Track position within album/disc | `showTrackNumbers: true` |
+| More by artist albums | region | Related albums by the same artist; horizontal shelf on iOS and adaptive non-scrolling grid on macOS detail footers | `moreByArtistSection`, `albumCardCollection` |
+| Related albums | region | Plex related/similar albums; horizontal shelf on iOS and adaptive non-scrolling grid on macOS detail footers | `similarAlbumsSection`, `albumCardCollection` |
 | Pin menu | menu | Actions menu with pin/unpin and queue options | (needs confirmation) |
 | Play next action | action | Add album tracks to front of queue | `onPlayNext` |
 | Play last action | action | Add album tracks to end of queue | `onPlayLast` |
@@ -315,18 +365,21 @@ On iPad/Mac (>768pt width), the layout switches to **side-by-side**: Controls on
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
 
-Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterized by `MediaDetailViewModelProtocol`.
+Generic detail view used by Album, Playlist, merged playlist, and similar media-backed detail screens. Parameterized by `MediaDetailViewModelProtocol`.
 
 ### Elements
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Header | region | Artwork, title, subtitle, metadata line | `headerView`, `MediaHeaderData` |
+| Header | region | Artwork, title, subtitle, metadata line | `tableHeaderForTrackList`, `MediaHeaderData` |
 | Collapsing toolbar title | control | Title appears in toolbar when header scrolls out of view | `CollapsingToolbarTitleModifier`, `showToolbarTitle` |
-| Sticky action buttons | region | Play/Shuffle/Radio buttons that pin when scrolled past | `stickyActionButtons`, `LazyVStack(pinnedViews:)` |
+| Toolbar bleed | behavior | Artwork-backed root/detail wash extends into native translucent toolbar chrome, using macOS 26 background extension for Liquid Glass color sampling | `artworkBackedToolbarBleed()`, `backgroundExtensionEffect()` |
 | Action buttons | region | Play, Shuffle, and optional Radio buttons | `actionButtons` |
-| Track list | list | Ordered track list (UIKit-backed on iOS for swipe actions) | `tracksSection`, `MediaTrackList` |
-| Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Detail action label | component | Shared filled/secondary Play and Shuffle button label treatment | `MediaDetailSurface.ActionLabel` |
+| Detail symbol artwork | component | Shared virtual-collection artwork surface for Favorites, moods, and similar non-album headers | `MediaDetailSurface.SymbolArtwork` |
+| Detail surface policy | policy | Semantic metrics for media-style detail headers, artwork shadows, action labels, and list cards | `EnsembleScaffold.DetailSurface` |
+| Track list | list | Ordered track list (UIKit-backed on iOS, AppKit-backed on macOS for native row actions) | `tracksSection`, `MediaTrackList`, `SongsTrackListHost` |
+| Background wash | region | Blurred artwork background fading to content | `ArtworkDetailBackground`, `MediaDetailSurface` |
 | Pin menu | menu | Toolbar overflow with pin/unpin, download, playlist actions | `pinMenuButton` |
 
 ---
@@ -366,14 +419,16 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Background gradient | region | Blurred artwork background fading to content | `backgroundGradient`, `BlurredArtworkBackground` |
+| Background wash | region | Blurred artist artwork background fading to content through the shared detail surface | `ArtworkDetailBackground`, `MediaDetailSurface` |
+| Adaptive artist header | region | Header that uses compact hero layout on narrow screens and a wide two-column layout when space allows | `artistHeader`, `wideArtistHeader`, `compactArtistHeader` |
 | Hero banner | region | Full-width artist photo with overlay info | `heroBanner` |
+| Wide artist artwork | image | Circular artist artwork in the wide two-column header | `ArtworkView(artist:)`, `Circle` |
 | Artist name | text | Large artist name heading | `viewModel.artist.name` |
 | Statistics line | text | Album and song counts | `"X albums - Y songs"` |
 | Play button | action | Play all artist tracks in order | `Play`, `play.fill` |
 | Shuffle button | action | Shuffle play all artist tracks | `Shuffle`, `shuffle` |
 | Radio button | action | Start artist radio with autoplay | `dot.radiowaves.left.and.right` |
-| Primary actions region | region | Row containing play, shuffle, radio buttons | `actionButtons` |
+| Primary actions region | region | Row containing play, shuffle, radio buttons | `compactActionButtons`, `wideActionButtons` |
 | Albums section | region | Grid of artist's albums | `albumsSection`, `AlbumGrid` |
 | Favorited tracks section | region | List of 4+ star rated tracks by this artist | `favoritedTracksSection` |
 | Bio section | region | Expandable artist biography text | `bioSection` |
@@ -476,7 +531,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Favorites header | region | Top area with heart icon, title, statistics | header |
+| Favorites header | region | Adaptive top area with symbol artwork, title, statistics, and actions | `favoritesHeaderSurface`, `MediaDetailSurface.Header` |
 | Heart icon | artwork | Large red heart symbol | `heart.fill` |
 | Track count and duration | text | Number of favorites and total duration | `filteredTracks.count`, `totalDuration` |
 | Play button | action | Play all favorites in order | `Play`, `play.fill` |
@@ -517,10 +572,10 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 ---
 
-## SettingsView
+## ProfileView
 
-- **View name:** `SettingsView`
-- **Canonical name:** SettingsView
+- **View name:** `ProfileView`
+- **Canonical name:** ProfileView
 - **Area:** Settings
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
@@ -536,6 +591,7 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 | Color option | control | Tappable color circle for accent selection | `Circle()` |
 | Playback section | region | Section with playback-related settings | `Section("Playback")` |
 | Autoplay toggle | control | Switch to enable/disable autoplay | `Toggle`, `isAutoplayEnabled` |
+| SmartMix | feature | Per-device Now Playing Queue card mode that trims silence, overlaps adjacent tracks with equal-power fades, applies an eased outgoing high-pass sweep, and tempo-matches close tracks when confidence is high | `isSmartMixEnabled`, `SmartMixPlanner` |
 | Audio quality link | control | Navigation to audio quality settings | `Audio Quality` |
 | Connection security link | control | Navigation to connection policy settings | `Connection Security` |
 | Track swipe actions link | control | Navigation to swipe action customization | `Track Swipe Actions` |
@@ -637,25 +693,6 @@ Generic detail view used by Album, Playlist, Artist, and Favorites. Parameterize
 
 ---
 
-## OfflineServersView
-
-- **View name:** `OfflineServersView`
-- **Canonical name:** OfflineServersView
-- **Area:** Settings
-- **Platform:** iOS, iPadOS, macOS
-- **Definition status:** Draft
-
-### Elements
-
-| Element name | Type | Description | Synonyms / code refs |
-|--------------|------|-------------|---------------------|
-| Server section | region | Section per server with account subtitle | `OfflineServerSection` |
-| Library toggle row | control | Toggle enabling/disabling library-wide offline target | `Toggle`, `setLibraryEnabled` |
-| Library source key label | text | Secondary source identifier label below library title | `library.sourceCompositeKey` |
-| Empty state | state | Message shown when no libraries are sync-enabled | `No enabled libraries` |
-
----
-
 ## PendingMutationsView
 
 - **View name:** `PendingMutationsView`
@@ -707,7 +744,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Waiting indicator | indicator | Progress spinner while polling for auth | `Waiting for authorization...` |
 | Cancel auth button | action | Button to cancel ongoing auth | `Cancel` |
 | Server selection region | region | List of discovered servers with libraries | `serverLibrarySelectionView` |
-| Server row | control | Server name with platform info | `ServerRow` |
+| Server row | control | Server name with platform info | `serverLibrarySelectionView` |
 | Library selection row | control | Checkbox row for library enable/disable | `LibrarySelectionRow` |
 | Server error message | indicator | Error text for server connection failures | `serverLibraryErrors` |
 | Add account button | action | Confirm button to save selected libraries | `Add Account` |
@@ -733,12 +770,11 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Navigation row | control | Row linking to a view not in tab bar | `NavigationLink` |
 | Edit button | control | Toolbar button to enter tab customization mode | `Edit` |
 | Done button | control | Toolbar button to exit edit mode | `Done` |
-| Tab bar items section | region | Draggable section of current tab bar items (edit mode) | `EditTabsView`, `tabBarSection` |
-| Available items section | region | Draggable section of items not in tab bar (edit mode) | `availableSection` |
-| Drag handle | control | Reorder handle for tab items | `line.3.horizontal` |
-| Instructions text | text | Help text explaining tab customization | |
-| Tab bar drop delegate | behavior | Accepts drops to add/reorder items in tab bar, bumps last if at 4 | `TabBarDropDelegate` |
-| Available drop delegate | behavior | Accepts drops from tab bar to remove (min 1 enforced) | `AvailableDropDelegate` |
+| Tab bar items section | region | Native edit-mode list section of current tab bar items | `EditTabsView`, `List`, `onMove` |
+| Available items section | region | Native list section of items not in tab bar | `EditTabsView`, `availableTabs` |
+| Reorder control | control | System-provided edit-mode reorder affordance for tab items | `List`, `onMove` |
+| Add tab action | control | Tap action that adds an available item to the tab bar | `addTabToBar(_:)` |
+| Remove tab action | control | Tap action that removes a visible tab item while preserving at least one tab | `removeTabFromBar(_:)` |
 
 ---
 
@@ -766,15 +802,15 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Nothing playing state | state | Placeholder shown when no track is playing | `Nothing Playing` |
 | Swipe gesture | gesture | Horizontal swipe on track info for prev/next | `DragGesture` |
 | Pull up gesture | gesture | Vertical drag up to open full player | `onTap` |
-| Context menu | menu | Long-press menu with favorite, playlist, show now playing | `contextMenu` |
+| Context menu | menu | Long-press menu with shared track actions, playback toggles, and show now playing | `TrackActionsContextMenu`, `contextMenu` |
 | Floating style | state | Rounded pill shape with shadow (iOS 18+) | `isFloating` |
 
 ---
 
-## TrackRow
+## Native Track List Row
 
-- **View name:** `TrackRow`
-- **Canonical name:** TrackRow
+- **View name:** Native track list row
+- **Canonical name:** Track List Row
 - **Area:** Shared
 - **Platform:** iOS, iPadOS, macOS
 - **Definition status:** Draft
@@ -783,7 +819,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 
 | Element name | Type | Description | Synonyms / code refs |
 |--------------|------|-------------|---------------------|
-| Track artwork | artwork | Small thumbnail for track (44x44 or 48x48) | `ArtworkView`, `.tiny` |
+| Track artwork | artwork | Small thumbnail for track (44x44 or 48x48) | `MediaTrackList`, `ArtworkView`, `.tiny` |
 | Track number | text | Numeric position in album/playlist | `track.trackNumber` |
 | Now playing indicator | indicator | Speaker icon when track is currently playing | `speaker.wave.2.fill` |
 | Track title | text | Song name with accent color when playing | `track.title` |
@@ -792,7 +828,7 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Download spinner | indicator | Spinning progress indicator for tracks being actively downloaded | `ProgressView()`, `isActivelyDownloading` |
 | Downloaded indicator | indicator | Arrow icon for locally downloaded tracks | `arrow.down.circle.fill` |
 | Duration | text | Track length in mm:ss format | `formattedDuration` |
-| Context menu | menu | Long-press menu with queue and playlist actions | `contextMenu` |
+| Context menu | menu | Long-press menu with queue and playlist actions | `NativeMediaTableActionBuilder`, `TrackActionsContextMenu`, `contextMenu` |
 | Play next action | action | Add track to front of queue | `Play Next` |
 | Play last action | action | Add track to end of queue | `Play Last` |
 | Add to playlist action | action | Open playlist picker sheet | `Add to Playlist...` |
@@ -861,6 +897,122 @@ A screen accessible from DownloadsView that displays pending and failed offline 
 | Chip bar | region | Horizontal scrollable row of genre filter chips | `ScrollView(.horizontal)` |
 | Genre chip | control | Capsule-shaped toggle for a genre; accent border (off), accent fill + white text (on) | `Capsule`, `selectedGenres` |
 | Clear button | control | xmark chip that clears all selected genres; only visible when selection is non-empty | `xmark` |
+
+---
+
+## LargeScreenBrowseSplitView
+
+- **View name:** `LargeScreenBrowseSplitView`
+- **Canonical name:** LargeScreenBrowseSplitView
+- **Area:** Shared (Components)
+- **Platform:** iPadOS regular width, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Selection pane | list | Left-side browse list for choosing an artist, playlist, or genre | `listContent` |
+| Resize handle | control | Draggable divider that resizes the selection pane while preserving usable detail width | `resizeHandle` |
+| Detail pane | region | Right-side surface showing the selected item's detail or tracks | `detailContent` |
+| Placeholder pane | region | Empty detail state prompting the user to select an item | `LargeScreenPlaceholderView` |
+| Compact fallback | state | Existing iPhone push-navigation layout used when split view is not active | `compactContent` |
+| Browse split configuration | policy | Semantic pane width, breakpoint, and resize-handle preset for a browse split | `EnsembleScaffold.BrowseSplit.Configuration`, `.rootBrowse` |
+
+---
+
+## EnsembleStateScaffold
+
+- **View name:** `EnsembleStateScaffold`
+- **Canonical name:** Shared state scaffold
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| State kind | state | Semantic empty, loading, or error mode | `EnsembleStateScaffold.Kind` |
+| State presentation | policy | Full-screen state layout or compact track-list/footer layout | `EnsembleStateScaffold.Presentation`, `.fullScreen`, `.compactFooter` |
+| State action | control | Optional retry, add, or recovery action shown under the state message | `action` |
+
+---
+
+## Large-Screen Songs Browser
+
+- **View name:** `SongsView` large-screen browser
+- **Canonical name:** Large-screen Songs browser
+- **Area:** Songs
+- **Platform:** iPadOS regular width, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Songs track list host | component | Large-screen native Songs list that routes to UIKit on iPadOS and AppKit on macOS while keeping one caller-facing API | `SongsTrackListHost` |
+| Adaptive track row | control | Shared playable track row with artwork, favorite heart, duration, context menu, and optional wide metadata | `MediaTrackList(supplementalMetadataWidth:)`, `SongsTrackListHost`, `MacNativeTrackTableView` |
+| Native swipe row | interaction | Large-screen row hosted by UIKit `MediaTrackList` on iPad and AppKit `NSTableView` on macOS so Apple handles swipe reveal and trackpad gestures without custom drag physics | `UISwipeActionsConfiguration`, `NSTableViewRowAction` |
+| Artist metadata column | text | Artist name shown beside the title when the browser is wide enough | `showsArtistMetadataColumn` |
+| Album metadata column | text | Album name shown beside artist when the browser has additional width | `showsAlbumMetadataColumn` |
+| Section index | control | Alphabetical scroll index retained for title-sorted Songs | `ScrollIndex` |
+
+---
+
+## AuroraVisualizationView
+
+- **View name:** `AuroraVisualizationView`
+- **Canonical name:** Aurora visualization
+- **Area:** Shared (Components)
+- **Platform:** iOS, iPadOS, macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Aurora surface | background | Reactive colored bands and bottom glow driven by playback frequency data | `AuroraVisualizationView` |
+| Metal renderer | renderer | Preferred `MTKView` renderer for Aurora bands, bridge, pool, and fade | `MetalAuroraSurface` |
+| Canvas fallback | renderer | Compatibility renderer used when Metal cannot create the Aurora pipeline | `canvasAuroraSurface` |
+| Surface tier | state | Cost/quality choice for low-power, ambient, and immersive Aurora instances | `AuroraMetalSurfaceTier`, `auroraSurfaceTier` |
+| Active content max width | layout | Optional width cap for active band drawing while preserving the full-width backdrop | `activeContentMaxWidth` |
+
+---
+
+## RefreshCommandAction
+
+- **View name:** `RefreshCommandAction`
+- **Canonical name:** Refresh command action
+- **Area:** Shared (Components)
+- **Platform:** macOS, iPadOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Focused refresh action | action | Async refresh closure registered by the currently focused refreshable screen | `.refreshCommand` |
+| Refresh command | action | App command invoking the focused refresh action | `View > Refresh`, `Command-R` |
+
+---
+
+## MacAuxiliaryWindowScaffold
+
+- **View name:** `MacAuxiliaryWindowScaffold`
+- **Canonical name:** Mac auxiliary window scaffold
+- **Area:** Shared (Components)
+- **Platform:** macOS
+- **Definition status:** Draft
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Window content | region | Embedded Profile, Downloads, or similar auxiliary content centered in a single-column macOS window | `content` |
+| Maximum width | state | Width cap that keeps Profile/Downloads aligned with their iOS single-column layouts | `maxWidth` |
+| Minimum height | state | Window height floor applied by the scaffold | `minHeight` |
+| Window configuration | policy | Shared min/ideal/max scene sizing and content-width presets for Profile, Downloads, and similar utility windows | `EnsembleScaffold.AuxiliaryWindow.Configuration` |
 
 ---
 

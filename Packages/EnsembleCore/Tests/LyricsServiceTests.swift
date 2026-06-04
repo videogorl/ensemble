@@ -112,6 +112,126 @@ final class LRCParserTests: XCTestCase {
         XCTAssertTrue(result.lines.isEmpty)
     }
 
+    // MARK: - Chord LRC Parsing
+
+    func testParsesTimedChordRowsAboveLyrics() {
+        let lrc = """
+                  C       G/B
+        [00:12.34]First line
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertTrue(result.isTimed)
+        XCTAssertTrue(result.containsChords)
+        XCTAssertEqual(result.lines.count, 1)
+        XCTAssertEqual(result.lines[0].text, "First line")
+        XCTAssertEqual(result.lines[0].timestamp!, 12.34, accuracy: 0.01)
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["C", "G/B"])
+    }
+
+    func testChordTimestampPrefixIsRemovedFromAlignmentOffset() {
+        let lrc = String(repeating: " ", count: 10) + "C\n[00:00.00]Love affair"
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertEqual(result.lines.count, 1)
+        XCTAssertEqual(result.lines[0].chords.first?.column, 10)
+        XCTAssertEqual(result.lines[0].chords.first?.offsetFromLyricStart, 0)
+    }
+
+    func testParsesChordOnlyTimedRowsForIntros() {
+        let lrc = """
+                  C       G
+        [00:00.00]
+        [00:10.00]Verse starts
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertEqual(result.lines.count, 2)
+        XCTAssertEqual(result.lines[0].text, "")
+        XCTAssertEqual(result.lines[0].timestamp, 0)
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["C", "G"])
+        XCTAssertEqual(result.lines[1].text, "Verse starts")
+    }
+
+    func testParsesUntimedChordRowsAboveLyrics() {
+        let lrc = """
+        Cmaj7   Bb   (C)   A/2
+        Untimed lyric
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertFalse(result.isTimed)
+        XCTAssertEqual(result.lines.count, 1)
+        XCTAssertEqual(result.lines[0].text, "Untimed lyric")
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["Cmaj7", "Bb", "(C)", "A/2"])
+    }
+
+    func testOnlyImmediatePrecedingUntimestampedRowAttachesToTimestampedLine() {
+        let lrc = """
+                  C       G
+                      Am      F
+        [00:12.34]First line
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertEqual(result.lines.count, 1)
+        XCTAssertEqual(result.lines[0].timestamp!, 12.34, accuracy: 0.01)
+        XCTAssertEqual(result.lines[0].text, "First line")
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["Am", "F"])
+    }
+
+    func testParsesCompoundChordExtensionsBeforeNextTimestampedLine() {
+        let lrc = """
+          D                Bm7                       F#m    C#/E#  F#m C#/E#
+        [00:32.15]He was perfect except for the fact that he was an engineer
+             F#m  C#7/G#  F#m/A   F#7/A#  Bm7add11     Cdim7  C#
+        [00:38.59]And mothers       prefer        doctors and law       ayers
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertEqual(result.lines.count, 2)
+        XCTAssertEqual(result.lines[0].text, "He was perfect except for the fact that he was an engineer")
+        XCTAssertEqual(result.lines[0].chords.map(\.symbol), ["D", "Bm7", "F#m", "C#/E#", "F#m", "C#/E#"])
+        XCTAssertEqual(result.lines[1].text, "And mothers       prefer        doctors and law       ayers")
+        XCTAssertEqual(result.lines[1].timestamp!, 38.59, accuracy: 0.01)
+        XCTAssertEqual(result.lines[1].chords.map(\.symbol), ["F#m", "C#7/G#", "F#m/A", "F#7/A#", "Bm7add11", "Cdim7", "C#"])
+    }
+
+    func testUntimestampedRowAfterTimestampAttachesToNextTimestampedLine() {
+        let lrc = """
+        [00:12.34]First line
+        C       G
+        [00:20.00]Next timestamp
+        """
+
+        let result = LRCParser.parseChordLRC(lrc)
+
+        XCTAssertEqual(result.lines.count, 2)
+        XCTAssertEqual(result.lines[0].timestamp!, 12.34, accuracy: 0.01)
+        XCTAssertEqual(result.lines[0].text, "First line")
+        XCTAssertTrue(result.lines[0].chords.isEmpty)
+        XCTAssertEqual(result.lines[1].timestamp, 20)
+        XCTAssertEqual(result.lines[1].text, "Next timestamp")
+        XCTAssertEqual(result.lines[1].chords.map(\.symbol), ["C", "G"])
+    }
+
+    func testActiveLineIndexReturnsOriginalIndexWhenUntimedRowsAreMixedIn() {
+        let lyrics = ParsedLyrics(lines: [
+            LyricsLine(timestamp: nil, text: "Untimed note"),
+            LyricsLine(timestamp: 5.0, text: "Line 1"),
+            LyricsLine(timestamp: 10.0, text: "Line 2"),
+        ], isTimed: true)
+
+        XCTAssertEqual(lyrics.activeLineIndex(at: 7.0), 1)
+        XCTAssertEqual(lyrics.activeLineIndex(at: 12.0), 2)
+    }
+
     // MARK: - Active Line Index
 
     func testActiveLineIndexFindsCorrectLine() {

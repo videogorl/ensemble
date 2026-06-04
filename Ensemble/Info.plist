@@ -41,12 +41,6 @@
 	<array>
 		<dict>
 			<key>INAlternativeAppName</key>
-			<string>Ensemble</string>
-			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>ahn-sahm-bul</string>
-		</dict>
-		<dict>
-			<key>INAlternativeAppName</key>
 			<string>Ensemble Music</string>
 			<key>INAlternativeAppNamePronunciationHint</key>
 			<string>ahn-sahm-bul myoo-zik</string>
@@ -75,6 +69,7 @@
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>com.videogorl.ensemble.siri.playmedia</string>
+		<string>com.apple.corespotlightitem</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
@@ -125,6 +120,30 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Ensemble Media Drag Payload</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.videogorl.ensemble.media-drag-payload</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ensemblemediapayload</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/vnd.videogorl.ensemble.media-drag-payload+json</string>
+				</array>
+			</dict>
+		</dict>
 	</array>
 </dict>
 </plist>

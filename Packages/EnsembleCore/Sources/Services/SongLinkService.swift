@@ -157,7 +157,7 @@ public actor SongLinkService {
             let (data, response) = try await urlSession.data(from: requestURL)
             guard let httpResponse = response as? HTTPURLResponse,
                   httpResponse.statusCode == 200 else {
-                logger.debug("song.link returned non-200 for \(appleMusicURL.absoluteString)")
+                logger.debug("song.link returned non-200")
                 return nil
             }
 

@@ -15,20 +15,20 @@ description: "Load before writing any Swift code. Contains mandatory rules that 
 
 ## Change Documentation
 
-- **Git commits:** Commit after each logical step with descriptive messages; always commit before waiting for testing
-- **Code comments:** Leave comments in code so future developers (including AI assistants) understand the design
+- **Git commits:** Follow the commit discipline in `CLAUDE.md`.
+- **Code comments:** Explain non-obvious design decisions and complex logic. Do not narrate obvious Swift syntax.
 
 Keep the following documents in sync when making changes:
 
 | What changed | What to update |
 |---|---|
-| New service, subsystem, or major pattern | `architecture` skill + CLAUDE.md Recent Major Changes |
+| New service, subsystem, or major pattern | `architecture` skill |
 | New file added anywhere | `project-structure` skill |
 | New recipe, pattern, or call convention | `common-tasks` skill |
 | New UI component, navigation pattern, or visual rule | `ui-conventions` skill |
 | New coding rule, naming convention, or mandatory practice | `code-style` skill (this file) |
-| New known bug, limitation, or tech debt | `known-issues` skill |
-| Feature shipped or roadmap item completed | `README.md` |
+| New active bug, limitation, or tech debt | `known-issues` skill |
+| User-visible feature or status change | `README.md` |
 | New test patterns or changes to what needs testing | `testing` skill |
 | Anything that changes how agents should work in this repo | `CLAUDE.md` |
 
@@ -47,7 +47,7 @@ Rules:
 - Use package/app logger helpers (`AppLogger` / `EnsembleLogger`) with category-specific logger instances.
 - Use log levels intentionally: `.debug` for verbose traces, `.info` for key state transitions, `.error` for recoverable failures, `.fault` for critical failures.
 - **NEVER wrap `logger.*` calls in `#if DEBUG`.** `os.Logger` works in release and TestFlight builds — it is the *only* way to capture logs from a device or beta tester. Guarding with `#if DEBUG` silently strips the call from the builds where you need it most. Only use `#if DEBUG` if the surrounding code (not just the log line) must be absent from release.
-- Treat logs as production data: use privacy-safe interpolation and avoid leaking secrets/tokens.
+- Treat logs as production data: use privacy-safe interpolation and avoid leaking secrets/tokens. Any diagnostic that includes URLs, query strings, headers, auth payloads, or token-like values must route through `AppLogger` / `EnsembleLogger` so redaction runs before unified-log and persistent-log writes.
 - `print(` is disallowed in production codepaths. Keep repository-wide `print(` count at zero for Swift sources.
 
 ## Preserve Existing Functionality
@@ -77,11 +77,9 @@ Rules:
 
 ## Testing Policy
 
-- Unit tests for business logic (services, repositories)
-- Integration tests for sync flows
-- Not required for simple ViewModels or UI-only code
-- App is in active beta testing — account for edge cases in CoreData model
-- Validate inputs before saving to CoreData; handle nil/missing fields defensively
+Use the `testing` skill as the canonical verification policy. For Swift code, the default expectation is affected package tests after non-trivial logic changes, simulator validation for user-visible changes, and `scripts/check_core_warning_budget.sh` for `EnsembleCore` refactors.
+
+The app is in active beta testing. Account for edge cases in CoreData models, validate inputs before saving, and handle nil/missing Plex fields defensively.
 
 ## MVVM Pattern
 
@@ -96,7 +94,7 @@ These patterns are mandatory for views and ViewModels targeting A9 devices (2GB 
 
 ### Observation Extraction (`@ObservedObject` -> `let` + `@State` + `.onReceive`)
 
-In large, persistent views (tabs, lists with 100+ items), never use `@ObservedObject` for singletons that publish frequently (NowPlayingViewModel, SyncCoordinator, OfflineDownloadService). Instead:
+In large, persistent views (tabs, lists with 100+ items), never use `@ObservedObject` for singletons that publish frequently or broadly (NowPlayingViewModel, SyncCoordinator, OfflineDownloadService, PinManager). Instead:
 
 ```swift
 let viewModel: SomeViewModel  // not @ObservedObject
@@ -106,6 +104,10 @@ let viewModel: SomeViewModel  // not @ObservedObject
     if newValue != specificValue { specificValue = newValue }
 }
 ```
+
+For Now Playing surfaces, prefer the focused projections (`playbackProjection`, `queueProjection`, `artworkProjection`, `lyricsProjection`, `ratingProjection`) or `TrackActionDispatching` over observing the full `NowPlayingViewModel`. Keep the full model only where the view truly needs cross-cutting state or mutation methods.
+
+For detail menus that only need the pin state for one item, store the relevant `Bool` in local `@State` and refresh it from `PinManager.objectWillChange` with a cached comparison. Do not observe the full `PinManager` in large detail surfaces just to render one Pin/Unpin label.
 
 **When NOT to apply:** Short-lived modals with small view trees (<20 rows, <5s lifetime). The PlaylistPickerSheet revert (5 workaround commits -> full revert) proved the complexity cost exceeds performance benefit for these cases.
 
@@ -231,6 +233,17 @@ public var highFreqValuePublisher: AnyPublisher<[Double], Never> {
 ```
 
 Proven pattern from `PlaybackService.frequencyBands` and `NowPlayingViewModel.waveformHeights`/lyrics properties.
+
+### Keep Per-Frame Visualizer State Out Of SwiftUI Observation
+
+For `Canvas`, `TimelineView`, waveform, FFT, or other render surfaces updated every frame, do not store live render buffers in SwiftUI `@State`, `@Published`, or other observed properties. Even if the view is visually isolated, those writes can invalidate large root view trees 15-30 times per second and tank shell responsiveness.
+
+Instead:
+- Keep per-frame render state in a stable, non-publishing render model (`@StateObject` with no `@Published`, plain reference storage, or another non-observed cache).
+- Feed analyzer/timer samples into that render model.
+- Let `TimelineView` redraw on its own cadence and read the latest snapshot during rendering.
+
+Use SwiftUI-observed state only for low-frequency lifecycle changes such as visibility, playback mode, or presentation state.
 
 ### Throttle Background CPU Work on ≤2-Core Devices
 

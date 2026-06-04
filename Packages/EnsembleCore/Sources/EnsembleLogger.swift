@@ -1,3 +1,5 @@
+import EnsembleSupport
+import Foundation
 import OSLog
 
 public enum EnsembleStartupTiming {
@@ -18,8 +20,8 @@ public enum EnsembleStartupTiming {
     }
 }
 
-/// Package-level logger for EnsembleCore. Uses @autoclosure so message strings
-/// are not constructed unless needed — zero cost when file logging is disabled in release.
+/// Package-level logger for EnsembleCore. Writes to the unified log and the
+/// optional persistent session sink used for TestFlight diagnostics.
 public enum EnsembleLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble", category: "core")
 
@@ -37,30 +39,25 @@ public enum EnsembleLogger {
     /// persist in the unified log (visible in Console.app after the fact, not just `log stream`).
     /// NOT behind `#if DEBUG` — these logs exist in Release builds for on-device triage.
     static func playback(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         playbackLogger.info("\(msg, privacy: .public)")
         fileLogHandler?("INFO", "playback", msg)
     }
 
     public static func debug(_ message: @autoclosure () -> String) {
-        #if DEBUG
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
-        #else
-        guard let handler = fileLogHandler else { return }
-        handler("DEBUG", category, message())
-        #endif
     }
 
     static func info(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.info("\(msg, privacy: .public)")
         fileLogHandler?("INFO", category, msg)
     }
 
     static func error(_ message: @autoclosure () -> String) {
-        let msg = message()
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.error("\(msg, privacy: .public)")
         fileLogHandler?("ERROR", category, msg)
     }

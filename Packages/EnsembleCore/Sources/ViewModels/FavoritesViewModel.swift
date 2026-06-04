@@ -14,7 +14,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             filterOptions.sortBy = favoritesSortOption.rawValue
         }
     }
-    @Published public private(set) var isLoading: Bool = false
+    @Published public private(set) var isLoading: Bool = true
+    @Published public private(set) var hasLoadedTracks: Bool = false
     @Published public private(set) var error: String?
     // Pre-computed filtered+sorted tracks (avoids O(n log n) sort per body evaluation)
     @Published public private(set) var filteredTracks: [Track] = []
@@ -38,6 +39,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         setupFilterPersistence()
         setupFilteredTracksPipeline()
         observeDownloadChanges()
+        observeMetadataChanges()
 
         // Initial load
         Task {
@@ -84,6 +86,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             tracks = []
         }
 
+        filteredTracks = Self.filterAndSort(tracks, sortOption: favoritesSortOption, filterOptions: filterOptions)
+        totalDuration = Self.computeTotalDuration(filteredTracks)
+        hasLoadedTracks = true
         isLoading = false
     }
 
@@ -100,24 +105,21 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             .store(in: &cancellables)
     }
 
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Filter + Sort (static for background pipeline)
 
     private static func filterAndSort(_ tracks: [Track], sortOption: FavoritesSortOption, filterOptions: FilterOptions) -> [Track] {
-        var filtered = tracks
-
-        if !filterOptions.searchText.isEmpty {
-            let searchLower = filterOptions.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false) ||
-                ($0.albumName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-
-        if filterOptions.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-
+        let filtered = MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .favorites)
         return sortTracks(filtered, by: sortOption, direction: filterOptions.sortDirection)
     }
 

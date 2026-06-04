@@ -38,6 +38,7 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var recentSearches: [String] = []
     @Published public private(set) var trackResults: [Track] = []
     @Published public private(set) var artistResults: [Artist] = []
+    @Published public private(set) var displayArtistResults: [DisplayArtist] = []
     @Published public private(set) var albumResults: [Album] = []
     @Published public private(set) var playlistResults: [Playlist] = []
     @Published public private(set) var orderedSections: [SearchSection] = []
@@ -54,9 +55,6 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var isLoadingExplore = false
     @Published public private(set) var exploreError: String?
     
-    // Legacy support
-    public var results: [Track] { trackResults }
-    
     public let focusRequested = PassthroughSubject<Void, Never>()
 
     private let libraryRepository: LibraryRepositoryProtocol
@@ -71,7 +69,6 @@ public final class SearchViewModel: ObservableObject {
     private var lastExploreLoadTime: Date?
     private let exploreDebounceInterval: TimeInterval = 2.0
     private let recentSearchesKey = "ensemble_recent_searches"
-    private var commitSearchTask: Task<Void, Never>?
     private var hasLoadedExploreContent = false
     private var unfilteredTrackResults: [Track] = []
     private var unfilteredArtistResults: [Artist] = []
@@ -146,6 +143,8 @@ public final class SearchViewModel: ObservableObject {
                 self?.applyVisibilityToExploreContent()
             }
             .store(in: &cancellables)
+
+        observeMetadataChanges()
     }
 
     // MARK: - Search
@@ -164,6 +163,7 @@ public final class SearchViewModel: ObservableObject {
             unfilteredPlaylistResults = []
             trackResults = []
             artistResults = []
+            displayArtistResults = []
             albumResults = []
             playlistResults = []
             orderedSections = []
@@ -203,6 +203,23 @@ public final class SearchViewModel: ObservableObject {
 
     public func commitCurrentSearch() {
         commitSearchToHistory(query: searchQuery)
+    }
+
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmedQuery.isEmpty {
+                        await self.search(query: trimmedQuery)
+                    } else if self.hasLoadedExploreContent {
+                        await self.loadExploreContent()
+                    }
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func commitSearchToHistory(query: String) {
@@ -276,7 +293,7 @@ public final class SearchViewModel: ObservableObject {
     /// Orders search sections with artists always first, then remaining by match count
     private func determineSearchSectionOrder() {
         var sectionCounts: [(section: SearchSection, count: Int)] = [
-            (.artists, artistResults.count),
+            (.artists, displayArtistResults.count),
             (.albums, albumResults.count),
             (.playlists, playlistResults.count),
             (.songs, trackResults.count)
@@ -309,6 +326,7 @@ public final class SearchViewModel: ObservableObject {
             unfilteredArtistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
+        displayArtistResults = DisplayArtist.group(artistResults)
         albumResults = Self.filterAlbumsForVisibility(
             unfilteredAlbumResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
@@ -402,8 +420,9 @@ public final class SearchViewModel: ObservableObject {
     ) -> [Mood] {
         guard !hiddenSourceCompositeKeys.isEmpty else { return moods }
         return moods.filter { mood in
-            guard let sourceKey = mood.sourceCompositeKey else { return true }
-            return !hiddenSourceCompositeKeys.contains(sourceKey)
+            let sourceKeys = moodSourceCompositeKeys(from: mood.sourceCompositeKey)
+            guard !sourceKeys.isEmpty else { return true }
+            return !sourceKeys.isSubset(of: hiddenSourceCompositeKeys)
         }
     }
 
@@ -415,6 +434,7 @@ public final class SearchViewModel: ObservableObject {
         unfilteredPlaylistResults = []
         trackResults = []
         artistResults = []
+        displayArtistResults = []
         albumResults = []
         playlistResults = []
         orderedSections = []
@@ -483,7 +503,7 @@ public final class SearchViewModel: ObservableObject {
 
         // Load cached moods immediately while fresh network fetch runs.
         if let cachedMoods = try? await moodRepository.fetchMoods(), !cachedMoods.isEmpty {
-            unfilteredMoods = cachedMoods
+            unfilteredMoods = Self.mergeMoodsForDisplay(cachedMoods)
             applyVisibilityToExploreContent()
         }
 
@@ -573,29 +593,48 @@ public final class SearchViewModel: ObservableObject {
         unfilteredRecommendedItems = Array(recommendedHubItems.prefix(6))
         applyVisibilityToExploreContent()
 
-        // Fetch moods once per library and dedupe by key.
-        var moodsByKey: [String: Mood] = [:]
+        // Plex mood keys are library-local. Deduplicate browse moods by title and
+        // carry each source's resolved key so detail pages can skip refetching moods.
+        var moodsByTitle: [String: Mood] = [:]
+        var moodSourceReferencesByTitle: [String: [String: String]] = [:]
         for task in fetchTasks {
             guard !Task.isCancelled else { return }
             do {
                 let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
-                for plexMood in plexMoods where moodsByKey[plexMood.key] == nil {
-                    moodsByKey[plexMood.key] = Mood(
-                        id: plexMood.id,
-                        key: plexMood.key,
-                        title: plexMood.title,
-                        sourceCompositeKey: task.sourceKey
-                    )
+                for plexMood in plexMoods {
+                    let titleKey = Self.normalizedMoodTitleKey(plexMood.title)
+                    guard !titleKey.isEmpty else { continue }
+                    moodSourceReferencesByTitle[titleKey, default: [:]][task.sourceKey] = plexMood.key
+
+                    if moodsByTitle[titleKey] == nil {
+                        moodsByTitle[titleKey] = Mood(
+                            id: "mood:\(titleKey)",
+                            key: plexMood.key,
+                            title: plexMood.title,
+                            sourceCompositeKey: task.sourceKey
+                        )
+                    }
                 }
             } catch {
                 EnsembleLogger.debug("⚠️ Failed to fetch moods: \(error)")
             }
         }
 
+        for (titleKey, sourceReferences) in moodSourceReferencesByTitle {
+            guard let mood = moodsByTitle[titleKey] else { continue }
+            let mergedSourceKey = Self.mergedMoodSourceCompositeKey(from: sourceReferences)
+            moodsByTitle[titleKey] = Mood(
+                id: mood.id,
+                key: mood.key,
+                title: mood.title,
+                sourceCompositeKey: mergedSourceKey
+            )
+        }
+
         guard !Task.isCancelled else { return }
 
-        if !moodsByKey.isEmpty {
-            let moodsToPublish = moodsByKey.values.sorted {
+        if !moodsByTitle.isEmpty {
+            let moodsToPublish = moodsByTitle.values.sorted {
                 $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
             }
             do {
@@ -606,6 +645,75 @@ public final class SearchViewModel: ObservableObject {
             unfilteredMoods = moodsToPublish
             applyVisibilityToExploreContent()
         }
+    }
+
+    internal nonisolated static func normalizedMoodTitleKey(_ title: String) -> String {
+        Mood.normalizedTitleKey(title)
+    }
+
+    internal nonisolated static func mergedMoodSourceCompositeKey(from sourceKeys: Set<String>) -> String? {
+        let sortedKeys = sourceKeys.sorted()
+        guard !sortedKeys.isEmpty else { return nil }
+        return sortedKeys.joined(separator: "|")
+    }
+
+    internal nonisolated static func mergedMoodSourceCompositeKey(from sourceMoodKeys: [String: String]) -> String? {
+        let references = sourceMoodKeys
+            .sorted { $0.key < $1.key }
+            .map { Mood.sourceReference(sourceCompositeKey: $0.key, moodKey: $0.value) }
+        guard !references.isEmpty else { return nil }
+        return references.joined(separator: "|")
+    }
+
+    internal nonisolated static func moodSourceCompositeKeys(from sourceCompositeKey: String?) -> Set<String> {
+        Mood.sourceCompositeKeys(from: sourceCompositeKey)
+    }
+
+    internal nonisolated static func moodSourceReferences(from sourceCompositeKey: String?) -> [Mood.SourceReference] {
+        Mood.sourceReferences(from: sourceCompositeKey)
+    }
+
+    internal nonisolated static func mergeMoodsForDisplay(_ moods: [Mood]) -> [Mood] {
+        var moodsByTitle: [String: Mood] = [:]
+        var moodSourceReferencesByTitle: [String: [String: String?]] = [:]
+
+        for mood in moods {
+            let titleKey = normalizedMoodTitleKey(mood.title)
+            guard !titleKey.isEmpty else { continue }
+
+            let sourceReferences = moodSourceReferences(from: mood.sourceCompositeKey)
+            if sourceReferences.isEmpty {
+                moodSourceReferencesByTitle[titleKey, default: [:]][""] = nil
+            } else {
+                for reference in sourceReferences {
+                    moodSourceReferencesByTitle[titleKey, default: [:]][reference.sourceCompositeKey] = reference.moodKey
+                }
+            }
+
+            if moodsByTitle[titleKey] == nil {
+                moodsByTitle[titleKey] = Mood(
+                    id: "mood:\(titleKey)",
+                    key: mood.key,
+                    title: mood.title,
+                    sourceCompositeKey: mood.sourceCompositeKey
+                )
+            }
+        }
+
+        return moodsByTitle.map { titleKey, mood in
+            let sourceReferences = moodSourceReferencesByTitle[titleKey] ?? [:]
+            let mergedReferences = sourceReferences
+                .filter { !$0.key.isEmpty }
+                .sorted { $0.key < $1.key }
+                .map { Mood.sourceReference(sourceCompositeKey: $0.key, moodKey: $0.value) }
+            return Mood(
+                id: mood.id,
+                key: mood.key,
+                title: mood.title,
+                sourceCompositeKey: mergedReferences.isEmpty ? nil : mergedReferences.joined(separator: "|")
+            )
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
     }
 
     private func buildExploreFetchTasks() -> [(sourceKey: String, client: PlexAPIClient, sectionKey: String)] {

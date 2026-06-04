@@ -1,0 +1,36 @@
+import CoreData
+import EnsemblePersistence
+import Foundation
+
+public protocol TrackRatingLocalStoring: Sendable {
+    func storeTrackRating(track: Track, rating: Int) async throws
+}
+
+public final class TrackRatingLocalStore: TrackRatingLocalStoring, @unchecked Sendable {
+    private let coreDataStack: CoreDataStack
+
+    public init(coreDataStack: CoreDataStack) {
+        self.coreDataStack = coreDataStack
+    }
+
+    public func storeTrackRating(track: Track, rating: Int) async throws {
+        let context = coreDataStack.newBackgroundContext()
+        try await context.perform {
+            let request = CDTrack.fetchRequest()
+            if let sourceCompositeKey = track.sourceCompositeKey {
+                request.predicate = NSPredicate(
+                    format: "ratingKey == %@ AND sourceCompositeKey == %@",
+                    track.id,
+                    sourceCompositeKey
+                )
+            } else {
+                request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
+            }
+
+            if let cdTrack = try context.fetch(request).first {
+                cdTrack.rating = Int16(rating)
+                try context.save()
+            }
+        }
+    }
+}

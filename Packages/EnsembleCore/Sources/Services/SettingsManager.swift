@@ -54,6 +54,47 @@ public enum TrackSwipeEdge: String, Codable, Sendable {
     case trailing
 }
 
+public enum SongsTableColumn: String, CaseIterable, Codable, Sendable, Identifiable {
+    case title
+    case time
+    case artist
+    case album
+    case genre
+    case favorite
+    case plays
+    case dateAdded
+    case downloaded
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .title:
+            return "Title"
+        case .time:
+            return "Time"
+        case .artist:
+            return "Artist"
+        case .album:
+            return "Album"
+        case .genre:
+            return "Genre"
+        case .favorite:
+            return "Favorite"
+        case .plays:
+            return "Plays"
+        case .dateAdded:
+            return "Date Added"
+        case .downloaded:
+            return "Downloaded"
+        }
+    }
+
+    public static var defaultVisibleColumns: [SongsTableColumn] {
+        [.title, .time, .artist, .album, .genre, .favorite, .plays, .dateAdded, .downloaded]
+    }
+}
+
 public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     public static let slotCountPerEdge = 2
 
@@ -74,27 +115,8 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
     }
 
     public mutating func sanitize() {
-        leading = Self.normalizedSlots(from: leading)
-        trailing = Self.normalizedSlots(from: trailing)
-
-        // Ensure each action appears at most once across all slots.
-        var seen = Set<TrackSwipeAction>()
-        for index in leading.indices {
-            guard let action = leading[index] else { continue }
-            if seen.contains(action) {
-                leading[index] = nil
-            } else {
-                seen.insert(action)
-            }
-        }
-        for index in trailing.indices {
-            guard let action = trailing[index] else { continue }
-            if seen.contains(action) {
-                trailing[index] = nil
-            } else {
-                seen.insert(action)
-            }
-        }
+        leading = Self.sanitizedSlots(from: leading)
+        trailing = Self.sanitizedSlots(from: trailing)
 
         // Recover from corrupted/empty payloads so swipe gestures always have actions.
         if leading.allSatisfy({ $0 == nil }) && trailing.allSatisfy({ $0 == nil }) {
@@ -107,6 +129,22 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
         if slots.count < slotCountPerEdge {
             slots.append(contentsOf: Array(repeating: nil, count: slotCountPerEdge - slots.count))
         }
+        return slots
+    }
+
+    private static func sanitizedSlots(from source: [TrackSwipeAction?]) -> [TrackSwipeAction?] {
+        var slots = normalizedSlots(from: source)
+        var seen = Set<TrackSwipeAction>()
+
+        for index in slots.indices {
+            guard let action = slots[index] else { continue }
+            if seen.contains(action) {
+                slots[index] = nil
+            } else {
+                seen.insert(action)
+            }
+        }
+
         return slots
     }
 }
@@ -174,15 +212,60 @@ public enum TabItem: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Shared display redaction for development demo screenshots and recordings.
+public enum DemoModeRedaction {
+    public static let accountIdentifier = "Plex Account"
+    public static let serverName = "Plex Server"
+    public static let connectionInfo = "Hidden in Demo Mode"
+
+    public static func accountIdentifier(_ value: String, isEnabled: Bool) -> String {
+        isEnabled ? accountIdentifier : value
+    }
+
+    public static func serverName(_ value: String, isEnabled: Bool) -> String {
+        isEnabled ? serverName : value
+    }
+
+    public static func connectionInfo(_ value: String, isEnabled: Bool) -> String {
+        isEnabled ? connectionInfo : value
+    }
+
+    public static func sourceDisplayName(
+        serverName: String,
+        libraryTitle: String,
+        isEnabled: Bool
+    ) -> String {
+        "\(Self.serverName(serverName, isEnabled: isEnabled)) - \(libraryTitle)"
+    }
+
+    public static func sourceDisplaySubtitle(
+        serverName: String,
+        libraryTitle: String,
+        accountName: String,
+        isEnabled: Bool
+    ) -> String {
+        "\(sourceDisplayName(serverName: serverName, libraryTitle: libraryTitle, isEnabled: isEnabled)) · \(accountIdentifier(accountName, isEnabled: isEnabled))"
+    }
+}
+
 @MainActor
 public final class SettingsManager: ObservableObject {
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
+    @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
     @AppStorage("allowInsecureConnectionsPolicy") private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
     @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
     @AppStorage("playlistMergeEnabled") public var playlistMergeEnabled: Bool = true
+    #if DEBUG
+    @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
+    #else
+    public var demoModeEnabled: Bool {
+        get { false }
+        set {}
+    }
+    #endif
 
     public init() {
         // Register defaults so UserDefaults.standard.bool(forKey:) returns true
@@ -190,7 +273,8 @@ public final class SettingsManager: ObservableObject {
         UserDefaults.standard.register(defaults: [
             "auroraVisualizationEnabled": true,
             "scrobblingEnabled": true,
-            "playlistMergeEnabled": true
+            "playlistMergeEnabled": true,
+            "demoModeEnabled": false
         ])
         if enabledTabsData.isEmpty {
             // Default tabs
@@ -252,6 +336,30 @@ public final class SettingsManager: ObservableObject {
         }
     }
 
+    public var songsTableColumns: [SongsTableColumn] {
+        get {
+            guard !songsTableColumnsData.isEmpty,
+                  let decoded = try? JSONDecoder().decode([SongsTableColumn].self, from: songsTableColumnsData) else {
+                return SongsTableColumn.defaultVisibleColumns
+            }
+
+            let validColumns = decoded.filter { SongsTableColumn.allCases.contains($0) }
+            return validColumns.isEmpty ? SongsTableColumn.defaultVisibleColumns : validColumns
+        }
+        set {
+            let deduplicated = newValue.reduce(into: [SongsTableColumn]()) { result, column in
+                if !result.contains(column) {
+                    result.append(column)
+                }
+            }
+            let columns = deduplicated.isEmpty ? SongsTableColumn.defaultVisibleColumns : deduplicated
+            if let encoded = try? JSONEncoder().encode(columns) {
+                songsTableColumnsData = encoded
+                objectWillChange.send()
+            }
+        }
+    }
+
     public func setAccentColor(_ color: AppAccentColor) {
         accentColorName = color.rawValue
         objectWillChange.send()
@@ -265,6 +373,30 @@ public final class SettingsManager: ObservableObject {
         trackSwipeLayout = .default
     }
 
+    public func setSongsTableColumn(_ column: SongsTableColumn, isVisible: Bool) {
+        var columns = songsTableColumns
+        if isVisible {
+            guard !columns.contains(column) else { return }
+            let allColumns = SongsTableColumn.allCases
+            if let insertionIndex = allColumns.firstIndex(of: column) {
+                let targetOffset = columns.firstIndex { existing in
+                    guard let existingIndex = allColumns.firstIndex(of: existing) else { return false }
+                    return existingIndex > insertionIndex
+                } ?? columns.endIndex
+                columns.insert(column, at: targetOffset)
+            } else {
+                columns.append(column)
+            }
+        } else {
+            columns.removeAll { $0 == column }
+        }
+        songsTableColumns = columns
+    }
+
+    public func resetSongsTableColumnsToDefaults() {
+        songsTableColumns = SongsTableColumn.defaultVisibleColumns
+    }
+
     @discardableResult
     public func setTrackSwipeAction(
         _ action: TrackSwipeAction?,
@@ -276,7 +408,7 @@ public final class SettingsManager: ObservableObject {
         var layout = trackSwipeLayout
 
         if let action,
-           isTrackSwipeActionAssigned(action, excluding: (edge: edge, index: index), layout: layout) {
+           isTrackSwipeActionAssigned(action, edge: edge, excluding: index, layout: layout) {
             return false
         }
 
@@ -327,6 +459,31 @@ public final class SettingsManager: ObservableObject {
             if let location,
                location.edge == .trailing,
                location.index == index {
+                continue
+            }
+            if candidate == action {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func isTrackSwipeActionAssigned(
+        _ action: TrackSwipeAction,
+        edge: TrackSwipeEdge,
+        excluding excludedIndex: Int? = nil,
+        layout: TrackSwipeLayout
+    ) -> Bool {
+        let slots: [TrackSwipeAction?]
+        switch edge {
+        case .leading:
+            slots = layout.leading
+        case .trailing:
+            slots = layout.trailing
+        }
+
+        for (index, candidate) in slots.enumerated() {
+            if excludedIndex == index {
                 continue
             }
             if candidate == action {

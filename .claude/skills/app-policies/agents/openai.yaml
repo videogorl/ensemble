@@ -1,0 +1,4 @@
+interface:
+  display_name: "App Policies"
+  short_description: "Load and maintain Ensemble behavior policies."
+  default_prompt: "Use app-policies to identify the relevant Ensemble behavior policy before changing app behavior, then update the policy when the implementation changes it."

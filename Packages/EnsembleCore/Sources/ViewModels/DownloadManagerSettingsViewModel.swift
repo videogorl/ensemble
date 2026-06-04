@@ -24,19 +24,12 @@ public struct QualitySizeEstimates {
     /// Formatted display string for a given quality key
     public func formattedSize(for quality: String) -> String {
         switch quality {
-        case "high": return Self.formatBytes(highBytes)
-        case "medium": return Self.formatBytes(mediumBytes)
-        case "low": return Self.formatBytes(lowBytes)
-        case "original": return "> \(Self.formatBytes(highBytes))"
-        default: return Self.formatBytes(actualBytes)
+        case "high": return MediaFormatters.bytes(highBytes)
+        case "medium": return MediaFormatters.bytes(mediumBytes)
+        case "low": return MediaFormatters.bytes(lowBytes)
+        case "original": return "> \(MediaFormatters.bytes(highBytes))"
+        default: return MediaFormatters.bytes(actualBytes)
         }
-    }
-
-    private static func formatBytes(_ bytes: Int64) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
     }
 }
 
@@ -46,16 +39,19 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
     @Published public private(set) var sizeEstimates: QualitySizeEstimates?
 
     private let offlineDownloadService: OfflineDownloadService
+    private let downloadMutationWorkflow: DownloadMutationWorkflow
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         offlineDownloadService: OfflineDownloadService,
+        downloadMutationWorkflow: DownloadMutationWorkflow? = nil,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
         downloadManager: DownloadManagerProtocol
     ) {
         self.offlineDownloadService = offlineDownloadService
+        self.downloadMutationWorkflow = downloadMutationWorkflow ?? DownloadMutationWorkflow(mutator: offlineDownloadService)
         self.targetRepository = targetRepository
         self.downloadManager = downloadManager
 
@@ -85,12 +81,12 @@ public final class DownloadManagerSettingsViewModel: ObservableObject {
     }
 
     public func removeDownload(key: String) async {
-        await offlineDownloadService.removeTarget(key: key)
+        await downloadMutationWorkflow.removeTarget(key: key)
     }
 
     /// Remove all download targets, memberships, and files
     public func removeAllDownloads() async {
-        await offlineDownloadService.removeAllDownloads()
+        await downloadMutationWorkflow.removeAllDownloads()
         sizeEstimates = nil
     }
 

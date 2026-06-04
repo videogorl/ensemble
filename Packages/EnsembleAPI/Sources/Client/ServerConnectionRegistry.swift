@@ -74,13 +74,11 @@ public actor ServerConnectionRegistry {
         )
         endpoints[serverKey] = state
 
-        #if DEBUG
         if previous?.endpoint.url != endpoint.url {
             EnsembleLogger.debug(
                 "📍 Registry: \(serverKey) endpoint changed \(previous?.endpoint.url ?? "nil") -> \(endpoint.url) (source=\(source.rawValue))"
             )
         }
-        #endif
 
         // Broadcast to all active subscribers
         for (_, continuation) in continuations {

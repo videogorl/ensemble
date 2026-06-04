@@ -144,6 +144,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
     @NSManaged public var sourceCompositeKey: String?
+    @NSManaged public var streamId: Int32
     @NSManaged public var album: CDAlbum?
     @NSManaged public var source: CDMusicSource?
     @NSManaged public var download: CDDownload?
@@ -195,12 +196,10 @@ extension CDPlaylist {
         let set = playlistTracks as? Set<CDPlaylistTrack> ?? []
         let sorted = set.sorted { $0.order < $1.order }
         let result = sorted.compactMap { $0.track }
-        #if DEBUG
         if result.count != sorted.count {
             let nilIndices = sorted.enumerated().filter { $0.element.track == nil }.map { $0.offset }
             EnsembleLogger.debug("⚠️ CDPlaylist.tracksArray '\(title)': \(sorted.count) CDPlaylistTrack entries but only \(result.count) have non-nil track. Nil at indices: \(nilIndices)")
         }
-        #endif
         return result
     }
 }
@@ -362,6 +361,32 @@ extension CDMood {
     }
 }
 
+// MARK: - CDHomeFeedSnapshot
+
+@objc(CDHomeFeedSnapshot)
+public class CDHomeFeedSnapshot: NSManagedObject {
+    @NSManaged public var id: String
+    @NSManaged public var sourceScopeKey: String?
+    @NSManaged public var sourceName: String?
+    @NSManaged public var createdAt: Date?
+    @NSManaged public var fetchedAt: Date?
+    @NSManaged public var refreshReason: String?
+    @NSManaged public var freshnessState: String?
+    @NSManaged public var schemaVersion: Int16
+    @NSManaged public var isLastGood: Bool
+    @NSManaged public var hubs: NSOrderedSet?
+}
+
+extension CDHomeFeedSnapshot {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDHomeFeedSnapshot> {
+        return NSFetchRequest<CDHomeFeedSnapshot>(entityName: "CDHomeFeedSnapshot")
+    }
+
+    public var hubsArray: [CDHub] {
+        return hubs?.array as? [CDHub] ?? []
+    }
+}
+
 // MARK: - CDHub
 
 @objc(CDHub)
@@ -369,8 +394,10 @@ public class CDHub: NSManagedObject {
     @NSManaged public var id: String
     @NSManaged public var title: String
     @NSManaged public var type: String
+    @NSManaged public var context: String?
     @NSManaged public var order: Int16
     @NSManaged public var items: NSOrderedSet?
+    @NSManaged public var snapshot: CDHomeFeedSnapshot?
 }
 
 extension CDHub {
@@ -423,7 +450,7 @@ extension CDPendingMutation {
         return NSFetchRequest<CDPendingMutation>(entityName: "CDPendingMutation")
     }
 
-    public enum MutationType: String {
+    public enum MutationType: String, Sendable {
         case trackRating
         case playlistAdd
         case playlistRemove
@@ -432,7 +459,7 @@ extension CDPendingMutation {
         case scrobble
     }
 
-    public enum MutationStatus: String {
+    public enum MutationStatus: String, Sendable {
         case pending
         case failed
     }

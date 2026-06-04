@@ -2,6 +2,87 @@ import EnsembleAPI
 import Foundation
 import os
 
+/// Stable export metadata for audio files shared or dragged out of Ensemble.
+public struct TrackFileExportMetadata: Equatable, Sendable {
+    public let displayTitle: String
+    public let sanitizedBaseName: String
+    public let fileExtension: String
+
+    public var fileName: String {
+        "\(sanitizedBaseName).\(fileExtension)"
+    }
+
+    public init(track: Track, fallbackExtension: String = "mp3") {
+        let title = Self.formattedTrackTitle(track)
+        self.displayTitle = title
+        self.sanitizedBaseName = Self.sanitizedFilename(title)
+        self.fileExtension = Self.preferredExtension(for: track, fallbackExtension: fallbackExtension)
+    }
+
+    private static func formattedTrackTitle(_ track: Track) -> String {
+        var name = ""
+
+        if track.trackNumber > 0 {
+            name += String(format: "%02d. ", track.trackNumber)
+        }
+
+        name += track.title
+
+        if let artist = track.artistName {
+            name += " - \(artist)"
+        }
+
+        return name
+    }
+
+    private static func preferredExtension(for track: Track, fallbackExtension: String) -> String {
+        if let ext = pathExtension(from: track.localFilePath) {
+            return ext
+        }
+
+        if let ext = pathExtension(from: track.streamKey) {
+            return ext
+        }
+
+        let normalizedFallback = fallbackExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        return normalizedFallback.isEmpty ? "mp3" : normalizedFallback
+    }
+
+    private static func pathExtension(from rawPath: String?) -> String? {
+        guard let rawPath = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+
+        if let components = URLComponents(string: rawPath),
+           let decodedPath = components.percentEncodedPath.removingPercentEncoding,
+           !decodedPath.isEmpty {
+            let ext = URL(fileURLWithPath: decodedPath).pathExtension
+            if let normalized = normalizedExtension(ext) {
+                return normalized
+            }
+        }
+
+        return normalizedExtension(URL(fileURLWithPath: rawPath).pathExtension)
+    }
+
+    private static func normalizedExtension(_ ext: String) -> String? {
+        let normalized = ext.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func sanitizedFilename(_ name: String) -> String {
+        let invalidChars = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        let sanitized = name.components(separatedBy: invalidChars).joined(separator: "_")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? "Track" : sanitized
+    }
+}
+
 /// Payload types for the share sheet
 public enum SharePayload {
     /// A URL link with optional descriptive text
@@ -71,18 +152,16 @@ public final class ShareService: ObservableObject {
     /// For non-downloaded tracks, downloads to a temp directory first.
     /// Returns nil on download failure.
     public func prepareTrackFilePayload(track: Track) async -> SharePayload? {
-        let title = formatTrackFilename(track)
+        let exportMetadata = TrackFileExportMetadata(track: track)
+        let title = exportMetadata.displayTitle
 
         // Check for existing local download — create a renamed copy so the share sheet
         // shows the human-readable filename instead of the internal storage name
         if let localPath = track.localFilePath {
             let fileURL = URL(fileURLWithPath: localPath)
             if FileManager.default.fileExists(atPath: localPath) {
-                let ext = fileURL.pathExtension
-                let sanitized = sanitizeFilename(title)
                 let renamedURL = Self.tempShareDirectory
-                    .appendingPathComponent(sanitized)
-                    .appendingPathExtension(ext)
+                    .appendingPathComponent(exportMetadata.fileName)
                 try? FileManager.default.removeItem(at: renamedURL)
                 do {
                     try FileManager.default.copyItem(at: fileURL, to: renamedURL)
@@ -106,8 +185,7 @@ public final class ShareService: ObservableObject {
                 throw PlexAPIError.invalidURL
             }
             let tempFileURL = Self.tempShareDirectory
-                .appendingPathComponent(sanitizeFilename(title))
-                .appendingPathExtension("mp3")
+                .appendingPathComponent(exportMetadata.fileName)
 
             // Clean up any previous temp file at this path
             try? FileManager.default.removeItem(at: tempFileURL)
@@ -121,6 +199,15 @@ public final class ShareService: ObservableObject {
             logger.error("Failed to download track for sharing: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// Prepare a local audio file URL for external drag destinations.
+    /// Uses the same renamed-temp/download behavior as the share sheet path.
+    public func prepareTrackFileURL(track: Track) async -> URL? {
+        guard case let .file(url, _) = await prepareTrackFilePayload(track: track) else {
+            return nil
+        }
+        return url
     }
 
     /// Clean up temporary share files. Call after share sheet is dismissed.
@@ -154,26 +241,4 @@ public final class ShareService: ObservableObject {
         return "\"\(album.title)\""
     }
 
-    /// Formats a display/file name like "05. Still Feel. - half·alive"
-    private func formatTrackFilename(_ track: Track) -> String {
-        var name = ""
-
-        if track.trackNumber > 0 {
-            name += String(format: "%02d. ", track.trackNumber)
-        }
-
-        name += track.title
-
-        if let artist = track.artistName {
-            name += " - \(artist)"
-        }
-
-        return name
-    }
-
-    /// Remove characters that aren't safe for filenames
-    private func sanitizeFilename(_ name: String) -> String {
-        let invalidChars = CharacterSet(charactersIn: "/\\:*?\"<>|")
-        return name.components(separatedBy: invalidChars).joined(separator: "_")
-    }
 }

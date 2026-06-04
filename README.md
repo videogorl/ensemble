@@ -38,16 +38,19 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
 - **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
+- **SmartMix** — Optional Queue card playback mode that trims detected silence, overlaps adjacent tracks with DJ-style equal-power fades, filters the outgoing track with an eased high-pass sweep, and tempo-matches close tracks when analysis confidence is high
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
 - **Siri Voice Playback (In-App-First + Fallback)** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`; album/playlist App Shortcuts fallback phrases are also registered when SiriKit media-domain routing misses
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
+- **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, watch-native source/library selection, pins-first library browsing, watch-local streaming playback, and phone remote control through WatchConnectivity
 
 **Management:**
 - **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
 - **Library Visibility Foundation** — Source-level visibility profiles are supported in core data flow (selector UI planned)
 - **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
+- **Large-Screen Library Polish** — Regular-width iPad and macOS browse Artists, Playlists, and Genres with adaptive selection/detail panes; Songs gains a dense customizable metadata table while compact iPhone navigation stays unchanged
 - **Cache Management** — View storage usage by type (metadata, artwork, downloads) and clear selectively
 - **Offline Download Manager (Target-Based)** — Settings-managed `Manage Downloads` flow with `Servers` bulk toggles, album/artist/playlist target toggles, progress rows, reference-counted cleanup across overlapping targets, and a Downloads toolbar action to refresh completed files to the currently selected download quality (with automatic original-quality fallback on servers that reject offline transcode requests)
 - **Offline-Safe Track UX** — While offline, non-downloaded tracks are dimmed and blocked with a toast prompt
@@ -57,7 +60,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Library Visibility Profile Selector** — Add UI to switch and edit visibility presets without changing sync enablement
 - **Advanced Queue Management** — Reordering, playback history, queue persistence
 - **CarPlay Support** — Native CarPlay interface for safe driving
-- **Audio Enhancements** — Crossfade, gapless playback, equalizer
+- **Audio Enhancements** — Equalizer and advanced mix controls
 - **Smart Features** — Smart playlists, listening statistics, recommendations
 
 ## Requirements
@@ -113,9 +116,12 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 | Package | Purpose | Key Components |
 |---------|---------|----------------|
 | **EnsembleAPI** | Plex networking & auth | `PlexAPIClient` (with timeline/scrobble support), `PlexAuthService`, `KeychainService`, `ConnectionFailoverManager` |
+| **EnsembleDomain** | Portable domain models | Watch-safe account credentials, media summaries, tracks, library categories, playback target/status |
+| **EnsemblePlex** | Portable Plex facade | Watch account discovery, selected-library catalog snapshots, detail track loading, low-bitrate stream URL resolution |
+| **EnsembleWatchCore** | watchOS runtime | Plex Link fallback, iCloud credential restore, watch-local library selection, local catalog cache, watch-local playback, local/remote Now Playing target |
 | **EnsemblePersistence** | CoreData & downloads | `CoreDataStack`, `LibraryRepository`, `HubRepository`, `DownloadManager`, `ArtworkDownloadManager` |
 | **EnsembleCore** | Business logic | `DependencyContainer`, `SyncCoordinator`, `PlaybackService` (with playback tracking), `PlexAccountDiscoveryService`, `LibraryVisibilityStore`, `ArtworkLoader`, `NetworkMonitor`, `ServerHealthChecker`, `SettingsManager`, `NavigationCoordinator`, `HubOrderManager`, ViewModels |
-| **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `StageFlowView`, `HubOrderingSheet`, `ArtworkColorExtractor`, `WaveformView`, `MarqueeText` |
+| **EnsembleUI** | User interface | `RootView`, `HomeView` (with `HubSection`/`HubItemCard`), `MediaDetailView`, `MiniPlayer`, `FilterSheet`, `ArtworkView`, `DetailLoaders`, `StageFlowView`, `HubOrderingSheet`, `WaveformView`, `MarqueeText` |
 
 ### Key Design Patterns
 - **MVVM** with `@MainActor` ObservableObject ViewModels
@@ -139,6 +145,9 @@ ensemble/
 ├── EnsembleWatch/                # watchOS app
 └── Packages/                     # Swift Package modules
     ├── EnsembleAPI/
+    ├── EnsembleDomain/
+    ├── EnsemblePlex/
+    ├── EnsembleWatchCore/
     ├── EnsemblePersistence/
     ├── EnsembleCore/
     └── EnsembleUI/
@@ -183,8 +192,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 ## Known Issues
 
-- **watchOS (deferred as of February 21, 2026):** Authentication path references missing `AuthViewModel`, so the watch target does not currently compile/run.
-  - iOS/macOS remediation is prioritized first; watchOS restoration is intentionally out of scope for this pass.
+- **watchOS:** Downloads are intentionally deferred from standalone watch V1. The watch app builds through the `EnsembleWatch` scheme as an independent target; phone remote control still works when the iPhone app is also installed.
 - **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
 - **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
@@ -205,7 +213,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Playback tracking (timeline reporting every 10s and scrobbling at 90%)
 - Waveform visualization with Plex sonic analysis integration and deterministic fallback
 - iOS 15+ compatibility with NestedNavigationLink pattern
-- Immersive mode support with ChromeVisibilityPreferenceKey for full-screen experiences
+- StageFlow chrome suppression for iPhone landscape carousel experiences
 - Account-centric Music Sources flow with grouped server/library selection and integrated sync status/actions
 - Library visibility profile groundwork with source-level filtering seams in Library/Search/Home (no selector UI yet)
 - Siri media intents (track/album/artist/playlist) with thin extension resolution and in-app playback execution coordinator
@@ -214,7 +222,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - Optional iOS 26 `BGContinuedProcessingTask` acceleration path for user-initiated bulk offline downloads
 
 **Next Steps:**
-- Fix watchOS authentication
+- Add manual watchOS downloads with watch-specific storage and background-transfer policy
 - Add automatic artwork pre-caching during sync
 - Implement queue reordering and waveform seeking
 
@@ -237,7 +245,9 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] Search functionality
 - [x] iPad sidebar navigation
 - [x] Account-centric Music Sources settings and detail flow
-- [x] watchOS basic playback (historical implementation; currently blocked by deferred auth compile issue)
+- [x] watchOS iPhone Now Playing remote controls
+- [x] watchOS standalone authentication, browsing, and independent playback
+- [ ] watchOS manual downloads
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
 - [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
 - [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel
@@ -268,7 +278,9 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [ ] Apple Music support
 - [ ] CarPlay
 - [ ] Lyrics
-- [ ] Crossfade & gapless playback
+- [x] SmartMix silence-aware overlap
+- [x] Tempo-matched SmartMix with subtle outgoing high-pass
+- [ ] Advanced crossfade controls
 - [ ] macOS menu bar controls
 
 ## Contributing

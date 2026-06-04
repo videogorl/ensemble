@@ -1,1 +1,1 @@
-/Users/felicity/Developer/projects/ensemble/CLAUDE.md
+../CLAUDE.md

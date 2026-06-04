@@ -3,13 +3,140 @@ import EnsemblePersistence
 import Foundation
 import Nuke
 
+public struct PersistentArtworkCacheHint: Sendable, Hashable {
+    public enum Kind: String, Sendable, Codable, Hashable {
+        case album
+        case artist
+        case playlist
+
+        public init?(_ pinnedItemType: PinnedItemType) {
+            switch pinnedItemType {
+            case .album:
+                self = .album
+            case .artist:
+                self = .artist
+            case .playlist:
+                self = .playlist
+            }
+        }
+
+        public init?(_ downloadTargetKind: CDOfflineDownloadTarget.Kind) {
+            switch downloadTargetKind {
+            case .album:
+                self = .album
+            case .artist:
+                self = .artist
+            case .playlist:
+                self = .playlist
+            case .library, .favorites:
+                return nil
+            }
+        }
+    }
+
+    public let ratingKey: String
+    public let kind: Kind
+    public let sourcePath: String
+    public let dateModifiedSeconds: Int?
+
+    public init?(
+        ratingKey: String?,
+        kind: Kind,
+        sourcePath: String?,
+        dateModified: Date? = nil
+    ) {
+        self.init(
+            ratingKey: ratingKey,
+            kind: kind,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModified.map { Int($0.timeIntervalSince1970) }
+        )
+    }
+
+    public init?(
+        ratingKey: String?,
+        kind: Kind,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?
+    ) {
+        guard let ratingKey, !ratingKey.isEmpty,
+              let sourcePath, !sourcePath.isEmpty else {
+            return nil
+        }
+
+        self.ratingKey = ratingKey
+        self.kind = kind
+        self.sourcePath = sourcePath
+        self.dateModifiedSeconds = dateModifiedSeconds
+    }
+}
+
+public extension PersistentArtworkCacheHint {
+    init?(album: Album) {
+        self.init(
+            ratingKey: album.id,
+            kind: .album,
+            sourcePath: album.thumbPath,
+            dateModified: album.dateModified
+        )
+    }
+
+    init?(artist: Artist) {
+        self.init(
+            ratingKey: artist.id,
+            kind: .artist,
+            sourcePath: artist.thumbPath,
+            dateModified: artist.dateModified
+        )
+    }
+
+    init?(playlist: Playlist) {
+        self.init(
+            ratingKey: playlist.id,
+            kind: .playlist,
+            sourcePath: playlist.compositePath,
+            dateModified: playlist.dateModified
+        )
+    }
+
+    init?(fallbackAlbumArtworkFor track: Track) {
+        self.init(
+            ratingKey: track.fallbackRatingKey,
+            kind: .album,
+            sourcePath: track.fallbackThumbPath
+        )
+    }
+}
+
 public protocol ArtworkLoaderProtocol {
-    func artworkURL(for path: String?, sourceKey: String?, size: Int) -> URL?
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
-    func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int) async throws -> Int
-    func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int) async throws -> Int
-    func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int) async throws -> Int
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL?
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?) async
     func invalidateURLCache() async
+}
+
+public extension ArtworkLoaderProtocol {
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL? {
+        nil
+    }
+
+    func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int? = nil) async {}
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
@@ -22,7 +149,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private let syncCoordinator: SyncCoordinator
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private static let asyncArtworkURLCacheTTL: TimeInterval = 60
-    private static let legacyArtworkURLCacheTTL: TimeInterval = 60
+    private static let maximumArtworkRequestDimension = ArtworkSize.detail.rawValue
+    private static let minimumPersistentArtworkWriteDimension = 500
     
     /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
     /// instead of wiping the entire pipeline cache when a single artwork changes.
@@ -77,6 +205,45 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
     }
     private let loadStats = ArtworkLoadStats()
+
+    private actor PersistentArtworkCacheTracker {
+        private var inFlight: Set<PersistentArtworkCacheHint> = []
+
+        func begin(_ hint: PersistentArtworkCacheHint) -> Bool {
+            guard !inFlight.contains(hint) else { return false }
+            inFlight.insert(hint)
+            return true
+        }
+
+        func finish(_ hint: PersistentArtworkCacheHint) {
+            inFlight.remove(hint)
+        }
+    }
+
+    private let persistentCacheTracker = PersistentArtworkCacheTracker()
+
+    private actor StalePersistentArtworkTracker {
+        private struct Key: Hashable {
+            let ratingKey: String
+            let type: ArtworkType
+        }
+
+        private var keys: Set<Key> = []
+
+        func mark(ratingKey: String, type: ArtworkType) {
+            keys.insert(Key(ratingKey: ratingKey, type: type))
+        }
+
+        func clear(ratingKey: String, type: ArtworkType) {
+            keys.remove(Key(ratingKey: ratingKey, type: type))
+        }
+
+        func contains(ratingKey: String, type: ArtworkType) -> Bool {
+            keys.contains(Key(ratingKey: ratingKey, type: type))
+        }
+    }
+
+    private let stalePersistentArtworkTracker = StalePersistentArtworkTracker()
 
     // Using an actor for thread-safe cache access in Swift 6
     private actor URLCacheActor {
@@ -173,13 +340,14 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     }
 
     /// Invalidate a specific artwork so views re-fetch from the server.
-    /// Clears both the in-memory URL cache and local file, then posts a notification.
+    /// Clears in-memory URL/image cache and marks the persistent file stale, then posts a notification.
+    /// The disk file is intentionally preserved so offline sessions can keep showing the last
+    /// resolved artwork until a replacement is downloaded.
     public func invalidateArtwork(ratingKey: String, type: ArtworkType) async {
         // Clear URL cache entries containing this ratingKey
         await urlCache.clearEntries(matching: ratingKey)
 
-        // Remove the local file
-        artworkDownloadManager.deleteArtwork(ratingKey: ratingKey, type: type)
+        await stalePersistentArtworkTracker.mark(ratingKey: ratingKey, type: type)
 
         // Evict tracked URLs from Nuke's cache (targeted instead of clearing all)
         let trackedURLs = await artworkURLTracker.urls(forRatingKey: ratingKey)
@@ -201,38 +369,62 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             userInfo: ["ratingKey": ratingKey]
         )
 
-        EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated artwork for ratingKey=\(ratingKey)")
+        EnsembleLogger.debug("🎨 ArtworkLoader: Marked artwork stale for ratingKey=\(ratingKey)")
     }
 
-    public func artworkURL(for path: String?, sourceKey: String? = nil, size: Int = 300) -> URL? {
-        guard let path = path else { return nil }
+    public func cacheResolvedArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int? = nil
+    ) async {
+        guard let cacheHint, !url.isFileURL else { return }
+        if let minimumPixelDimension,
+           minimumPixelDimension < Self.minimumPersistentArtworkWriteDimension {
+            return
+        }
+        guard await persistentCacheTracker.begin(cacheHint) else { return }
 
-        // Cap size at 1000px to avoid excessive memory usage
-        let cappedSize = min(size, 1000)
-        let cacheKey = "\(sourceKey ?? ""):\(path):\(cappedSize)"
-        
-        // Note: This method returns nil immediately on first call and triggers background fetch
-        // This is a legacy pattern for UI components that can't wait for async.
-        // The View will re-render once the cache is populated.
-        
-        // Fetch asynchronously and cache
-        Task {
-            // Check cache first via actor
-            if await urlCache.get(cacheKey) != nil {
+        let artworkDownloadManager = artworkDownloadManager
+        let tracker = persistentCacheTracker
+        let staleTracker = stalePersistentArtworkTracker
+        Task.detached(priority: .utility) {
+            defer {
+                Task {
+                    await tracker.finish(cacheHint)
+                }
+            }
+
+            let artworkType = cacheHint.kind.artworkType
+            if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(
+                ratingKey: cacheHint.ratingKey,
+                type: artworkType,
+                sourcePath: cacheHint.sourcePath,
+                dateModifiedSeconds: cacheHint.dateModifiedSeconds
+            ),
+               ArtworkFileInspector.fileExists(
+                   atPath: localPath,
+                   minimumPixelDimension: minimumPixelDimension
+               ) {
                 return
             }
-            
-            if let url = try? await self.syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: cappedSize) {
-                // Track the URL for targeted cache eviction on invalidation
-                if let ratingKey = Self.extractRatingKey(from: path) {
-                    await self.artworkURLTracker.record(url: url, forRatingKey: ratingKey)
-                }
-                await urlCache.set(cacheKey, url: url, ttl: Self.legacyArtworkURLCacheTTL)
+
+            do {
+                try await artworkDownloadManager.downloadAndCacheArtwork(
+                    from: url,
+                    identity: ArtworkIdentity(
+                        ratingKey: cacheHint.ratingKey,
+                        type: artworkType,
+                        sourcePath: cacheHint.sourcePath,
+                        dateModifiedSeconds: cacheHint.dateModifiedSeconds,
+                        requestedPixelDimension: minimumPixelDimension
+                    )
+                )
+                await staleTracker.clear(ratingKey: cacheHint.ratingKey, type: artworkType)
+                EnsembleLogger.debug("🎨 ArtworkLoader: Persisted \(cacheHint.kind.rawValue) artwork for ratingKey=\(cacheHint.ratingKey)")
+            } catch {
+                EnsembleLogger.debug("🎨 ArtworkLoader: Failed to persist \(cacheHint.kind.rawValue) artwork for ratingKey=\(cacheHint.ratingKey): \(error.localizedDescription)")
             }
         }
-
-        // Return nil for first render, will update once loaded
-        return nil
     }
 
     /// Async version for modern Swift concurrency
@@ -246,32 +438,32 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         fallbackRatingKey: String? = nil,
         size: Int = 300
     ) async -> URL? {
-        // Cap size at 1000px to avoid excessive memory usage
-        let cappedSize = min(size, 1000)
+        // Cap size to avoid excessive memory usage while still serving retina detail headers.
+        let cappedSize = min(size, Self.maximumArtworkRequestDimension)
         // Determine which path and ratingKey to use.
         let actualPath: String?
         let actualRatingKey: String?
-        let usedFallback: Bool
-        
         if path != nil && !path!.isEmpty {
             actualPath = path
             actualRatingKey = ratingKey
-            usedFallback = false
         } else if fallbackPath != nil && !fallbackPath!.isEmpty {
             actualPath = fallbackPath
             actualRatingKey = fallbackRatingKey
-            usedFallback = true
         } else {
             return nil
         }
         
         guard let finalPath = actualPath else { return nil }
 
-        // Prefer local cache first — all callers get the same file:// URL regardless of
-        // requested size, eliminating the cache-lottery mismatch between ArtworkView (300px),
-        // PlaybackService (600px), and NowPlayingViewModel (600px) when offline.
-        // Nuke applies per-caller resize processors on the local file.
-        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+        // Prefer local cache when it can satisfy this request. Undersized persistent
+        // artwork is allowed as offline fallback, but should not block an online
+        // detail surface from fetching and replacing a better image.
+        if let localURL = await localCachedArtworkURL(
+            ratingKey: actualRatingKey,
+            path: finalPath,
+            allowStaleIdentity: false,
+            minimumPixelDimension: cappedSize
+        ) {
             let localCacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):local"
             if await urlCache.get(localCacheKey) == nil {
                 await urlCache.set(localCacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
@@ -280,10 +472,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         let isOffline = await syncCoordinator.isOffline
-        // Use optimistic check: treat .unknown/.connecting as "possibly available"
-        // so artwork attempts the network URL instead of falling back to local files
-        // before health checks complete. Nuke handles failures gracefully.
-        let serverAvailable = await syncCoordinator.isServerPossiblyAvailable(sourceKey: sourceKey)
+        // Artwork should wait for a confirmed healthy endpoint. Returning a remote URL
+        // while the server is still in .unknown/.connecting can hand the UI a stale
+        // pre-health-check endpoint that never resolves, especially on macOS Feed startup.
+        let serverAvailable = await syncCoordinator.isServerAvailable(sourceKey: sourceKey)
         let connectivityTag = isOffline ? "offline" : (serverAvailable ? "online" : "server-offline")
         let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(connectivityTag)"
 
@@ -295,6 +487,17 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // rather than building a URL that will time out
         let serverUnavailable = !isOffline && !serverAvailable
         if isOffline || serverUnavailable {
+            if let localURL = await localCachedArtworkURL(
+                ratingKey: actualRatingKey,
+                path: finalPath,
+                allowStaleIdentity: true,
+                minimumPixelDimension: nil
+            ) {
+                #if DEBUG
+                await loadStats.recordLocalFallback()
+                #endif
+                return localURL
+            }
             #if DEBUG
             await loadStats.recordUnavailable()
             #endif
@@ -316,15 +519,48 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         // Network URL resolution failed — fall back to local cache if available
-        if let localURL = localCachedArtworkURL(ratingKey: actualRatingKey, path: finalPath) {
+        if let localURL = await localCachedArtworkURL(
+            ratingKey: actualRatingKey,
+            path: finalPath,
+            allowStaleIdentity: true,
+            minimumPixelDimension: nil
+        ) {
             #if DEBUG
             await loadStats.recordLocalFallback()
             #endif
-            await urlCache.set(cacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
             return localURL
         }
 
         return nil
+    }
+
+    public func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String? = nil,
+        ratingKey: String? = nil,
+        fallbackPath: String? = nil,
+        fallbackRatingKey: String? = nil,
+        minimumPixelDimension: Int? = nil,
+        allowStaleIdentity: Bool = true
+    ) async -> URL? {
+        let actualPath: String?
+        let actualRatingKey: String?
+        if let path, !path.isEmpty {
+            actualPath = path
+            actualRatingKey = ratingKey
+        } else if let fallbackPath, !fallbackPath.isEmpty {
+            actualPath = fallbackPath
+            actualRatingKey = fallbackRatingKey
+        } else {
+            return nil
+        }
+
+        return await localCachedArtworkURL(
+            ratingKey: actualRatingKey,
+            path: actualPath,
+            allowStaleIdentity: allowStaleIdentity,
+            minimumPixelDimension: minimumPixelDimension
+        )
     }
     
     /// Extract ratingKey from an artwork path like `/library/metadata/{ratingKey}/thumb/...`
@@ -342,15 +578,41 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Falls back to extracting the ratingKey from the artwork path when the
     /// passed ratingKey doesn't match a cached file (e.g., track ratingKey vs.
     /// album ratingKey embedded in the inherited parentThumb path).
-    private func localCachedArtworkURL(ratingKey: String?, path: String? = nil) -> URL? {
-        let artworkDir = ArtworkDownloadManager.artworkDirectory
-
+    private func localCachedArtworkURL(
+        ratingKey: String?,
+        path: String? = nil,
+        allowStaleIdentity: Bool,
+        minimumPixelDimension: Int?
+    ) async -> URL? {
         // Try the passed ratingKey first
         if let key = ratingKey {
-            for suffix in ["album", "artist", "playlist"] {
-                let filePath = artworkDir.appendingPathComponent("\(key)_\(suffix).jpg").path
-                if FileManager.default.fileExists(atPath: filePath) {
+            for type in [ArtworkType.album, .artist, .playlist] {
+                if await stalePersistentArtworkTracker.contains(ratingKey: key, type: type) {
+                    continue
+                }
+                if let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
+                    ratingKey: key,
+                    type: type,
+                    sourcePath: path,
+                    dateModifiedSeconds: nil
+                ),
+                   ArtworkFileInspector.fileExists(
+                       atPath: filePath,
+                       minimumPixelDimension: minimumPixelDimension
+                   ) {
                     return URL(fileURLWithPath: filePath)
+                }
+            }
+
+            if allowStaleIdentity {
+                for type in [ArtworkType.album, .artist, .playlist] {
+                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(ratingKey: key, type: type),
+                       ArtworkFileInspector.fileExists(
+                           atPath: filePath,
+                           minimumPixelDimension: minimumPixelDimension
+                       ) {
+                        return URL(fileURLWithPath: filePath)
+                    }
                 }
             }
         }
@@ -359,140 +621,38 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Tracks inherit their album's thumbPath (`parentThumb`), so the path
         // contains the album ratingKey while the passed ratingKey is the track's.
         if let path, let pathKey = Self.extractRatingKey(from: path), pathKey != ratingKey {
-            for suffix in ["album", "artist", "playlist"] {
-                let filePath = artworkDir.appendingPathComponent("\(pathKey)_\(suffix).jpg").path
-                if FileManager.default.fileExists(atPath: filePath) {
+            for type in [ArtworkType.album, .artist, .playlist] {
+                if await stalePersistentArtworkTracker.contains(ratingKey: pathKey, type: type) {
+                    continue
+                }
+                if let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
+                    ratingKey: pathKey,
+                    type: type,
+                    sourcePath: path,
+                    dateModifiedSeconds: nil
+                ),
+                   ArtworkFileInspector.fileExists(
+                       atPath: filePath,
+                       minimumPixelDimension: minimumPixelDimension
+                   ) {
                     return URL(fileURLWithPath: filePath)
+                }
+            }
+
+            if allowStaleIdentity {
+                for type in [ArtworkType.album, .artist, .playlist] {
+                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(ratingKey: pathKey, type: type),
+                       ArtworkFileInspector.fileExists(
+                           atPath: filePath,
+                           minimumPixelDimension: minimumPixelDimension
+                       ) {
+                        return URL(fileURLWithPath: filePath)
+                    }
                 }
             }
         }
 
         return nil
-    }
-
-    // MARK: - Pre-downloading
-    
-    /// Pre-download album artwork for offline viewing
-    /// Returns the number of artworks successfully downloaded
-    public func predownloadArtwork(for albums: [CDAlbum], sourceKey: String, size: Int = 500) async throws -> Int {
-        var downloadedCount = 0
-        
-        for album in albums {
-            guard let thumbPath = album.thumbPath else { continue }
-            let ratingKey = album.ratingKey
-            
-            // Check if already cached locally
-            if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: album),
-               FileManager.default.fileExists(atPath: localPath) {
-                continue
-            }
-            
-            // Get the artwork URL from the server
-            guard let artworkURL = try? await syncCoordinator.getArtworkURL(
-                path: thumbPath,
-                sourceKey: sourceKey,
-                size: size
-            ) else {
-                continue
-            }
-            
-            // Download and cache the artwork
-            do {
-                try await artworkDownloadManager.downloadAndCacheArtwork(
-                    from: artworkURL,
-                    ratingKey: ratingKey,
-                    type: ArtworkType.album
-                )
-                downloadedCount += 1
-            } catch {
-                EnsembleLogger.debug("Failed to download artwork for album \(album.title): \(error)")
-                continue
-            }
-        }
-        
-        return downloadedCount
-    }
-    
-    /// Pre-download artist artwork for offline viewing
-    /// Returns the number of artworks successfully downloaded
-    public func predownloadArtwork(for artists: [CDArtist], sourceKey: String, size: Int = 500) async throws -> Int {
-        var downloadedCount = 0
-        
-        for artist in artists {
-            guard let thumbPath = artist.thumbPath else { continue }
-            let ratingKey = artist.ratingKey
-            
-            // Check if already cached locally
-            if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: artist),
-               FileManager.default.fileExists(atPath: localPath) {
-                continue
-            }
-            
-            // Get the artwork URL from the server
-            guard let artworkURL = try? await syncCoordinator.getArtworkURL(
-                path: thumbPath,
-                sourceKey: sourceKey,
-                size: size
-            ) else {
-                continue
-            }
-            
-            // Download and cache the artwork
-            do {
-                try await artworkDownloadManager.downloadAndCacheArtwork(
-                    from: artworkURL,
-                    ratingKey: ratingKey,
-                    type: ArtworkType.artist
-                )
-                downloadedCount += 1
-            } catch {
-                EnsembleLogger.debug("Failed to download artwork for artist \(artist.name): \(error)")
-                continue
-            }
-        }
-        
-        return downloadedCount
-    }
-    /// Pre-download playlist artwork for offline viewing using the composite thumb path
-    /// Returns the number of artworks successfully downloaded
-    public func predownloadArtwork(for playlists: [CDPlaylist], sourceKey: String, size: Int = 500) async throws -> Int {
-        var downloadedCount = 0
-
-        for playlist in playlists {
-            // Playlists use compositePath for their server-generated composite artwork
-            guard let thumbPath = playlist.compositePath else { continue }
-            let ratingKey = playlist.ratingKey
-
-            // Skip if already cached
-            if let localPath = try? await artworkDownloadManager.getLocalArtworkPath(for: playlist),
-               FileManager.default.fileExists(atPath: localPath) {
-                continue
-            }
-
-            // Get the artwork URL from the server
-            guard let artworkURL = try? await syncCoordinator.getArtworkURL(
-                path: thumbPath,
-                sourceKey: sourceKey,
-                size: size
-            ) else {
-                continue
-            }
-
-            // Download and cache the artwork
-            do {
-                try await artworkDownloadManager.downloadAndCacheArtwork(
-                    from: artworkURL,
-                    ratingKey: ratingKey,
-                    type: .playlist
-                )
-                downloadedCount += 1
-            } catch {
-                EnsembleLogger.debug("Failed to download artwork for playlist \(playlist.title): \(error)")
-                continue
-            }
-        }
-
-        return downloadedCount
     }
 }
 
@@ -506,8 +666,22 @@ public enum ArtworkSize: Int {
     case medium = 300
     case large = 500
     case extraLarge = 800
+    case detail = 1000
 
     public var cgSize: CGSize {
         CGSize(width: rawValue, height: rawValue)
+    }
+}
+
+private extension PersistentArtworkCacheHint.Kind {
+    var artworkType: ArtworkType {
+        switch self {
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        }
     }
 }

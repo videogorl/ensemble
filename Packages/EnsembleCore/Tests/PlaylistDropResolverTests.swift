@@ -1,0 +1,206 @@
+import XCTest
+@testable import EnsembleCore
+
+@MainActor
+final class PlaylistDropResolverTests: XCTestCase {
+    private let resolver = PlaylistDropResolver()
+
+    func testResolvesTrackAlbumAndPlaylistDropsWithDedupe() async throws {
+        let target = makePlaylist(id: "target", title: "Road Trip")
+        let sourcePlaylist = makePlaylist(id: "source", title: "Source")
+        let album = makeAlbum(id: "album")
+        let trackOne = makeTrack(id: "track-1")
+        let trackTwo = makeTrack(id: "track-2")
+        let trackThree = makeTrack(id: "track-3")
+
+        let resolution = try await resolver.resolve(
+            references: [
+                .init(kind: .track, id: trackOne.id, sourceKey: trackOne.sourceCompositeKey, title: trackOne.title),
+                .init(kind: .album, id: album.id, sourceKey: album.sourceCompositeKey, title: album.title),
+                .init(kind: .playlist, id: sourcePlaylist.id, sourceKey: sourcePlaylist.sourceCompositeKey, title: sourcePlaylist.title)
+            ],
+            target: makeTarget(target),
+            tracks: [trackOne, trackTwo, trackThree],
+            albums: [album],
+            playlists: [target, sourcePlaylist],
+            loadAlbumTracks: { _ in [trackTwo, trackOne] },
+            loadPlaylistTracks: { _ in [trackThree, trackTwo] }
+        )
+
+        XCTAssertEqual(resolution.targetPlaylist.id, target.id)
+        XCTAssertEqual(resolution.tracks.map(\.id), ["track-1", "track-2", "track-3"])
+    }
+
+    func testRejectsMergedSmartAndUnresolvedTargets() async throws {
+        let regularTarget = makePlaylist(id: "target", title: "Road Trip")
+        let smartTarget = makePlaylist(id: "smart", title: "Smart Mix", isSmart: true)
+
+        await assertDropError(
+            expected: .mergedTarget(title: "Merged"),
+            target: .init(id: "target", sourceKey: regularTarget.sourceCompositeKey, title: "Merged", isSmart: false, isMerged: true),
+            playlists: [regularTarget]
+        )
+
+        await assertDropError(
+            expected: .smartTarget(title: smartTarget.title),
+            target: makeTarget(smartTarget),
+            playlists: [smartTarget]
+        )
+
+        await assertDropError(
+            expected: .unresolvedTarget(title: "Missing"),
+            target: .init(id: "missing", sourceKey: "plex:account:server", title: "Missing", isSmart: false, isMerged: false),
+            playlists: [regularTarget]
+        )
+    }
+
+    func testRejectsCrossSourceTrackStrictly() async throws {
+        let target = makePlaylist(id: "target", title: "Road Trip", sourceCompositeKey: "plex:account:server-a")
+        let foreignTrack = makeTrack(
+            id: "foreign",
+            title: "Foreign Track",
+            sourceCompositeKey: "plex:account:server-b:library"
+        )
+
+        await assertDropError(
+            expected: .crossSource(itemTitle: foreignTrack.title, playlistTitle: target.title),
+            references: [
+                .init(kind: .track, id: foreignTrack.id, sourceKey: foreignTrack.sourceCompositeKey, title: foreignTrack.title)
+            ],
+            target: makeTarget(target),
+            tracks: [foreignTrack],
+            playlists: [target]
+        )
+    }
+
+    func testUnknownTrackSourceIsStampedWithTargetServer() async throws {
+        let target = makePlaylist(id: "target", title: "Road Trip", sourceCompositeKey: "plex:account:server")
+
+        let resolution = try await resolver.resolve(
+            references: [
+                .init(kind: .track, id: "unknown-source", sourceKey: nil, title: "Unknown Source")
+            ],
+            target: makeTarget(target),
+            tracks: [],
+            albums: [],
+            playlists: [target],
+            loadAlbumTracks: { _ in [] },
+            loadPlaylistTracks: { _ in [] }
+        )
+
+        XCTAssertEqual(resolution.tracks.map(\.id), ["unknown-source"])
+        XCTAssertEqual(resolution.tracks.first?.sourceCompositeKey, "plex:account:server")
+    }
+
+    func testRejectsSmartSourcePlaylistAndEmptyExpansions() async throws {
+        let target = makePlaylist(id: "target", title: "Road Trip")
+        let sourcePlaylist = makePlaylist(id: "source", title: "Source", isSmart: true)
+        let album = makeAlbum(id: "album", title: "Empty Album")
+
+        await assertDropError(
+            expected: .smartSource(title: sourcePlaylist.title),
+            references: [
+                .init(
+                    kind: .playlist,
+                    id: sourcePlaylist.id,
+                    sourceKey: sourcePlaylist.sourceCompositeKey,
+                    title: sourcePlaylist.title,
+                    isSmartPlaylist: true
+                )
+            ],
+            target: makeTarget(target),
+            playlists: [target, sourcePlaylist]
+        )
+
+        await assertDropError(
+            expected: .unresolvedItem(title: album.title),
+            references: [
+                .init(kind: .album, id: album.id, sourceKey: album.sourceCompositeKey, title: album.title)
+            ],
+            target: makeTarget(target),
+            albums: [album],
+            playlists: [target]
+        )
+    }
+
+    private func assertDropError(
+        expected: PlaylistDropResolutionError,
+        references: [MediaDropItemReference] = [
+            .init(kind: .track, id: "track", sourceKey: "plex:account:server:library", title: "Track")
+        ],
+        target: PlaylistDropTargetReference,
+        tracks: [Track] = [],
+        albums: [Album] = [],
+        playlists: [Playlist],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        do {
+            _ = try await resolver.resolve(
+                references: references,
+                target: target,
+                tracks: tracks,
+                albums: albums,
+                playlists: playlists,
+                loadAlbumTracks: { _ in [] },
+                loadPlaylistTracks: { _ in [] }
+            )
+            XCTFail("Expected \(expected)", file: file, line: line)
+        } catch let error as PlaylistDropResolutionError {
+            XCTAssertEqual(error, expected, file: file, line: line)
+        } catch {
+            XCTFail("Unexpected error \(error)", file: file, line: line)
+        }
+    }
+
+    private func makeTrack(
+        id: String,
+        title: String? = nil,
+        sourceCompositeKey: String? = "plex:account:server:library"
+    ) -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: title ?? "Track \(id)",
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makeAlbum(
+        id: String,
+        title: String? = nil,
+        sourceCompositeKey: String? = "plex:account:server:library"
+    ) -> Album {
+        Album(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: title ?? "Album \(id)",
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makePlaylist(
+        id: String,
+        title: String,
+        isSmart: Bool = false,
+        sourceCompositeKey: String? = "plex:account:server"
+    ) -> Playlist {
+        Playlist(
+            id: id,
+            key: "/playlists/\(id)",
+            title: title,
+            isSmart: isSmart,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makeTarget(_ playlist: Playlist) -> PlaylistDropTargetReference {
+        PlaylistDropTargetReference(
+            id: playlist.id,
+            sourceKey: playlist.sourceCompositeKey,
+            title: playlist.title,
+            isSmart: playlist.isSmart,
+            isMerged: false
+        )
+    }
+}

@@ -1,5 +1,8 @@
+import EnsembleSiriShared
 import EnsemblePersistence
 import Foundation
+
+public typealias SystemMediaEnabledSourceKeysProvider = @MainActor () -> Set<String>
 
 /// Notification contract for requesting Siri media index rebuilds.
 public enum SiriMediaIndexNotifications {
@@ -20,42 +23,45 @@ public enum SiriMediaIndexNotifications {
     }
 }
 
+enum SystemMediaSourceScope {
+    static func allows(_ sourceCompositeKey: String?, within allowedSourceKeys: Set<String>?) -> Bool {
+        guard let allowedSourceKeys else { return true }
+        guard let sourceCompositeKey else { return false }
+        return allowedSourceKeys.contains(sourceCompositeKey)
+    }
+
+    static func playlistSourceKeys(forEnabledLibraryKeys enabledLibrarySourceKeys: Set<String>) -> Set<String> {
+        var sourceKeys = enabledLibrarySourceKeys
+
+        for librarySourceKey in enabledLibrarySourceKeys {
+            guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: librarySourceKey) else {
+                continue
+            }
+            sourceKeys.insert(serverSourceKey)
+        }
+
+        return sourceKeys
+    }
+}
+
 /// Persists and refreshes the Siri media index in the shared App Group container.
 @MainActor
 public final class SiriMediaIndexStore {
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
-    private static let filename = "siri-media-index.json"
+    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
+    private static let filename = SiriSharedConstants.indexFilename
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let notificationCenter: NotificationCenter
-    private var observerToken: NSObjectProtocol?
+    private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        notificationCenter: NotificationCenter = .default
+        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
-        self.notificationCenter = notificationCenter
-
-        observerToken = notificationCenter.addObserver(
-            forName: SiriMediaIndexNotifications.rebuildRequested,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.rebuildIndex()
-            }
-        }
-    }
-
-    deinit {
-        if let observerToken {
-            notificationCenter.removeObserver(observerToken)
-        }
+        self.enabledSourceKeysProvider = enabledSourceKeysProvider
     }
 
     /// Loads a fresh-enough Siri index from disk.
@@ -75,15 +81,28 @@ public final class SiriMediaIndexStore {
     @discardableResult
     public func rebuildIndex() async -> SiriMediaIndex? {
         do {
-            let artists = Array(try await libraryRepository.fetchArtists().prefix(1500))
-            let albums = Array(try await libraryRepository.fetchAlbums().prefix(1500))
-            let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks().prefix(1000))
-            let playlists = Array(try await playlistRepository.fetchPlaylists().prefix(500))
+            let enabledLibrarySourceKeys = enabledSourceKeysProvider?()
+            let playlistSourceKeys = enabledLibrarySourceKeys.map {
+                SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
+            }
+            let artists = Array(try await libraryRepository.fetchArtists()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .prefix(1500))
+            let albums = Array(try await libraryRepository.fetchAlbums()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .prefix(1500))
+            let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .prefix(1000))
+            let playlists = Array(try await playlistRepository.fetchPlaylists()
+                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
+                .prefix(500))
 
             var items: [SiriMediaIndexItem] = []
             items.reserveCapacity(artists.count + albums.count + tracks.count + playlists.count)
 
             for artist in artists {
+                let artwork = Self.artistArtworkDescriptor(for: artist)
                 items.append(
                     SiriMediaIndexItem(
                         kind: .artist,
@@ -93,7 +112,11 @@ public final class SiriMediaIndexStore {
                         secondaryText: nil,
                         lastPlayed: nil,
                         playCount: nil,
-                        trackCount: nil
+                        trackCount: nil,
+                        artistName: artist.name,
+                        artworkPath: artwork.path,
+                        artworkCacheKey: artwork.cacheKey,
+                        artworkCacheType: artwork.cacheType
                     )
                 )
             }
@@ -108,12 +131,19 @@ public final class SiriMediaIndexStore {
                         secondaryText: album.artistName,
                         lastPlayed: nil,
                         playCount: nil,
-                        trackCount: Int(album.trackCount)
+                        trackCount: Int(album.trackCount),
+                        albumTitle: album.title,
+                        artistName: album.artistName ?? album.albumArtist,
+                        genre: album.genreNames,
+                        artworkPath: album.thumbPath,
+                        artworkCacheKey: album.ratingKey,
+                        artworkCacheType: .album
                     )
                 )
             }
 
             for track in tracks {
+                let artwork = Self.trackArtworkDescriptor(for: track)
                 items.append(
                     SiriMediaIndexItem(
                         kind: .track,
@@ -123,7 +153,16 @@ public final class SiriMediaIndexStore {
                         secondaryText: track.artistName ?? track.albumName,
                         lastPlayed: track.lastPlayed,
                         playCount: Int(track.playCount),
-                        trackCount: nil
+                        trackCount: nil,
+                        albumTitle: track.albumName,
+                        artistName: track.artistName,
+                        genre: track.genreNames,
+                        duration: track.durationSeconds,
+                        trackNumber: Int(track.trackNumber),
+                        discNumber: Int(track.discNumber),
+                        artworkPath: artwork.path,
+                        artworkCacheKey: artwork.cacheKey,
+                        artworkCacheType: artwork.cacheType
                     )
                 )
             }
@@ -138,7 +177,11 @@ public final class SiriMediaIndexStore {
                         secondaryText: nil,
                         lastPlayed: playlist.lastPlayed,
                         playCount: nil,
-                        trackCount: Int(playlist.trackCount)
+                        trackCount: Int(playlist.trackCount),
+                        duration: TimeInterval(playlist.duration) / 1000.0,
+                        artworkPath: playlist.compositePath,
+                        artworkCacheKey: playlist.ratingKey,
+                        artworkCacheType: .playlist
                     )
                 )
             }
@@ -186,14 +229,42 @@ public final class SiriMediaIndexStore {
             .appendingPathComponent(Self.filename)
     }
 
-    private static func normalize(_ raw: String) -> String {
-        raw
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    private struct ArtworkDescriptor {
+        let path: String?
+        let cacheKey: String?
+        let cacheType: SiriMediaArtworkCacheType?
+    }
+
+    private static func artistArtworkDescriptor(for artist: CDArtist) -> ArtworkDescriptor {
+        if let thumbPath = artist.thumbPath, !thumbPath.isEmpty {
+            return ArtworkDescriptor(path: thumbPath, cacheKey: artist.ratingKey, cacheType: .artist)
+        }
+
+        return ArtworkDescriptor(path: nil, cacheKey: nil, cacheType: nil)
+    }
+
+    private static func trackArtworkDescriptor(for track: CDTrack) -> ArtworkDescriptor {
+        let path = track.thumbPath ?? track.album?.thumbPath
+        let cacheKey = track.album?.ratingKey
+            ?? ratingKey(fromArtworkPath: track.thumbPath)
+            ?? ratingKey(fromArtworkPath: track.album?.thumbPath)
+
+        return ArtworkDescriptor(
+            path: path,
+            cacheKey: cacheKey,
+            cacheType: cacheKey == nil ? nil : .album
+        )
+    }
+
+    /// Extract ratingKey from artwork paths like `/library/metadata/{ratingKey}/thumb/...`.
+    private static func ratingKey(fromArtworkPath path: String?) -> String? {
+        guard let path else { return nil }
+        let components = path.split(separator: "/")
+        guard components.count >= 3,
+              components[0] == "library",
+              components[1] == "metadata" else {
+            return nil
+        }
+        return String(components[2])
     }
 }

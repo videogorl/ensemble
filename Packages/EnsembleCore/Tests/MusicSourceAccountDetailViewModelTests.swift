@@ -296,6 +296,52 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.serverLibraryErrors["server-1"], "Library fetch failed")
     }
 
+    func testRefreshPreservesKnownCapabilitiesWhenDiscoveryCapabilitiesAreUnknown() async throws {
+        let harness = makeHarness()
+        let knownCapabilities = PlexServerCapabilities(
+            myPlexSubscription: true,
+            ownerFeatures: "lyrics,shared-radio,pass"
+        )
+        let account = makeAccount(
+            accountId: "account-1",
+            serverId: "server-1",
+            capabilities: knownCapabilities,
+            libraries: [("lib-1", "Library One", true)]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        harness.discoveryService.result = PlexAccountDiscoveryResult(
+            identity: PlexAccountIdentity(id: "account-1", email: nil, plexUsername: "tester", displayTitle: nil),
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-1",
+                    platform: "Linux",
+                    capabilities: nil,
+                    libraries: [PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: false)]
+                )
+            ],
+            serverLibraryErrors: [:],
+            serverCapabilityErrors: ["server-1": "Capability fetch failed"]
+        )
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        await viewModel.performInitialRefreshIfNeeded()
+
+        let updatedServer = try XCTUnwrap(harness.accountManager.plexAccounts.first?.servers.first)
+        XCTAssertEqual(updatedServer.capabilities, knownCapabilities)
+
+        let section = try XCTUnwrap(viewModel.sections.first)
+        XCTAssertEqual(section.plexPassSupport, .supported)
+        XCTAssertEqual(section.lyricsSupport, .supported)
+        XCTAssertEqual(section.radioSupport, .supported)
+    }
+
     func testRefreshCancellationDoesNotSetUserVisibleError() async throws {
         let harness = makeHarness()
         let account = makeAccount(
@@ -557,7 +603,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            artworkDownloadManager: ArtworkDownloadManager(coreDataStack: stack),
+            artworkDownloadManager: ArtworkDownloadManager(),
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
@@ -573,6 +619,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountManager: accountManager,
             connectionRegistry: ServerConnectionRegistry(),
             serverHealthChecker: shc,
+            networkMonitor: networkMonitor,
             clientIdentifier: "test"
         )
 
@@ -601,6 +648,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
     private func makeAccount(
         accountId: String,
         serverId: String,
+        capabilities: PlexServerCapabilities? = nil,
         libraries: [(key: String, title: String, enabled: Bool)]
     ) -> PlexAccountConfig {
         PlexAccountConfig(
@@ -619,6 +667,7 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
                     ],
                     token: "token-1",
                     platform: "Linux",
+                    capabilities: capabilities,
                     libraries: libraries.map { item in
                         PlexLibraryConfig(id: item.key, key: item.key, title: item.title, isEnabled: item.enabled)
                     }

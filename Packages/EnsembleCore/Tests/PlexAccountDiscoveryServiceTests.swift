@@ -7,7 +7,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
         let user: PlexUser
         let resources: [PlexDevice]
         let librariesByServerID: [String: Result<[PlexLibrarySection], Error>]
-        var capabilitiesByServerID: [String: PlexServerCapabilities] = [:]
+        var capabilitiesByServerID: [String: Result<PlexServerCapabilities, Error>] = [:]
 
         func getUserInfo(token: String) async throws -> PlexUser {
             user
@@ -31,7 +31,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
             token: String,
             allowInsecurePolicy: AllowInsecureConnectionsPolicy
         ) async throws -> PlexServerCapabilities {
-            capabilitiesByServerID[device.clientIdentifier] ?? PlexServerCapabilities()
+            try (capabilitiesByServerID[device.clientIdentifier] ?? .success(PlexServerCapabilities())).get()
         }
     }
 
@@ -206,6 +206,9 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
                         )
                     ),
                     "server-bad": .failure(MockError.serverUnavailable)
+                ],
+                capabilitiesByServerID: [
+                    "server-bad": .success(PlexServerCapabilities(ownerFeatures: "lyrics,radio"))
                 ]
             ),
             allowInsecurePolicyProvider: { .sameNetwork }
@@ -222,6 +225,71 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
 
         let broken = try XCTUnwrap(result.servers.first(where: { $0.id == "server-bad" }))
         XCTAssertEqual(broken.libraries.count, 0)
+        XCTAssertEqual(broken.capabilities?.lyricsSupport, .supported)
+        XCTAssertEqual(result.serverCapabilityErrors.count, 0)
+    }
+
+    func testDiscoverAccountRecordsCapabilityFailureWithoutDroppingLibraries() async throws {
+        let user = try decodeUser(
+            """
+            {
+              "id": 42,
+              "uuid": "user-uuid",
+              "username": "felicity",
+              "title": "Felicity",
+              "email": "user@example.com"
+            }
+            """
+        )
+        let resources = try decodeResources(
+            """
+            [
+              {
+                "name": "Music Server",
+                "product": "Plex Media Server",
+                "productVersion": "1.40.0",
+                "platform": "Linux",
+                "platformVersion": "6.0",
+                "device": "Linux",
+                "clientIdentifier": "server-a",
+                "provides": "server",
+                "owned": true,
+                "accessToken": "server-a-token",
+                "connections": [
+                  { "uri": "https://remote-a.plex.direct:32400", "local": false, "relay": false, "protocol": "https" }
+                ]
+              }
+            ]
+            """
+        )
+
+        let service = PlexAccountDiscoveryService(
+            client: MockClient(
+                user: user,
+                resources: resources,
+                librariesByServerID: [
+                    "server-a": .success(
+                        try decodeSections(
+                            """
+                            [
+                              { "key": "1", "title": "Music", "type": "artist" }
+                            ]
+                            """
+                        )
+                    )
+                ],
+                capabilitiesByServerID: ["server-a": .failure(MockError.serverUnavailable)]
+            ),
+            allowInsecurePolicyProvider: { .sameNetwork }
+        )
+
+        let result = try await service.discoverAccount(authToken: "auth-token")
+
+        let server = try XCTUnwrap(result.servers.first)
+        XCTAssertEqual(server.libraries.map(\.title), ["Music"])
+        XCTAssertNil(server.capabilities)
+        XCTAssertEqual(result.serverCapabilityErrors["server-a"], "Server unavailable")
+        XCTAssertTrue(result.serverLibraryErrors.isEmpty)
     }
 
     func testDiscoverAccountPropagatesCancellationError() async throws {

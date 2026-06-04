@@ -9,6 +9,7 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
     var tracks: [Track] { get }
     var filteredTracks: [Track] { get }
     var isLoading: Bool { get }
+    var hasLoadedTracks: Bool { get }
     var error: String? { get }
     var totalDuration: String { get }
     var filterOptions: FilterOptions { get set }
@@ -23,6 +24,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     @Published public private(set) var album: Album
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
+    @Published public private(set) var hasLoadedTracks = false
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions
 
@@ -42,9 +44,14 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     public init(
         album: Album,
         libraryRepository: LibraryRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        initialTracks: [Track]? = nil
     ) {
         self.album = album
+        if let initialTracks {
+            self.tracks = initialTracks
+            self.hasLoadedTracks = true
+        }
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.filterOptions = FilterPersistence.load(for: "AlbumDetail")
@@ -54,6 +61,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
+        observeMetadataChanges()
     }
     
     private func setupFilterPersistence() {
@@ -69,17 +77,20 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         do {
             // First try to fetch from local repository
-            let cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
+            let cachedTracks: [CDTrack]
+            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey)
+            } else {
+                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
+            }
 
             if !cachedTracks.isEmpty {
                 let mapped = cachedTracks.map { Track(from: $0) }
-                #if DEBUG
                 // Diagnostic: detect "Unknown Track" entries to trace empty-title source
                 let unknownCount = mapped.filter { $0.title == "Unknown Track" }.count
                 if unknownCount > 0 {
                     EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
                 }
-                #endif
                 tracks = mapped
             } else if let sourceKey = album.sourceCompositeKey {
                 // If not found and we have a source key, try to fetch from API
@@ -92,6 +103,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             self.error = error.localizedDescription
         }
 
+        hasLoadedTracks = true
         isLoading = false
     }
     
@@ -116,11 +128,16 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         guard let artistId = album.artistRatingKey else { return }
 
         do {
-            let cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
+            let cachedAlbums: [CDAlbum]
+            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId, sourceCompositeKey: sourceKey)
+            } else {
+                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
+            }
             if !cachedAlbums.isEmpty {
                 relatedAlbums = cachedAlbums
                     .map { Album(from: $0) }
-                    .filter { $0.id != album.id }
+                    .filter { $0.sourceScopedID != album.sourceScopedID }
             } else if let sourceKey = album.sourceCompositeKey {
                 // Fallback to API if not found locally
                 EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")
@@ -157,6 +174,18 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             .store(in: &cancellables)
     }
 
+    private func observeMetadataChanges() {
+        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.loadTracks()
+                    await self?.loadRelatedAlbums()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
     // MARK: - Filtered Collections
     
     /// Filtered tracks based on current filter options
@@ -178,22 +207,6 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     // MARK: - Filter Application
     
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        var filtered = tracks
-        
-        // Search text filter
-        if !options.searchText.isEmpty {
-            let searchLower = options.searchText.lowercased()
-            filtered = filtered.filter {
-                $0.title.lowercased().contains(searchLower) ||
-                ($0.artistName?.lowercased().contains(searchLower) ?? false)
-            }
-        }
-        
-        // Downloaded only filter
-        if options.showDownloadedOnly {
-            filtered = filtered.filter { $0.isDownloaded }
-        }
-        
-        return filtered
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .albumDetail)
     }
 }

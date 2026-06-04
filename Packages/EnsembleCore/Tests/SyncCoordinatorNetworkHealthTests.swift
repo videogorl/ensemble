@@ -85,8 +85,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int { 0 }
-        func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
@@ -462,6 +460,26 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
 
         XCTAssertEqual(status.connectionState, .connected(url: "https://example.com"))
         XCTAssertEqual(status.syncStatus, .lastSynced(previousSyncDate))
+    }
+
+    func testIncrementalSyncFallsBackToFullSyncWhenNoPreviousSyncExists() async {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
+
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(
+                sourceIdentifier: source,
+                libraryResult: .success(LibrarySyncResult(changedAlbums: 1)),
+                playlistResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            ),
+            status: MusicSourceStatus(syncStatus: .idle, connectionState: .connected(url: "https://example.com"))
+        )
+
+        await coordinator.syncIncremental(source: source)
+
+        XCTAssertEqual(coordinator.lastContentChange?.source, source)
+        XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedAlbums, 1)
+        XCTAssertTrue(coordinator.lastContentChange?.affectsPlaylists == true)
     }
 }
 

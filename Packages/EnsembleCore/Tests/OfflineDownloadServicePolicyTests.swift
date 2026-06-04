@@ -80,10 +80,39 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private final class MockDownloadManager: DownloadManagerProtocol, @unchecked Sendable {
-        func fetchDownloads() async throws -> [CDDownload] { [] }
+        private let lock = NSLock()
+        private var _statusUpdates: [([CDDownload.Status], CDDownload.Status)] = []
+        private var _fetchDownloadsCount = 0
+        private var _fetchCompletedDownloadsCount = 0
+
+        var statusUpdates: [([CDDownload.Status], CDDownload.Status)] {
+            lock.withLock { _statusUpdates }
+        }
+
+        var fetchDownloadsCount: Int {
+            lock.withLock { _fetchDownloadsCount }
+        }
+
+        var fetchCompletedDownloadsCount: Int {
+            lock.withLock { _fetchCompletedDownloadsCount }
+        }
+
+        func resetStatusUpdates() {
+            lock.withLock {
+                _statusUpdates.removeAll()
+            }
+        }
+
+        func fetchDownloads() async throws -> [CDDownload] {
+            lock.withLock { _fetchDownloadsCount += 1 }
+            return []
+        }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
-        func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
+        func fetchCompletedDownloads() async throws -> [CDDownload] {
+            lock.withLock { _fetchCompletedDownloadsCount += 1 }
+            return []
+        }
         func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
@@ -92,7 +121,11 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func batchCreateDownloads(references: [OfflineTrackReference], quality: String) async throws -> Int { 0 }
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
-        func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
+        func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {
+            lock.withLock {
+                _statusUpdates.append((statuses, status))
+            }
+        }
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
         func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
@@ -122,8 +155,6 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private final class MockArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        func predownloadArtwork(for albums: [CDAlbum], size: Int) async throws -> Int { 0 }
-        func predownloadArtwork(for artists: [CDArtist], size: Int) async throws -> Int { 0 }
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
@@ -134,17 +165,36 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
-    private final class MockBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinating {
+    private final class MockBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
         var onExecutionRequested: (() -> Void)?
         var onExpiration: (() -> Void)?
+        var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)?
+        var onSystemWillSleep: (() -> Void)?
+        var onSystemDidWake: (() -> Void)?
+        var continuedProcessingRequests: [Int] = []
 
         func register() {}
-        func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
+        func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
+            continuedProcessingRequests.append(pendingTrackCount)
+        }
         func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
         func finishCurrentTask(success: Bool) {}
+        func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+            onBackgroundURLSessionEvents?(identifier, completionHandler)
+        }
+        func completeBackgroundURLSessionEvents(identifier: String) {}
+        func handleSystemWillSleep() {
+            onSystemWillSleep?()
+        }
+        func handleSystemDidWake() {
+            onSystemDidWake?()
+        }
     }
 
-    private func makeService() async -> OfflineDownloadService {
+    private func makeService(
+        downloadManager: MockDownloadManager = MockDownloadManager(),
+        backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil
+    ) async -> OfflineDownloadService {
         let accountManager = AccountManager(keychain: TestKeychain())
         let libraryRepository = MockLibraryRepository()
         let playlistRepository = MockPlaylistRepository()
@@ -153,6 +203,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             monitorQueue: DispatchQueue(label: "test.network.monitor"),
             monitorFactory: { SystemNetworkPathMonitor() }
         )
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
         let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let syncCoordinator = SyncCoordinator(
             accountManager: accountManager,
@@ -164,13 +215,13 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         )
 
         let service = OfflineDownloadService(
-            downloadManager: MockDownloadManager(),
+            downloadManager: downloadManager,
             targetRepository: MockTargetRepository(),
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             networkMonitor: networkMonitor,
-            backgroundExecutionCoordinator: MockBackgroundExecutionCoordinator(),
+            backgroundExecutionCoordinator: backgroundCoordinator ?? MockBackgroundExecutionCoordinator(),
             artworkDownloadManager: MockArtworkDownloadManager(),
             toastCenter: ToastCenter(),
             lyricsService: LyricsService(syncCoordinator: syncCoordinator)
@@ -201,6 +252,22 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(service.currentDownloadWorkMode, .foregroundIdle)
     }
 
+    func testLaunchRecoveryDoesNotRunHeavyDownloadHealingBeforeFirstInteraction() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(downloadManager: downloadManager)
+
+        await Task.yield()
+        await service.handleAppWillEnterForeground()
+        await Task.yield()
+
+        XCTAssertEqual(downloadManager.fetchDownloadsCount, 0)
+        XCTAssertEqual(downloadManager.fetchCompletedDownloadsCount, 0)
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] },
+            "Launch should still recover interrupted .downloading records without scanning every completed file."
+        )
+    }
+
     func testBackgroundLifecycleOverridesPlaybackWorkMode() async {
         let service = await makeService()
         let trackPublisher = CurrentValueSubject<Track?, Never>(nil)
@@ -218,5 +285,62 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.handleAppWillEnterForeground()
         XCTAssertEqual(service.currentDownloadWorkMode, .interactivePlayback)
+    }
+
+    func testBackgroundLifecycleDoesNotPauseDownloadingRecordsImmediately() async {
+        let downloadManager = MockDownloadManager()
+        let backgroundCoordinator = MockBackgroundExecutionCoordinator()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            backgroundCoordinator: backgroundCoordinator
+        )
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.resetStatusUpdates()
+
+        await service.handleAppDidEnterBackground()
+
+        XCTAssertEqual(service.currentDownloadWorkMode, .background)
+        XCTAssertFalse(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] && $0.1 == .paused },
+            "Backgrounding should request an execution window and leave active downloads running until expiration."
+        )
+        XCTAssertEqual(backgroundCoordinator.continuedProcessingRequests.count, 1)
+    }
+
+    func testSystemSleepMarksDownloadingRecordsPaused() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(downloadManager: downloadManager)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.resetStatusUpdates()
+
+        await service.handleSystemWillSleep()
+
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] && $0.1 == .paused }
+        )
+    }
+
+    func testBackgroundURLSessionWakeRunsRecoveryBeforeCompletion() async {
+        let downloadManager = MockDownloadManager()
+        let backgroundCoordinator = OfflineBackgroundExecutionCoordinator()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            backgroundCoordinator: backgroundCoordinator
+        )
+        _ = service
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.resetStatusUpdates()
+        var didComplete = false
+
+        backgroundCoordinator.handleBackgroundURLSessionEvents(identifier: "com.test.downloads") {
+            didComplete = true
+        }
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertTrue(didComplete)
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] }
+        )
     }
 }

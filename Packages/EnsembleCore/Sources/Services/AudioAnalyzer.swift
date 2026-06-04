@@ -2,23 +2,30 @@ import Accelerate
 import AVFoundation
 import Combine
 import Foundation
-
-#if DEBUG
 import os
+
 private let logger = Logger(subsystem: "com.felicity.Ensemble", category: "AudioAnalyzer")
-#endif
+
+public enum VisualizationConsumer: String, CaseIterable, Sendable {
+    case phoneOverlay
+    case nowPlayingSheet
+    case nowPlayingViewport
+    case stageFlow
+    case externalDisplay
+    case rootBackdrop
+}
 
 // MARK: - Audio Analyzer Protocol
 
 /// Protocol for pre-computed frequency analysis decoupled from the audio pipeline.
 /// Timelines are analyzed from audio files on disk, then played back in sync with
-/// AVPlayer's current time via a 30Hz display timer.
+/// AVPlayer's current time via an adaptive display timer.
 @MainActor
 public protocol AudioAnalyzerProtocol: AnyObject {
     /// Current frequency bands (24 bands from 60Hz to 16kHz)
     var frequencyBands: [Double] { get }
 
-    /// Publisher for frequency band updates (~30 Hz)
+    /// Publisher for frequency band updates.
     var frequencyBandsPublisher: AnyPublisher<[Double], Never> { get }
 
     /// Pre-compute frequency data for a track (call during prefetch or item creation).
@@ -30,6 +37,9 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Activate a loaded timeline as the current display source.
     /// Starts the 30Hz display timer.
     @MainActor func activateTimeline(for trackId: String)
+
+    /// Activate a timeline at a known playback position.
+    @MainActor func activateTimeline(for trackId: String, at time: TimeInterval)
 
     /// Remove a track's cached timeline from memory.
     @MainActor func evictTimeline(for trackId: String)
@@ -59,6 +69,9 @@ public protocol AudioAnalyzerProtocol: AnyObject {
     /// Whether aurora visualization is enabled. When false, the 30Hz display timer
     /// is not started, saving CPU on low-end devices.
     @MainActor var visualizationEnabled: Bool { get set }
+
+    /// Registers whether a visualization surface is currently onscreen.
+    @MainActor func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool)
 }
 
 // MARK: - Frequency Snapshot
@@ -184,7 +197,7 @@ public enum FrequencyAnalysisError: Error {
 // MARK: - Frequency Analysis Service
 
 /// Pre-computed frequency analyzer. Reads audio files on a background thread, runs FFT
-/// to produce time-indexed frequency snapshots, and drives a 30Hz display timer synced
+/// to produce time-indexed frequency snapshots, and drives an adaptive display timer synced
 /// to AVPlayer's current playback position. Completely decoupled from the audio pipeline.
 @MainActor
 public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
@@ -193,16 +206,20 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     private let bandCount = 24
     private let fftSize = 1024
-    private let minFrequency: Double = 60.0
-    private let maxFrequency: Double = 16000.0
-    private let targetFPS: Double = 30.0
+    private let highTargetFPS: Double = 30.0
 
-    // MARK: - Published State
+    // MARK: - Display State
 
-    @Published public private(set) var frequencyBands: [Double] = []
+    private let frequencyBandsSubject = CurrentValueSubject<[Double], Never>(
+        Array(repeating: 0.0, count: 24)
+    )
+
+    public var frequencyBands: [Double] {
+        frequencyBandsSubject.value
+    }
 
     public var frequencyBandsPublisher: AnyPublisher<[Double], Never> {
-        $frequencyBands.eraseToAnyPublisher()
+        frequencyBandsSubject.eraseToAnyPublisher()
     }
 
     // MARK: - Internal State
@@ -215,6 +232,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// 30Hz display timer
     private var displayTimer: Timer?
+    private var activeDisplayFPS: Double?
 
     /// Last known playback position (set by updatePlaybackPosition)
     private var currentPlaybackTime: TimeInterval = 0
@@ -231,13 +249,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     public var visualizationEnabled: Bool = true {
         didSet {
             guard visualizationEnabled != oldValue else { return }
-            if !visualizationEnabled {
-                // Stop the 30Hz timer immediately when disabled
-                stopDisplayTimer()
-            } else if activeTrackId != nil && !isPaused {
-                // Re-enable: start the timer if we have an active, unpaused track
-                startDisplayTimer()
-            }
+            updateDisplayTimerState(trigger: "visualizationEnabled")
         }
     }
 
@@ -248,15 +260,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
     /// In-flight analysis tasks (to avoid duplicate work)
     private var analysisTasks: [String: Task<Void, Never>] = [:]
+    private var visibleVisualizationConsumers = Set<VisualizationConsumer>()
 
     // MARK: - Init
 
     public init() {
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
-
-        #if DEBUG
         logger.debug("FrequencyAnalysisService initialized (pre-computed, no audio tap)")
-        #endif
     }
 
     deinit {
@@ -267,23 +276,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Timeline Loading
 
     public func loadTimeline(for trackId: String, fileURL: URL, priority: TaskPriority = .utility, throttled: Bool = false) async {
-        #if DEBUG
-        logger.debug("loadTimeline called for \(trackId), url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
-        #endif
+        logger.debug("loadTimeline called isFile=\(fileURL.isFileURL)")
 
         // Already cached or loading
         if timelines[trackId] != nil || analysisTasks[trackId] != nil {
-            #if DEBUG
-            logger.debug("loadTimeline skipped \(trackId): cached=\(self.timelines[trackId] != nil), loading=\(self.analysisTasks[trackId] != nil)")
-            #endif
+            logger.debug("loadTimeline skipped cached=\(self.timelines[trackId] != nil), loading=\(self.analysisTasks[trackId] != nil)")
             return
         }
 
         // Only analyze local files (not remote stream URLs)
         guard fileURL.isFileURL else {
-            #if DEBUG
-            logger.debug("loadTimeline skipped \(trackId): not a file URL")
-            #endif
+            logger.debug("loadTimeline skipped: not a file URL")
             return
         }
 
@@ -293,14 +296,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             do {
                 let timeline = try FrequencyTimelinePersistence.load(from: sidecarURL)
                 timelines[trackId] = timeline
-                #if DEBUG
-                logger.debug("Loaded sidecar timeline for \(trackId): \(timeline.snapshots.count) frames")
-                #endif
+                logger.debug("Loaded sidecar timeline frames=\(timeline.snapshots.count)")
                 return
             } catch {
-                #if DEBUG
                 logger.debug("Failed to load sidecar for \(trackId), will re-analyze: \(error)")
-                #endif
             }
         }
 
@@ -310,15 +309,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         if priority == .userInitiated {
             for (existingId, existingTask) in analysisTasks {
                 existingTask.cancel()
-                #if DEBUG
                 logger.debug("Cancelled analysis for \(existingId) to prioritize \(trackId)")
-                #endif
             }
             analysisTasks.removeAll()
         } else if !analysisTasks.isEmpty {
-            #if DEBUG
             logger.debug("Skipping prefetch analysis for \(trackId): another analysis is running")
-            #endif
             return
         }
 
@@ -329,16 +324,17 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let capturedFileURL = fileURL
         let capturedPriority = priority
         let capturedThrottled = throttled
-        let analysisTask = Task { [weak self] in
+        let service = self
+        let analysisTask = Task { [service] in
             let timeline = await Self.analyzeInBackground(
                 fileURL: capturedFileURL,
                 priority: capturedPriority,
                 throttled: capturedThrottled
             ) { partialSnapshots, fps, analyzedDur, totalDur in
                 // Progressive update: publish partial timeline to main actor
-                Task { @MainActor [weak self] in
-                    guard let self, !Task.isCancelled else { return }
-                    self.timelines[trackId] = FrequencyTimeline(
+                Task { @MainActor [service] in
+                    guard !Task.isCancelled else { return }
+                    service.timelines[trackId] = FrequencyTimeline(
                         snapshots: partialSnapshots,
                         framesPerSecond: fps,
                         duration: totalDur,
@@ -346,10 +342,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                     )
                 }
             }
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled else { return }
 
             if let timeline {
-                self.timelines[trackId] = timeline
+                service.timelines[trackId] = timeline
 
                 // Save sidecar for downloaded files (not temp/cache files)
                 // Downloaded files live in the app's Documents/Downloads directory
@@ -359,16 +355,12 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                     }
                 }
 
-                #if DEBUG
                 logger.debug("Analyzed timeline for \(trackId): \(timeline.snapshots.count) frames, \(String(format: "%.1f", timeline.duration))s")
-                #endif
             } else {
-                #if DEBUG
                 logger.debug("Analysis returned nil for \(trackId) — file may be unsupported")
-                #endif
             }
 
-            self.analysisTasks.removeValue(forKey: trackId)
+            service.analysisTasks.removeValue(forKey: trackId)
         }
         analysisTasks[trackId] = analysisTask
         // Only await if this task hasn't been replaced by a higher-priority one.
@@ -383,26 +375,23 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Timeline Activation
 
     public func activateTimeline(for trackId: String) {
+        activateTimeline(for: trackId, at: 0)
+    }
+
+    public func activateTimeline(for trackId: String, at time: TimeInterval) {
         activeTrackId = trackId
         isPaused = true  // Start paused — timer won't interpolate until resumeUpdates() on confirmed playback
-        currentPlaybackTime = 0
+        currentPlaybackTime = max(0, time)
         positionUpdateWallTime = CACurrentMediaTime()
 
         // Clear bands immediately so stale data from the previous track doesn't persist
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
+        publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
 
-        // Only start the 30Hz display timer when visualization is enabled.
-        // On A9 (dual-core), the timer + Gaussian blending + array allocations
-        // consume measurable CPU even when the aurora Canvas isn't rendering.
-        if visualizationEnabled {
-            startDisplayTimer()
-        }
+        updateDisplayTimerState(trigger: "activateTimeline")
 
-        #if DEBUG
         let hasTimeline = timelines[trackId] != nil
         let vizEnabled = visualizationEnabled
         logger.debug("Activated timeline for \(trackId), hasData=\(hasTimeline), vizEnabled=\(vizEnabled)")
-        #endif
     }
 
     // MARK: - Eviction
@@ -415,8 +404,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         // If we evicted the active timeline, clear the display
         if activeTrackId == trackId {
             activeTrackId = nil
-            stopDisplayTimer()
-            frequencyBands = Array(repeating: 0.0, count: bandCount)
+            updateDisplayTimerState(trigger: "evictTimeline")
+            publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
         }
     }
 
@@ -430,44 +419,31 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     // MARK: - Lifecycle
 
     public func stopAnalysis() {
-        displayTimer?.invalidate()
-        displayTimer = nil
+        stopDisplayTimer(reason: "stopAnalysis")
         activeTrackId = nil
         isPaused = false
         timelines.removeAll()
         for task in analysisTasks.values { task.cancel() }
         analysisTasks.removeAll()
-        frequencyBands = Array(repeating: 0.0, count: bandCount)
+        publishFrequencyBands(Array(repeating: 0.0, count: bandCount), force: true)
 
-        #if DEBUG
         logger.debug("Frequency analysis stopped")
-        #endif
     }
 
     public func pauseUpdates() {
         isPaused = true
-        stopDisplayTimer() // Actually stop the timer, not just flag — saves ~3ms/sec of main thread
+        updateDisplayTimerState(trigger: "pauseUpdates")
 
-        #if DEBUG
         logger.debug("Frequency updates paused (timer stopped)")
-        #endif
     }
 
     public func resumeUpdates() {
         guard isPaused else { return }
         isPaused = false
         positionUpdateWallTime = CACurrentMediaTime()
+        updateDisplayTimerState(trigger: "resumeUpdates")
 
-        // Restart the timer now that we're unpaused.
-        // Also handles the case where visualization was enabled after activateTimeline()
-        // was called without it (e.g. user toggles aurora on mid-playback).
-        if visualizationEnabled && activeTrackId != nil {
-            startDisplayTimer()
-        }
-
-        #if DEBUG
         logger.debug("Frequency updates resumed (timer restarted)")
-        #endif
     }
 
     // MARK: - App Lifecycle
@@ -476,40 +452,103 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
     /// the music-pause state is preserved for when the app returns to foreground.
     public func enterBackground() {
         isBackgrounded = true
-        stopDisplayTimer()
+        updateDisplayTimerState(trigger: "enterBackground")
     }
 
     /// Restart the display timer when the app foregrounds — but only if music was
     /// actively playing (not paused by the user or a track transition).
     public func exitBackground() {
         isBackgrounded = false
-        if !isPaused && visualizationEnabled && activeTrackId != nil {
-            startDisplayTimer()
+        updateDisplayTimerState(trigger: "exitBackground")
+    }
+
+    public func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool) {
+        let changed: Bool
+        if isVisible {
+            changed = visibleVisualizationConsumers.insert(consumer).inserted
+        } else {
+            changed = visibleVisualizationConsumers.remove(consumer) != nil
         }
+
+        guard changed else { return }
+
+        logger.debug("Visualization consumer \(consumer.rawValue) visible=\(isVisible) total=\(self.visibleVisualizationConsumers.count)")
+
+        updateDisplayTimerState(trigger: "consumer:\(consumer.rawValue)")
     }
 
     // MARK: - Display Timer
 
-    /// Start a 30Hz timer that reads the active timeline and publishes bands.
+    private var desiredDisplayFPS: Double? {
+        guard !visibleVisualizationConsumers.isEmpty else { return nil }
+
+        // Keep Aurora visually responsive at 30Hz. Main-thread pressure is managed
+        // by coalescing no-op band publishes and moving surface shaping off the
+        // SwiftUI receive path, not by reducing the visualizer cadence.
+        return highTargetFPS
+    }
+
+    private func updateDisplayTimerState(trigger: String) {
+        guard visualizationEnabled else {
+            stopDisplayTimer(reason: "\(trigger):visualizationDisabled")
+            return
+        }
+
+        guard !isBackgrounded else {
+            stopDisplayTimer(reason: "\(trigger):backgrounded")
+            return
+        }
+
+        guard activeTrackId != nil else {
+            stopDisplayTimer(reason: "\(trigger):noActiveTrack")
+            return
+        }
+
+        guard !isPaused else {
+            stopDisplayTimer(reason: "\(trigger):paused")
+            return
+        }
+
+        guard let fps = desiredDisplayFPS else {
+            stopDisplayTimer(reason: "\(trigger):noVisibleConsumers")
+            return
+        }
+
+        startDisplayTimer(fps: fps, reason: trigger)
+    }
+
+    /// Start a timer that reads the active timeline and publishes bands.
     /// Timer runs on RunLoop.main so tickDisplay() executes on the main thread directly
-    /// without the overhead of a Task { @MainActor } hop 30x/sec.
-    private func startDisplayTimer() {
-        displayTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0 / targetFPS, repeats: true) { [weak self] _ in
+    /// without the overhead of a Task { @MainActor } hop on every frame.
+    private func startDisplayTimer(fps: Double, reason: String) {
+        if displayTimer != nil, activeDisplayFPS == fps {
+            return
+        }
+
+        stopDisplayTimer(reason: "\(reason):restart")
+
+        let timer = Timer(timeInterval: 1.0 / fps, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.tickDisplay()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
         displayTimer = timer
+        activeDisplayFPS = fps
+
+        logger.debug("Display timer started fps=\(fps, format: .fixed(precision: 0)) reason=\(reason)")
     }
 
-    private func stopDisplayTimer() {
+    private func stopDisplayTimer(reason: String) {
+        guard displayTimer != nil else { return }
         displayTimer?.invalidate()
         displayTimer = nil
+        activeDisplayFPS = nil
+
+        logger.debug("Display timer stopped reason=\(reason)")
     }
 
-    /// Called ~30 times per second by the display timer
+    /// Called by the display timer to publish the latest interpolated bands.
     private func tickDisplay() {
         guard !isPaused, !isBackgrounded,
               let trackId = activeTrackId,
@@ -522,12 +561,38 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let wallElapsed = CACurrentMediaTime() - positionUpdateWallTime
         let interpolatedTime = currentPlaybackTime + wallElapsed
 
-        let newBands = timeline.bands(at: interpolatedTime)
+        publishFrequencyBands(timeline.bands(at: interpolatedTime), force: false)
+    }
 
-        // Skip publish if bands haven't changed — avoids firing @Published -> objectWillChange
-        // chain 30x/sec when the visualizer is showing silence or a held frame
-        guard newBands != frequencyBands else { return }
-        frequencyBands = newBands
+    private func publishFrequencyBands(_ bands: [Double], force: Bool) {
+        let currentBands = frequencyBandsSubject.value
+        guard force || Self.shouldPublishBands(bands, comparedTo: currentBands) else { return }
+        frequencyBandsSubject.send(bands)
+    }
+
+    private nonisolated static func shouldPublishBands(_ newBands: [Double], comparedTo currentBands: [Double]) -> Bool {
+        guard newBands.count == currentBands.count else { return true }
+        let minimumVisibleDelta = 0.003
+
+        for (newValue, currentValue) in zip(newBands, currentBands) {
+            if abs(newValue - currentValue) >= minimumVisibleDelta {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    internal var visibleVisualizationConsumersForTesting: Set<VisualizationConsumer> {
+        visibleVisualizationConsumers
+    }
+
+    internal var isDisplayTimerRunningForTesting: Bool {
+        displayTimer != nil
+    }
+
+    internal var activeDisplayFPSForTesting: Double? {
+        activeDisplayFPS
     }
 
     // MARK: - Static FFT Analysis (runs on background thread)
@@ -567,10 +632,8 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         throttled: Bool = false,
         progressHandler: ProgressHandler? = nil
     ) -> FrequencyTimeline? {
-        #if DEBUG
         let startTime = CACurrentMediaTime()
-        NSLog("[FrequencyAnalysis] analyzeFile START: %@", fileURL.lastPathComponent)
-        #endif
+        logger.debug("Frequency analysis started isFile=\(fileURL.isFileURL)")
 
         // Open audio file — try directly first, then fall back to symlink probing
         // for files with unrecognized extensions (e.g. ".audio" from stream cache).
@@ -582,11 +645,11 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             audioFile = file
             tempSymlink = symlink
         } else {
-            #if DEBUG
             let exists = FileManager.default.fileExists(atPath: fileURL.path)
             let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int64) ?? -1
-            NSLog("[FrequencyAnalysis] Failed to open: %@ (exists=%d, size=%lld)", fileURL.lastPathComponent, exists, size)
-            #endif
+            logger.error(
+                "Frequency analysis failed to open file=\(fileURL.lastPathComponent, privacy: .public) exists=\(exists, privacy: .public) size=\(size, privacy: .public)"
+            )
             return nil
         }
         defer { if let tempSymlink { try? FileManager.default.removeItem(at: tempSymlink) } }
@@ -598,9 +661,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         let duration = Double(totalFrames) / sampleRate
         let processingFormat = audioFile.processingFormat
         let channelCount = Int(processingFormat.channelCount)
-        #if DEBUG
-        NSLog("[FrequencyAnalysis] Opened: %.1fs, %.0fHz, ch=%u", duration, sampleRate, channelCount)
-        #endif
+        logger.debug(
+            "Frequency analysis opened duration=\(duration, format: .fixed(precision: 1)) sampleRate=\(sampleRate, format: .fixed(precision: 0)) channels=\(channelCount, privacy: .public)"
+        )
 
         // Seek-based analysis at 10fps with progressive loading.
         // Each seek + decode of 1024 samples takes ~14ms on A9 (dual core).
@@ -620,7 +683,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         // Log-spaced frequency band edges (60Hz - 16kHz, 24 bands)
         let logMin = log10(60.0), logMax = log10(16000.0)
-        var bandEdges = (0...bandCount).map { i in
+        let bandEdges = (0...bandCount).map { i in
             pow(10, logMin + (Double(i) / Double(bandCount)) * (logMax - logMin))
         }
 
@@ -640,6 +703,13 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
         var magnitudes = [Float](repeating: 0, count: fftSize / 2)
         var normalizedMags = [Float](repeating: 0, count: fftSize / 2)
         let binSize = sampleRate / Double(fftSize)
+        let maxBin = fftSize / 2
+        let bandBinRanges: [Range<Int>] = (0..<bandCount).map { index in
+            let lower = min(maxBin, max(0, Int(bandEdges[index] / binSize)))
+            let rawUpper = Int(bandEdges[index + 1] / binSize)
+            let upper = min(maxBin, max(lower, rawUpper))
+            return lower..<upper
+        }
 
         // Analyze at 10fps keyframes by seeking to each point
         let keyframeCount = Int(ceil(duration * analysisFPS))
@@ -699,29 +769,31 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 }
 
                 // FFT
-                realParts = [Float](repeating: 0, count: fftSize / 2)
-                imagParts = [Float](repeating: 0, count: fftSize / 2)
-                var splitComplex = DSPSplitComplex(realp: &realParts, imagp: &imagParts)
-                windowedSamples.withUnsafeBufferPointer { bufferPtr in
-                    bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
-                        vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                realParts.withUnsafeMutableBufferPointer { realPtr in
+                    imagParts.withUnsafeMutableBufferPointer { imagPtr in
+                        guard let realBase = realPtr.baseAddress, let imagBase = imagPtr.baseAddress else { return }
+                        var splitComplex = DSPSplitComplex(realp: realBase, imagp: imagBase)
+                        windowedSamples.withUnsafeBufferPointer { bufferPtr in
+                            bufferPtr.baseAddress!.withMemoryRebound(to: DSPComplex.self, capacity: fftSize / 2) { complexPtr in
+                                vDSP_ctoz(complexPtr, 2, &splitComplex, 1, vDSP_Length(fftSize / 2))
+                            }
+                        }
+                        vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
+                        vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
                     }
                 }
-                vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2n, FFTDirection(FFT_FORWARD))
-                vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
                 var divisor = Float(fftSize * 2)
                 vDSP_vsdiv(magnitudes, 1, &divisor, &normalizedMags, 1, vDSP_Length(fftSize / 2))
 
                 // Extract 24 logarithmic frequency bands
                 var bandValues = [UInt8](repeating: 0, count: bandCount)
                 for i in 0..<bandCount {
-                    let lowerBin = Int(bandEdges[i] / binSize)
-                    let upperBin = Int(bandEdges[i + 1] / binSize)
-                    guard lowerBin < normalizedMags.count else { continue }
+                    let bins = bandBinRanges[i]
+                    guard !bins.isEmpty else { continue }
 
                     var sum: Float = 0
                     var count = 0
-                    for bin in lowerBin..<min(upperBin, normalizedMags.count) {
+                    for bin in bins {
                         sum += normalizedMags[bin]
                         count += 1
                     }
@@ -743,9 +815,7 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
                 }
             }
         } catch {
-            #if DEBUG
-            NSLog("[FrequencyAnalysis] Read error: %@", "\(error)")
-            #endif
+            logger.error("Frequency analysis read failed: \(error.localizedDescription, privacy: .public)")
             // Return whatever we have so far (partial analysis is better than nothing)
             if !keyframes.isEmpty {
                 let analyzedSoFar = Double(keyframes.count) / analysisFPS
@@ -761,11 +831,10 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
 
         guard !keyframes.isEmpty else { return nil }
 
-        #if DEBUG
         let elapsed = CACurrentMediaTime() - startTime
-        NSLog("[FrequencyAnalysis] Complete: %d keyframes for %.1fs (took %.2fs)",
-              keyframes.count, duration, elapsed)
-        #endif
+        logger.debug(
+            "Frequency analysis complete keyframes=\(keyframes.count, privacy: .public) duration=\(duration, format: .fixed(precision: 1)) elapsed=\(elapsed, format: .fixed(precision: 2))"
+        )
 
         // Store keyframes at analysis FPS. The display timer
         // interpolates between them at 30Hz via bands(at:).
@@ -793,9 +862,9 @@ public final class FrequencyAnalysisService: AudioAnalyzerProtocol {
             do {
                 try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: fileURL)
                 if let file = try? AVAudioFile(forReading: symlink) {
-                    #if DEBUG
-                    NSLog("[FrequencyAnalysis] Opened file via extension probe: .%@ for %@", ext, fileURL.lastPathComponent)
-                    #endif
+                    logger.debug(
+                        "Frequency analysis opened via extension probe ext=\(ext, privacy: .public) file=\(fileURL.lastPathComponent, privacy: .public)"
+                    )
                     return (file, symlink)
                 }
                 try? FileManager.default.removeItem(at: symlink)

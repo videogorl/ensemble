@@ -1,4 +1,5 @@
 import EnsemblePersistence
+import EnsembleSiriShared
 import Foundation
 
 /// Resolved playback request used by Siri execution entry points.
@@ -27,13 +28,13 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .unsupportedPayloadVersion(let version):
+        case let .unsupportedPayloadVersion(version):
             return "Unsupported Siri request version (\(version))."
         case .noEnabledSources:
             return "No enabled music sources are available."
-        case .mediaNotFound(let kind):
+        case let .mediaNotFound(kind):
             return "\(kind.rawValue.capitalized) could not be found."
-        case .noPlayableTracks(let kind):
+        case let .noPlayableTracks(kind):
             return "No playable tracks were found for this \(kind.rawValue)."
         }
     }
@@ -42,20 +43,7 @@ public enum SiriPlaybackCoordinatorError: Error, LocalizedError, Equatable {
 /// Executes Siri media play requests inside the main app process.
 @MainActor
 public final class SiriPlaybackCoordinator {
-    private static let appNameSuffixes = [" ensemble music", " ensemble"]
-    private static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    private static let leadingMediaTypePrefixes = [
-        "the playlist ",
-        "playlist ",
-        "the album ",
-        "album ",
-        "the artist ",
-        "artist ",
-        "the song ",
-        "song ",
-        "the track ",
-        "track "
-    ]
+    private static let favoritesPlaylistNames: Set<String> = ["favorites", "favourites"]
 
     private let accountManager: AccountManager
     private let libraryRepository: LibraryRepositoryProtocol
@@ -79,7 +67,8 @@ public final class SiriPlaybackCoordinator {
     public func handle(userActivity: NSUserActivity) async -> Bool {
         EnsembleLogger.debug("Siri playback coordinator received activity type: \(userActivity.activityType)")
         guard userActivity.activityType == SiriPlaybackActivityCodec.activityType,
-              let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo) else {
+              let payload = SiriPlaybackActivityCodec.payload(from: userActivity.userInfo)
+        else {
             EnsembleLogger.debug("Siri playback coordinator rejected activity (type/payload mismatch)")
             return false
         }
@@ -141,7 +130,16 @@ public final class SiriPlaybackCoordinator {
             throw SiriPlaybackCoordinatorError.noPlayableTracks(.track)
         }
 
-        await playbackService.play(track: track)
+        await playbackService.play(
+            track: track,
+            context: playbackContext(
+                kind: .track,
+                id: resolved.ratingKey,
+                sourceCompositeKey: resolved.sourceCompositeKey,
+                displayName: resolved.title,
+                secondaryText: resolved.artistName
+            )
+        )
     }
 
     /// Resolves an album and queues all playable tracks from track 1.
@@ -168,9 +166,28 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: playableTracks)
+            await playbackService.shufflePlay(
+                tracks: orderedArtistShuffleTracks(playableTracks),
+                context: playbackContext(
+                    kind: .album,
+                    id: resolvedAlbum.ratingKey,
+                    sourceCompositeKey: resolvedAlbum.sourceCompositeKey,
+                    displayName: resolvedAlbum.title,
+                    secondaryText: resolvedAlbum.artistName
+                )
+            )
         } else {
-            await playbackService.play(tracks: playableTracks, startingAt: 0)
+            await playbackService.play(
+                tracks: playableTracks,
+                startingAt: 0,
+                context: playbackContext(
+                    kind: .album,
+                    id: resolvedAlbum.ratingKey,
+                    sourceCompositeKey: resolvedAlbum.sourceCompositeKey,
+                    displayName: resolvedAlbum.title,
+                    secondaryText: resolvedAlbum.artistName
+                )
+            )
         }
     }
 
@@ -198,9 +215,28 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: playableTracks)
+            await playbackService.shufflePlay(
+                tracks: orderedArtistShuffleTracks(playableTracks),
+                context: playbackContext(
+                    kind: .artist,
+                    id: resolvedArtist.ratingKey,
+                    sourceCompositeKey: resolvedArtist.sourceCompositeKey,
+                    displayName: resolvedArtist.name,
+                    secondaryText: nil
+                )
+            )
         } else {
-            await playbackService.play(tracks: playableTracks, startingAt: 0)
+            await playbackService.play(
+                tracks: playableTracks,
+                startingAt: 0,
+                context: playbackContext(
+                    kind: .artist,
+                    id: resolvedArtist.ratingKey,
+                    sourceCompositeKey: resolvedArtist.sourceCompositeKey,
+                    displayName: resolvedArtist.name,
+                    secondaryText: nil
+                )
+            )
         }
     }
 
@@ -232,17 +268,59 @@ public final class SiriPlaybackCoordinator {
         }
 
         if request.shuffle {
-            await playbackService.shufflePlay(tracks: playableTracks)
+            await playbackService.shufflePlay(
+                tracks: playableTracks,
+                context: playbackContext(
+                    kind: .playlist,
+                    id: playlist.ratingKey,
+                    sourceCompositeKey: playlist.sourceCompositeKey,
+                    displayName: playlist.title,
+                    secondaryText: nil
+                )
+            )
         } else {
-            await playbackService.play(tracks: playableTracks, startingAt: 0)
+            await playbackService.play(
+                tracks: playableTracks,
+                startingAt: 0,
+                context: playbackContext(
+                    kind: .playlist,
+                    id: playlist.ratingKey,
+                    sourceCompositeKey: playlist.sourceCompositeKey,
+                    displayName: playlist.title,
+                    secondaryText: nil
+                )
+            )
         }
+    }
+
+    private func playbackContext(
+        kind: SiriMediaKind,
+        id: String,
+        sourceCompositeKey: String?,
+        displayName: String,
+        secondaryText: String?
+    ) -> PlaybackStartContext {
+        PlaybackStartContext(
+            origin: .siri,
+            source: PlaybackStartSource(kind: kind),
+            reference: SystemMediaReference(
+                kind: kind,
+                id: id,
+                sourceCompositeKey: sourceCompositeKey,
+                displayName: displayName,
+                secondaryText: secondaryText
+            )
+        )
     }
 
     private func resolveTrack(
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDTrack? {
-        if let direct = try await libraryRepository.fetchTrack(ratingKey: request.entityID) {
+        if let direct = try await libraryRepository.fetchTrack(
+            ratingKey: request.entityID,
+            sourceCompositeKey: request.sourceCompositeKey
+        ) {
             return direct
         }
 
@@ -270,7 +348,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await libraryRepository.fetchSiriEligibleTracks()
+        let fuzzyPool = try Array(await libraryRepository.fetchSiriEligibleTracks().prefix(800))
         let fuzzyCandidates = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -308,7 +386,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDAlbum? {
-        if let direct = try await libraryRepository.fetchAlbum(ratingKey: request.entityID) {
+        if let direct = try await libraryRepository.fetchAlbum(
+            ratingKey: request.entityID,
+            sourceCompositeKey: request.sourceCompositeKey
+        ) {
             return direct
         }
 
@@ -333,7 +414,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await libraryRepository.fetchAlbums()
+        let fuzzyPool = try Array(await libraryRepository.fetchAlbums().prefix(800))
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -356,7 +437,10 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDArtist? {
-        if let direct = try await libraryRepository.fetchArtist(ratingKey: request.entityID) {
+        if let direct = try await libraryRepository.fetchArtist(
+            ratingKey: request.entityID,
+            sourceCompositeKey: request.sourceCompositeKey
+        ) {
             return direct
         }
 
@@ -404,6 +488,13 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         playlistSearchSourceKeys: Set<String>
     ) async throws -> CDPlaylist? {
+        if let favorites = try await resolveFavoritesPlaylistIfNeeded(
+            request: request,
+            playlistSearchSourceKeys: playlistSearchSourceKeys
+        ) {
+            return favorites
+        }
+
         if let direct = try await playlistRepository.fetchPlaylist(
             ratingKey: request.entityID,
             sourceCompositeKey: request.sourceCompositeKey
@@ -421,7 +512,7 @@ public final class SiriPlaybackCoordinator {
         )
 
         if let resolved = choosePreferredCandidate(
-            from: candidates,
+            from: prioritizeExactPlaylistMatches(candidates, displayName: displayName),
             requestSource: request.sourceCompositeKey,
             requestDisplayName: request.displayName,
             name: { $0.title },
@@ -432,7 +523,7 @@ public final class SiriPlaybackCoordinator {
             return resolved
         }
 
-        let fuzzyPool = try await playlistRepository.fetchPlaylists()
+        let fuzzyPool = try Array(await playlistRepository.fetchPlaylists().prefix(600))
         let fuzzyMatches = fuzzyCandidates(
             from: fuzzyPool,
             request: request,
@@ -451,16 +542,47 @@ public final class SiriPlaybackCoordinator {
         )
     }
 
+    private func prioritizeExactPlaylistMatches(
+        _ playlists: [CDPlaylist],
+        displayName: String
+    ) -> [CDPlaylist] {
+        guard let normalizedDisplayName = normalize(displayName), !normalizedDisplayName.isEmpty else {
+            return playlists
+        }
+        let (exact, rest) = playlists.reduce(into: ([CDPlaylist](), [CDPlaylist]())) { result, playlist in
+            if normalize(playlist.title) == normalizedDisplayName {
+                result.0.append(playlist)
+            } else {
+                result.1.append(playlist)
+            }
+        }
+        return exact + rest
+    }
+
+    private func resolveFavoritesPlaylistIfNeeded(
+        request: SiriPlaybackRequest,
+        playlistSearchSourceKeys: Set<String>
+    ) async throws -> CDPlaylist? {
+        guard let displayName = bestQueryVariant(for: request.displayName) else { return nil }
+        guard let normalizedDisplayName = normalize(displayName),
+              Self.favoritesPlaylistNames.contains(normalizedDisplayName) else { return nil }
+
+        return try await playlistRepository.fetchPlaylists().first {
+            $0.isSmart &&
+                playlistSearchSourceKeys.contains($0.sourceCompositeKey ?? "") &&
+                Self.favoritesPlaylistNames.contains(normalize($0.title) ?? "")
+        }
+    }
+
     private func playableTracksForAlbum(
         album: CDAlbum,
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> [Track] {
-        let tracks = try await libraryRepository.fetchTracks(forAlbum: album.ratingKey)
+        return try await libraryRepository.fetchTracks(forAlbum: album.ratingKey)
             .map(Track.init(from:))
             .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? album.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
-        return tracks
     }
 
     private func playableTracksForArtist(
@@ -468,11 +590,22 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> [Track] {
-        let tracks = try await libraryRepository.fetchTracks(forArtist: artist.ratingKey)
+        return try await libraryRepository.fetchTracks(forArtist: artist.ratingKey)
             .map(Track.init(from:))
             .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? artist.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
-        return tracks
+    }
+
+    private func orderedArtistShuffleTracks(_ tracks: [Track]) -> [Track] {
+        tracks.sorted { lhs, rhs in
+            if lhs.albumName == rhs.albumName {
+                if lhs.discNumber == rhs.discNumber {
+                    return lhs.trackNumber < rhs.trackNumber
+                }
+                return lhs.discNumber < rhs.discNumber
+            }
+            return (lhs.albumName ?? lhs.title) < (rhs.albumName ?? rhs.title)
+        }
     }
 
     private func enabledLibrarySourceKeys() -> Set<String> {
@@ -584,130 +717,23 @@ public final class SiriPlaybackCoordinator {
     }
 
     private func normalize(_ value: String?) -> String? {
-        guard let value else { return nil }
-        return value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        SiriPhraseNormalizer.basic(value)
     }
 
     private func normalizedQueryVariants(for value: String?) -> [String] {
-        guard let base = normalize(value), !base.isEmpty else { return [] }
-
-        var variants = Set<String>()
-        variants.insert(base)
-        variants.insert(strippingLeadingMediaTypePrefix(from: base))
-        variants.insert(trimTrailingConnectorWords(in: base))
-        variants.insert(strippingLeadingMediaTypePrefix(from: trimTrailingConnectorWords(in: base)))
-
-        for suffix in Self.appNameSuffixes where base.hasSuffix(suffix) {
-            let trimmed = base.dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            variants.insert(trimTrailingConnectorWords(in: trimmed))
-            variants.insert(strippingLeadingMediaTypePrefix(from: trimTrailingConnectorWords(in: trimmed)))
-        }
-
-        return variants
-            .filter { !$0.isEmpty }
-            .sorted { lhs, rhs in
-                if lhs.count != rhs.count {
-                    return lhs.count < rhs.count
-                }
-                return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
-            }
+        SiriPhraseNormalizer.queryVariants(for: value)
     }
 
     private func bestQueryVariant(for value: String?) -> String? {
-        normalizedQueryVariants(for: value).first
-    }
-
-    private func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, Self.trailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private func strippingLeadingMediaTypePrefix(from value: String) -> String {
-        for prefix in Self.leadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = value.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty {
-                return stripped
-            }
-        }
-        return value
+        SiriPhraseNormalizer.bestQueryVariant(for: value)
     }
 
     private func matchScore(queries: [String], candidate: String) -> Double {
-        queries.reduce(0) { bestScore, query in
-            max(bestScore, matchScore(query: query, candidate: candidate))
-        }
+        SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
     }
 
     private func matchScore(query: String, candidate: String) -> Double {
-        guard !query.isEmpty, !candidate.isEmpty else { return 0 }
-        if candidate == query { return 1.0 }
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return 0.84 }
-        if candidate.contains(query) || query.contains(candidate) { return 0.7 }
-
-        var score = 0.0
-        let overlap = tokenOverlapScore(query: query, candidate: candidate)
-        if overlap >= 0.67 {
-            score = max(score, 0.45 + overlap * 0.35)
-        }
-
-        let similarity = normalizedEditSimilarity(lhs: query, rhs: candidate)
-        if similarity >= 0.66 {
-            score = max(score, 0.35 + similarity * 0.4)
-        }
-
-        return score
-    }
-
-    private func tokenOverlapScore(query: String, candidate: String) -> Double {
-        let queryTokens = Set(query.split(separator: " ").map(String.init))
-        let candidateTokens = Set(candidate.split(separator: " ").map(String.init))
-        guard !queryTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = queryTokens.intersection(candidateTokens).count
-        let referenceCount = max(queryTokens.count, candidateTokens.count)
-        return Double(overlap) / Double(referenceCount)
-    }
-
-    private func normalizedEditSimilarity(lhs: String, rhs: String) -> Double {
-        let lhsChars = Array(lhs)
-        let rhsChars = Array(rhs)
-        guard !lhsChars.isEmpty, !rhsChars.isEmpty else { return 0 }
-
-        var previous = Array(0...rhsChars.count)
-        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
-            var current = [lhsIndex + 1]
-            current.reserveCapacity(rhsChars.count + 1)
-
-            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
-                let insertion = current[rhsIndex] + 1
-                let deletion = previous[rhsIndex + 1] + 1
-                let substitution = previous[rhsIndex] + (lhsChar == rhsChar ? 0 : 1)
-                current.append(min(insertion, deletion, substitution))
-            }
-
-            previous = current
-        }
-
-        let distance = previous.last ?? max(lhsChars.count, rhsChars.count)
-        let normalizer = max(lhsChars.count, rhsChars.count)
-        return 1 - (Double(distance) / Double(normalizer))
-    }
-
-    private func trimmedNonEmpty(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
     }
 
     private func playlistSearchSourceKeys(from enabledLibrarySourceKeys: Set<String>) -> Set<String> {

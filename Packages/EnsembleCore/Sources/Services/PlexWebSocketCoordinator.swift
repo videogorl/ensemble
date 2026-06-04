@@ -23,6 +23,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private let accountManager: AccountManager
     private let connectionRegistry: ServerConnectionRegistry
     private let serverHealthChecker: ServerHealthChecker
+    private let networkMonitor: NetworkMonitor
     private let clientIdentifier: String
 
     /// Called when a library update notification arrives. Parameters: (sectionKey: String).
@@ -55,6 +56,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var managers: [String: PlexWebSocketManager] = [:]
     private var eventTasks: [String: Task<Void, Never>] = [:]
     private var accountObserver: AnyCancellable?
+    private var networkObserver: AnyCancellable?
     private var registrySubscriptionTask: Task<Void, Never>?
     private var isActive = false
 
@@ -75,11 +77,13 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         accountManager: AccountManager,
         connectionRegistry: ServerConnectionRegistry,
         serverHealthChecker: ServerHealthChecker,
+        networkMonitor: NetworkMonitor,
         clientIdentifier: String
     ) {
         self.accountManager = accountManager
         self.connectionRegistry = connectionRegistry
         self.serverHealthChecker = serverHealthChecker
+        self.networkMonitor = networkMonitor
         self.clientIdentifier = clientIdentifier
     }
 
@@ -92,8 +96,14 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         EnsembleLogger.debug("🔌 WebSocketCoordinator: Starting — accounts=\(accountManager.plexAccounts.count)")
 
-        // Connect to current servers
-        refreshConnections()
+        subscribeToNetworkChanges()
+
+        if networkMonitor.networkState.isConnected {
+            refreshConnections()
+        } else {
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Delaying start — network is \(networkMonitor.networkState.description)")
+            applyConnectedState(Set())
+        }
 
         // Observe account changes to add/remove connections
         accountObserver = accountManager.$plexAccounts
@@ -116,6 +126,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
         accountObserver?.cancel()
         accountObserver = nil
+        networkObserver?.cancel()
+        networkObserver = nil
         registrySubscriptionTask?.cancel()
         registrySubscriptionTask = nil
 
@@ -148,6 +160,11 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Sync WebSocket managers with current account/server configuration.
     private func refreshConnections() {
         guard isActive else { return }
+        guard networkMonitor.networkState.isConnected else {
+            EnsembleLogger.debug("🔌 WebSocketCoordinator: Skipping refresh — network is \(networkMonitor.networkState.description)")
+            disconnectManagersForOffline()
+            return
+        }
 
         var activeKeys = Set<String>()
 
@@ -236,6 +253,17 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         pendingLibraryUpdates.removeValue(forKey: serverKey)
         pendingPlaylistUpdates[serverKey]?.cancel()
         pendingPlaylistUpdates.removeValue(forKey: serverKey)
+    }
+
+    private func disconnectManagersForOffline() {
+        guard !managers.isEmpty || !connectedServerKeys.isEmpty else { return }
+
+        EnsembleLogger.debug("🔌 WebSocketCoordinator: Disconnecting managers while network is \(networkMonitor.networkState.description)")
+        for key in Array(managers.keys) {
+            removeManager(for: key)
+        }
+        managers.removeAll()
+        applyConnectedState(Set())
     }
 
     // MARK: - Event Routing
@@ -389,6 +417,22 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                 }
             }
         }
+    }
+
+    private func subscribeToNetworkChanges() {
+        networkObserver?.cancel()
+        networkObserver = networkMonitor.$networkState
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self, self.isActive else { return }
+                if state.isConnected {
+                    EnsembleLogger.debug("🔌 WebSocketCoordinator: Network restored — refreshing connections")
+                    self.refreshConnections()
+                } else {
+                    self.disconnectManagersForOffline()
+                }
+            }
     }
 
     /// Trigger incremental sync for all enabled libraries on a server.

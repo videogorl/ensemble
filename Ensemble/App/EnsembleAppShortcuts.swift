@@ -1,6 +1,7 @@
 #if os(iOS)
 import AppIntents
 import EnsembleCore
+import EnsembleSiriShared
 import Foundation
 import OSLog
 
@@ -13,89 +14,24 @@ private enum SiriAppShortcutLogger {
 }
 
 @available(iOS 16.0, *)
-private enum SiriPhraseSanitizer {
-    static let appNameSuffixes = [" ensemble music", " ensemble"]
-    static let trailingConnectorWords: Set<String> = ["on", "in", "using", "with"]
-    static let leadingMediaTypePrefixes = [
-        "the playlist ", "playlist ", "the album ", "album ",
-        "the artist ", "artist ", "the song ", "song ",
-        "the track ", "track "
-    ]
-
-    static func normalized(_ value: String) -> String {
-        let base = value
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .replacingOccurrences(of: "[^a-zA-Z0-9 ]", with: " ", options: .regularExpression)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        var candidate = base
-        for suffix in appNameSuffixes where candidate.hasSuffix(suffix) {
-            candidate = String(candidate.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            break
-        }
-
-        candidate = trimTrailingConnectorWords(in: candidate)
-        candidate = stripLeadingMediaPrefix(in: candidate)
-        return candidate
-    }
-
-    private static func trimTrailingConnectorWords(in value: String) -> String {
-        var tokens = value.split(separator: " ").map(String.init)
-        while let last = tokens.last, trailingConnectorWords.contains(last) {
-            tokens.removeLast()
-        }
-        return tokens.joined(separator: " ")
-    }
-
-    private static func stripLeadingMediaPrefix(in value: String) -> String {
-        for prefix in leadingMediaTypePrefixes where value.hasPrefix(prefix) {
-            let stripped = String(value.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !stripped.isEmpty { return stripped }
-        }
-        return value
-    }
-}
-
-@available(iOS 16.0, *)
 private enum SiriIndexLookup {
-    private static let appGroupIdentifier = "group.com.videogorl.ensemble"
-    private static let filename = "siri-media-index.json"
-    private static let minimumMatchScore = 0.6
+    private static let appGroupIdentifier = SiriSharedConstants.appGroupIdentifier
+    private static let filename = SiriSharedConstants.indexFilename
 
     static func fetchItems(kind: SiriMediaKind) -> [SiriMediaIndexItem] {
-        guard let index = loadIndex() else { return [] }
-        return index.items.filter { $0.kind == kind }
+        SiriMediaIndexResolver.items(in: loadIndex(), kind: kind)
     }
 
     static func findItems(kind: SiriMediaKind, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
-        let query = SiriPhraseSanitizer.normalized(rawQuery)
-        guard !query.isEmpty else { return [] }
-
-        let scored: [(item: SiriMediaIndexItem, score: Double)] = fetchItems(kind: kind)
-            .compactMap { item in
-                let score = matchScore(query: query, candidate: SiriPhraseSanitizer.normalized(item.displayName))
-                guard score >= minimumMatchScore else { return nil }
-                return (item: item, score: score)
-            }
-
-        let sorted = scored.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            let lhsName = lhs.item.displayName
-            let rhsName = rhs.item.displayName
-            return lhsName.localizedCaseInsensitiveCompare(rhsName) == .orderedAscending
-        }
-
-        let deduplicated = deduplicateEquivalentItems(sorted.map(\.item))
-        let results = Array(deduplicated.prefix(limit))
-        #if DEBUG
-        SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .public)' normalized='\(query, privacy: .public)' matches=\(results.count, privacy: .public)"
+        let results = SiriMediaIndexResolver.findItems(
+            in: loadIndex(),
+            kind: kind,
+            matching: rawQuery,
+            limit: limit
         )
-        #endif
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .private)' matches=\(results.count, privacy: .public)"
+        )
         return results
     }
 
@@ -107,80 +43,7 @@ private enum SiriIndexLookup {
         }
 
         let url = containerURL.appendingPathComponent(filename)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(SiriMediaIndex.self, from: data)
-    }
-
-    private static func matchScore(query: String, candidate: String) -> Double {
-        guard !query.isEmpty, !candidate.isEmpty else { return 0 }
-        if query == candidate { return 1.0 }
-        if candidate.hasPrefix(query) || query.hasPrefix(candidate) { return 0.85 }
-        if candidate.contains(query) || query.contains(candidate) { return 0.7 }
-
-        var score = 0.0
-        let overlap = tokenOverlapScore(query: query, candidate: candidate)
-        if overlap >= 0.67 {
-            score = max(score, 0.45 + overlap * 0.35)
-        }
-
-        // Handle Siri transcription drift for uncommon names (for example, "Faedom" -> "freedom").
-        let fuzzySimilarity = normalizedEditSimilarity(lhs: query, rhs: candidate)
-        if fuzzySimilarity >= 0.66 {
-            score = max(score, 0.35 + fuzzySimilarity * 0.4)
-        }
-        return score
-    }
-
-    private static func tokenOverlapScore(query: String, candidate: String) -> Double {
-        let queryTokens = Set(query.split(separator: " ").map(String.init))
-        let candidateTokens = Set(candidate.split(separator: " ").map(String.init))
-        guard !queryTokens.isEmpty, !candidateTokens.isEmpty else { return 0 }
-
-        let overlap = queryTokens.intersection(candidateTokens).count
-        let referenceCount = max(queryTokens.count, candidateTokens.count)
-        return Double(overlap) / Double(referenceCount)
-    }
-
-    private static func normalizedEditSimilarity(lhs: String, rhs: String) -> Double {
-        let lhsChars = Array(lhs)
-        let rhsChars = Array(rhs)
-        guard !lhsChars.isEmpty, !rhsChars.isEmpty else { return 0 }
-
-        var previous = Array(0...rhsChars.count)
-        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
-            var current = [lhsIndex + 1]
-            current.reserveCapacity(rhsChars.count + 1)
-
-            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
-                let insertion = current[rhsIndex] + 1
-                let deletion = previous[rhsIndex + 1] + 1
-                let substitution = previous[rhsIndex] + (lhsChar == rhsChar ? 0 : 1)
-                current.append(min(insertion, deletion, substitution))
-            }
-            previous = current
-        }
-
-        let distance = previous[rhsChars.count]
-        let baseline = max(lhsChars.count, rhsChars.count)
-        guard baseline > 0 else { return 0 }
-        return 1.0 - (Double(distance) / Double(baseline))
-    }
-
-    private static func deduplicateEquivalentItems(_ items: [SiriMediaIndexItem]) -> [SiriMediaIndexItem] {
-        var seenKeys = Set<String>()
-        var results: [SiriMediaIndexItem] = []
-        results.reserveCapacity(items.count)
-
-        for item in items {
-            let displayKey = SiriPhraseSanitizer.normalized(item.displayName)
-            let secondaryKey = SiriPhraseSanitizer.normalized(item.secondaryText ?? "")
-            let canonicalKey = "\(displayKey)|\(secondaryKey)"
-            if seenKeys.insert(canonicalKey).inserted {
-                results.append(item)
-            }
-        }
-
-        return results
+        return SiriMediaIndexResolver.loadIndex(from: url)
     }
 }
 
@@ -198,6 +61,118 @@ private func parseCompositeEntityID(_ id: String) -> (ratingKey: String, sourceC
     }
     let source = components.count > 1 ? components[1] : ""
     return (ratingKey, source.isEmpty ? nil : source)
+}
+
+@available(iOS 16.0, *)
+struct EnsembleTrackEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Track")
+    static var defaultQuery = EnsembleTrackEntityQuery()
+
+    let id: String
+    let ratingKey: String
+    let title: String
+    let subtitle: String?
+    let sourceCompositeKey: String?
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: "\(title)",
+            subtitle: subtitle.map { "\($0)" }
+        )
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleTrackEntityQuery: EntityStringQuery {
+    func entities(for identifiers: [EnsembleTrackEntity.ID]) async throws -> [EnsembleTrackEntity] {
+        let wanted = Set(identifiers)
+        guard !wanted.isEmpty else { return [] }
+
+        return SiriIndexLookup.fetchItems(kind: .track)
+            .map { item in
+                EnsembleTrackEntity(
+                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                    ratingKey: item.id,
+                    title: item.displayName,
+                    subtitle: item.secondaryText,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+            }
+            .filter { wanted.contains($0.id) }
+    }
+
+    func entities(matching string: String) async throws -> [EnsembleTrackEntity] {
+        let results = SiriIndexLookup.findItems(kind: .track, matching: string).map { item in
+            EnsembleTrackEntity(
+                id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                ratingKey: item.id,
+                title: item.displayName,
+                subtitle: item.secondaryText,
+                sourceCompositeKey: item.sourceCompositeKey
+            )
+        }
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: track entities(matching:) raw='\(string, privacy: .private)' resolved=\(results.count, privacy: .public)"
+        )
+        return results
+    }
+
+    func suggestedEntities() async throws -> [EnsembleTrackEntity] {
+        []
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleArtistEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Artist")
+    static var defaultQuery = EnsembleArtistEntityQuery()
+
+    let id: String
+    let ratingKey: String
+    let title: String
+    let sourceCompositeKey: String?
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(title)")
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleArtistEntityQuery: EntityStringQuery {
+    func entities(for identifiers: [EnsembleArtistEntity.ID]) async throws -> [EnsembleArtistEntity] {
+        let wanted = Set(identifiers)
+        guard !wanted.isEmpty else { return [] }
+
+        return SiriIndexLookup.fetchItems(kind: .artist)
+            .map { item in
+                EnsembleArtistEntity(
+                    id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                    ratingKey: item.id,
+                    title: item.displayName,
+                    sourceCompositeKey: item.sourceCompositeKey
+                )
+            }
+            .filter { wanted.contains($0.id) }
+    }
+
+    func entities(matching string: String) async throws -> [EnsembleArtistEntity] {
+        let results = SiriIndexLookup.findItems(kind: .artist, matching: string).map { item in
+            EnsembleArtistEntity(
+                id: makeCompositeEntityID(ratingKey: item.id, sourceCompositeKey: item.sourceCompositeKey),
+                ratingKey: item.id,
+                title: item.displayName,
+                sourceCompositeKey: item.sourceCompositeKey
+            )
+        }
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: artist entities(matching:) raw='\(string, privacy: .private)' resolved=\(results.count, privacy: .public)"
+        )
+        return results
+    }
+
+    func suggestedEntities() async throws -> [EnsembleArtistEntity] {
+        []
+    }
 }
 
 @available(iOS 16.0, *)
@@ -242,11 +217,9 @@ struct EnsembleAlbumEntityQuery: EntityStringQuery {
                 sourceCompositeKey: item.sourceCompositeKey
             )
         }
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: album entities(matching:) raw='\(string, privacy: .public)' resolved=\(results.count, privacy: .public)"
+            "SIRI_SHORTCUT: album entities(matching:) raw='\(string, privacy: .private)' resolved=\(results.count, privacy: .public)"
         )
-        #endif
         return results
     }
 
@@ -299,11 +272,9 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
                 sourceCompositeKey: item.sourceCompositeKey
             )
         }
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: playlist entities(matching:) raw='\(string, privacy: .public)' resolved=\(results.count, privacy: .public)"
+            "SIRI_SHORTCUT: playlist entities(matching:) raw='\(string, privacy: .private)' resolved=\(results.count, privacy: .public)"
         )
-        #endif
         return results
     }
 
@@ -316,14 +287,114 @@ struct EnsemblePlaylistEntityQuery: EntityStringQuery {
 @available(iOS 16.0, *)
 private struct SiriShortcutPlaybackExecutor {
     @MainActor
-    static func play(kind: SiriMediaKind, ratingKey: String, sourceCompositeKey: String?, displayName: String) async throws {
+    static func play(
+        kind: SiriMediaKind,
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        displayName: String,
+        shuffle: Bool = false
+    ) async throws {
         let payload = SiriPlaybackRequestPayload(
             kind: kind,
             entityID: ratingKey,
             sourceCompositeKey: sourceCompositeKey,
-            displayName: displayName
+            displayName: displayName,
+            shuffle: shuffle
         )
         try await DependencyContainer.shared.siriPlaybackCoordinator.execute(payload: payload)
+    }
+}
+
+/// AppIntent fallback for album playback when SiriKit media-domain routing misses the app.
+@available(iOS 16.0, *)
+struct PlayEnsembleTrackIntent: AppIntent {
+    static var title: LocalizedStringResource = "Play Track in Ensemble"
+    static var description = IntentDescription("Plays a specific track from your Ensemble library.")
+    static var openAppWhenRun: Bool = true
+
+    @Parameter(title: "Track")
+    var track: EnsembleTrackEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: perform track title='\(track.title, privacy: .private)' id='\(track.id, privacy: .private)'"
+        )
+        let parsedID = parseCompositeEntityID(track.id)
+        try await SiriShortcutPlaybackExecutor.play(
+            kind: .track,
+            ratingKey: parsedID.ratingKey,
+            sourceCompositeKey: parsedID.sourceCompositeKey,
+            displayName: track.title
+        )
+        return .result(dialog: IntentDialog("Playing \(track.title) in Ensemble."))
+    }
+}
+
+/// AppIntent fallback for artist playback when SiriKit media-domain routing misses the app.
+@available(iOS 16.0, *)
+struct PlayEnsembleArtistIntent: AppIntent {
+    static var title: LocalizedStringResource = "Play Artist in Ensemble"
+    static var description = IntentDescription("Plays music by a specific artist from your Ensemble library.")
+    static var openAppWhenRun: Bool = true
+    static var parameterSummary: some ParameterSummary {
+        Summary("Play artist \(\.$artist)")
+    }
+
+    @Parameter(title: "Artist")
+    var artist: EnsembleArtistEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: perform artist title='\(artist.title, privacy: .private)' id='\(artist.id, privacy: .private)'"
+        )
+        let parsedID = parseCompositeEntityID(artist.id)
+        try await SiriShortcutPlaybackExecutor.play(
+            kind: .artist,
+            ratingKey: parsedID.ratingKey,
+            sourceCompositeKey: parsedID.sourceCompositeKey,
+            displayName: artist.title
+        )
+        return .result(dialog: IntentDialog("Playing \(artist.title) in Ensemble."))
+    }
+}
+
+/// AppIntent fallback for shuffled artist playback when SiriKit drops the media item slot.
+@available(iOS 16.0, *)
+struct ShuffleEnsembleArtistIntent: AppIntent {
+    static var title: LocalizedStringResource = "Shuffle Artist in Ensemble"
+    static var description = IntentDescription("Shuffles music by a specific artist from your Ensemble library.")
+    static var isDiscoverable: Bool = false
+    static var openAppWhenRun: Bool = true
+    static var parameterSummary: some ParameterSummary {
+        Summary("Shuffle the artist \(\.$artistName)")
+    }
+
+    @Parameter(title: "Artist")
+    var artistName: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let matches = SiriIndexLookup.findItems(kind: .artist, matching: artistName, limit: 3)
+        guard let artist = matches.first else {
+            SiriAppShortcutLogger.logger.info(
+                "SIRI_SHORTCUT: perform shuffle artist raw='\(artistName, privacy: .private)' resolved=0"
+            )
+            return .result(dialog: IntentDialog("I couldn't find \(artistName) in Ensemble."))
+        }
+
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: perform shuffle artist raw='\(artistName, privacy: .private)' title='\(artist.displayName, privacy: .private)' id='\(artist.id, privacy: .private)' matches=\(matches.count, privacy: .public)"
+        )
+        try await SiriShortcutPlaybackExecutor.play(
+            kind: .artist,
+            ratingKey: artist.id,
+            sourceCompositeKey: artist.sourceCompositeKey,
+            displayName: artist.displayName,
+            shuffle: true
+        )
+        return .result(dialog: IntentDialog("Shuffling \(artist.displayName) in Ensemble."))
     }
 }
 
@@ -339,11 +410,9 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: perform album title='\(album.title, privacy: .public)' id='\(album.id, privacy: .public)'"
+            "SIRI_SHORTCUT: perform album title='\(album.title, privacy: .private)' id='\(album.id, privacy: .private)'"
         )
-        #endif
         let parsedID = parseCompositeEntityID(album.id)
         try await SiriShortcutPlaybackExecutor.play(
             kind: .album,
@@ -360,6 +429,7 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 struct PlayEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Playlist in Ensemble"
     static var description = IntentDescription("Plays a specific playlist from your Ensemble library.")
+    static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Playlist")
@@ -367,11 +437,9 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        #if DEBUG
         SiriAppShortcutLogger.logger.info(
-            "SIRI_SHORTCUT: perform playlist title='\(playlist.title, privacy: .public)' id='\(playlist.id, privacy: .public)'"
+            "SIRI_SHORTCUT: perform playlist title='\(playlist.title, privacy: .private)' id='\(playlist.id, privacy: .private)'"
         )
-        #endif
         let parsedID = parseCompositeEntityID(playlist.id)
         try await SiriShortcutPlaybackExecutor.play(
             kind: .playlist,
@@ -383,10 +451,48 @@ struct PlayEnsemblePlaylistIntent: AppIntent {
     }
 }
 
+/// AppIntent fallback for shuffled playlist playback when SiriKit drops the media item slot.
+@available(iOS 16.0, *)
+struct ShuffleEnsemblePlaylistIntent: AppIntent {
+    static var title: LocalizedStringResource = "Shuffle Playlist in Ensemble"
+    static var description = IntentDescription("Shuffles a specific playlist from your Ensemble library.")
+    static var isDiscoverable: Bool = false
+    static var openAppWhenRun: Bool = true
+
+    @Parameter(title: "Playlist")
+    var playlist: EnsemblePlaylistEntity
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        SiriAppShortcutLogger.logger.info(
+            "SIRI_SHORTCUT: perform shuffle playlist title='\(playlist.title, privacy: .private)' id='\(playlist.id, privacy: .private)'"
+        )
+        let parsedID = parseCompositeEntityID(playlist.id)
+        try await SiriShortcutPlaybackExecutor.play(
+            kind: .playlist,
+            ratingKey: parsedID.ratingKey,
+            sourceCompositeKey: parsedID.sourceCompositeKey,
+            displayName: playlist.title,
+            shuffle: true
+        )
+        return .result(dialog: IntentDialog("Shuffling \(playlist.title) in Ensemble."))
+    }
+}
+
 /// Registers explicit Siri phrases so Ensemble can be invoked even when media-domain parsing fails.
 @available(iOS 16.0, *)
 struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        AppShortcut(
+            intent: PlayEnsembleTrackIntent(),
+            phrases: [
+                "Play track \(\.$track) on \(.applicationName)",
+                "In \(.applicationName), play track \(\.$track)"
+            ],
+            shortTitle: "Play Track",
+            systemImageName: "music.note"
+        )
+
         AppShortcut(
             intent: PlayEnsembleAlbumIntent(),
             phrases: [
@@ -398,14 +504,17 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
         )
 
         AppShortcut(
-            intent: PlayEnsemblePlaylistIntent(),
+            intent: PlayEnsembleArtistIntent(),
             phrases: [
-                "Play playlist \(\.$playlist) on \(.applicationName)",
-                "In \(.applicationName), play playlist \(\.$playlist)"
+                "Play artist \(\.$artist) on \(.applicationName)",
+                "Play the artist \(\.$artist) on \(.applicationName)",
+                "Play music by \(\.$artist) on \(.applicationName)",
+                "In \(.applicationName), play artist \(\.$artist)"
             ],
-            shortTitle: "Play Playlist",
-            systemImageName: "music.note.list"
+            shortTitle: "Play Artist",
+            systemImageName: "music.mic"
         )
+
     }
 }
 #endif
