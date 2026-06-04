@@ -578,16 +578,16 @@ public struct AlbumDetailView: View {
             alignment: .leading,
             spacing: AlbumCardLayoutMetrics.shelf.rowSpacing
         ) {
-            ForEach(albums, id: \.sourceScopedID) { scrollAlbum in
-                albumCardLink(for: scrollAlbum)
+            ForEach(AlbumBrowseItem.identify(albums)) { item in
+                albumCardLink(for: item.album)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         #else
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AlbumCardLayoutMetrics.shelf.gridSpacing) {
-                ForEach(albums, id: \.sourceScopedID) { scrollAlbum in
-                    albumCardLink(for: scrollAlbum)
+                ForEach(AlbumBrowseItem.identify(albums)) { item in
+                    albumCardLink(for: item.album)
                 }
             }
         }

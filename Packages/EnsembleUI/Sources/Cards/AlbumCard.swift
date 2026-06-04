@@ -134,6 +134,20 @@ public struct AlbumCard: View {
 
 // MARK: - Album Grid
 
+struct AlbumBrowseItem: Identifiable {
+    let id: String
+    let album: Album
+
+    init(album: Album) {
+        self.id = album.sourceScopedID
+        self.album = album
+    }
+
+    static func identify(_ albums: [Album]) -> [AlbumBrowseItem] {
+        albums.map(AlbumBrowseItem.init(album:))
+    }
+}
+
 public struct AlbumGrid: View {
     let albums: [Album]
     let nowPlayingVM: NowPlayingViewModel
@@ -164,7 +178,8 @@ public struct AlbumGrid: View {
 
     public var body: some View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
-            ForEach(albums, id: \.sourceScopedID) { album in
+            ForEach(AlbumBrowseItem.identify(albums)) { item in
+                let album = item.album
                 if let onAlbumTap {
                     Button {
                         onAlbumTap(album)
