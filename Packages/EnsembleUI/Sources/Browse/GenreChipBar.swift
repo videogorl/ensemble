@@ -179,9 +179,9 @@ private enum GenreChipState {
 // MARK: - Genre Chip
 
 /// Individual chip within the GenreChipBar.
-/// Neutral: accent border + accent text.
-/// Included: accent fill + white text.
-/// Excluded: red border + red text + strikethrough.
+/// Neutral: accent glass/text.
+/// Included: accent-tinted glass + white text.
+/// Excluded: neutral glass + red text + strikethrough.
 private struct GenreChip: View {
     let title: String
     let state: GenreChipState
@@ -196,10 +196,11 @@ private struct GenreChip: View {
                 .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
                 .padding(.vertical, EnsembleScaffold.Chip.verticalPadding)
                 .foregroundColor(foregroundColor)
-                .genreChipMaterial(backgroundColor: backgroundColor, tintsGlass: state == .included)
-                .overlay(
-                    Capsule()
-                        .strokeBorder(borderColor, lineWidth: state == .included ? 0 : EnsembleScaffold.Chip.borderWidth)
+                .genreChipMaterial(
+                    backgroundColor: backgroundColor,
+                    borderColor: borderColor,
+                    borderWidth: state == .included ? 0 : EnsembleScaffold.Chip.borderWidth,
+                    tintsGlass: state == .included
                 )
         }
         .buttonStyle(.plain)
@@ -241,7 +242,12 @@ private extension View {
     }
 
     @ViewBuilder
-    func genreChipMaterial(backgroundColor: Color, tintsGlass: Bool) -> some View {
+    func genreChipMaterial(
+        backgroundColor: Color,
+        borderColor: Color,
+        borderWidth: CGFloat,
+        tintsGlass: Bool
+    ) -> some View {
         if #available(iOS 26, macOS 26, *) {
             if tintsGlass {
                 self
@@ -255,6 +261,10 @@ private extension View {
                 .background(
                     Capsule()
                         .fill(backgroundColor)
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(borderColor, lineWidth: borderWidth)
                 )
         }
     }
