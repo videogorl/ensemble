@@ -177,14 +177,17 @@ enum RootChromeLayoutResolver {
         let rootBounds = CGRect(origin: .zero, size: proxy.size)
         let resolvedLayout = resolve(from: registration, in: proxy)
         #if os(iOS)
-        guard UIDevice.current.userInterfaceIdiom == .pad else {
-            return resolvedLayout
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return resolvePadLayout(
+                from: resolvedLayout,
+                rootFallback: rootFallback(in: proxy),
+                sidebarFrame: sidebarRegistration.frame,
+                rootBounds: rootBounds
+            )
         }
-        let layout = anchorMiniPlayerVertically(resolvedLayout, to: rootBounds)
-        #else
-        let layout = resolvedLayout
         #endif
 
+        let layout = resolvedLayout
         guard layout.showsMiniPlayer,
               layout.hasRenderableFrame,
               let registeredSidebarFrame = sidebarRegistration.frame else {
@@ -207,6 +210,54 @@ enum RootChromeLayoutResolver {
         let detailWidth = rootBounds.maxX - detailMinX
         guard detailWidth >= min(320, rootBounds.width * 0.5) else {
             return layout
+        }
+
+        return RootChromeLayout(
+            frame: CGRect(
+                x: detailMinX,
+                y: rootBounds.minY,
+                width: detailWidth,
+                height: rootBounds.height
+            ),
+            bottomPadding: layout.bottomPadding,
+            horizontalOffset: 0,
+            showsMiniPlayer: layout.showsMiniPlayer
+        )
+    }
+
+    static func resolvePadLayout(
+        from resolvedLayout: RootChromeLayout,
+        rootFallback: RootChromeLayout,
+        sidebarFrame registeredSidebarFrame: CGRect?,
+        rootBounds: CGRect
+    ) -> RootChromeLayout {
+        guard resolvedLayout.showsMiniPlayer,
+              resolvedLayout.hasRenderableFrame else {
+            return resolvedLayout
+        }
+
+        let layout = anchorMiniPlayerVertically(resolvedLayout, to: rootBounds)
+
+        guard let registeredSidebarFrame else {
+            return rootFallback
+        }
+
+        let sidebarFrame = registeredSidebarFrame.intersection(rootBounds)
+
+        guard sidebarFrame.width >= 80,
+              sidebarFrame.height > 0 else {
+            return rootFallback
+        }
+
+        guard sidebarFrame.minX <= rootBounds.minX + 2,
+              abs(sidebarFrame.maxX - layout.frame.minX) <= 2 else {
+            return rootFallback
+        }
+
+        let detailMinX = max(rootBounds.minX, min(sidebarFrame.maxX, rootBounds.maxX))
+        let detailWidth = rootBounds.maxX - detailMinX
+        guard detailWidth >= min(320, rootBounds.width * 0.5) else {
+            return rootFallback
         }
 
         return RootChromeLayout(
