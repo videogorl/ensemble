@@ -129,6 +129,7 @@ public struct MiniPlayer: View {
     @ViewBuilder
     private var liquidGlassPillContent: some View {
         let glassContent = pillContent
+            .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
             .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
 
@@ -144,6 +145,7 @@ public struct MiniPlayer: View {
 
     private var stableMaterialPillContent: some View {
         pillContent
+            .frame(maxWidth: .infinity)
             .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
             .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
             .shadow(
@@ -234,19 +236,18 @@ private struct MiniPlayerTrackInfo: View {
             } else {
                 // Nothing Playing state
                 HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
-                        .fill(EnsembleDesign.Color.placeholderArtwork)
-                        .frame(width: artworkDimension, height: artworkDimension)
-                        .overlay(
-                            Image(systemName: EnsembleDesign.Icon.musicNote)
-                                .foregroundColor(EnsembleDesign.Color.mutedPrimaryText)
-                        )
-
-                    Text("Nothing Playing")
-                        .font(EnsembleDesign.Typography.cardTitle)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    emptyTrackInfoLane
 
                     Spacer()
+
+                    MiniPlayerControls(
+                        playbackProjection: playbackProjection,
+                        viewModel: viewModel,
+                        showsPreviousButton: showsWaveform,
+                        showsActionsMenu: showsWaveform
+                    )
+                    .disabled(true)
+                    .opacity(EnsembleScaffold.MiniPlayer.unavailableControlOpacity)
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                 .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
@@ -255,6 +256,25 @@ private struct MiniPlayerTrackInfo: View {
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
+    }
+
+    private var emptyTrackInfoLane: some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
+                .fill(EnsembleDesign.Color.placeholderArtwork)
+                .frame(width: artworkDimension, height: artworkDimension)
+                .overlay(
+                    Image(systemName: EnsembleDesign.Icon.musicNote)
+                        .foregroundColor(EnsembleDesign.Color.mutedPrimaryText)
+                )
+
+            Text("Nothing Playing")
+                .font(EnsembleDesign.Typography.miniPlayerTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+                .lineLimit(1)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
     }
 
     private func compactTrackRow(for track: Track) -> some View {

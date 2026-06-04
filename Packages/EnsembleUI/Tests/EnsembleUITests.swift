@@ -433,6 +433,27 @@ final class EnsembleUITests: XCTestCase {
         #endif
     }
 
+    func testRootChromeLayoutAnchorsMiniPlayerToRootViewportVertically() {
+        let staleDetailLayout = RootChromeLayout(
+            frame: CGRect(x: 184, y: 0, width: 372, height: 556),
+            bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+        let rootBounds = CGRect(x: 0, y: 0, width: 556, height: 800)
+
+        let anchored = RootChromeLayoutResolver.anchorMiniPlayerVertically(
+            staleDetailLayout,
+            to: rootBounds
+        )
+
+        XCTAssertEqual(anchored.frame.minX, staleDetailLayout.frame.minX)
+        XCTAssertEqual(anchored.frame.width, staleDetailLayout.frame.width)
+        XCTAssertEqual(anchored.frame.minY, rootBounds.minY)
+        XCTAssertEqual(anchored.frame.height, rootBounds.height)
+        XCTAssertEqual(anchored.bottomPadding, staleDetailLayout.bottomPadding)
+    }
+
     func testNativeTrackListFlatteningPreservesTrackIndexesAcrossSupplementaryRows() {
         let firstTrack = Track(id: "track-1", key: "/tracks/1", title: "Track 1")
         let secondTrack = Track(id: "track-2", key: "/tracks/2", title: "Track 2")

@@ -15,7 +15,6 @@ enum RootNowPlayingPresentationStyle {
 
 struct RootSceneLayerHost<Content: View>: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     let playbackService: PlaybackServiceProtocol
     let accentColor: Color
     let isAuroraEnabled: Bool
@@ -93,57 +92,75 @@ struct RootSceneLayerHost<Content: View>: View {
                 sidebarChromeRegistration = registration
             }
             .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
-                let layout = !isNowPlayingPresented && !isSoftwareKeyboardVisible
-                    ? RootChromeLayoutResolver.resolve(
-                        from: registration,
-                        sidebarRegistration: sidebarChromeRegistration,
-                        in: proxy
-                    )
-                    : .hidden
+                let layout = rootMiniPlayerLayout(
+                    registration: registration,
+                    proxy: proxy
+                )
 
                 rootMiniPlayerLayer(layout: layout)
             }
         }
     }
 
+    private func rootMiniPlayerLayout(
+        registration: RootChromeRegistration,
+        proxy: GeometryProxy
+    ) -> RootChromeLayout {
+        guard !isNowPlayingPresented,
+              !isSoftwareKeyboardVisible else {
+            return .hidden
+        }
+
+        let resolved = RootChromeLayoutResolver.resolve(
+            from: registration,
+            sidebarRegistration: sidebarChromeRegistration,
+            in: proxy
+        )
+
+        if resolved.showsMiniPlayer,
+           resolved.hasRenderableFrame {
+            return resolved
+        }
+
+        guard registration.bounds == nil || registration.showsMiniPlayer else {
+            return resolved
+        }
+
+        return RootChromeLayoutResolver.rootFallback(in: proxy)
+    }
+
     @ViewBuilder
     private func rootMiniPlayerLayer(layout: RootChromeLayout) -> some View {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            RootMiniPlayerWindowHost(
-                nowPlayingVM: nowPlayingVM,
-                layout: layout,
-                accentColor: accentColor,
-                animationID: animationID,
-                navigationCoordinator: navigationCoordinator,
-                presentNowPlaying: presentNowPlaying
-            )
-            .frame(width: 1, height: 1)
-            .allowsHitTesting(false)
-        } else if layout.showsMiniPlayer {
-            RootMiniPlayerOverlay(
-                nowPlayingVM: nowPlayingVM,
-                layout: layout,
-                accentColor: accentColor,
-                namespace: namespace,
-                animationID: animationID,
-                presentNowPlaying: presentNowPlaying
-            )
-            .zIndex(5)
-        }
-        #else
         if layout.showsMiniPlayer {
             RootMiniPlayerOverlay(
                 nowPlayingVM: nowPlayingVM,
                 layout: layout,
                 accentColor: accentColor,
-                namespace: namespace,
+                namespace: miniPlayerNamespace,
                 animationID: animationID,
+                surfaceStyle: miniPlayerSurfaceStyle,
                 presentNowPlaying: presentNowPlaying
             )
             .zIndex(5)
         }
+    }
+
+    private var miniPlayerNamespace: Namespace.ID? {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return nil
+        }
         #endif
+        return namespace
+    }
+
+    private var miniPlayerSurfaceStyle: MiniPlayer.SurfaceStyle {
+        #if os(iOS)
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            return .stableMaterial
+        }
+        #endif
+        return .automatic
     }
 }
 

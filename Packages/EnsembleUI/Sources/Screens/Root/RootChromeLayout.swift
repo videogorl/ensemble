@@ -151,16 +151,38 @@ struct RootChromeResolvedFrameRegistrationView: View {
 }
 
 enum RootChromeLayoutResolver {
+    static func rootFallback(in proxy: GeometryProxy) -> RootChromeLayout {
+        let rootBounds = CGRect(origin: .zero, size: proxy.size)
+
+        guard rootBounds.width > 0,
+              rootBounds.height > 0 else {
+            return .hidden
+        }
+
+        return RootChromeLayout(
+            frame: rootBounds,
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                safeAreaBottom: proxy.safeAreaInsets.bottom
+            ),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+    }
+
     static func resolve(
         from registration: RootChromeRegistration,
         sidebarRegistration: RootSidebarChromeRegistration,
         in proxy: GeometryProxy
     ) -> RootChromeLayout {
-        let layout = resolve(from: registration, in: proxy)
+        let rootBounds = CGRect(origin: .zero, size: proxy.size)
+        let resolvedLayout = resolve(from: registration, in: proxy)
         #if os(iOS)
         guard UIDevice.current.userInterfaceIdiom == .pad else {
-            return layout
+            return resolvedLayout
         }
+        let layout = anchorMiniPlayerVertically(resolvedLayout, to: rootBounds)
+        #else
+        let layout = resolvedLayout
         #endif
 
         guard layout.showsMiniPlayer,
@@ -169,11 +191,15 @@ enum RootChromeLayoutResolver {
             return layout
         }
 
-        let rootBounds = CGRect(origin: .zero, size: proxy.size)
         let sidebarFrame = registeredSidebarFrame.intersection(rootBounds)
 
         guard sidebarFrame.width >= 80,
               sidebarFrame.height > 0 else {
+            return layout
+        }
+
+        guard sidebarFrame.minX <= rootBounds.minX + 2,
+              abs(sidebarFrame.maxX - layout.frame.minX) <= 2 else {
             return layout
         }
 
@@ -196,6 +222,30 @@ enum RootChromeLayoutResolver {
         )
     }
 
+    static func anchorMiniPlayerVertically(
+        _ layout: RootChromeLayout,
+        to rootBounds: CGRect
+    ) -> RootChromeLayout {
+        guard layout.showsMiniPlayer,
+              layout.hasRenderableFrame,
+              rootBounds.width > 0,
+              rootBounds.height > 0 else {
+            return layout
+        }
+
+        return RootChromeLayout(
+            frame: CGRect(
+                x: layout.frame.minX,
+                y: rootBounds.minY,
+                width: layout.frame.width,
+                height: rootBounds.height
+            ),
+            bottomPadding: layout.bottomPadding,
+            horizontalOffset: layout.horizontalOffset,
+            showsMiniPlayer: layout.showsMiniPlayer
+        )
+    }
+
     static func resolve(
         from registration: RootChromeRegistration,
         in proxy: GeometryProxy
@@ -208,14 +258,7 @@ enum RootChromeLayoutResolver {
         }
 
         guard registration.bounds != nil || registration.resolvedFrame != nil else {
-            return RootChromeLayout(
-                frame: rootBounds,
-                bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
-                    safeAreaBottom: proxy.safeAreaInsets.bottom
-                ),
-                horizontalOffset: 0,
-                showsMiniPlayer: true
-            )
+            return rootFallback(in: proxy)
         }
 
         let registeredFrame: CGRect
