@@ -200,7 +200,8 @@ public struct SongsView: View {
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent
+                        tableHeaderContent: songsTableHeaderContent,
+                        tableFooterContent: songsCountFooterContent
                     ) { track, _ in
                         playAvailableTrack(track)
                     }
@@ -216,7 +217,8 @@ public struct SongsView: View {
                         supplementalMetadataWidth: width,
                         showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent
+                        tableHeaderContent: songsTableHeaderContent,
+                        tableFooterContent: songsCountFooterContent
                     ) { track, _ in
                         playTrack(track)
                     }
@@ -232,7 +234,8 @@ public struct SongsView: View {
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
                         supplementalMetadataWidth: width,
                         interactionModel: largeScreenTrackInteractionModel,
-                        tableHeaderContent: songsTableHeaderContent
+                        tableHeaderContent: songsTableHeaderContent,
+                        tableFooterContent: songsCountFooterContent
                     ) { track, index in
                         playAvailableTrack(track, index: index)
                     }
@@ -285,6 +288,16 @@ public struct SongsView: View {
         )
     }
 
+    private var songsCountFooterContent: AnyView {
+        AnyView(
+            LibraryBrowseCountFooter(
+                count: trackSnapshot.tracks.count,
+                singular: "song",
+                plural: "songs"
+            )
+        )
+    }
+
     private func usesLargeScreenSongBrowser(for size: CGSize) -> Bool {
         guard canShowLargeScreenSongBrowser else { return false }
         return size.width >= EnsembleDesign.Breakpoint.browseSplitMinimumWidth
@@ -325,7 +338,8 @@ public struct SongsView: View {
             supplementalMetadataWidth: width,
             showsSectionIndex: ScrollIndex.isVisible(forContainerWidth: width),
             interactionModel: largeScreenTrackInteractionModel,
-            tableHeaderContent: tableHeaderContent
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: songsCountFooterContent
         ) { track, _ in
             playTrack(track)
         }
@@ -341,7 +355,8 @@ public struct SongsView: View {
             usesDynamicTableHeaderHeight: tableHeaderContent != nil,
             supplementalMetadataWidth: width,
             interactionModel: largeScreenTrackInteractionModel,
-            tableHeaderContent: tableHeaderContent
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: songsCountFooterContent
         ) { track, _ in
             playTrack(track)
         }
@@ -466,7 +481,8 @@ public struct SongsView: View {
                 usesDynamicTableHeaderHeight: true,
                 supplementalMetadataWidth: width,
                 interactionModel: largeScreenTrackInteractionModel,
-                tableHeaderContent: songsTableHeaderContent
+                tableHeaderContent: songsTableHeaderContent,
+                tableFooterContent: songsCountFooterContent
             ) { track, _ in
                 playTrack(track)
             }

@@ -184,6 +184,13 @@ public struct AlbumsView: View {
                             )
                                 .padding(.vertical)
                         }
+
+                        LibraryBrowseCountFooter(
+                            count: albumSnapshot.albums.count,
+                            singular: "album",
+                            plural: "albums",
+                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+                        )
                     }
                 }
                 .miniPlayerBottomSpacing()

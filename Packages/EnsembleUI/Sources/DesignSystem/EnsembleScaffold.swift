@@ -786,6 +786,36 @@ public struct EnsembleBrowseSectionHeader: View {
     }
 }
 
+/// Bottom-of-scroll count footer for library browse surfaces.
+public struct LibraryBrowseCountFooter: View {
+    private let count: Int
+    private let singular: String
+    private let plural: String
+    private let bottomClearance: CGFloat
+
+    public init(count: Int, singular: String, plural: String, bottomClearance: CGFloat = EnsembleDesign.Spacing.none) {
+        self.count = count
+        self.singular = singular
+        self.plural = plural
+        self.bottomClearance = bottomClearance
+    }
+
+    public var body: some View {
+        Text(label)
+            .font(EnsembleDesign.Typography.rowSecondary)
+            .foregroundColor(EnsembleDesign.Color.secondaryText)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, EnsembleDesign.Spacing.lg)
+            .padding(.top, EnsembleDesign.Spacing.lg)
+            .padding(.bottom, EnsembleDesign.Spacing.xxl + bottomClearance)
+            .accessibilityLabel(label)
+    }
+
+    private var label: String {
+        "\(count.formatted(.number)) \(count == 1 ? singular : plural)"
+    }
+}
+
 /// Standard title treatment for content shelves and sections.
 public struct EnsembleContentSectionHeader: View {
     private let title: String

@@ -507,6 +507,8 @@ public struct PlaylistsView: View {
                     .fill(selectedPlaylist?.id == dp.id ? EnsembleScaffold.BrowseSelection.fillColor : Color.clear)
                 )
             }
+
+            playlistCountFooter(count: effectivePlaylists.count)
         }
         .listStyle(.plain)
         .foregroundScrollActivity()
@@ -562,10 +564,23 @@ public struct PlaylistsView: View {
                         }
                     }
             }
+
+            playlistCountFooter(count: cachedDisplayedPlaylists.count)
         }
         .listStyle(.plain)
         .foregroundScrollActivity()
         .miniPlayerBottomSpacing()
+    }
+
+    private func playlistCountFooter(count: Int) -> some View {
+        LibraryBrowseCountFooter(
+            count: count,
+            singular: "playlist",
+            plural: "playlists",
+            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+        )
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
     }
     
     private var stageFlowView: some View {

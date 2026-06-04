@@ -214,6 +214,13 @@ public struct ArtistsView: View {
                             }
                             .padding(.vertical)
                         }
+
+                        LibraryBrowseCountFooter(
+                            count: artistSnapshot.displayArtists.count,
+                            singular: "artist",
+                            plural: "artists",
+                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+                        )
                     }
                 }
                 .miniPlayerBottomSpacing()
@@ -299,6 +306,13 @@ public struct ArtistsView: View {
                             )
                             .padding(.vertical)
                         }
+
+                        LibraryBrowseCountFooter(
+                            count: artistSnapshot.displayArtists.count,
+                            singular: "artist",
+                            plural: "artists",
+                            bottomClearance: TrackListLayoutMetrics.miniPlayerBottomSpacing
+                        )
                     }
                 }
                 .miniPlayerBottomSpacing()
