@@ -27,7 +27,6 @@ struct RootSceneLayerHost<Content: View>: View {
     let presentNowPlaying: () -> Void
     let dismissNowPlaying: () -> Void
     let content: Content
-    @State private var sidebarChromeFrame: CGRect?
 
     init(
         nowPlayingVM: NowPlayingViewModel,
@@ -88,22 +87,11 @@ struct RootSceneLayerHost<Content: View>: View {
                 }
             }
             .coordinateSpace(name: RootChromeCoordinateSpace.name)
-            .onPreferenceChange(RootSidebarChromeFramePreferenceKey.self) { newFrame in
-                var transaction = Transaction(animation: nil)
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    sidebarChromeFrame = newFrame
-                }
-            }
             .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
                 if !isNowPlayingPresented && !isSoftwareKeyboardVisible {
                     RootMiniPlayerOverlay(
                         nowPlayingVM: nowPlayingVM,
-                        layout: RootChromeLayoutResolver.resolve(
-                            from: registration,
-                            sidebarFrame: sidebarChromeFrame,
-                            in: proxy
-                        ),
+                        layout: RootChromeLayoutResolver.resolve(from: registration, in: proxy),
                         accentColor: accentColor,
                         namespace: namespace,
                         animationID: animationID,

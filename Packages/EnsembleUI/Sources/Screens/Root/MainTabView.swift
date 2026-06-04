@@ -1161,7 +1161,6 @@ public struct SidebarView: View {
 
         }
         .listStyle(.sidebar)
-        .background(RootSidebarChromeRegistrationView())
         .safeAreaInset(edge: .bottom) {
             Color.clear
                 .frame(
@@ -1222,14 +1221,16 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        NavigationStack(path: activeDetailPathBinding) {
-            detailChromeRegistrationHost {
-                detailRootContentView
-                    .id(detailRootIdentity)
-            }
-            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+        detailColumnNavigationHost {
+            NavigationStack(path: activeDetailPathBinding) {
                 detailChromeRegistrationHost {
-                    destinationView(for: destination)
+                    detailRootContentView
+                        .id(detailRootIdentity)
+                }
+                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
+                    detailChromeRegistrationHost {
+                        destinationView(for: destination)
+                    }
                 }
             }
         }
@@ -1342,6 +1343,31 @@ public struct SidebarView: View {
         }
     }
 
+    @ViewBuilder
+    private func detailColumnNavigationHost<Content: View>(
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .topLeading) {
+                content()
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+
+                RootChromeResolvedFrameRegistrationView(
+                    frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name)),
+                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    ),
+                    contentLeadingInset: proxy.safeAreaInsets.leading,
+                    centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
+                    showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
+                    priority: 10_000
+                )
+                .allowsHitTesting(false)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+    }
+
     /// Keep pushed detail content from registering transient navigation-transition frames.
     /// The stable detail-column host owns root chrome registration.
     @ViewBuilder
@@ -1352,6 +1378,19 @@ public struct SidebarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    private var isSidebarCollapsedForRootChrome: Bool {
+        #if os(iOS)
+        switch columnVisibility {
+        case .detailOnly:
+            return true
+        default:
+            return false
+        }
+        #else
+        return false
+        #endif
+    }
+
     @ViewBuilder
     private var splitNavigationView: some View {
         if #available(iOS 17.0, macOS 14.0, *) {
@@ -1360,10 +1399,8 @@ public struct SidebarView: View {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebarColumn
             } detail: {
-                detailColumnRootChromeRegistrationHost {
-                    detailContainerView
-                }
-                .macEditorToolbarRoleIfAvailable()
+                detailContainerView
+                    .macEditorToolbarRoleIfAvailable()
             }
             .navigationSplitViewStyle(.balanced)
         }
@@ -1421,7 +1458,7 @@ public struct SidebarView: View {
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     ),
                     contentLeadingInset: proxy.safeAreaInsets.leading,
-                    centersInRootHorizontalSpace: false,
+                    centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
                     showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
                     priority: 20_000
                 )

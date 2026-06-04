@@ -71,25 +71,6 @@ struct RootChromeRegistrationPreferenceKey: PreferenceKey {
     }
 }
 
-struct RootSidebarChromeRegistrationView: View {
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: RootSidebarChromeFramePreferenceKey.self,
-                value: proxy.frame(in: .named(RootChromeCoordinateSpace.name))
-            )
-        }
-    }
-}
-
-struct RootSidebarChromeFramePreferenceKey: PreferenceKey {
-    static var defaultValue: CGRect? = nil
-
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
-        value = nextValue() ?? value
-    }
-}
-
 struct RootChromeFrameRegistrationView: View {
     let bottomPadding: CGFloat
     var contentLeadingInset: CGFloat = 0
@@ -142,7 +123,6 @@ struct RootChromeResolvedFrameRegistrationView: View {
 enum RootChromeLayoutResolver {
     static func resolve(
         from registration: RootChromeRegistration,
-        sidebarFrame: CGRect? = nil,
         in proxy: GeometryProxy
     ) -> RootChromeLayout {
         let rootBounds = CGRect(origin: .zero, size: proxy.size)
@@ -172,12 +152,7 @@ enum RootChromeLayoutResolver {
             registeredFrame = rootBounds
         }
 
-        let stableRegisteredFrame = frameForVisibleSidebarIfNeeded(
-            registeredFrame,
-            sidebarFrame: sidebarFrame,
-            rootBounds: rootBounds
-        )
-        let visibleFrame = stableRegisteredFrame.intersection(rootBounds)
+        let visibleFrame = registeredFrame.intersection(rootBounds)
 
         guard visibleFrame.width > 0, visibleFrame.height > 0 else {
             return .hidden
@@ -228,49 +203,5 @@ enum RootChromeLayoutResolver {
         #else
         return 0
         #endif
-    }
-
-    private static func frameForVisibleSidebarIfNeeded(
-        _ registeredFrame: CGRect,
-        sidebarFrame: CGRect?,
-        rootBounds: CGRect
-    ) -> CGRect {
-        guard let visibleSidebarFrame = visibleSidebarFrame(
-            from: sidebarFrame,
-            rootBounds: rootBounds
-        ) else {
-            return registeredFrame
-        }
-
-        let detailMinX = min(max(visibleSidebarFrame.maxX, rootBounds.minX), rootBounds.maxX)
-        let detailWidth = max(rootBounds.maxX - detailMinX, 0)
-        guard detailWidth > 0 else {
-            return registeredFrame
-        }
-
-        return CGRect(
-            x: detailMinX,
-            y: registeredFrame.minY,
-            width: detailWidth,
-            height: registeredFrame.height
-        )
-    }
-
-    private static func visibleSidebarFrame(
-        from sidebarFrame: CGRect?,
-        rootBounds: CGRect
-    ) -> CGRect? {
-        guard let sidebarFrame else {
-            return nil
-        }
-
-        let visibleFrame = sidebarFrame.intersection(rootBounds)
-        guard visibleFrame.width > 1,
-              visibleFrame.height > 1,
-              visibleFrame.maxX < rootBounds.maxX - 1 else {
-            return nil
-        }
-
-        return visibleFrame
     }
 }
