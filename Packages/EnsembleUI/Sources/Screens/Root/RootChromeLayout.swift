@@ -71,6 +71,36 @@ struct RootChromeRegistrationPreferenceKey: PreferenceKey {
     }
 }
 
+struct RootSidebarChromeRegistration: Equatable {
+    let frame: CGRect?
+
+    static let hidden = RootSidebarChromeRegistration(frame: nil)
+}
+
+struct RootSidebarChromeRegistrationPreferenceKey: PreferenceKey {
+    static var defaultValue: RootSidebarChromeRegistration = .hidden
+
+    static func reduce(value: inout RootSidebarChromeRegistration, nextValue: () -> RootSidebarChromeRegistration) {
+        let next = nextValue()
+        if next.frame != nil {
+            value = next
+        }
+    }
+}
+
+struct RootSidebarChromeRegistrationView: View {
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: RootSidebarChromeRegistrationPreferenceKey.self,
+                value: RootSidebarChromeRegistration(
+                    frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name))
+                )
+            )
+        }
+    }
+}
+
 struct RootChromeFrameRegistrationView: View {
     let bottomPadding: CGFloat
     var contentLeadingInset: CGFloat = 0
@@ -121,6 +151,51 @@ struct RootChromeResolvedFrameRegistrationView: View {
 }
 
 enum RootChromeLayoutResolver {
+    static func resolve(
+        from registration: RootChromeRegistration,
+        sidebarRegistration: RootSidebarChromeRegistration,
+        in proxy: GeometryProxy
+    ) -> RootChromeLayout {
+        let layout = resolve(from: registration, in: proxy)
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            return layout
+        }
+        #endif
+
+        guard layout.showsMiniPlayer,
+              layout.hasRenderableFrame,
+              let registeredSidebarFrame = sidebarRegistration.frame else {
+            return layout
+        }
+
+        let rootBounds = CGRect(origin: .zero, size: proxy.size)
+        let sidebarFrame = registeredSidebarFrame.intersection(rootBounds)
+
+        guard sidebarFrame.width >= 80,
+              sidebarFrame.height > 0 else {
+            return layout
+        }
+
+        let detailMinX = max(rootBounds.minX, min(sidebarFrame.maxX, rootBounds.maxX))
+        let detailWidth = rootBounds.maxX - detailMinX
+        guard detailWidth >= min(320, rootBounds.width * 0.5) else {
+            return layout
+        }
+
+        return RootChromeLayout(
+            frame: CGRect(
+                x: detailMinX,
+                y: rootBounds.minY,
+                width: detailWidth,
+                height: rootBounds.height
+            ),
+            bottomPadding: layout.bottomPadding,
+            horizontalOffset: 0,
+            showsMiniPlayer: layout.showsMiniPlayer
+        )
+    }
+
     static func resolve(
         from registration: RootChromeRegistration,
         in proxy: GeometryProxy

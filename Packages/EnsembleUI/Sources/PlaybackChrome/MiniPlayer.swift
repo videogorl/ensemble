@@ -9,6 +9,11 @@ import SwiftUI
 /// NVM publishes. This prevents the full body (gestures, context menu, background)
 /// from re-evaluating on every 0.5s playback tick.
 public struct MiniPlayer: View {
+    public enum SurfaceStyle {
+        case automatic
+        case stableMaterial
+    }
+
     let viewModel: NowPlayingViewModel
     let onTap: () -> Void
 
@@ -20,6 +25,7 @@ public struct MiniPlayer: View {
     private let showsWaveform: Bool
     private let waveformColor: Color
     private let horizontalPadding: CGFloat
+    private let surfaceStyle: SurfaceStyle
     private let usesGlassEffectIdentity: Bool
     private let pillCornerRadius: CGFloat = EnsembleScaffold.MiniPlayer.cornerRadius
 
@@ -33,6 +39,7 @@ public struct MiniPlayer: View {
         showsWaveform: Bool = false,
         waveformColor: Color = .primary,
         horizontalPadding: CGFloat? = nil,
+        surfaceStyle: SurfaceStyle = .automatic,
         usesGlassEffectIdentity: Bool = true,
         namespace: Namespace.ID? = nil,
         animationID: String? = nil,
@@ -47,6 +54,7 @@ public struct MiniPlayer: View {
                 ? EnsembleScaffold.MiniPlayer.floatingHorizontalPadding
                 : EnsembleScaffold.MiniPlayer.inlineHorizontalPadding
         )
+        self.surfaceStyle = surfaceStyle
         self.usesGlassEffectIdentity = usesGlassEffectIdentity
         self.namespace = namespace
         self.animationID = animationID
@@ -56,19 +64,12 @@ public struct MiniPlayer: View {
     public var body: some View {
         // Branch on OS version for surface treatment, then apply shared interaction modifiers.
         Group {
-            if #available(iOS 26, macOS 26, *) {
+            if surfaceStyle == .automatic, #available(iOS 26, macOS 26, *) {
                 // Native Liquid Glass — the real material, handles blur/lighting/elevation itself.
                 liquidGlassPillContent
             } else {
                 // iOS 15–25 fallback: low-cost system material stack.
-                pillContent
-                    .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
-                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-                    .shadow(
-                        color: materialRole.shadowColor,
-                        radius: materialRole.shadowRadius,
-                        y: materialRole.shadowY
-                    )
+                stableMaterialPillContent
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
@@ -139,6 +140,17 @@ public struct MiniPlayer: View {
         } else {
             glassContent
         }
+    }
+
+    private var stableMaterialPillContent: some View {
+        pillContent
+            .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
+            .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
+            .shadow(
+                color: materialRole.shadowColor,
+                radius: materialRole.shadowRadius,
+                y: materialRole.shadowY
+            )
     }
 
     /// Composed of scoped sub-views so observation stays local.

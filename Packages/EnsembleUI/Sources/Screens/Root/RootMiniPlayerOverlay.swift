@@ -8,12 +8,10 @@ struct RootMiniPlayerOverlay: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let layout: RootChromeLayout
     let accentColor: Color
-    let namespace: Namespace.ID
+    let namespace: Namespace.ID?
     let animationID: String
+    var surfaceStyle: MiniPlayer.SurfaceStyle = .automatic
     let presentNowPlaying: () -> Void
-
-    @State private var displayedLayout: RootChromeLayout = .hidden
-    @State private var pendingLayoutUpdate: Task<Void, Never>?
 
     private var isPhoneLayout: Bool {
         #if os(iOS)
@@ -35,33 +33,21 @@ struct RootMiniPlayerOverlay: View {
             + EnsembleScaffold.MiniPlayer.floatingBottomPadding
     }
 
-    private var effectiveLayout: RootChromeLayout {
-        guard layout.showsMiniPlayer, layout.hasRenderableFrame else {
-            return layout
-        }
-
-        guard displayedLayout.showsMiniPlayer, displayedLayout.hasRenderableFrame else {
-            return layout
-        }
-
-        return displayedLayout
-    }
-
     var body: some View {
-        let resolvedLayout = effectiveLayout
-        let resolvedMiniPlayerWidth = miniPlayerWidth(for: resolvedLayout)
-        let resolvedMiniPlayerPosition = miniPlayerPosition(
-            for: resolvedLayout,
+        let miniPlayerWidth = miniPlayerWidth(for: layout)
+        let miniPlayerPosition = miniPlayerPosition(
+            for: layout,
             miniPlayerHeight: miniPlayerHeight
         )
 
-        if resolvedLayout.showsMiniPlayer && resolvedLayout.hasRenderableFrame && resolvedMiniPlayerWidth > 0 {
+        if layout.showsMiniPlayer && layout.hasRenderableFrame && miniPlayerWidth > 0 {
             MiniPlayer(
                 viewModel: nowPlayingVM,
                 isFloating: true,
-                showsWaveform: !isPhoneLayout && resolvedMiniPlayerWidth >= 280,
+                showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
                 waveformColor: accentColor,
                 horizontalPadding: miniPlayerHorizontalPadding,
+                surfaceStyle: surfaceStyle,
                 usesGlassEffectIdentity: false,
                 namespace: namespace,
                 animationID: animationID
@@ -71,24 +57,14 @@ struct RootMiniPlayerOverlay: View {
                 }
             }
             .accentColor(accentColor)
-            .frame(width: resolvedMiniPlayerWidth)
-            .position(resolvedMiniPlayerPosition)
+            .frame(width: miniPlayerWidth)
+            .position(miniPlayerPosition)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .transaction { transaction in
                 transaction.animation = nil
                 transaction.disablesAnimations = true
             }
             .transition(.identity)
-            .onAppear {
-                applyLayoutImmediately(layout)
-            }
-            .onChange(of: layout) { newLayout in
-                scheduleLayoutUpdate(newLayout)
-            }
-            .onDisappear {
-                pendingLayoutUpdate?.cancel()
-                pendingLayoutUpdate = nil
-            }
         }
     }
 
@@ -111,39 +87,4 @@ struct RootMiniPlayerOverlay: View {
         )
     }
 
-    private func applyLayoutImmediately(_ newLayout: RootChromeLayout) {
-        pendingLayoutUpdate?.cancel()
-        pendingLayoutUpdate = nil
-
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            displayedLayout = newLayout
-        }
-    }
-
-    private func scheduleLayoutUpdate(_ newLayout: RootChromeLayout) {
-        guard newLayout.showsMiniPlayer, newLayout.hasRenderableFrame else {
-            applyLayoutImmediately(newLayout)
-            return
-        }
-
-        guard displayedLayout.showsMiniPlayer, displayedLayout.hasRenderableFrame else {
-            applyLayoutImmediately(newLayout)
-            return
-        }
-
-        guard newLayout != displayedLayout else {
-            pendingLayoutUpdate?.cancel()
-            pendingLayoutUpdate = nil
-            return
-        }
-
-        pendingLayoutUpdate?.cancel()
-        pendingLayoutUpdate = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
-            applyLayoutImmediately(newLayout)
-        }
-    }
 }
