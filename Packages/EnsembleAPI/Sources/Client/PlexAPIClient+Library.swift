@@ -1,6 +1,48 @@
 import Foundation
 
 extension PlexAPIClient {
+    private static let libraryPageSize = 500
+
+    private func getPagedSectionItems<T: Codable & Sendable>(
+        sectionKey: String,
+        baseQuery: [String: String],
+        pageSize: Int = PlexAPIClient.libraryPageSize
+    ) async throws -> [T] {
+        var allItems: [T] = []
+        var start = 0
+
+        while true {
+            var query = baseQuery
+            query["X-Plex-Container-Start"] = String(start)
+            query["X-Plex-Container-Size"] = String(pageSize)
+
+            let data = try await serverRequest(
+                path: "/library/sections/\(sectionKey)/all",
+                query: query
+            )
+            let container = try JSONDecoder().decode(
+                PlexMediaContainer<T>.self,
+                from: data
+            )
+
+            let items = container.mediaContainer.items
+            guard !items.isEmpty else { break }
+
+            allItems.append(contentsOf: items)
+
+            let nextStart = start + items.count
+            if let totalSize = container.mediaContainer.totalSize, nextStart >= totalSize {
+                break
+            }
+            if items.count < pageSize {
+                break
+            }
+            start = nextStart
+        }
+
+        return allItems
+    }
+
     /// Get library sections
     public func getLibrarySections() async throws -> [PlexLibrarySection] {
         let data = try await serverRequest(path: "/library/sections")
@@ -134,76 +176,56 @@ extension PlexAPIClient {
 
     /// Get all tracks in a library section
     public func getTracks(sectionKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media"
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get tracks added or updated after a specific timestamp (incremental sync)
     public func getTracks(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media",
                 "addedAt>=": String(unixTime)
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get tracks updated after a specific timestamp (incremental sync)
     public func getTracks(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media",
                 "updatedAt>=": String(unixTime)
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get tracks rated after a specific timestamp (for syncing rating changes from other devices)
     public func getTracks(sectionKey: String, ratedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media",
                 "lastRatedAt>=": String(unixTime)
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get tracks in an album
@@ -279,19 +301,14 @@ extension PlexAPIClient {
 
     /// Get all track ratingKeys in a library section (minimal response)
     public func getTrackInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
-        let data = try await serverRequest(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "10",
                 "includeFields": "ratingKey",
                 "excludeElements": "Media,Genre,Mood,Guid,Rating"
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexInventoryItem>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get moods in a library section
