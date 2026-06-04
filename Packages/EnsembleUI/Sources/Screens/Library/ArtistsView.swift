@@ -191,23 +191,25 @@ public struct ArtistsView: View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         artistGenreChipBar
 
                         if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(artistSnapshot.sections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
+                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        sectionHeader(section.letter)
+                                            .id(section.letter)
+
                                         ForEach(section.artists) { displayArtist in
                                             artistSelectionRow(displayArtist)
                                         }
                                     }
-                                    .id(section.letter)
                                 }
                             }
                             .padding(.vertical)
                         } else {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(artistSnapshot.displayArtists) { displayArtist in
                                     artistSelectionRow(displayArtist)
                                 }
@@ -283,18 +285,20 @@ public struct ArtistsView: View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         artistGenreChipBar
 
                         if libraryVM.artistSortOption == .name {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(artistSnapshot.sections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
+                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        sectionHeader(section.letter)
+                                            .id(section.letter)
+
                                         DisplayArtistGrid(
                                             artists: section.artists,
                                             nowPlayingVM: nowPlayingVM
                                         )
-                                        .id(section.letter)
                                     }
                                 }
                             }
