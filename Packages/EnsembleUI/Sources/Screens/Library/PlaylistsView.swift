@@ -572,8 +572,9 @@ public struct PlaylistsView: View {
         .miniPlayerBottomSpacing()
     }
 
+    @ViewBuilder
     private func playlistCountFooter(count: Int) -> some View {
-        LibraryBrowseCountFooter(
+        let footer = LibraryBrowseCountFooter(
             count: count,
             singular: "playlist",
             plural: "playlists",
@@ -581,6 +582,16 @@ public struct PlaylistsView: View {
         )
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            footer.listRowSeparator(.hidden)
+        } else {
+            footer
+        }
+        #else
+        footer.listRowSeparator(.hidden)
+        #endif
     }
     
     private var stageFlowView: some View {
