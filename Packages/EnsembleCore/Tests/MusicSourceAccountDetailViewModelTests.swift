@@ -296,6 +296,83 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.serverLibraryErrors["server-1"], "Library fetch failed")
     }
 
+    func testRefreshPreservesCachedServerMissingFromDiscovery() async throws {
+        let harness = makeHarness()
+        let account = PlexAccountConfig(
+            id: "account-1",
+            email: "user@example.com",
+            plexUsername: "felicity",
+            displayTitle: "Felicity",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-online",
+                    name: "Online Server",
+                    url: "https://online.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://online.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-online",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-online", key: "lib-online", title: "Online Music", isEnabled: true)
+                    ]
+                ),
+                PlexServerConfig(
+                    id: "server-offline",
+                    name: "Offline Server",
+                    url: "https://offline.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://offline.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-offline",
+                    platform: "MacOSX",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-offline", key: "lib-offline", title: "Offline Music", isEnabled: true)
+                    ]
+                )
+            ]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let offlineSource = "plex:account-1:server-offline:lib-offline"
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-offline", sourceCompositeKey: offlineSource)
+
+        harness.discoveryService.result = PlexAccountDiscoveryResult(
+            identity: PlexAccountIdentity(id: "account-1", email: nil, plexUsername: "tester", displayTitle: nil),
+            servers: [
+                PlexServerConfig(
+                    id: "server-online",
+                    name: "Online Server",
+                    url: "https://online.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://online.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-online",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-online", key: "lib-online", title: "Online Music", isEnabled: false)
+                    ]
+                )
+            ],
+            serverLibraryErrors: [:]
+        )
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        await viewModel.performInitialRefreshIfNeeded()
+
+        let updatedAccount = try XCTUnwrap(harness.accountManager.plexAccounts.first)
+        XCTAssertEqual(updatedAccount.servers.map(\.id), ["server-online", "server-offline"])
+        let offlineServer = try XCTUnwrap(updatedAccount.servers.first(where: { $0.id == "server-offline" }))
+        XCTAssertEqual(offlineServer.libraries.map(\.key), ["lib-offline"])
+        XCTAssertEqual(offlineServer.libraries.first?.isEnabled, true)
+
+        XCTAssertTrue(viewModel.sections.contains(where: { $0.id == "server-offline" }))
+
+        let tracks = try await harness.libraryRepository.fetchTracks()
+        XCTAssertTrue(tracks.contains(where: { $0.sourceCompositeKey == offlineSource }))
+    }
+
     func testRefreshPreservesKnownCapabilitiesWhenDiscoveryCapabilitiesAreUnknown() async throws {
         let harness = makeHarness()
         let knownCapabilities = PlexServerCapabilities(

@@ -395,19 +395,11 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             )
         }
 
-        // Servers no longer present in discovery are considered removed.
+        // A Plex resources refresh can omit servers that are temporarily offline or
+        // unreachable. Preserve cached server/library rows until the user explicitly
+        // removes the account or disables a library.
         for existingServer in account.servers where !discoveredServerIDs.contains(existingServer.id) {
-            for library in existingServer.libraries {
-                removedSources.insert(
-                    MusicSourceIdentifier(
-                        type: .plex,
-                        accountId: account.id,
-                        serverId: existingServer.id,
-                        libraryId: library.key
-                    )
-                )
-            }
-            serversNeedingPlaylistCleanup.insert(ServerKey(accountId: account.id, serverId: existingServer.id))
+            updatedServers.append(existingServer)
         }
 
         let updatedServersById = Dictionary(uniqueKeysWithValues: updatedServers.map { ($0.id, $0) })
