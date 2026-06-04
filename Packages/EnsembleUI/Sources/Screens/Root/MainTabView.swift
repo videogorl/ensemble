@@ -1348,19 +1348,22 @@ public struct SidebarView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         GeometryReader { proxy in
-            content()
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                .background(
-                    RootChromeFrameRegistrationView(
-                        bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
-                            safeAreaBottom: proxy.safeAreaInsets.bottom
-                        ),
-                        contentLeadingInset: proxy.safeAreaInsets.leading,
-                        centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
-                        showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
-                        priority: 10_000
-                    )
+            ZStack(alignment: .topLeading) {
+                content()
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+
+                RootChromeFrameRegistrationView(
+                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    ),
+                    contentLeadingInset: proxy.safeAreaInsets.leading,
+                    centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
+                    showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
+                    priority: 10_000
                 )
+                .allowsHitTesting(false)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
     }
 
@@ -1444,19 +1447,22 @@ public struct SidebarView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         GeometryReader { proxy in
-            content()
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                .background(
-                    RootChromeFrameRegistrationView(
-                        bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
-                            safeAreaBottom: proxy.safeAreaInsets.bottom
-                        ),
-                        contentLeadingInset: proxy.safeAreaInsets.leading,
-                        centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
-                        showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
-                        priority: 20_000
-                    )
+            ZStack(alignment: .topLeading) {
+                content()
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+
+                RootChromeFrameRegistrationView(
+                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    ),
+                    contentLeadingInset: proxy.safeAreaInsets.leading,
+                    centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
+                    showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
+                    priority: 20_000
                 )
+                .allowsHitTesting(false)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
     }
 

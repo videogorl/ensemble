@@ -20,6 +20,7 @@ public struct MiniPlayer: View {
     private let showsWaveform: Bool
     private let waveformColor: Color
     private let horizontalPadding: CGFloat
+    private let usesGlassEffectIdentity: Bool
     private let pillCornerRadius: CGFloat = EnsembleScaffold.MiniPlayer.cornerRadius
 
     private let namespace: Namespace.ID?
@@ -32,6 +33,7 @@ public struct MiniPlayer: View {
         showsWaveform: Bool = false,
         waveformColor: Color = .primary,
         horizontalPadding: CGFloat? = nil,
+        usesGlassEffectIdentity: Bool = true,
         namespace: Namespace.ID? = nil,
         animationID: String? = nil,
         onTap: @escaping () -> Void
@@ -45,6 +47,7 @@ public struct MiniPlayer: View {
                 ? EnsembleScaffold.MiniPlayer.floatingHorizontalPadding
                 : EnsembleScaffold.MiniPlayer.inlineHorizontalPadding
         )
+        self.usesGlassEffectIdentity = usesGlassEffectIdentity
         self.namespace = namespace
         self.animationID = animationID
         self.onTap = onTap
@@ -55,12 +58,7 @@ public struct MiniPlayer: View {
         Group {
             if #available(iOS 26, macOS 26, *) {
                 // Native Liquid Glass — the real material, handles blur/lighting/elevation itself.
-                pillContent
-                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-                    .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
-                    .ifLet(namespace, animationID) { view, ns, id in
-                        view.glassEffectID("mini-player-glass-\(id)", in: ns)
-                    }
+                liquidGlassPillContent
             } else {
                 // iOS 15–25 fallback: low-cost system material stack.
                 pillContent
@@ -125,6 +123,23 @@ public struct MiniPlayer: View {
     }
 
     // MARK: - Pill Content
+
+    @available(iOS 26, macOS 26, *)
+    @ViewBuilder
+    private var liquidGlassPillContent: some View {
+        let glassContent = pillContent
+            .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
+            .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
+
+        if usesGlassEffectIdentity {
+            glassContent
+                .ifLet(namespace, animationID) { view, ns, id in
+                    view.glassEffectID("mini-player-glass-\(id)", in: ns)
+                }
+        } else {
+            glassContent
+        }
+    }
 
     /// Composed of scoped sub-views so observation stays local.
     /// The parent body (above) doesn't re-evaluate when NVM publishes.

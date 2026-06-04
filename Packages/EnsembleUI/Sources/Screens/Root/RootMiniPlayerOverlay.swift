@@ -41,6 +41,7 @@ struct RootMiniPlayerOverlay: View {
                 showsWaveform: !isPhoneLayout && miniPlayerWidth >= 280,
                 waveformColor: accentColor,
                 horizontalPadding: miniPlayerHorizontalPadding,
+                usesGlassEffectIdentity: false,
                 namespace: namespace,
                 animationID: animationID
             ) {
@@ -59,12 +60,11 @@ struct RootMiniPlayerOverlay: View {
             .offset(x: layout.frame.minX, y: layout.frame.minY)
             .offset(x: layout.horizontalOffset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .animation(rootChromeLayoutAnimation, value: layout.horizontalAnchor)
+            .transaction { transaction in
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
             .transition(.identity)
         }
-    }
-
-    private var rootChromeLayoutAnimation: Animation {
-        .easeInOut(duration: 0.25)
     }
 }
