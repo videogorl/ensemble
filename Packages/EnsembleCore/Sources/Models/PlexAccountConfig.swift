@@ -195,13 +195,22 @@ public struct PlexLibraryConfig: Codable, Sendable, Identifiable, Equatable {
     public let title: String
     public var isEnabled: Bool
     public let allowSync: Bool?
+    public let trackCount: Int?
 
-    public init(id: String, key: String, title: String, isEnabled: Bool = true, allowSync: Bool? = nil) {
+    public init(
+        id: String,
+        key: String,
+        title: String,
+        isEnabled: Bool = true,
+        allowSync: Bool? = nil,
+        trackCount: Int? = nil
+    ) {
         self.id = id
         self.key = key
         self.title = title
         self.isEnabled = isEnabled
         self.allowSync = allowSync
+        self.trackCount = trackCount
     }
 }
 

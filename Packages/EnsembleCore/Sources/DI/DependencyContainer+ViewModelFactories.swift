@@ -202,7 +202,8 @@ public extension DependencyContainer {
             accountDiscoveryService: accountDiscoveryService,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
-            webSocketCoordinator: webSocketCoordinator
+            webSocketCoordinator: webSocketCoordinator,
+            libraryRepository: libraryRepository
         )
     }
 

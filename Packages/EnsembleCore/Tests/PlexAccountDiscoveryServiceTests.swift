@@ -7,6 +7,7 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
         let user: PlexUser
         let resources: [PlexDevice]
         let librariesByServerID: [String: Result<[PlexLibrarySection], Error>]
+        var trackCountsByServerAndSectionID: [String: Result<Int?, Error>] = [:]
         var capabilitiesByServerID: [String: Result<PlexServerCapabilities, Error>] = [:]
 
         func getUserInfo(token: String) async throws -> PlexUser {
@@ -32,6 +33,15 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
             allowInsecurePolicy: AllowInsecureConnectionsPolicy
         ) async throws -> PlexServerCapabilities {
             try (capabilitiesByServerID[device.clientIdentifier] ?? .success(PlexServerCapabilities())).get()
+        }
+
+        func getTrackCount(
+            sectionKey: String,
+            for device: PlexDevice,
+            token: String,
+            allowInsecurePolicy: AllowInsecureConnectionsPolicy
+        ) async throws -> Int? {
+            try (trackCountsByServerAndSectionID["\(device.clientIdentifier):\(sectionKey)"] ?? .success(nil)).get()
         }
     }
 
@@ -140,6 +150,68 @@ final class PlexAccountDiscoveryServiceTests: XCTestCase {
 
         let serverB = try XCTUnwrap(result.servers.first(where: { $0.id == "server-b" }))
         XCTAssertEqual(serverB.libraries.map(\.title), ["Music B"])
+    }
+
+    func testDiscoverAccountAttachesMusicLibraryTrackCounts() async throws {
+        let user = try decodeUser(
+            """
+            {
+              "id": 42,
+              "uuid": "user-uuid",
+              "username": "felicity",
+              "title": "Felicity",
+              "email": "user@example.com"
+            }
+            """
+        )
+        let resources = try decodeResources(
+            """
+            [
+              {
+                "name": "Server A",
+                "product": "Plex Media Server",
+                "productVersion": "1.40.0",
+                "platform": "Linux",
+                "clientIdentifier": "server-a",
+                "provides": "server",
+                "owned": true,
+                "accessToken": "server-a-token",
+                "connections": [
+                  { "uri": "https://remote-a.plex.direct:32400", "local": false, "relay": false, "protocol": "https" }
+                ]
+              }
+            ]
+            """
+        )
+
+        let service = PlexAccountDiscoveryService(
+            client: MockClient(
+                user: user,
+                resources: resources,
+                librariesByServerID: [
+                    "server-a": .success(
+                        try decodeSections(
+                            """
+                            [
+                              { "key": "1", "title": "Music", "type": "artist" },
+                              { "key": "2", "title": "Music+Test", "type": "music" }
+                            ]
+                            """
+                        )
+                    )
+                ],
+                trackCountsByServerAndSectionID: [
+                    "server-a:1": .success(128000),
+                    "server-a:2": .success(2402)
+                ]
+            ),
+            allowInsecurePolicyProvider: { .sameNetwork }
+        )
+
+        let result = try await service.discoverAccount(authToken: "auth-token")
+        let server = try XCTUnwrap(result.servers.first)
+
+        XCTAssertEqual(server.libraries.map(\.trackCount), [128000, 2402])
     }
 
     func testDiscoverAccountRetainsServersWhenLibraryFetchPartiallyFails() async throws {

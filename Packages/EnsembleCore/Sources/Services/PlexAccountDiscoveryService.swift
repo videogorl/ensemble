@@ -59,6 +59,12 @@ public protocol PlexAccountDiscoveryClientProtocol: Sendable {
         token: String,
         allowInsecurePolicy: AllowInsecureConnectionsPolicy
     ) async throws -> PlexServerCapabilities
+    func getTrackCount(
+        sectionKey: String,
+        for device: PlexDevice,
+        token: String,
+        allowInsecurePolicy: AllowInsecureConnectionsPolicy
+    ) async throws -> Int?
 }
 
 public protocol PlexAccountDiscoveryServiceProtocol: Sendable {
@@ -112,6 +118,17 @@ public struct PlexAPIAccountDiscoveryClient: PlexAccountDiscoveryClientProtocol 
         let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
         _ = try await client.refreshConnection()
         return try await client.getServerCapabilities()
+    }
+
+    public func getTrackCount(
+        sectionKey: String,
+        for device: PlexDevice,
+        token: String,
+        allowInsecurePolicy: AllowInsecureConnectionsPolicy
+    ) async throws -> Int? {
+        let client = try makeClient(for: device, token: token, allowInsecurePolicy: allowInsecurePolicy)
+        _ = try await client.refreshConnection()
+        return try await client.getTrackCount(sectionKey: sectionKey)
     }
 
     /// Creates a temporary `PlexAPIClient` for the given device during discovery.
@@ -270,6 +287,22 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                             allowInsecurePolicy: allowInsecurePolicy
                         )
 
+                        var trackCountsBySectionKey: [String: Int] = [:]
+                        for section in sections where section.isMusicLibrary {
+                            do {
+                                trackCountsBySectionKey[section.key] = try await self.client.getTrackCount(
+                                    sectionKey: section.key,
+                                    for: device,
+                                    token: authToken,
+                                    allowInsecurePolicy: allowInsecurePolicy
+                                )
+                            } catch is CancellationError {
+                                throw CancellationError()
+                            } catch {
+                                EnsembleLogger.debug("[\(device.name)] track count fetch failed for section \(section.key): \(error.localizedDescription)")
+                            }
+                        }
+
                         let libraries = sections
                             .filter(\.isMusicLibrary)
                             .map { section in
@@ -278,7 +311,8 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
                                     key: section.key,
                                     title: section.title,
                                     isEnabled: false,
-                                    allowSync: section.allowSync
+                                    allowSync: section.allowSync,
+                                    trackCount: trackCountsBySectionKey[section.key]
                                 )
                             }
 

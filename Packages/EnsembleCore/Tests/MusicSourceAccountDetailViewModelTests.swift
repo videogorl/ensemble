@@ -373,6 +373,51 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
         XCTAssertTrue(tracks.contains(where: { $0.sourceCompositeKey == offlineSource }))
     }
 
+    func testLibraryRowsExposeExpectedAndSyncedTrackCounts() async throws {
+        let harness = makeHarness()
+        let account = PlexAccountConfig(
+            id: "account-1",
+            email: "user@example.com",
+            plexUsername: "felicity",
+            displayTitle: "Felicity",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server One",
+                    url: "https://server-1.example.com",
+                    connections: [
+                        PlexConnectionConfig(uri: "https://server-1.example.com", local: false, relay: false, protocol: "https")
+                    ],
+                    token: "token-1",
+                    platform: "Linux",
+                    libraries: [
+                        PlexLibraryConfig(
+                            id: "lib-1",
+                            key: "lib-1",
+                            title: "Library One",
+                            isEnabled: true,
+                            trackCount: 128_000
+                        )
+                    ]
+                )
+            ]
+        )
+        harness.accountManager.addPlexAccount(account)
+
+        let source = "plex:account-1:server-1:lib-1"
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-1", sourceCompositeKey: source)
+        try await seedTrack(repository: harness.libraryRepository, ratingKey: "track-2", sourceCompositeKey: source)
+
+        let viewModel = makeViewModel(accountId: account.id, harness: harness)
+        let row = try await waitForLibraryRow(viewModel) { row in
+            row.expectedTrackCount == 128_000 && row.syncedTrackCount == 2
+        }
+
+        XCTAssertEqual(row.expectedTrackCount, 128_000)
+        XCTAssertEqual(row.syncedTrackCount, 2)
+    }
+
     func testRefreshPreservesKnownCapabilitiesWhenDiscoveryCapabilitiesAreUnknown() async throws {
         let harness = makeHarness()
         let knownCapabilities = PlexServerCapabilities(
@@ -644,7 +689,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountDiscoveryService: gatedDiscovery,
             syncCoordinator: harness.syncCoordinator,
             mutationCoordinator: harness.mutationCoordinator,
-            webSocketCoordinator: harness.webSocketCoordinator
+            webSocketCoordinator: harness.webSocketCoordinator,
+            libraryRepository: harness.libraryRepository
         )
 
         let refreshTask = Task { await viewModel.performInitialRefreshIfNeeded() }
@@ -718,7 +764,8 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             accountDiscoveryService: harness.discoveryService,
             syncCoordinator: harness.syncCoordinator,
             mutationCoordinator: harness.mutationCoordinator,
-            webSocketCoordinator: harness.webSocketCoordinator
+            webSocketCoordinator: harness.webSocketCoordinator,
+            libraryRepository: harness.libraryRepository
         )
     }
 
@@ -798,5 +845,18 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             lastPlayed: nil,
             sourceCompositeKey: sourceCompositeKey
         )
+    }
+
+    private func waitForLibraryRow(
+        _ viewModel: MusicSourceAccountDetailViewModel,
+        matching predicate: (MusicSourceAccountDetailViewModel.LibraryRow) -> Bool
+    ) async throws -> MusicSourceAccountDetailViewModel.LibraryRow {
+        for _ in 0..<20 {
+            if let row = viewModel.sections.flatMap(\.libraries).first(where: predicate) {
+                return row
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return try XCTUnwrap(viewModel.sections.flatMap(\.libraries).first)
     }
 }

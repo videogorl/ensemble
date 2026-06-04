@@ -186,6 +186,23 @@ extension PlexAPIClient {
         )
     }
 
+    /// Get the number of tracks in a library section without fetching track metadata.
+    public func getTrackCount(sectionKey: String) async throws -> Int? {
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/all",
+            query: [
+                "type": "10",
+                "X-Plex-Container-Start": "0",
+                "X-Plex-Container-Size": "0"
+            ]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexInventoryItem>.self,
+            from: data
+        )
+        return container.mediaContainer.totalSize ?? container.mediaContainer.size
+    }
+
     /// Get tracks added or updated after a specific timestamp (incremental sync)
     public func getTracks(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexTrack] {
         let unixTime = Int(timestamp)

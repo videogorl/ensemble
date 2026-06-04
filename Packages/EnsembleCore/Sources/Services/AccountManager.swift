@@ -271,7 +271,8 @@ public final class AccountManager: ObservableObject {
                             key: updatedLibraries[k].key,
                             title: updatedLibraries[k].title,
                             isEnabled: remoteEntry.isEnabled,
-                            allowSync: updatedLibraries[k].allowSync
+                            allowSync: updatedLibraries[k].allowSync,
+                            trackCount: updatedLibraries[k].trackCount
                         )
                         serverChanged = true
                     }
@@ -346,7 +347,8 @@ public final class AccountManager: ObservableObject {
                     key: library.key,
                     title: library.title,
                     isEnabled: remoteEntry.isEnabled,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount
                 )
             }
             return PlexServerConfig(
@@ -405,7 +407,8 @@ public final class AccountManager: ObservableObject {
                     key: library.key,
                     title: library.title,
                     isEnabled: credentialEnabled,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount
                 )
             }
             return PlexServerConfig(
@@ -482,7 +485,8 @@ public final class AccountManager: ObservableObject {
             key: updatedLibraries[libraryIndex].key,
             title: updatedLibraries[libraryIndex].title,
             isEnabled: false,
-            allowSync: updatedLibraries[libraryIndex].allowSync
+            allowSync: updatedLibraries[libraryIndex].allowSync,
+            trackCount: updatedLibraries[libraryIndex].trackCount
         )
         recordLocalLibraryFlagMutation(
             accountId: account.id,
@@ -547,7 +551,8 @@ public final class AccountManager: ObservableObject {
             key: library.key,
             title: library.title,
             isEnabled: isEnabled,
-            allowSync: library.allowSync
+            allowSync: library.allowSync,
+            trackCount: library.trackCount
         )
         recordLocalLibraryFlagMutation(
             accountId: accountId,
@@ -956,7 +961,8 @@ public final class AccountManager: ObservableObject {
                     key: library.key,
                     title: library.title,
                     isEnabled: existingLibrary.isEnabled,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount ?? existingLibrary.trackCount
                 )
             }
 

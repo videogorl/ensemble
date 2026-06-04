@@ -199,7 +199,9 @@ public final class AddPlexAccountViewModel: ObservableObject {
                     title: library.title,
                     isEnabled: selectedLibraryCompositeKeys.contains(
                         Self.selectionKey(serverId: server.id, libraryKey: library.key)
-                    )
+                    ),
+                    allowSync: library.allowSync,
+                    trackCount: library.trackCount
                 )
             }
 

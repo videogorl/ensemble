@@ -374,22 +374,41 @@ private struct LibrarySyncStatusRow: View {
             .buttonStyle(.plain)
 
             if row.isEnabled {
-                EnabledLibraryStatusView(status: row.status ?? MusicSourceStatus())
+                EnabledLibraryStatusView(
+                    status: row.status ?? MusicSourceStatus(),
+                    expectedTrackCount: row.expectedTrackCount,
+                    syncedTrackCount: row.syncedTrackCount
+                )
                     .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             } else {
                 EnsembleUtilityInlineStatusRow(
                     iconSystemName: EnsembleDesign.Icon.removeCircle,
-                    text: "Not synced"
+                    text: notSyncedText
                 )
                 .padding(.leading, EnsembleScaffold.UtilityRow.nestedLeadingPadding)
             }
         }
         .padding(.vertical, EnsembleScaffold.UtilityRow.tightVerticalPadding)
     }
+
+    private var notSyncedText: String {
+        if let expectedTrackCount = row.expectedTrackCount {
+            return "\(Self.trackCountFormatter.string(from: NSNumber(value: expectedTrackCount)) ?? "\(expectedTrackCount)") tracks not synced"
+        }
+        return "Not synced"
+    }
+
+    private static let trackCountFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
 }
 
 private struct EnabledLibraryStatusView: View {
     let status: MusicSourceStatus
+    let expectedTrackCount: Int?
+    let syncedTrackCount: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.detailTextSpacing) {
@@ -442,8 +461,21 @@ private struct EnabledLibraryStatusView: View {
         case .error(let message):
             return message
         case .lastSynced(let date):
+            if let trackCountText {
+                return "Last synced \(timeAgo(date)) • \(trackCountText)"
+            }
             return "Last synced \(timeAgo(date))"
         }
+    }
+
+    private var trackCountText: String? {
+        guard let syncedTrackCount else { return nil }
+        let synced = Self.trackCountFormatter.string(from: NSNumber(value: syncedTrackCount)) ?? "\(syncedTrackCount)"
+        guard let expectedTrackCount, expectedTrackCount > syncedTrackCount else {
+            return "\(synced) tracks synced"
+        }
+        let expected = Self.trackCountFormatter.string(from: NSNumber(value: expectedTrackCount)) ?? "\(expectedTrackCount)"
+        return "\(synced) of \(expected) tracks synced"
     }
 
     private var connectionColor: Color {
@@ -502,6 +534,12 @@ private struct EnabledLibraryStatusView: View {
             return "\(days)d ago"
         }
     }
+
+    private static let trackCountFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        return formatter
+    }()
 }
 
 /// Compact inline badges for server-level feature availability (Plex Pass, Lyrics, Radio).

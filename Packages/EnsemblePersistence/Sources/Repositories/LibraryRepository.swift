@@ -215,6 +215,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack]
+    func countTracks(forSource sourceCompositeKey: String) async throws -> Int
     func fetchSiriEligibleTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack]
@@ -326,6 +327,10 @@ public extension LibraryRepositoryProtocol {
 }
 
 public extension LibraryRepositoryProtocol {
+    func countTracks(forSource sourceCompositeKey: String) async throws -> Int {
+        try await fetchTracks(forSource: sourceCompositeKey).count
+    }
+
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws {}
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {}
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws {}

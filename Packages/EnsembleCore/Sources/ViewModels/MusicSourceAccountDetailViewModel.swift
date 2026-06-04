@@ -1,4 +1,5 @@
 import Combine
+import EnsemblePersistence
 import Foundation
 
 /// Drives account-level source management, including library selection and sync status display.
@@ -46,19 +47,25 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         public let isEnabled: Bool
         public let status: MusicSourceStatus?
         public let allowSync: Bool?
+        public let expectedTrackCount: Int?
+        public let syncedTrackCount: Int?
 
         public init(
             sourceIdentifier: MusicSourceIdentifier,
             title: String,
             isEnabled: Bool,
             status: MusicSourceStatus?,
-            allowSync: Bool? = nil
+            allowSync: Bool? = nil,
+            expectedTrackCount: Int? = nil,
+            syncedTrackCount: Int? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.title = title
             self.isEnabled = isEnabled
             self.status = status
             self.allowSync = allowSync
+            self.expectedTrackCount = expectedTrackCount
+            self.syncedTrackCount = syncedTrackCount
         }
     }
 
@@ -82,7 +89,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
     private let webSocketCoordinator: PlexWebSocketCoordinator
+    private let libraryRepository: any LibraryRepositoryProtocol
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
+    private var syncedTrackCounts: [MusicSourceIdentifier: Int] = [:]
     private var cancellables = Set<AnyCancellable>()
     private var hasPerformedInitialRefresh = false
     private var activeLibraryOperations = Set<String>()
@@ -100,7 +109,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
-        webSocketCoordinator: PlexWebSocketCoordinator
+        webSocketCoordinator: PlexWebSocketCoordinator,
+        libraryRepository: any LibraryRepositoryProtocol
     ) {
         self.accountId = accountId
         self.accountManager = accountManager
@@ -108,6 +118,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.webSocketCoordinator = webSocketCoordinator
+        self.libraryRepository = libraryRepository
 
         // Subscribe to library scan progress from WebSocket events
         webSocketCoordinator.$serverScanProgress
@@ -137,18 +148,25 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.rebuildSections()
+                self?.refreshSyncedTrackCounts()
             }
             .store(in: &cancellables)
 
         syncCoordinator.$sourceStatuses
             .receive(on: DispatchQueue.main)
             .sink { [weak self] statuses in
-                self?.sourceStatuses = statuses
-                self?.rebuildSections()
+                guard let self else { return }
+                let previousStatuses = self.sourceStatuses
+                self.sourceStatuses = statuses
+                self.rebuildSections()
+                if Self.shouldRefreshSyncedTrackCounts(previous: previousStatuses, next: statuses) {
+                    self.refreshSyncedTrackCounts()
+                }
             }
             .store(in: &cancellables)
 
         rebuildSections()
+        refreshSyncedTrackCounts()
     }
 
     public func performInitialRefreshIfNeeded() async {
@@ -362,7 +380,8 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                         key: discoveredLibrary.key,
                         title: discoveredLibrary.title,
                         isEnabled: existingLibrary?.isEnabled ?? false,
-                        allowSync: discoveredLibrary.allowSync
+                        allowSync: discoveredLibrary.allowSync,
+                        trackCount: discoveredLibrary.trackCount ?? existingLibrary?.trackCount
                     )
                 }
 
@@ -470,7 +489,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
                     title: library.title,
                     isEnabled: library.isEnabled,
                     status: status,
-                    allowSync: library.allowSync
+                    allowSync: library.allowSync,
+                    expectedTrackCount: library.trackCount,
+                    syncedTrackCount: syncedTrackCounts[sourceIdentifier]
                 )
             }
 
@@ -504,5 +525,61 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             return nil
         }
         return value
+    }
+
+    private func refreshSyncedTrackCounts() {
+        let sources = currentLibrarySourceIdentifiers()
+        guard !sources.isEmpty else {
+            if !syncedTrackCounts.isEmpty {
+                syncedTrackCounts = [:]
+                rebuildSections()
+            }
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            var nextCounts: [MusicSourceIdentifier: Int] = [:]
+            for source in sources {
+                if let count = try? await libraryRepository.countTracks(forSource: source.compositeKey) {
+                    nextCounts[source] = count
+                }
+            }
+            guard !Task.isCancelled else { return }
+            if nextCounts != self.syncedTrackCounts {
+                self.syncedTrackCounts = nextCounts
+                self.rebuildSections()
+            }
+        }
+    }
+
+    private func currentLibrarySourceIdentifiers() -> [MusicSourceIdentifier] {
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }) else {
+            return []
+        }
+        return account.servers.flatMap { server in
+            server.libraries.map { library in
+                MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: account.id,
+                    serverId: server.id,
+                    libraryId: library.key
+                )
+            }
+        }
+    }
+
+    private static func shouldRefreshSyncedTrackCounts(
+        previous: [MusicSourceIdentifier: MusicSourceStatus],
+        next: [MusicSourceIdentifier: MusicSourceStatus]
+    ) -> Bool {
+        for (source, status) in next {
+            guard case .lastSynced(let date) = status.syncStatus else { continue }
+            guard case .lastSynced(let previousDate)? = previous[source]?.syncStatus,
+                  previousDate == date else {
+                return true
+            }
+        }
+        return false
     }
 }

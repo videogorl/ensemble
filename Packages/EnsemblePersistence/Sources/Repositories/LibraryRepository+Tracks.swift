@@ -47,6 +47,21 @@ extension LibraryRepository {
         }
     }
 
+    public func countTracks(forSource sourceCompositeKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDTrack.fetchRequest()
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+                do {
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func fetchSiriEligibleTracks() async throws -> [CDTrack] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
