@@ -13,6 +13,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Keep native platform owners for behavior SwiftUI does not expose: native track tables, AirPlay picker, Metal aurora, global toast window, native share/menu hosts, iOS 15 tab/mini-player bridges, and macOS menu/window behavior.
 - The root mini player should render as soon as root geometry exists and show its empty state when no current track is available; it must not wait for restored Now Playing state, library refresh, or playback projection updates before becoming visible. On iOS and iPadOS, the root mini player should hide while the software keyboard is visible. Root chrome owners should suppress the mini-player overlay and its reserved clearance instead of letting the mini player ride above the keyboard, then restore the mini player after keyboard dismissal. On iPadOS, root mini-player geometry should be registered from stable root/detail-column containers, not pushed detail views, so sidebar/detail changes update inside subviews without the mini player following navigation-transition frames.
 - Aurora surfaces should mount immediately when the aurora setting is enabled and draw a deterministic idle frame before restored playback state or live frequency bands arrive. Root, Now Playing, and Stage Flow aurora hosts should not render a blank Metal/Canvas surface while playback, settings defaults, or analyzer consumers are hydrating; live bands should replace the idle frame when playback analysis starts.
+- Large-screen root aurora uses the existing single `.rootBackdrop` surface owned by `RootSceneLayerHost`. Do not add duplicate root aurora renderers or sidebar-specific shield geometry unless a current visual repro justifies revisiting the model.
 - Treat new safe-area compensation, delayed layout tasks, custom scroll detectors, root-chrome mutation, toolbar proxies, or broad UIKit/AppKit appearance changes as suspect until a current simulator/macOS repro proves native behavior is broken. Detail leaf views must not hide/show the platform navigation bar to mask transition artifacts; keep toolbar visibility and material behavior declarative through the shared toolbar/detail-surface owners.
 - Persistent list/detail surfaces should observe focused projections or local state snapshots, not broad high-frequency singleton objects.
 - Library browse screens that have already displayed cached content should not publish transient empty lists or swap to blank loading states during refresh. Root library tabs may seed their visible browse snapshots synchronously from cached published collections while the debounced sort/filter pipelines catch up; do not show loading solely because a debounced display projection has not published yet.
@@ -31,7 +32,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 
 ## Owners
 
-- `RootView`, `MainTabView`, and `SidebarView` own root navigation, root chrome, auxiliary presentation, and scene/window coordinator injection.
+- `RootView`, `RootSceneLayerHost`, `MainTabView`, and `SidebarView` own root navigation, root chrome, root aurora layering, auxiliary presentation, and scene/window coordinator injection.
 - `NavigationCoordinator` owns typed destinations, pending navigation, active auxiliary presentation, and scene-local routing.
 - `EnsemblePlatformFeaturePolicy` owns shared platform feature availability.
 - `MediaTrackList`, `SongsTrackListHost`, native menu/share hosts, AirPlay, Metal, and toast bridges own platform-specific behavior.
@@ -41,7 +42,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 ## Implementation Hooks
 
 - Load `ui-conventions` for detailed SwiftUI/component implementation rules after loading this policy.
-- Keep search, tab, toolbar, and mini-player chrome ownership at the root or platform owner; avoid leaf-level fixes unless the leaf owns the real platform behavior.
+- Keep search, tab, toolbar, root aurora, and mini-player chrome ownership at the root or platform owner; avoid leaf-level fixes unless the leaf owns the real platform behavior. `RootChromeFrameRegistrationView` owns mini-player placement geometry.
 - Keep compact iPhone fallbacks separate from large-screen split behavior.
 - Use shared scaffolds, labels, icons, materials, and track-list metrics instead of local duplicates.
 - Mark mini-player, Now Playing panel, carousel, scrubber, share-sheet, and route transitions as foreground interactions through `ForegroundWorkScheduler` so nonessential work does not start during visible gestures or native presentations.

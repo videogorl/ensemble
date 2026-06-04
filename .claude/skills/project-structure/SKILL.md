@@ -64,6 +64,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 - New shared Siri/system media identity or resolver logic: `Packages/EnsembleSiriShared/Sources/`
 - New SiriKit intent definition resource: `Ensemble/Resources/*.intentdefinition`, then add it to the app and relevant extension target resources in `Ensemble.xcodeproj`.
 - New UI screen/component: `Packages/EnsembleUI/Sources/Screens/`, `.../Components/`, `.../NowPlaying/`, or an existing feature folder.
+- Root scene layering, chrome geometry registration, and mini-player overlay helpers live in `Packages/EnsembleUI/Sources/Screens/Root/`.
 - Library item Get Info UI lives in `Packages/EnsembleUI/Sources/Screens/Library/`; its request model lives in `Packages/EnsembleCore/Sources/Models/` and its ViewModel in `Packages/EnsembleCore/Sources/ViewModels/`.
 - New CoreData entity: `Packages/EnsemblePersistence/Sources/CoreData/`
 - New API endpoint logic: the matching `PlexAPIClient+*.swift` file in `Packages/EnsembleAPI/Sources/Client/`.

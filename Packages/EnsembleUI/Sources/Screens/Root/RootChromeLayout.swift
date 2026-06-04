@@ -1,0 +1,171 @@
+import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
+
+enum RootChromeCoordinateSpace {
+    static let name = "RootChromeCoordinateSpace"
+}
+
+private struct SoftwareKeyboardVisibleKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isSoftwareKeyboardVisible: Bool {
+        get { self[SoftwareKeyboardVisibleKey.self] }
+        set { self[SoftwareKeyboardVisibleKey.self] = newValue }
+    }
+}
+
+struct RootChromeRegistration {
+    let bounds: Anchor<CGRect>?
+    let bottomPadding: CGFloat
+    let contentLeadingInset: CGFloat
+    let centersInRootHorizontalSpace: Bool
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    static let hidden = RootChromeRegistration(
+        bounds: nil,
+        bottomPadding: 0,
+        contentLeadingInset: 0,
+        centersInRootHorizontalSpace: false,
+        showsMiniPlayer: false,
+        priority: .min
+    )
+}
+
+struct RootChromeLayout: Equatable {
+    let frame: CGRect
+    let bottomPadding: CGFloat
+    let horizontalOffset: CGFloat
+    let showsMiniPlayer: Bool
+
+    static let hidden = RootChromeLayout(
+        frame: .zero,
+        bottomPadding: 0,
+        horizontalOffset: 0,
+        showsMiniPlayer: false
+    )
+
+    var hasRenderableFrame: Bool {
+        frame.width > 0 && frame.height > 0
+    }
+
+    var horizontalAnchor: CGFloat {
+        frame.midX + horizontalOffset
+    }
+}
+
+struct RootChromeRegistrationPreferenceKey: PreferenceKey {
+    static var defaultValue: RootChromeRegistration = .hidden
+
+    static func reduce(value: inout RootChromeRegistration, nextValue: () -> RootChromeRegistration) {
+        let next = nextValue()
+        if next.priority >= value.priority {
+            value = next
+        }
+    }
+}
+
+struct RootChromeFrameRegistrationView: View {
+    let bottomPadding: CGFloat
+    var contentLeadingInset: CGFloat = 0
+    var centersInRootHorizontalSpace = false
+    let showsMiniPlayer: Bool
+    let priority: Int
+
+    var body: some View {
+        Color.clear.anchorPreference(
+            key: RootChromeRegistrationPreferenceKey.self,
+            value: .bounds
+        ) { bounds in
+            RootChromeRegistration(
+                bounds: bounds,
+                bottomPadding: bottomPadding,
+                contentLeadingInset: contentLeadingInset,
+                centersInRootHorizontalSpace: centersInRootHorizontalSpace,
+                showsMiniPlayer: showsMiniPlayer,
+                priority: priority
+            )
+        }
+    }
+}
+
+enum RootChromeLayoutResolver {
+    static func resolve(
+        from registration: RootChromeRegistration,
+        in proxy: GeometryProxy
+    ) -> RootChromeLayout {
+        let rootBounds = CGRect(origin: .zero, size: proxy.size)
+
+        guard rootBounds.width > 0,
+              rootBounds.height > 0 else {
+            return .hidden
+        }
+
+        guard let bounds = registration.bounds else {
+            return RootChromeLayout(
+                frame: rootBounds,
+                bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                    safeAreaBottom: proxy.safeAreaInsets.bottom
+                ),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            )
+        }
+
+        let visibleFrame = proxy[bounds].intersection(rootBounds)
+
+        guard visibleFrame.width > 0, visibleFrame.height > 0 else {
+            return .hidden
+        }
+
+        return RootChromeLayout(
+            frame: visibleFrame,
+            bottomPadding: registration.bottomPadding,
+            horizontalOffset: horizontalOffset(
+                for: visibleFrame,
+                rootBounds: rootBounds,
+                contentLeadingInset: registration.contentLeadingInset,
+                centersInRootHorizontalSpace: registration.centersInRootHorizontalSpace
+            ),
+            showsMiniPlayer: registration.showsMiniPlayer
+        )
+    }
+
+    private static func horizontalOffset(
+        for visibleFrame: CGRect,
+        rootBounds: CGRect,
+        contentLeadingInset: CGFloat,
+        centersInRootHorizontalSpace: Bool
+    ) -> CGFloat {
+        #if os(iOS)
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            return 0
+        }
+
+        if centersInRootHorizontalSpace {
+            return rootBounds.midX - visibleFrame.midX
+        }
+
+        guard visibleFrame.minX <= 1 else {
+            return 0
+        }
+
+        let missingLeadingOffset = rootBounds.width - visibleFrame.width
+        if missingLeadingOffset > 1 {
+            return missingLeadingOffset
+        }
+
+        guard contentLeadingInset > 0 else {
+            return 0
+        }
+
+        return contentLeadingInset / 2
+        #else
+        return 0
+        #endif
+    }
+}
