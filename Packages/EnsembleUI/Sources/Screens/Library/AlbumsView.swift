@@ -161,18 +161,20 @@ public struct AlbumsView: View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         albumGenreChipBar
 
                         if isSortIndexed {
-                            LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                                 ForEach(albumSnapshot.sections) { section in
-                                    Section(header: sectionHeader(section.letter)) {
+                                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                        sectionHeader(section.letter)
+                                            .id(section.letter)
+
                                         AlbumGrid(
                                             albums: section.albums,
                                             nowPlayingVM: nowPlayingVM
                                         )
-                                            .id(section.letter)
                                     }
                                 }
                             }
