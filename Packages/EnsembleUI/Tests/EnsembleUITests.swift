@@ -478,7 +478,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(resolved, rootFallback)
     }
 
-    func testRootChromeLayoutUsesRootViewportWhenIPadSidebarOverlaysDetail() {
+    func testRootChromeLayoutUsesContentViewportWhenIPadSidebarOverlaysDetail() {
         let overlayDetailLayout = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
             bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 0),
@@ -499,7 +499,45 @@ final class EnsembleUITests: XCTestCase {
             rootBounds: rootFallback.frame
         )
 
-        XCTAssertEqual(resolved, rootFallback)
+        XCTAssertEqual(resolved.frame, CGRect(x: 184, y: 0, width: 372, height: 800))
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
+        XCTAssertEqual(resolved.horizontalOffset, 0)
+        XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    func testRootChromeLayoutIgnoresIPadDetailFrameChangesWhenSidebarIsStable() {
+        let rootFallback = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 556, height: 800),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+        let sidebarFrame = CGRect(x: 0, y: 0, width: 184, height: 800)
+
+        let rootResolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: rootFallback.frame,
+                bottomPadding: rootFallback.bottomPadding,
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarFrame: sidebarFrame,
+            rootBounds: rootFallback.frame
+        )
+        let pushedResolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: CGRect(x: 128, y: 0, width: 428, height: 760),
+                bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarFrame: sidebarFrame,
+            rootBounds: rootFallback.frame
+        )
+
+        XCTAssertEqual(rootResolved, pushedResolved)
     }
 
     func testRootChromeLayoutUsesDetailSpanWhenIPadSidebarIsAdjacent() {
@@ -524,7 +562,7 @@ final class EnsembleUITests: XCTestCase {
         )
 
         XCTAssertEqual(resolved.frame, CGRect(x: 184, y: 0, width: 372, height: 800))
-        XCTAssertEqual(resolved.bottomPadding, detailLayout.bottomPadding)
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
         XCTAssertEqual(resolved.horizontalOffset, 0)
         XCTAssertTrue(resolved.showsMiniPlayer)
     }

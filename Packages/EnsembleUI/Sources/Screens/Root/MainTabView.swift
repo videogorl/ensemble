@@ -1106,6 +1106,10 @@ public struct SidebarView: View {
         }
     }
 
+    private var isSidebarChromeVisible: Bool {
+        columnVisibility != .detailOnly
+    }
+
     private var sidebarColumn: some View {
         List(selection: sidebarSelectionBinding) {
             // Search always appears first
@@ -1191,7 +1195,7 @@ public struct SidebarView: View {
         .onAppear {
             rebuildCachedSidebarPlaylists()
         }
-        .background(RootSidebarChromeRegistrationView())
+        .background(RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible))
     }
 
     /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
