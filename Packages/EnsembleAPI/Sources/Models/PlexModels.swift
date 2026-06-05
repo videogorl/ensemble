@@ -383,9 +383,15 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
 
     /// Returns the best available lyrics stream (prefers timed LRC over plain TXT)
     public var lyricsStream: PlexStream? {
-        let lyricsStreams = lyricsStreams.filter { !$0.isLikelyChordStream }
-        // Prefer timed (LRC) over plain text
-        return lyricsStreams.first(where: { $0.timed == 1 }) ?? lyricsStreams.first
+        normalLyricsStreams.first
+    }
+
+    /// Regular lyric streams in display priority order.
+    public var normalLyricsStreams: [PlexStream] {
+        let streams = lyricsStreams.filter { !$0.isLikelyChordStream }
+        let timed = streams.filter { $0.timed == 1 }
+        let untimed = streams.filter { $0.timed != 1 }
+        return timed + untimed
     }
 
     /// All Plex lyric streams exposed for this track.
