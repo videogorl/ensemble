@@ -531,7 +531,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertTrue(resolved.showsMiniPlayer)
     }
 
-    func testRootChromeLayoutUsesStableDetailFrameWhenSidebarFrameIsUnavailable() {
+    func testRootChromeLayoutIgnoresStableLookingDetailFrameWhenSidebarFrameIsUnavailable() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 900, height: 800),
             bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
@@ -551,7 +551,7 @@ final class EnsembleUITests: XCTestCase {
             rootBounds: rootFallback.frame
         )
 
-        XCTAssertEqual(resolved.frame, CGRect(x: 300, y: 0, width: 600, height: 800))
+        XCTAssertEqual(resolved.frame, CGRect(x: 260, y: 0, width: 640, height: 800))
         XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
         XCTAssertEqual(resolved.horizontalOffset, 0)
         XCTAssertTrue(resolved.showsMiniPlayer)
@@ -581,6 +581,121 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
         XCTAssertEqual(resolved.horizontalOffset, 0)
         XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    func testRootSidebarChromeRegistrationFreezesEqualPriorityFrameDuringSameRootSize() {
+        let current = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.inferredPriority
+        )
+        let pushedFrame = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 220, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.inferredPriority
+        )
+
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: current,
+            next: pushedFrame,
+            rootSizeChanged: false
+        )
+
+        XCTAssertEqual(stabilized, current)
+    }
+
+    func testRootSidebarChromeRegistrationKeepsCurrentWhenPreferenceIsAbsent() {
+        let current = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.measuredPriority
+        )
+
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: current,
+            next: .absent,
+            rootSizeChanged: false
+        )
+
+        XCTAssertEqual(stabilized, current)
+    }
+
+    func testRootSidebarChromeRegistrationAcceptsMeasuredSidebarOverInferredFrame() {
+        let inferred = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 220, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.inferredPriority
+        )
+        let measured = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.measuredPriority
+        )
+
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: inferred,
+            next: measured,
+            rootSizeChanged: false
+        )
+
+        XCTAssertEqual(stabilized, measured)
+    }
+
+    func testRootSidebarChromeRegistrationKeepsSplitStateOverInferredFrame() {
+        let splitState = RootSidebarChromeRegistration.visible(
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.splitStatePriority
+        )
+        let inferred = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 220, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.inferredPriority
+        )
+
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: splitState,
+            next: inferred,
+            rootSizeChanged: false
+        )
+
+        XCTAssertEqual(stabilized, splitState)
+    }
+
+    func testRootSidebarChromeRegistrationAcceptsFrameAfterRootSizeChange() {
+        let current = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.inferredPriority
+        )
+        let rotated = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 260, height: 556),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.inferredPriority
+        )
+
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: current,
+            next: rotated,
+            rootSizeChanged: true
+        )
+
+        XCTAssertEqual(stabilized, rotated)
+    }
+
+    func testRootSidebarChromeRegistrationClearsWhenSidebarIsHidden() {
+        let current = RootSidebarChromeRegistration.visible(
+            frame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            fallbackWidth: 260,
+            priority: RootSidebarChromeRegistration.measuredPriority
+        )
+
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: current,
+            next: .hidden,
+            rootSizeChanged: false
+        )
+
+        XCTAssertEqual(stabilized, .hidden)
     }
 
     func testRootChromeLayoutIgnoresIPadDetailFrameChangesWhenSidebarIsStable() {

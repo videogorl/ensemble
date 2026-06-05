@@ -28,6 +28,7 @@ struct RootSceneLayerHost<Content: View>: View {
     let dismissNowPlaying: () -> Void
     let content: Content
     @State private var sidebarChromeRegistration: RootSidebarChromeRegistration = .hidden
+    @State private var sidebarChromeRootSize: CGSize = .zero
 
     init(
         nowPlayingVM: NowPlayingViewModel,
@@ -63,6 +64,9 @@ struct RootSceneLayerHost<Content: View>: View {
         GeometryReader { proxy in
             ZStack {
                 content
+                    .environment(\.rootSidebarChromeRegistrationHandler) { registration in
+                        updateSidebarChromeRegistration(registration, rootSize: proxy.size)
+                    }
                     .zIndex(1)
 
                 if isAuroraEnabled && !isNowPlayingPresented {
@@ -89,7 +93,7 @@ struct RootSceneLayerHost<Content: View>: View {
             }
             .coordinateSpace(name: RootChromeCoordinateSpace.name)
             .onPreferenceChange(RootSidebarChromeRegistrationPreferenceKey.self) { registration in
-                sidebarChromeRegistration = registration
+                updateSidebarChromeRegistration(registration, rootSize: proxy.size)
             }
             .overlayPreferenceValue(RootChromeRegistrationPreferenceKey.self) { registration in
                 let layout = rootMiniPlayerLayout(
@@ -100,6 +104,29 @@ struct RootSceneLayerHost<Content: View>: View {
                 rootMiniPlayerLayer(layout: layout)
             }
         }
+    }
+
+    private func updateSidebarChromeRegistration(
+        _ registration: RootSidebarChromeRegistration,
+        rootSize: CGSize
+    ) {
+        let rootSizeChanged = !Self.sizesMatch(rootSize, sidebarChromeRootSize)
+        let stabilized = RootSidebarChromeRegistration.stabilized(
+            current: sidebarChromeRegistration,
+            next: registration,
+            rootSizeChanged: rootSizeChanged
+        )
+
+        if stabilized != sidebarChromeRegistration {
+            sidebarChromeRegistration = stabilized
+        }
+        if rootSizeChanged {
+            sidebarChromeRootSize = rootSize
+        }
+    }
+
+    private static func sizesMatch(_ lhs: CGSize, _ rhs: CGSize) -> Bool {
+        abs(lhs.width - rhs.width) <= 1 && abs(lhs.height - rhs.height) <= 1
     }
 
     private func rootMiniPlayerLayout(

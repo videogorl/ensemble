@@ -567,6 +567,7 @@ public struct SidebarView: View {
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
     @Environment(\.dependencies) private var deps
+    @Environment(\.rootSidebarChromeRegistrationHandler) private var rootSidebarChromeRegistrationHandler
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     #if os(macOS)
@@ -936,6 +937,7 @@ public struct SidebarView: View {
 
     public var body: some View {
         splitNavigationView
+        .background(rootSidebarChromeRegistration)
         .auxiliaryPresentationSheets(accentColor: accentColor)
         .onReceive(settingsManager.objectWillChange) { _ in
             updateSettingsSnapshot()
@@ -951,6 +953,12 @@ public struct SidebarView: View {
         .addAccountPresentationSheet()
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
+        .onAppear {
+            publishRootSidebarChromeRegistration()
+        }
+        .onChange(of: columnVisibility) { _ in
+            publishRootSidebarChromeRegistration()
+        }
         .sheet(item: $playlistForEditSheet) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
@@ -1108,6 +1116,27 @@ public struct SidebarView: View {
 
     private var isSidebarChromeVisible: Bool {
         columnVisibility != .detailOnly
+    }
+
+    private var rootSidebarChromeRegistration: some View {
+        RootSidebarChromeRegistrationView(
+            isVisible: isSidebarChromeVisible,
+            fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
+            usesGeometry: false,
+            priority: RootSidebarChromeRegistration.splitStatePriority
+        )
+        .allowsHitTesting(false)
+    }
+
+    private func publishRootSidebarChromeRegistration() {
+        rootSidebarChromeRegistrationHandler?(
+            isSidebarChromeVisible
+                ? .visible(
+                    fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
+                    priority: RootSidebarChromeRegistration.splitStatePriority
+                )
+                : .hidden
+        )
     }
 
     private var sidebarColumn: some View {
@@ -1434,7 +1463,8 @@ public struct SidebarView: View {
                     isVisible: isSidebarChromeVisible,
                     resolvedFrame: inferredSidebarFrame(from: proxy.frame(in: .named(RootChromeCoordinateSpace.name))),
                     fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
-                    usesGeometry: false
+                    usesGeometry: false,
+                    priority: RootSidebarChromeRegistration.inferredPriority
                 )
                 .allowsHitTesting(false)
             }

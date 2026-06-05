@@ -18,6 +18,17 @@ extension EnvironmentValues {
     }
 }
 
+private struct RootSidebarChromeRegistrationHandlerKey: EnvironmentKey {
+    static let defaultValue: ((RootSidebarChromeRegistration) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    var rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)? {
+        get { self[RootSidebarChromeRegistrationHandlerKey.self] }
+        set { self[RootSidebarChromeRegistrationHandlerKey.self] = newValue }
+    }
+}
+
 struct RootChromeRegistration {
     let bounds: Anchor<CGRect>?
     let resolvedFrame: CGRect?
@@ -75,32 +86,92 @@ struct RootSidebarChromeRegistration: Equatable {
     let frame: CGRect?
     let fallbackWidth: CGFloat?
     let isVisible: Bool
+    let isPresent: Bool
+    let priority: Int
+
+    static let inferredPriority = 10
+    static let splitStatePriority = 50
+    static let measuredPriority = 100
+
+    static let absent = RootSidebarChromeRegistration(
+        frame: nil,
+        fallbackWidth: nil,
+        isVisible: false,
+        isPresent: false,
+        priority: .min
+    )
 
     static let hidden = RootSidebarChromeRegistration(
         frame: nil,
         fallbackWidth: nil,
-        isVisible: false
+        isVisible: false,
+        isPresent: true,
+        priority: .min
     )
 
-    static func visible(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) -> RootSidebarChromeRegistration {
+    static func visible(
+        frame: CGRect? = nil,
+        fallbackWidth: CGFloat? = nil,
+        priority: Int = measuredPriority
+    ) -> RootSidebarChromeRegistration {
         RootSidebarChromeRegistration(
             frame: frame,
             fallbackWidth: fallbackWidth,
-            isVisible: true
+            isVisible: true,
+            isPresent: true,
+            priority: priority
         )
+    }
+
+    static func stabilized(
+        current: RootSidebarChromeRegistration,
+        next: RootSidebarChromeRegistration,
+        rootSizeChanged: Bool
+    ) -> RootSidebarChromeRegistration {
+        guard next.isPresent else {
+            return current
+        }
+
+        guard next.isVisible else {
+            return .hidden
+        }
+
+        guard current.isVisible,
+              !rootSizeChanged else {
+            return next
+        }
+
+        if next.priority > current.priority {
+            return next
+        }
+
+        if current.frame == nil,
+           next.frame != nil,
+           next.priority == current.priority {
+            return next
+        }
+
+        return current
     }
 }
 
 struct RootSidebarChromeRegistrationPreferenceKey: PreferenceKey {
-    static var defaultValue: RootSidebarChromeRegistration = .hidden
+    static var defaultValue: RootSidebarChromeRegistration = .absent
 
     static func reduce(value: inout RootSidebarChromeRegistration, nextValue: () -> RootSidebarChromeRegistration) {
         let next = nextValue()
-        guard next.isVisible else {
+        guard next.isPresent else {
             return
         }
 
-        if !value.isVisible || next.frame != nil || value.frame == nil {
+        guard next.isVisible else {
+            if !value.isVisible {
+                value = next
+            }
+            return
+        }
+
+        if !value.isVisible || next.priority > value.priority {
             value = next
         }
     }
@@ -111,13 +182,14 @@ struct RootSidebarChromeRegistrationView: View {
     var resolvedFrame: CGRect?
     var fallbackWidth: CGFloat?
     var usesGeometry = true
+    var priority = RootSidebarChromeRegistration.measuredPriority
 
     var body: some View {
         if let resolvedFrame {
             Color.clear.preference(
                 key: RootSidebarChromeRegistrationPreferenceKey.self,
                 value: isVisible
-                    ? .visible(frame: resolvedFrame, fallbackWidth: fallbackWidth)
+                    ? .visible(frame: resolvedFrame, fallbackWidth: fallbackWidth, priority: priority)
                     : .hidden
             )
         } else if isVisible && usesGeometry {
@@ -126,7 +198,8 @@ struct RootSidebarChromeRegistrationView: View {
                     key: RootSidebarChromeRegistrationPreferenceKey.self,
                     value: .visible(
                         frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name)),
-                        fallbackWidth: fallbackWidth
+                        fallbackWidth: fallbackWidth,
+                        priority: priority
                     )
                 )
             }
@@ -134,7 +207,7 @@ struct RootSidebarChromeRegistrationView: View {
             Color.clear.preference(
                 key: RootSidebarChromeRegistrationPreferenceKey.self,
                 value: isVisible
-                    ? .visible(fallbackWidth: fallbackWidth)
+                    ? .visible(fallbackWidth: fallbackWidth, priority: priority)
                     : .hidden
             )
         }
@@ -288,10 +361,7 @@ enum RootChromeLayoutResolver {
 
         let contentFrame = sidebarRegistration.frame.flatMap {
             padContentFrame(rootBounds: rootBounds, sidebarFrame: $0)
-        } ?? stableDetailContentFrame(
-            from: resolvedLayout.frame,
-            rootBounds: rootBounds
-        ) ?? sidebarRegistration.fallbackWidth.flatMap {
+        } ?? sidebarRegistration.fallbackWidth.flatMap {
             padContentFrame(rootBounds: rootBounds, sidebarWidth: $0)
         }
 
@@ -302,25 +372,6 @@ enum RootChromeLayoutResolver {
             bottomPadding: rootFallback.bottomPadding,
             horizontalOffset: 0,
             showsMiniPlayer: rootFallback.showsMiniPlayer
-        )
-    }
-
-    private static func stableDetailContentFrame(from frame: CGRect, rootBounds: CGRect) -> CGRect? {
-        let contentFrame = frame.intersection(rootBounds)
-
-        guard contentFrame.width >= min(320, rootBounds.width * 0.5),
-              contentFrame.minX > rootBounds.minX + 80,
-              abs(contentFrame.maxX - rootBounds.maxX) <= 2,
-              abs(contentFrame.minY - rootBounds.minY) <= 2,
-              abs(contentFrame.height - rootBounds.height) <= 2 else {
-            return nil
-        }
-
-        return CGRect(
-            x: contentFrame.minX,
-            y: rootBounds.minY,
-            width: contentFrame.width,
-            height: rootBounds.height
         )
     }
 
