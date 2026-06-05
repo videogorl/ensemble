@@ -471,7 +471,7 @@ final class EnsembleUITests: XCTestCase {
         let resolved = RootChromeLayoutResolver.resolvePadLayout(
             from: transientDetailLayout,
             rootFallback: rootFallback,
-            sidebarFrame: nil,
+            sidebarRegistration: .hidden,
             rootBounds: rootFallback.frame
         )
 
@@ -495,11 +495,89 @@ final class EnsembleUITests: XCTestCase {
         let resolved = RootChromeLayoutResolver.resolvePadLayout(
             from: overlayDetailLayout,
             rootFallback: rootFallback,
-            sidebarFrame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            sidebarRegistration: .visible(frame: CGRect(x: 0, y: 0, width: 184, height: 800)),
             rootBounds: rootFallback.frame
         )
 
         XCTAssertEqual(resolved.frame, CGRect(x: 184, y: 0, width: 372, height: 800))
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
+        XCTAssertEqual(resolved.horizontalOffset, 0)
+        XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    func testRootChromeLayoutUsesVisibleSidebarFallbackWidthWhenFrameIsUnavailable() {
+        let rootFallback = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 900, height: 800),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+
+        let resolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: rootFallback.frame,
+                bottomPadding: rootFallback.bottomPadding,
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarRegistration: .visible(fallbackWidth: 260),
+            rootBounds: rootFallback.frame
+        )
+
+        XCTAssertEqual(resolved.frame, CGRect(x: 260, y: 0, width: 640, height: 800))
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
+        XCTAssertEqual(resolved.horizontalOffset, 0)
+        XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    func testRootChromeLayoutUsesStableDetailFrameWhenSidebarFrameIsUnavailable() {
+        let rootFallback = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 900, height: 800),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+
+        let resolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: CGRect(x: 300, y: 0, width: 600, height: 800),
+                bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarRegistration: .visible(fallbackWidth: 260),
+            rootBounds: rootFallback.frame
+        )
+
+        XCTAssertEqual(resolved.frame, CGRect(x: 300, y: 0, width: 600, height: 800))
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
+        XCTAssertEqual(resolved.horizontalOffset, 0)
+        XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    func testRootChromeLayoutIgnoresTransientDetailFrameWhenSidebarFrameIsUnavailable() {
+        let rootFallback = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 900, height: 800),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+
+        let resolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: CGRect(x: 180, y: 0, width: 720, height: 760),
+                bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarRegistration: .visible(fallbackWidth: 260),
+            rootBounds: rootFallback.frame
+        )
+
+        XCTAssertEqual(resolved.frame, CGRect(x: 260, y: 0, width: 640, height: 800))
         XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
         XCTAssertEqual(resolved.horizontalOffset, 0)
         XCTAssertTrue(resolved.showsMiniPlayer)
@@ -522,7 +600,7 @@ final class EnsembleUITests: XCTestCase {
                 showsMiniPlayer: true
             ),
             rootFallback: rootFallback,
-            sidebarFrame: sidebarFrame,
+            sidebarRegistration: .visible(frame: sidebarFrame),
             rootBounds: rootFallback.frame
         )
         let pushedResolved = RootChromeLayoutResolver.resolvePadLayout(
@@ -533,7 +611,7 @@ final class EnsembleUITests: XCTestCase {
                 showsMiniPlayer: true
             ),
             rootFallback: rootFallback,
-            sidebarFrame: sidebarFrame,
+            sidebarRegistration: .visible(frame: sidebarFrame),
             rootBounds: rootFallback.frame
         )
 
@@ -557,7 +635,7 @@ final class EnsembleUITests: XCTestCase {
         let resolved = RootChromeLayoutResolver.resolvePadLayout(
             from: detailLayout,
             rootFallback: rootFallback,
-            sidebarFrame: CGRect(x: 0, y: 0, width: 184, height: 800),
+            sidebarRegistration: .visible(frame: CGRect(x: 0, y: 0, width: 184, height: 800)),
             rootBounds: rootFallback.frame
         )
 

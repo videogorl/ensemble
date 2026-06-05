@@ -1429,9 +1429,32 @@ public struct SidebarView: View {
                     priority: 20_000
                 )
                 .allowsHitTesting(false)
+
+                RootSidebarChromeRegistrationView(
+                    isVisible: isSidebarChromeVisible,
+                    resolvedFrame: inferredSidebarFrame(from: proxy.frame(in: .named(RootChromeCoordinateSpace.name))),
+                    fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
+                    usesGeometry: false
+                )
+                .allowsHitTesting(false)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
+    }
+
+    private func inferredSidebarFrame(from detailFrame: CGRect) -> CGRect? {
+        guard isSidebarChromeVisible,
+              detailFrame.minX > 80,
+              detailFrame.height > 0 else {
+            return nil
+        }
+
+        return CGRect(
+            x: 0,
+            y: detailFrame.minY,
+            width: detailFrame.minX,
+            height: detailFrame.height
+        )
     }
 
     /// Sidebar section content with navigation destinations registered for path-based push

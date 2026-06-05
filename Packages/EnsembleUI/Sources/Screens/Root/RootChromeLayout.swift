@@ -73,8 +73,22 @@ struct RootChromeRegistrationPreferenceKey: PreferenceKey {
 
 struct RootSidebarChromeRegistration: Equatable {
     let frame: CGRect?
+    let fallbackWidth: CGFloat?
+    let isVisible: Bool
 
-    static let hidden = RootSidebarChromeRegistration(frame: nil)
+    static let hidden = RootSidebarChromeRegistration(
+        frame: nil,
+        fallbackWidth: nil,
+        isVisible: false
+    )
+
+    static func visible(frame: CGRect? = nil, fallbackWidth: CGFloat? = nil) -> RootSidebarChromeRegistration {
+        RootSidebarChromeRegistration(
+            frame: frame,
+            fallbackWidth: fallbackWidth,
+            isVisible: true
+        )
+    }
 }
 
 struct RootSidebarChromeRegistrationPreferenceKey: PreferenceKey {
@@ -82,7 +96,11 @@ struct RootSidebarChromeRegistrationPreferenceKey: PreferenceKey {
 
     static func reduce(value: inout RootSidebarChromeRegistration, nextValue: () -> RootSidebarChromeRegistration) {
         let next = nextValue()
-        if next.frame != nil {
+        guard next.isVisible else {
+            return
+        }
+
+        if !value.isVisible || next.frame != nil || value.frame == nil {
             value = next
         }
     }
@@ -90,21 +108,34 @@ struct RootSidebarChromeRegistrationPreferenceKey: PreferenceKey {
 
 struct RootSidebarChromeRegistrationView: View {
     var isVisible = true
+    var resolvedFrame: CGRect?
+    var fallbackWidth: CGFloat?
+    var usesGeometry = true
 
     var body: some View {
-        if isVisible {
+        if let resolvedFrame {
+            Color.clear.preference(
+                key: RootSidebarChromeRegistrationPreferenceKey.self,
+                value: isVisible
+                    ? .visible(frame: resolvedFrame, fallbackWidth: fallbackWidth)
+                    : .hidden
+            )
+        } else if isVisible && usesGeometry {
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: RootSidebarChromeRegistrationPreferenceKey.self,
-                    value: RootSidebarChromeRegistration(
-                        frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name))
+                    value: .visible(
+                        frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name)),
+                        fallbackWidth: fallbackWidth
                     )
                 )
             }
         } else {
             Color.clear.preference(
                 key: RootSidebarChromeRegistrationPreferenceKey.self,
-                value: .hidden
+                value: isVisible
+                    ? .visible(fallbackWidth: fallbackWidth)
+                    : .hidden
             )
         }
     }
@@ -160,6 +191,8 @@ struct RootChromeResolvedFrameRegistrationView: View {
 }
 
 enum RootChromeLayoutResolver {
+    static let defaultPadSidebarWidth: CGFloat = 260
+
     static func rootFallback(in proxy: GeometryProxy) -> RootChromeLayout {
         let rootBounds = CGRect(origin: .zero, size: proxy.size)
 
@@ -190,7 +223,7 @@ enum RootChromeLayoutResolver {
             return resolvePadLayout(
                 from: resolvedLayout,
                 rootFallback: rootFallback(in: proxy),
-                sidebarFrame: sidebarRegistration.frame,
+                sidebarRegistration: sidebarRegistration,
                 rootBounds: rootBounds
             )
         }
@@ -237,7 +270,7 @@ enum RootChromeLayoutResolver {
     static func resolvePadLayout(
         from resolvedLayout: RootChromeLayout,
         rootFallback: RootChromeLayout,
-        sidebarFrame registeredSidebarFrame: CGRect?,
+        sidebarRegistration: RootSidebarChromeRegistration,
         rootBounds: CGRect
     ) -> RootChromeLayout {
         guard rootFallback.showsMiniPlayer,
@@ -249,19 +282,59 @@ enum RootChromeLayoutResolver {
             return resolvedLayout
         }
 
-        guard let registeredSidebarFrame,
-              let contentFrame = padContentFrame(
-                rootBounds: rootBounds,
-                sidebarFrame: registeredSidebarFrame
-              ) else {
+        guard sidebarRegistration.isVisible else {
             return rootFallback
         }
+
+        let contentFrame = sidebarRegistration.frame.flatMap {
+            padContentFrame(rootBounds: rootBounds, sidebarFrame: $0)
+        } ?? stableDetailContentFrame(
+            from: resolvedLayout.frame,
+            rootBounds: rootBounds
+        ) ?? sidebarRegistration.fallbackWidth.flatMap {
+            padContentFrame(rootBounds: rootBounds, sidebarWidth: $0)
+        }
+
+        guard let contentFrame else { return rootFallback }
 
         return RootChromeLayout(
             frame: contentFrame,
             bottomPadding: rootFallback.bottomPadding,
             horizontalOffset: 0,
             showsMiniPlayer: rootFallback.showsMiniPlayer
+        )
+    }
+
+    private static func stableDetailContentFrame(from frame: CGRect, rootBounds: CGRect) -> CGRect? {
+        let contentFrame = frame.intersection(rootBounds)
+
+        guard contentFrame.width >= min(320, rootBounds.width * 0.5),
+              contentFrame.minX > rootBounds.minX + 80,
+              abs(contentFrame.maxX - rootBounds.maxX) <= 2,
+              abs(contentFrame.minY - rootBounds.minY) <= 2,
+              abs(contentFrame.height - rootBounds.height) <= 2 else {
+            return nil
+        }
+
+        return CGRect(
+            x: contentFrame.minX,
+            y: rootBounds.minY,
+            width: contentFrame.width,
+            height: rootBounds.height
+        )
+    }
+
+    private static func padContentFrame(rootBounds: CGRect, sidebarWidth: CGFloat) -> CGRect? {
+        guard sidebarWidth >= 80 else { return nil }
+
+        return padContentFrame(
+            rootBounds: rootBounds,
+            sidebarFrame: CGRect(
+                x: rootBounds.minX,
+                y: rootBounds.minY,
+                width: min(sidebarWidth, rootBounds.width),
+                height: rootBounds.height
+            )
         )
     }
 

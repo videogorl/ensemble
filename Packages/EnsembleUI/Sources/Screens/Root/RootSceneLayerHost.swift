@@ -155,11 +155,6 @@ struct RootSceneLayerHost<Content: View>: View {
     }
 
     private var miniPlayerSurfaceStyle: MiniPlayer.SurfaceStyle {
-        #if os(iOS)
-        if UIDevice.current.userInterfaceIdiom == .pad {
-            return .stableMaterial
-        }
-        #endif
         return .automatic
     }
 }
