@@ -352,7 +352,7 @@ final class PlaybackNowPlayingBridge {
 
         let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
         let hasArtworkPath = Self.hasArtworkPath(for: track)
-        let artworkForMetadata: MPMediaItemArtwork
+        let artworkForMetadata: MPMediaItemArtwork?
         if hasArtworkPath,
            artworkRequestKey == nextArtworkRequestKey,
            let artwork {
@@ -360,6 +360,8 @@ final class PlaybackNowPlayingBridge {
         } else if hasArtworkPath,
                   let artwork {
             artworkForMetadata = artwork
+        } else if hasArtworkPath {
+            artworkForMetadata = nil
         } else {
             artworkForMetadata = Self.fallbackArtwork(for: track)
             artwork = artworkForMetadata
@@ -383,14 +385,10 @@ final class PlaybackNowPlayingBridge {
         artworkTask = Task { [weak self] in
             guard let self else { return }
 
-            guard let url = await self.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: 600
-            ) else {
+            let url = await self.resolvedArtworkURL(for: track)
+
+            guard let url else {
+                EnsembleLogger.debug("[NowPlaying] Artwork unavailable for '\(track.title)'; applying generated fallback")
                 await MainActor.run {
                     self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey, playbackState: state.playbackState)
                 }
@@ -399,8 +397,9 @@ final class PlaybackNowPlayingBridge {
 
             if Task.isCancelled { return }
 
-            let request = ImageRequest(url: url)
-            guard let image = try? await ImagePipeline.shared.image(for: request) else {
+            let request = Self.artworkImageRequest(url: url)
+            guard let image = await Self.image(for: request) else {
+                EnsembleLogger.debug("[NowPlaying] Artwork image load failed for '\(track.title)'; applying generated fallback")
                 await MainActor.run {
                     self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey, playbackState: state.playbackState)
                 }
@@ -408,6 +407,8 @@ final class PlaybackNowPlayingBridge {
             }
 
             if Task.isCancelled { return }
+
+            await self.cacheResolvedArtworkIfNeeded(from: url, for: track)
 
             let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in
                 image
@@ -417,6 +418,65 @@ final class PlaybackNowPlayingBridge {
                 self.applyArtwork(artwork, for: nextArtworkRequestKey, playbackState: state.playbackState)
             }
         }
+    }
+
+    private func resolvedArtworkURL(for track: Track) async -> URL? {
+        if let localURL = await artworkLoader.localArtworkURLAsync(
+            for: track.thumbPath,
+            sourceKey: track.sourceCompositeKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            minimumPixelDimension: nil,
+            allowStaleIdentity: true
+        ) {
+            EnsembleLogger.debug("[NowPlaying] Using cached artwork for '\(track.title)'")
+            return localURL
+        }
+
+        return await artworkLoader.artworkURLAsync(
+            for: track.thumbPath,
+            sourceKey: track.sourceCompositeKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            size: 600
+        )
+    }
+
+    private func cacheResolvedArtworkIfNeeded(from url: URL, for track: Track) async {
+        await artworkLoader.cacheResolvedArtwork(
+            from: url,
+            cacheHint: Self.artworkCacheHint(for: track),
+            minimumPixelDimension: 600
+        )
+    }
+
+    private static func artworkImageRequest(url: URL) -> ImageRequest {
+        ImageRequest(
+            url: url,
+            processors: [
+                ImageProcessors.Resize(
+                    size: CGSize(width: 600, height: 600),
+                    contentMode: .aspectFill,
+                    upscale: false
+                )
+            ],
+            priority: .high
+        )
+    }
+
+    private static func image(for request: ImageRequest) async -> PlatformArtworkImage? {
+        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
+            return cachedImage.image
+        }
+
+        return try? await ImagePipeline.shared.image(for: request)
+    }
+
+    private static func artworkCacheHint(for track: Track) -> PersistentArtworkCacheHint? {
+        guard track.thumbPath == nil || track.thumbPath?.isEmpty == true else { return nil }
+        return PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track)
     }
 
     func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {
