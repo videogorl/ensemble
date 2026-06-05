@@ -566,8 +566,8 @@ public struct SidebarView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
+    private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     @Environment(\.dependencies) private var deps
-    @Environment(\.rootSidebarChromeRegistrationHandler) private var rootSidebarChromeRegistrationHandler
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
     #if os(macOS)
@@ -604,6 +604,19 @@ public struct SidebarView: View {
 
     @MainActor
     public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
+        self.init(
+            nowPlayingVM: nowPlayingVM,
+            selection: selection,
+            rootSidebarChromeRegistrationHandler: nil
+        )
+    }
+
+    @MainActor
+    init(
+        nowPlayingVM: NowPlayingViewModel,
+        selection: Binding<SidebarSelection?>,
+        rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
+    ) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
@@ -611,6 +624,7 @@ public struct SidebarView: View {
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self._selection = selection
+        self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
 
     private var isShowingNowPlaying: Bool {
@@ -937,7 +951,6 @@ public struct SidebarView: View {
 
     public var body: some View {
         splitNavigationView
-        .background(rootSidebarChromeRegistration)
         .auxiliaryPresentationSheets(accentColor: accentColor)
         .onReceive(settingsManager.objectWillChange) { _ in
             updateSettingsSnapshot()
@@ -958,6 +971,9 @@ public struct SidebarView: View {
         }
         .onChange(of: columnVisibility) { _ in
             publishRootSidebarChromeRegistration()
+        }
+        .onDisappear {
+            rootSidebarChromeRegistrationHandler?(.hidden)
         }
         .sheet(item: $playlistForEditSheet) { playlist in
             PlaylistDetailView(
@@ -1118,24 +1134,17 @@ public struct SidebarView: View {
         columnVisibility != .detailOnly
     }
 
-    private var rootSidebarChromeRegistration: some View {
-        RootSidebarChromeRegistrationView(
-            isVisible: isSidebarChromeVisible,
-            fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
-            usesGeometry: false,
-            priority: RootSidebarChromeRegistration.splitStatePriority
-        )
-        .allowsHitTesting(false)
-    }
+    private func publishRootSidebarChromeRegistration(fallbackWidth: CGFloat? = nil) {
+        guard isSidebarChromeVisible else {
+            rootSidebarChromeRegistrationHandler?(.hidden)
+            return
+        }
 
-    private func publishRootSidebarChromeRegistration() {
         rootSidebarChromeRegistrationHandler?(
-            isSidebarChromeVisible
-                ? .visible(
-                    fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
-                    priority: RootSidebarChromeRegistration.splitStatePriority
-                )
-                : .hidden
+            .visible(
+                fallbackWidth: fallbackWidth ?? RootChromeLayoutResolver.defaultPadSidebarWidth,
+                priority: RootSidebarChromeRegistration.inferredPriority
+            )
         )
     }
 
@@ -1224,7 +1233,21 @@ public struct SidebarView: View {
         .onAppear {
             rebuildCachedSidebarPlaylists()
         }
-        .background(RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible))
+        .background {
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
+                    .onAppear {
+                        publishRootSidebarChromeRegistration(fallbackWidth: width)
+                    }
+                    .onChange(of: width) { newWidth in
+                        publishRootSidebarChromeRegistration(fallbackWidth: newWidth)
+                    }
+                    .onChange(of: isSidebarChromeVisible) { _ in
+                        publishRootSidebarChromeRegistration(fallbackWidth: width)
+                    }
+            }
+        }
     }
 
     /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
@@ -1444,16 +1467,16 @@ public struct SidebarView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         GeometryReader { proxy in
+            let detailFrame = proxy.frame(in: .named(RootChromeCoordinateSpace.name))
             ZStack(alignment: .topLeading) {
                 content()
                     .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
 
                 RootChromeResolvedFrameRegistrationView(
-                    frame: proxy.frame(in: .named(RootChromeCoordinateSpace.name)),
+                    frame: detailFrame,
                     bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     ),
-                    contentLeadingInset: proxy.safeAreaInsets.leading,
                     showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
                     priority: 20_000
                 )
@@ -1461,7 +1484,7 @@ public struct SidebarView: View {
 
                 RootSidebarChromeRegistrationView(
                     isVisible: isSidebarChromeVisible,
-                    resolvedFrame: inferredSidebarFrame(from: proxy.frame(in: .named(RootChromeCoordinateSpace.name))),
+                    resolvedFrame: inferredSidebarFrame(from: detailFrame),
                     fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
                     usesGeometry: false,
                     priority: RootSidebarChromeRegistration.inferredPriority

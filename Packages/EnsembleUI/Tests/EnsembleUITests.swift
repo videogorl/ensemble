@@ -478,6 +478,32 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(resolved, rootFallback)
     }
 
+    func testRootChromeLayoutInfersContentViewportWhenSidebarVisibilityIsUnknown() {
+        let rootFallback = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 556, height: 800),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+
+        let resolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: CGRect(x: 184, y: 0, width: 372, height: 800),
+                bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 0),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarRegistration: .absent,
+            rootBounds: rootFallback.frame
+        )
+
+        XCTAssertEqual(resolved.frame, CGRect(x: 184, y: 0, width: 372, height: 800))
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
+        XCTAssertEqual(resolved.horizontalOffset, 0)
+        XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
     func testRootChromeLayoutUsesContentViewportWhenIPadSidebarOverlaysDetail() {
         let overlayDetailLayout = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
@@ -531,7 +557,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertTrue(resolved.showsMiniPlayer)
     }
 
-    func testRootChromeLayoutIgnoresStableLookingDetailFrameWhenSidebarFrameIsUnavailable() {
+    func testRootChromeLayoutUsesRootFallbackWhenSidebarIsHidden() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 900, height: 800),
             bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
@@ -543,6 +569,32 @@ final class EnsembleUITests: XCTestCase {
             from: RootChromeLayout(
                 frame: CGRect(x: 300, y: 0, width: 600, height: 800),
                 bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20),
+                horizontalOffset: 0,
+                showsMiniPlayer: true
+            ),
+            rootFallback: rootFallback,
+            sidebarRegistration: .hidden,
+            rootBounds: rootFallback.frame
+        )
+
+        XCTAssertEqual(resolved.frame, rootFallback.frame)
+        XCTAssertEqual(resolved.bottomPadding, rootFallback.bottomPadding)
+        XCTAssertEqual(resolved.horizontalOffset, 0)
+        XCTAssertTrue(resolved.showsMiniPlayer)
+    }
+
+    func testRootChromeLayoutIgnoresResolvedLayoutWhenSidebarIsVisible() {
+        let rootFallback = RootChromeLayout(
+            frame: CGRect(x: 0, y: 0, width: 900, height: 800),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 0),
+            horizontalOffset: 0,
+            showsMiniPlayer: true
+        )
+
+        let resolved = RootChromeLayoutResolver.resolvePadLayout(
+            from: RootChromeLayout(
+                frame: rootFallback.frame,
+                bottomPadding: rootFallback.bottomPadding,
                 horizontalOffset: 0,
                 showsMiniPlayer: true
             ),
@@ -639,26 +691,6 @@ final class EnsembleUITests: XCTestCase {
         )
 
         XCTAssertEqual(stabilized, measured)
-    }
-
-    func testRootSidebarChromeRegistrationKeepsSplitStateOverInferredFrame() {
-        let splitState = RootSidebarChromeRegistration.visible(
-            fallbackWidth: 260,
-            priority: RootSidebarChromeRegistration.splitStatePriority
-        )
-        let inferred = RootSidebarChromeRegistration.visible(
-            frame: CGRect(x: 0, y: 0, width: 220, height: 800),
-            fallbackWidth: 260,
-            priority: RootSidebarChromeRegistration.inferredPriority
-        )
-
-        let stabilized = RootSidebarChromeRegistration.stabilized(
-            current: splitState,
-            next: inferred,
-            rootSizeChanged: false
-        )
-
-        XCTAssertEqual(stabilized, splitState)
     }
 
     func testRootSidebarChromeRegistrationAcceptsFrameAfterRootSizeChange() {

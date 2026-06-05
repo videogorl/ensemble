@@ -18,17 +18,6 @@ extension EnvironmentValues {
     }
 }
 
-private struct RootSidebarChromeRegistrationHandlerKey: EnvironmentKey {
-    static let defaultValue: ((RootSidebarChromeRegistration) -> Void)? = nil
-}
-
-extension EnvironmentValues {
-    var rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)? {
-        get { self[RootSidebarChromeRegistrationHandlerKey.self] }
-        set { self[RootSidebarChromeRegistrationHandlerKey.self] = newValue }
-    }
-}
-
 struct RootChromeRegistration {
     let bounds: Anchor<CGRect>?
     let resolvedFrame: CGRect?
@@ -90,7 +79,6 @@ struct RootSidebarChromeRegistration: Equatable {
     let priority: Int
 
     static let inferredPriority = 10
-    static let splitStatePriority = 50
     static let measuredPriority = 100
 
     static let absent = RootSidebarChromeRegistration(
@@ -355,14 +343,20 @@ enum RootChromeLayoutResolver {
             return resolvedLayout
         }
 
-        guard sidebarRegistration.isVisible else {
-            return rootFallback
-        }
-
-        let contentFrame = sidebarRegistration.frame.flatMap {
-            padContentFrame(rootBounds: rootBounds, sidebarFrame: $0)
-        } ?? sidebarRegistration.fallbackWidth.flatMap {
-            padContentFrame(rootBounds: rootBounds, sidebarWidth: $0)
+        let contentFrame: CGRect?
+        if sidebarRegistration.isVisible {
+            contentFrame = sidebarRegistration.frame.flatMap {
+                padContentFrame(rootBounds: rootBounds, sidebarFrame: $0)
+            } ?? sidebarRegistration.fallbackWidth.flatMap {
+                padContentFrame(rootBounds: rootBounds, sidebarWidth: $0)
+            }
+        } else if sidebarRegistration.isPresent {
+            contentFrame = nil
+        } else {
+            contentFrame = padContentFrame(
+                rootBounds: rootBounds,
+                detailFrame: resolvedLayout.frame
+            )
         }
 
         guard let contentFrame else { return rootFallback }
@@ -386,6 +380,28 @@ enum RootChromeLayoutResolver {
                 width: min(sidebarWidth, rootBounds.width),
                 height: rootBounds.height
             )
+        )
+    }
+
+    private static func padContentFrame(rootBounds: CGRect, detailFrame: CGRect) -> CGRect? {
+        let visibleDetailFrame = detailFrame.intersection(rootBounds)
+        guard visibleDetailFrame.width > 0,
+              visibleDetailFrame.height > 0,
+              visibleDetailFrame.minX > rootBounds.minX + 80 else {
+            return nil
+        }
+
+        let contentMinX = max(rootBounds.minX, min(visibleDetailFrame.minX, rootBounds.maxX))
+        let contentWidth = rootBounds.maxX - contentMinX
+        guard contentWidth >= min(320, rootBounds.width * 0.5) else {
+            return nil
+        }
+
+        return CGRect(
+            x: contentMinX,
+            y: rootBounds.minY,
+            width: contentWidth,
+            height: rootBounds.height
         )
     }
 

@@ -20,6 +20,7 @@ public struct RootView: View {
     @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
+    @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var isSoftwareKeyboardVisible = false
     @Namespace private var playerNamespace
@@ -52,6 +53,7 @@ public struct RootView: View {
             isLowPowerMode: isLowPowerMode,
             isNowPlayingPresented: isNowPlayingPresented,
             isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,
+            sidebarChromeRegistration: rootSidebarChromeRegistration,
             supportsViewportNowPlayingPresentation: supportsViewportNowPlayingPresentation,
             namespace: playerNamespace,
             animationID: artworkAnimationID,
@@ -189,13 +191,21 @@ public struct RootView: View {
         case .sidebar:
             #if os(iOS)
             if #available(iOS 16.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
+                SidebarView(
+                    nowPlayingVM: nowPlayingVM,
+                    selection: $sidebarSelection,
+                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                )
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM)
             }
             #elseif os(macOS)
             if #available(macOS 13.0, *) {
-                SidebarView(nowPlayingVM: nowPlayingVM, selection: $sidebarSelection)
+                SidebarView(
+                    nowPlayingVM: nowPlayingVM,
+                    selection: $sidebarSelection,
+                    rootSidebarChromeRegistrationHandler: updateRootSidebarChromeRegistration
+                )
             } else {
                 MainTabView(nowPlayingVM: nowPlayingVM)
             }
@@ -204,6 +214,12 @@ public struct RootView: View {
             #endif
         case .tabs:
             MainTabView(nowPlayingVM: nowPlayingVM)
+        }
+    }
+
+    private func updateRootSidebarChromeRegistration(_ registration: RootSidebarChromeRegistration) {
+        if rootSidebarChromeRegistration != registration {
+            rootSidebarChromeRegistration = registration
         }
     }
 

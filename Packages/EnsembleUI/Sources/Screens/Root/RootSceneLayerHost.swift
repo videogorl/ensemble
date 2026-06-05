@@ -21,13 +21,14 @@ struct RootSceneLayerHost<Content: View>: View {
     let isLowPowerMode: Bool
     let isNowPlayingPresented: Bool
     let isSoftwareKeyboardVisible: Bool
+    let sidebarChromeRegistration: RootSidebarChromeRegistration
     let supportsViewportNowPlayingPresentation: Bool
     let namespace: Namespace.ID
     let animationID: String
     let presentNowPlaying: () -> Void
     let dismissNowPlaying: () -> Void
     let content: Content
-    @State private var sidebarChromeRegistration: RootSidebarChromeRegistration = .hidden
+    @State private var preferenceSidebarChromeRegistration: RootSidebarChromeRegistration = .hidden
     @State private var sidebarChromeRootSize: CGSize = .zero
 
     init(
@@ -38,6 +39,7 @@ struct RootSceneLayerHost<Content: View>: View {
         isLowPowerMode: Bool,
         isNowPlayingPresented: Bool,
         isSoftwareKeyboardVisible: Bool,
+        sidebarChromeRegistration: RootSidebarChromeRegistration = .absent,
         supportsViewportNowPlayingPresentation: Bool,
         namespace: Namespace.ID,
         animationID: String,
@@ -52,6 +54,7 @@ struct RootSceneLayerHost<Content: View>: View {
         self.isLowPowerMode = isLowPowerMode
         self.isNowPlayingPresented = isNowPlayingPresented
         self.isSoftwareKeyboardVisible = isSoftwareKeyboardVisible
+        self.sidebarChromeRegistration = sidebarChromeRegistration
         self.supportsViewportNowPlayingPresentation = supportsViewportNowPlayingPresentation
         self.namespace = namespace
         self.animationID = animationID
@@ -64,9 +67,6 @@ struct RootSceneLayerHost<Content: View>: View {
         GeometryReader { proxy in
             ZStack {
                 content
-                    .environment(\.rootSidebarChromeRegistrationHandler) { registration in
-                        updateSidebarChromeRegistration(registration, rootSize: proxy.size)
-                    }
                     .zIndex(1)
 
                 if isAuroraEnabled && !isNowPlayingPresented {
@@ -112,13 +112,13 @@ struct RootSceneLayerHost<Content: View>: View {
     ) {
         let rootSizeChanged = !Self.sizesMatch(rootSize, sidebarChromeRootSize)
         let stabilized = RootSidebarChromeRegistration.stabilized(
-            current: sidebarChromeRegistration,
+            current: preferenceSidebarChromeRegistration,
             next: registration,
             rootSizeChanged: rootSizeChanged
         )
 
-        if stabilized != sidebarChromeRegistration {
-            sidebarChromeRegistration = stabilized
+        if stabilized != preferenceSidebarChromeRegistration {
+            preferenceSidebarChromeRegistration = stabilized
         }
         if rootSizeChanged {
             sidebarChromeRootSize = rootSize
@@ -140,7 +140,7 @@ struct RootSceneLayerHost<Content: View>: View {
 
         let resolved = RootChromeLayoutResolver.resolve(
             from: registration,
-            sidebarRegistration: sidebarChromeRegistration,
+            sidebarRegistration: effectiveSidebarChromeRegistration,
             in: proxy
         )
 
@@ -184,6 +184,27 @@ struct RootSceneLayerHost<Content: View>: View {
     private var miniPlayerSurfaceStyle: MiniPlayer.SurfaceStyle {
         return .automatic
     }
+
+    private var effectiveSidebarChromeRegistration: RootSidebarChromeRegistration {
+        if sidebarChromeRegistration.isVisible {
+            return sidebarChromeRegistration
+        }
+
+        if preferenceSidebarChromeRegistration.isVisible {
+            return preferenceSidebarChromeRegistration
+        }
+
+        if preferenceSidebarChromeRegistration.isPresent {
+            return .hidden
+        }
+
+        if sidebarChromeRegistration.isPresent {
+            return sidebarChromeRegistration
+        }
+
+        return .absent
+    }
+
 }
 
 extension View {
