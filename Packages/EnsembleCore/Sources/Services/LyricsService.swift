@@ -562,7 +562,7 @@ public final class LyricsService: ObservableObject {
                 return LyricsBundle(normalState: .notAvailable, normalSource: .noLyricsStream, chordState: .notAvailable, chordSource: .noLyricsStream)
             }
 
-            let normal = await fetchNormalLyrics(track: track, stream: plexTrack.lyricsStream, apiClient: apiClient)
+            let normal = await fetchNormalLyrics(track: track, streams: plexTrack.normalLyricsStreams, apiClient: apiClient)
             let chords = await fetchChordLyrics(track: track, streams: plexTrack.chordCandidateStreams, apiClient: apiClient)
             return LyricsBundle(normalState: normal.0, normalSource: normal.1, chordState: chords.0, chordSource: chords.1)
         } catch {
@@ -576,42 +576,61 @@ public final class LyricsService: ObservableObject {
 
     private func fetchNormalLyrics(
         track: Track,
-        stream: PlexStream?,
+        streams: [PlexStream],
         apiClient: PlexAPIClient
     ) async -> (LyricsState, LyricsSource) {
-        guard let stream, let streamKey = stream.key else {
+        guard !streams.isEmpty else {
             return (.notAvailable, .noLyricsStream)
         }
 
-        let signature = Self.streamSignature(for: track, stream: stream)
-        let key = Self.cacheKey(for: track, stream: stream, mode: .lyrics)
-        if let cached = loadCachedState(key: key) {
-            return (cached, .memoryCache)
-        }
-        if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .lyrics),
-           let parsed = Self.parseContent(cachedContent, codec: stream.codec) {
-            let state = LyricsState.available(parsed)
-            setCached(state, forKey: key)
-            EnsembleLogger.debug("Lyrics: loaded normal lyrics from persistent cache (\(parsed.lines.count) lines)")
-            return (state, .persistentCache)
+        var lastUnavailableSource: LyricsSource = .noLyricsStream
+
+        for stream in streams {
+            guard let streamKey = stream.key else { continue }
+
+            let signature = Self.streamSignature(for: track, stream: stream)
+            let key = Self.cacheKey(for: track, stream: stream, mode: .lyrics)
+            if let cached = loadCachedState(key: key) {
+                return (cached, .memoryCache)
+            }
+            if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .lyrics),
+               let parsed = Self.parseContent(cachedContent, codec: stream.codec) {
+                let state = LyricsState.available(parsed)
+                setCached(state, forKey: key)
+                EnsembleLogger.debug("Lyrics: loaded normal lyrics from persistent cache (\(parsed.lines.count) lines)")
+                return (state, .persistentCache)
+            }
+
+            do {
+                let content = stream.isLocalMediaLyricsStream
+                    ? try await apiClient.getRawLyricsContent(streamKey: streamKey)
+                    : try await apiClient.getLyricsContent(streamKey: streamKey)
+                guard let content else {
+                    lastUnavailableSource = .contentFetchFailed
+                    continue
+                }
+                guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
+                if stream.isLocalMediaLyricsStream,
+                   Self.parseChordContent(content)?.containsChords == true {
+                    lastUnavailableSource = .parseFailed
+                    continue
+                }
+                guard let parsed = Self.parseContent(content, codec: stream.codec), !parsed.lines.isEmpty else {
+                    lastUnavailableSource = .parseFailed
+                    continue
+                }
+                let state = LyricsState.available(parsed)
+                saveToPersistentCache(content, key: key, signature: signature)
+                setCached(state, forKey: key)
+                return (state, .server)
+            } catch {
+                if Task.isCancelled { return (.notAvailable, .cancelled) }
+                lastUnavailableSource = .contentFetchFailed
+                continue
+            }
         }
 
-        do {
-            guard let content = try await apiClient.getLyricsContent(streamKey: streamKey) else {
-                return (.notAvailable, .contentFetchFailed)
-            }
-            guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
-            guard let parsed = Self.parseContent(content, codec: stream.codec), !parsed.lines.isEmpty else {
-                return (.notAvailable, .parseFailed)
-            }
-            let state = LyricsState.available(parsed)
-            saveToPersistentCache(content, key: key, signature: signature)
-            setCached(state, forKey: key)
-            return (state, .server)
-        } catch {
-            if Task.isCancelled { return (.notAvailable, .cancelled) }
-            return (.notAvailable, .contentFetchFailed)
-        }
+        return (.notAvailable, lastUnavailableSource)
     }
 
     private func fetchChordLyrics(

@@ -244,6 +244,59 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(artworkLoader.requestCount, 0)
     }
 
+    func testBridgeDoesNotPublishGeneratedFallbackBeforeRealArtworkLoadWhenArtworkPathExists() {
+        let artworkLoader = MockArtworkLoader(responseDelayNanoseconds: 200_000_000)
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                thumbPath: nil,
+                fallbackThumbPath: "/thumb/album",
+                fallbackRatingKey: "album-1"
+            )
+        ))
+
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
+    }
+
+    func testBridgeUsesCachedFallbackAlbumArtworkBeforeNetworkArtwork() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+
+        let artworkLoader = MockArtworkLoader(localArtworkURL: artworkURL)
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: artworkLoader,
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(
+            track: makeTrack(
+                id: "track-1",
+                title: "Cut My Lip",
+                albumRatingKey: "album-1",
+                thumbPath: nil,
+                fallbackThumbPath: "/thumb/album-1",
+                fallbackRatingKey: "album-1"
+            )
+        ))
+
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
+
+        await waitUntil("cached fallback artwork load") {
+            nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork
+        }
+
+        XCTAssertEqual(artworkLoader.localRequestCount, 1)
+        XCTAssertEqual(artworkLoader.requestCount, 0)
+    }
+
     func testInstallingRemoteCommandsRemovesPreviousHandlers() {
         let commandCenter = FakeRemoteCommandCenter()
         let bridge = PlaybackNowPlayingBridge(
@@ -417,10 +470,19 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
 private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendable {
     private let lock = NSLock()
     private var _artworkURL: URL?
+    private var _localArtworkURL: URL?
+    private let responseDelayNanoseconds: UInt64
     private var _requestCount = 0
+    private var _localRequestCount = 0
 
-    init(artworkURL: URL? = nil) {
+    init(
+        artworkURL: URL? = nil,
+        localArtworkURL: URL? = nil,
+        responseDelayNanoseconds: UInt64 = 0
+    ) {
         self._artworkURL = artworkURL
+        self._localArtworkURL = localArtworkURL
+        self.responseDelayNanoseconds = responseDelayNanoseconds
     }
 
     var artworkURL: URL? {
@@ -432,6 +494,10 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
         locked { _requestCount }
     }
 
+    var localRequestCount: Int {
+        locked { _localRequestCount }
+    }
+
     func artworkURLAsync(
         for path: String?,
         sourceKey: String?,
@@ -440,9 +506,30 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
         fallbackRatingKey: String?,
         size: Int
     ) async -> URL? {
-        locked {
+        if responseDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        }
+        return locked {
             _requestCount += 1
             return _artworkURL
+        }
+    }
+
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL? {
+        if responseDelayNanoseconds > 0 {
+            try? await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        }
+        return locked {
+            _localRequestCount += 1
+            return _localArtworkURL
         }
     }
 

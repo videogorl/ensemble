@@ -566,6 +566,7 @@ public struct SidebarView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let pinManager = DependencyContainer.shared.pinManager
+    private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
     @Environment(\.isSoftwareKeyboardVisible) private var isSoftwareKeyboardVisible
@@ -603,6 +604,19 @@ public struct SidebarView: View {
 
     @MainActor
     public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
+        self.init(
+            nowPlayingVM: nowPlayingVM,
+            selection: selection,
+            rootSidebarChromeRegistrationHandler: nil
+        )
+    }
+
+    @MainActor
+    init(
+        nowPlayingVM: NowPlayingViewModel,
+        selection: Binding<SidebarSelection?>,
+        rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
+    ) {
         self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
         self.nowPlayingVM = nowPlayingVM
         self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
@@ -610,6 +624,7 @@ public struct SidebarView: View {
         self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
         self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self._selection = selection
+        self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
     }
 
     private var isShowingNowPlaying: Bool {
@@ -951,6 +966,15 @@ public struct SidebarView: View {
         .addAccountPresentationSheet()
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
+        .onAppear {
+            publishRootSidebarChromeRegistration()
+        }
+        .onChange(of: columnVisibility) { _ in
+            publishRootSidebarChromeRegistration()
+        }
+        .onDisappear {
+            rootSidebarChromeRegistrationHandler?(.hidden)
+        }
         .sheet(item: $playlistForEditSheet) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
@@ -1106,6 +1130,24 @@ public struct SidebarView: View {
         }
     }
 
+    private var isSidebarChromeVisible: Bool {
+        columnVisibility != .detailOnly
+    }
+
+    private func publishRootSidebarChromeRegistration(fallbackWidth: CGFloat? = nil) {
+        guard isSidebarChromeVisible else {
+            rootSidebarChromeRegistrationHandler?(.hidden)
+            return
+        }
+
+        rootSidebarChromeRegistrationHandler?(
+            .visible(
+                fallbackWidth: fallbackWidth ?? RootChromeLayoutResolver.defaultPadSidebarWidth,
+                priority: RootSidebarChromeRegistration.inferredPriority
+            )
+        )
+    }
+
     private var sidebarColumn: some View {
         List(selection: sidebarSelectionBinding) {
             // Search always appears first
@@ -1191,6 +1233,21 @@ public struct SidebarView: View {
         .onAppear {
             rebuildCachedSidebarPlaylists()
         }
+        .background {
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                RootSidebarChromeRegistrationView(isVisible: isSidebarChromeVisible)
+                    .onAppear {
+                        publishRootSidebarChromeRegistration(fallbackWidth: width)
+                    }
+                    .onChange(of: width) { newWidth in
+                        publishRootSidebarChromeRegistration(fallbackWidth: newWidth)
+                    }
+                    .onChange(of: isSidebarChromeVisible) { _ in
+                        publishRootSidebarChromeRegistration(fallbackWidth: width)
+                    }
+            }
+        }
     }
 
     /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
@@ -1221,16 +1278,14 @@ public struct SidebarView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        detailColumnNavigationHost {
-            NavigationStack(path: activeDetailPathBinding) {
+        NavigationStack(path: activeDetailPathBinding) {
+            detailChromeRegistrationHost {
+                detailRootContentView
+                    .id(detailRootIdentity)
+            }
+            .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
                 detailChromeRegistrationHost {
-                    detailRootContentView
-                        .id(detailRootIdentity)
-                }
-                .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-                    detailChromeRegistrationHost {
-                        destinationView(for: destination)
-                    }
+                    destinationView(for: destination)
                 }
             }
         }
@@ -1343,27 +1398,6 @@ public struct SidebarView: View {
         }
     }
 
-    @ViewBuilder
-    private func detailColumnNavigationHost<Content: View>(
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        GeometryReader { proxy in
-            content()
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                .background(
-                    RootChromeFrameRegistrationView(
-                        bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
-                            safeAreaBottom: proxy.safeAreaInsets.bottom
-                        ),
-                        contentLeadingInset: proxy.safeAreaInsets.leading,
-                        centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
-                        showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
-                        priority: 10_000
-                    )
-                )
-        }
-    }
-
     /// Keep pushed detail content from registering transient navigation-transition frames.
     /// The stable detail-column host owns root chrome registration.
     @ViewBuilder
@@ -1374,19 +1408,6 @@ public struct SidebarView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var isSidebarCollapsedForRootChrome: Bool {
-        #if os(iOS)
-        switch columnVisibility {
-        case .detailOnly:
-            return true
-        default:
-            return false
-        }
-        #else
-        return false
-        #endif
-    }
-
     @ViewBuilder
     private var splitNavigationView: some View {
         if #available(iOS 17.0, macOS 14.0, *) {
@@ -1395,8 +1416,10 @@ public struct SidebarView: View {
             NavigationSplitView(columnVisibility: $columnVisibility) {
                 sidebarColumn
             } detail: {
-                detailContainerView
-                    .macEditorToolbarRoleIfAvailable()
+                detailColumnRootChromeRegistrationHost {
+                    detailContainerView
+                }
+                .macEditorToolbarRoleIfAvailable()
             }
             .navigationSplitViewStyle(.balanced)
         }
@@ -1444,20 +1467,47 @@ public struct SidebarView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         GeometryReader { proxy in
-            content()
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                .background(
-                    RootChromeFrameRegistrationView(
-                        bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
-                            safeAreaBottom: proxy.safeAreaInsets.bottom
-                        ),
-                        contentLeadingInset: proxy.safeAreaInsets.leading,
-                        centersInRootHorizontalSpace: isSidebarCollapsedForRootChrome,
-                        showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
-                        priority: 20_000
-                    )
+            let detailFrame = proxy.frame(in: .named(RootChromeCoordinateSpace.name))
+            ZStack(alignment: .topLeading) {
+                content()
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+
+                RootChromeResolvedFrameRegistrationView(
+                    frame: detailFrame,
+                    bottomPadding: TrackListLayoutMetrics.detailMiniPlayerBottomLift(
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    ),
+                    showsMiniPlayer: !isShowingNowPlaying && !isSoftwareKeyboardVisible,
+                    priority: 20_000
                 )
+                .allowsHitTesting(false)
+
+                RootSidebarChromeRegistrationView(
+                    isVisible: isSidebarChromeVisible,
+                    resolvedFrame: inferredSidebarFrame(from: detailFrame),
+                    fallbackWidth: RootChromeLayoutResolver.defaultPadSidebarWidth,
+                    usesGeometry: false,
+                    priority: RootSidebarChromeRegistration.inferredPriority
+                )
+                .allowsHitTesting(false)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
         }
+    }
+
+    private func inferredSidebarFrame(from detailFrame: CGRect) -> CGRect? {
+        guard isSidebarChromeVisible,
+              detailFrame.minX > 80,
+              detailFrame.height > 0 else {
+            return nil
+        }
+
+        return CGRect(
+            x: 0,
+            y: detailFrame.minY,
+            width: detailFrame.minX,
+            height: detailFrame.height
+        )
     }
 
     /// Sidebar section content with navigation destinations registered for path-based push

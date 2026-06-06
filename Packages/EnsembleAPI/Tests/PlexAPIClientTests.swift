@@ -104,9 +104,70 @@ final class PlexAPIClientTests: XCTestCase {
 
         let track = try JSONDecoder().decode(PlexTrack.self, from: Data(trackJSON.utf8))
         XCTAssertEqual(track.lyricsStreams.map(\.id), [111, 222])
+        XCTAssertEqual(track.normalLyricsStreams.map(\.id), [111])
         XCTAssertEqual(track.lyricsStream?.id, 111)
         XCTAssertEqual(track.chordCandidateStreams.map(\.id), [222])
         XCTAssertEqual(track.chordCandidateStreams.first?.file, "/music/Test Song.chord.lrc")
+    }
+
+    func testPlexTrackNormalLyricsStreamsPreferTimedButKeepUntimedFallbacks() throws {
+        let trackJSON = """
+        {
+            "ratingKey": "12345",
+            "key": "/library/metadata/12345",
+            "title": "Test Song",
+            "Media": [
+                {
+                    "Part": [
+                        {
+                            "Stream": [
+                                {
+                                    "id": 100,
+                                    "streamType": 2,
+                                    "codec": "mp3"
+                                },
+                                {
+                                    "id": 111,
+                                    "streamType": 4,
+                                    "key": "/library/streams/111",
+                                    "codec": "txt",
+                                    "format": "txt",
+                                    "timed": 0,
+                                    "provider": "localmedia",
+                                    "file": "/music/Test Song.txt"
+                                },
+                                {
+                                    "id": 222,
+                                    "streamType": 4,
+                                    "key": "/library/streams/222",
+                                    "codec": "lrc",
+                                    "format": "lrc",
+                                    "timed": 1,
+                                    "provider": "com.plexapp.agents.lyricfind"
+                                },
+                                {
+                                    "id": 333,
+                                    "streamType": 4,
+                                    "key": "/library/streams/333",
+                                    "codec": "lrc",
+                                    "format": "lrc",
+                                    "timed": 1,
+                                    "provider": "localmedia",
+                                    "file": "/music/Test Song.chord.lrc"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """
+
+        let track = try JSONDecoder().decode(PlexTrack.self, from: Data(trackJSON.utf8))
+
+        XCTAssertEqual(track.normalLyricsStreams.map(\.id), [222, 111])
+        XCTAssertEqual(track.lyricsStream?.id, 222)
+        XCTAssertEqual(track.chordCandidateStreams.map(\.id), [111, 333])
     }
 
     func testPlexRequestBuilderCanRequestPlainTextForRawLyrics() throws {

@@ -9,6 +9,11 @@ import SwiftUI
 /// NVM publishes. This prevents the full body (gestures, context menu, background)
 /// from re-evaluating on every 0.5s playback tick.
 public struct MiniPlayer: View {
+    public enum SurfaceStyle {
+        case automatic
+        case stableMaterial
+    }
+
     let viewModel: NowPlayingViewModel
     let onTap: () -> Void
 
@@ -20,6 +25,8 @@ public struct MiniPlayer: View {
     private let showsWaveform: Bool
     private let waveformColor: Color
     private let horizontalPadding: CGFloat
+    private let surfaceStyle: SurfaceStyle
+    private let usesGlassEffectIdentity: Bool
     private let pillCornerRadius: CGFloat = EnsembleScaffold.MiniPlayer.cornerRadius
 
     private let namespace: Namespace.ID?
@@ -32,6 +39,8 @@ public struct MiniPlayer: View {
         showsWaveform: Bool = false,
         waveformColor: Color = .primary,
         horizontalPadding: CGFloat? = nil,
+        surfaceStyle: SurfaceStyle = .automatic,
+        usesGlassEffectIdentity: Bool = true,
         namespace: Namespace.ID? = nil,
         animationID: String? = nil,
         onTap: @escaping () -> Void
@@ -45,6 +54,8 @@ public struct MiniPlayer: View {
                 ? EnsembleScaffold.MiniPlayer.floatingHorizontalPadding
                 : EnsembleScaffold.MiniPlayer.inlineHorizontalPadding
         )
+        self.surfaceStyle = surfaceStyle
+        self.usesGlassEffectIdentity = usesGlassEffectIdentity
         self.namespace = namespace
         self.animationID = animationID
         self.onTap = onTap
@@ -53,24 +64,12 @@ public struct MiniPlayer: View {
     public var body: some View {
         // Branch on OS version for surface treatment, then apply shared interaction modifiers.
         Group {
-            if #available(iOS 26, macOS 26, *) {
+            if surfaceStyle == .automatic, #available(iOS 26, macOS 26, *) {
                 // Native Liquid Glass — the real material, handles blur/lighting/elevation itself.
-                pillContent
-                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-                    .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
-                    .ifLet(namespace, animationID) { view, ns, id in
-                        view.glassEffectID("mini-player-glass-\(id)", in: ns)
-                    }
+                liquidGlassPillContent
             } else {
                 // iOS 15–25 fallback: low-cost system material stack.
-                pillContent
-                    .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
-                    .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
-                    .shadow(
-                        color: materialRole.shadowColor,
-                        radius: materialRole.shadowRadius,
-                        y: materialRole.shadowY
-                    )
+                stableMaterialPillContent
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: pillCornerRadius))
@@ -125,6 +124,36 @@ public struct MiniPlayer: View {
     }
 
     // MARK: - Pill Content
+
+    @available(iOS 26, macOS 26, *)
+    @ViewBuilder
+    private var liquidGlassPillContent: some View {
+        let glassContent = pillContent
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
+            .glassEffect(in: .rect(cornerRadius: pillCornerRadius))
+
+        if usesGlassEffectIdentity {
+            glassContent
+                .ifLet(namespace, animationID) { view, ns, id in
+                    view.glassEffectID("mini-player-glass-\(id)", in: ns)
+                }
+        } else {
+            glassContent
+        }
+    }
+
+    private var stableMaterialPillContent: some View {
+        pillContent
+            .frame(maxWidth: .infinity)
+            .background(MiniPlayerBackground(pillCornerRadius: pillCornerRadius))
+            .clipShape(RoundedRectangle(cornerRadius: pillCornerRadius, style: .continuous))
+            .shadow(
+                color: materialRole.shadowColor,
+                radius: materialRole.shadowRadius,
+                y: materialRole.shadowY
+            )
+    }
 
     /// Composed of scoped sub-views so observation stays local.
     /// The parent body (above) doesn't re-evaluate when NVM publishes.
@@ -207,19 +236,18 @@ private struct MiniPlayerTrackInfo: View {
             } else {
                 // Nothing Playing state
                 HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-                    RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
-                        .fill(EnsembleDesign.Color.placeholderArtwork)
-                        .frame(width: artworkDimension, height: artworkDimension)
-                        .overlay(
-                            Image(systemName: EnsembleDesign.Icon.musicNote)
-                                .foregroundColor(EnsembleDesign.Color.mutedPrimaryText)
-                        )
-
-                    Text("Nothing Playing")
-                        .font(EnsembleDesign.Typography.cardTitle)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
+                    emptyTrackInfoLane
 
                     Spacer()
+
+                    MiniPlayerControls(
+                        playbackProjection: playbackProjection,
+                        viewModel: viewModel,
+                        showsPreviousButton: showsWaveform,
+                        showsActionsMenu: showsWaveform
+                    )
+                    .disabled(true)
+                    .opacity(EnsembleScaffold.MiniPlayer.unavailableControlOpacity)
                 }
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
                 .padding(.vertical, TrackListLayoutMetrics.rowVerticalPadding)
@@ -228,6 +256,25 @@ private struct MiniPlayerTrackInfo: View {
         // Keep layout tightly bound to rendered content height to avoid oversized touch regions.
         .fixedSize(horizontal: false, vertical: true)
         .clipped()
+    }
+
+    private var emptyTrackInfoLane: some View {
+        HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
+            RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous)
+                .fill(EnsembleDesign.Color.placeholderArtwork)
+                .frame(width: artworkDimension, height: artworkDimension)
+                .overlay(
+                    Image(systemName: EnsembleDesign.Icon.musicNote)
+                        .foregroundColor(EnsembleDesign.Color.mutedPrimaryText)
+                )
+
+            Text("Nothing Playing")
+                .font(EnsembleDesign.Typography.miniPlayerTitle)
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+                .lineLimit(1)
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        .layoutPriority(1)
     }
 
     private func compactTrackRow(for track: Track) -> some View {
