@@ -29,16 +29,20 @@ extension PlexAPIClient {
         var pollInterval: UInt64 = 1_000_000_000
         let maxPollInterval: UInt64 = 15_000_000_000
         while Date() < timeoutDeadline {
+            try Task.checkCancellation()
+
             let item: DownloadQueueItemRecord
             do {
                 item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
+            } catch is CancellationError {
+                throw CancellationError()
             } catch let urlError as URLError where [
                 .notConnectedToInternet, .networkConnectionLost,
                 .dataNotAllowed, .internationalRoamingOff
             ].contains(urlError.code) {
                 throw urlError
             } catch {
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
                 pollInterval = min(pollInterval * 2, maxPollInterval)
                 continue
             }
@@ -50,11 +54,11 @@ extension PlexAPIClient {
                 throw DownloadQueueError.itemFailed(item.error ?? "Unknown queue error")
             case "expired":
                 try await restartDownloadQueueItem(queueId: queueId, itemId: itemId)
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
             case "deciding", "waiting", "processing":
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
             default:
-                try? await Task.sleep(nanoseconds: pollInterval)
+                try await Task.sleep(nanoseconds: pollInterval)
             }
             pollInterval = min(pollInterval * 2, maxPollInterval)
         }

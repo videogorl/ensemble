@@ -786,6 +786,8 @@ public actor PlexAPIClient {
         // Try with current URL first
         do {
             return try await performServerRequest(url: currentServerURL, path: path, query: query, accept: accept)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             // Log the actual error for debugging
             EnsembleLogger.debug("❌ Request failed: \(error)")
@@ -841,6 +843,8 @@ public actor PlexAPIClient {
         // Try with current URL first
         do {
             return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
@@ -869,6 +873,8 @@ public actor PlexAPIClient {
 
         do {
             return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 EnsembleLogger.debug("⚠️ POST request failed with current URL, attempting failover...")
@@ -895,6 +901,8 @@ public actor PlexAPIClient {
 
         do {
             return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
                 EnsembleLogger.debug("⚠️ DELETE request failed with current URL, attempting failover...")
@@ -967,7 +975,6 @@ public actor PlexAPIClient {
     private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         // Check if the task is already cancelled before making the request
         if Task.isCancelled {
-            EnsembleLogger.debug("⚠️ Task was cancelled before request started!")
             throw CancellationError()
         }
 
@@ -985,6 +992,8 @@ public actor PlexAPIClient {
             return (data, httpResponse)
         } catch let error as PlexAPIError {
             throw error
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw PlexAPIError.networkError(error)
         }
@@ -1003,6 +1012,8 @@ public actor PlexAPIClient {
             return (data, httpResponse)
         } catch let error as PlexAPIError {
             throw error
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw PlexAPIError.networkError(error)
         }
