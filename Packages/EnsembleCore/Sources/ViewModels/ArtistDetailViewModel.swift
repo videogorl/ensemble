@@ -59,11 +59,23 @@ public final class ArtistDetailViewModel: ObservableObject {
                 cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
             }
             if !cachedAlbums.isEmpty {
-                albums = cachedAlbums.map { Album(from: $0) }
-            } else if let sourceKey = artist.sourceCompositeKey {
-                EnsembleLogger.debug("ArtistDetailViewModel: Albums not found locally, fetching from API for source: \(sourceKey)")
-                let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-                albums = apiAlbums
+                albums = Self.sortedAlbumsForArtistDetail(cachedAlbums.map { Album(from: $0) })
+            }
+
+            if let sourceKey = artist.sourceCompositeKey, !syncCoordinator.isOffline {
+                EnsembleLogger.debug("ArtistDetailViewModel: Refreshing artist albums from API for source: \(sourceKey)")
+                do {
+                    let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
+                    let mergedAlbums = Self.mergedAlbums(local: albums, remote: apiAlbums)
+                    if mergedAlbums.map(\.sourceScopedID) != albums.map(\.sourceScopedID) {
+                        albums = mergedAlbums
+                    }
+                } catch {
+                    if albums.isEmpty {
+                        throw error
+                    }
+                    EnsembleLogger.debug("ArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
+                }
             }
         } catch {
             EnsembleLogger.debug("ArtistDetailViewModel.loadAlbums error: \(error.localizedDescription)")
@@ -199,5 +211,29 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
         MediaFilterEngine.filterTracks(tracks, with: options, configuration: .artistDetail)
+    }
+
+    private static func mergedAlbums(local: [Album], remote: [Album]) -> [Album] {
+        guard !remote.isEmpty else { return sortedAlbumsForArtistDetail(local) }
+        var albumsByID = Dictionary(uniqueKeysWithValues: local.map { ($0.sourceScopedID, $0) })
+        for album in remote where albumsByID[album.sourceScopedID] == nil {
+            albumsByID[album.sourceScopedID] = album
+        }
+        return sortedAlbumsForArtistDetail(Array(albumsByID.values))
+    }
+
+    private static func sortedAlbumsForArtistDetail(_ albums: [Album]) -> [Album] {
+        albums.sorted { left, right in
+            let leftYear = left.year ?? Int.min
+            let rightYear = right.year ?? Int.min
+            if leftYear != rightYear {
+                return leftYear > rightYear
+            }
+            let titleComparison = left.title.localizedStandardCompare(right.title)
+            if titleComparison != .orderedSame {
+                return titleComparison == .orderedAscending
+            }
+            return left.sourceScopedID < right.sourceScopedID
+        }
     }
 }

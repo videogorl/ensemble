@@ -722,8 +722,21 @@ public func getStreamURL(
     }
 
     public func getArtistAlbums(artistKey: String) async throws -> [Album] {
-        let plexAlbums = try await apiClient.getArtistAlbums(artistKey: artistKey)
-        return plexAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
+        let childAlbums = try await apiClient.getArtistAlbums(artistKey: artistKey)
+        guard let artistTitle = childAlbums.first?.parentTitle, !artistTitle.isEmpty else {
+            return childAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
+        }
+
+        do {
+            let sectionAlbums = try await apiClient.getArtistAlbums(sectionKey: sectionKey, artistTitle: artistTitle)
+            if sectionAlbums.count >= childAlbums.count {
+                return sectionAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
+            }
+        } catch {
+            EnsembleLogger.debug("PlexMusicSourceSyncProvider: Section artist album query failed for \(artistKey): \(error.localizedDescription)")
+        }
+
+        return childAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
     }
 
     public func getArtistTracks(artistKey: String) async throws -> [Track] {

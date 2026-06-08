@@ -1002,6 +1002,14 @@ public struct ArtistDetailView: View {
         displayArtist.isMerged ? mergedViewModel.filteredAlbums : viewModel.filteredAlbums
     }
 
+    private var detailStudioAlbums: [Album] {
+        detailAlbums.filter { !$0.isLikelySingleOrEP(artistTracks: detailTracks) }
+    }
+
+    private var detailSinglesAndEPs: [Album] {
+        detailAlbums.filter { $0.isLikelySingleOrEP(artistTracks: detailTracks) }
+    }
+
     private var detailTracks: [Track] {
         displayArtist.isMerged ? mergedViewModel.filteredTracks : viewModel.filteredTracks
     }
@@ -1101,7 +1109,7 @@ public struct ArtistDetailView: View {
                 if displayArtist.isMerged {
                     Text("•")
                 }
-                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                Text(artistStatsAlbumText)
             }
             if !detailAlbums.isEmpty && !detailTracks.isEmpty {
                 Text("•")
@@ -1232,7 +1240,7 @@ public struct ArtistDetailView: View {
                                 if displayArtist.isMerged {
                                     Text("•")
                                 }
-                                Text("\(detailAlbums.count) album\(detailAlbums.count == 1 ? "" : "s")")
+                                Text(artistStatsAlbumText)
                             }
                             if !detailAlbums.isEmpty && !detailTracks.isEmpty {
                                 Text("•")
@@ -1472,14 +1480,14 @@ public struct ArtistDetailView: View {
     // MARK: - Albums Section
 
     private var albumsSection: some View {
-        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
-            EnsembleContentSectionHeader("Albums")
-                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
+            if !detailStudioAlbums.isEmpty {
+                albumReleaseSection(title: "Albums", albums: detailStudioAlbums)
+            }
 
-            AlbumGrid(
-                albums: detailAlbums,
-                nowPlayingVM: nowPlayingVM
-            )
+            if !detailSinglesAndEPs.isEmpty {
+                albumReleaseSection(title: "Singles & EPs", albums: detailSinglesAndEPs)
+            }
         }
     }
 
@@ -1493,6 +1501,8 @@ public struct ArtistDetailView: View {
 
     private func mergedSourceSection(_ section: MergedArtistSourceSection) -> some View {
         let albums = mergedViewModel.filteredAlbums(for: section)
+        let studioAlbums = albums.filter { !$0.isLikelySingleOrEP(artistTracks: section.tracks) }
+        let singlesAndEPs = albums.filter { $0.isLikelySingleOrEP(artistTracks: section.tracks) }
         let favoritedTracks = mergedViewModel.favoritedTracks(for: section)
 
         return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
@@ -1515,11 +1525,16 @@ public struct ArtistDetailView: View {
             }
             .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
-            if !albums.isEmpty {
-                AlbumGrid(
-                    albums: albums,
-                    nowPlayingVM: nowPlayingVM
-                )
+            if !studioAlbums.isEmpty || !singlesAndEPs.isEmpty {
+                VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.sectionTopPadding) {
+                    if !studioAlbums.isEmpty {
+                        albumReleaseSection(title: "Albums", albums: studioAlbums)
+                    }
+
+                    if !singlesAndEPs.isEmpty {
+                        albumReleaseSection(title: "Singles & EPs", albums: singlesAndEPs)
+                    }
+                }
             }
 
             if !favoritedTracks.isEmpty {
@@ -1534,8 +1549,10 @@ public struct ArtistDetailView: View {
         favoritedTracks: [Track],
         totalTracks: [Track]
     ) -> String {
-        [
-            "\(albums.count) album\(albums.count == 1 ? "" : "s")",
+        let singlesAndEPs = albums.filter { $0.isLikelySingleOrEP(artistTracks: totalTracks) }
+        let studioAlbumCount = albums.count - singlesAndEPs.count
+        return [
+            artistStatsAlbumText(albumCount: studioAlbumCount, singlesAndEPCount: singlesAndEPs.count),
             "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
             "\(favoritedTracks.count) favorited",
             displaySourceSubtitle(section.sourceSubtitle)
@@ -1545,6 +1562,28 @@ public struct ArtistDetailView: View {
     private func displaySourceSubtitle(_ sourceSubtitle: String) -> String {
         guard settingsManager.demoModeEnabled else { return sourceSubtitle }
         return "\(DemoModeRedaction.serverName) · \(DemoModeRedaction.accountIdentifier)"
+    }
+
+    private var artistStatsAlbumText: String {
+        artistStatsAlbumText(albumCount: detailStudioAlbums.count, singlesAndEPCount: detailSinglesAndEPs.count)
+    }
+
+    private func artistStatsAlbumText(albumCount: Int, singlesAndEPCount: Int) -> String {
+        let albumText = "\(albumCount) album\(albumCount == 1 ? "" : "s")"
+        guard singlesAndEPCount > 0 else { return albumText }
+        return "\(albumText), \(singlesAndEPCount) single\(singlesAndEPCount == 1 ? "" : "s")/EP\(singlesAndEPCount == 1 ? "" : "s")"
+    }
+
+    private func albumReleaseSection(title: String, albums: [Album]) -> some View {
+        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
+            EnsembleContentSectionHeader(title)
+                .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+
+            AlbumGrid(
+                albums: albums,
+                nowPlayingVM: nowPlayingVM
+            )
+        }
     }
 
     private func sourceDownloadButton(for artist: Artist) -> some View {

@@ -174,6 +174,21 @@ extension PlexAPIClient {
         return container.mediaContainer.items
     }
 
+    /// Get all albums credited to an artist within a library section.
+    ///
+    /// Plex's artist children endpoint can omit single-track releases that still belong to
+    /// the artist. The section-level album query returns those releases when filtering by
+    /// `artist.title`, while still returning standard albums.
+    public func getArtistAlbums(sectionKey: String, artistTitle: String) async throws -> [PlexAlbum] {
+        try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
+                "type": "9",
+                "artist.title": artistTitle
+            ]
+        )
+    }
+
     /// Get all tracks in a library section
     public func getTracks(sectionKey: String) async throws -> [PlexTrack] {
         return try await getPagedSectionItems(
