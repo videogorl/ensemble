@@ -5,6 +5,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 ## Policies
 
 - Root shells own platform navigation: tab shell on iPhone, split/sidebar shell on iPadOS and macOS where supported.
+- The root sidebar on iPadOS and macOS should use a native `NavigationSplitView` column width range rather than a fixed min/ideal/max width, so pointer/window users can resize the sidebar while the app still provides bounded defaults.
 - Large-screen browse splits that collapse to a single inner pane must keep a visible navigation control for returning from the selected detail to the browse list.
 - iPhone root profile toolbar chrome is owned by `MainTabView` at each visible tab root-content wrapper and the root More wrapper, not by individual screens. On iOS 16+, it stays mounted at that root owner instead of toggling from navigation path emptiness; iOS 15 may path-gate the fallback item to prevent inherited toolbar leakage. It appears after other root trailing actions, and must stay absent from pushed destinations and hidden-tab drill-ins.
 - Navigation coordinators are scene/window-scoped. Do not route user-driven navigation through shared singleton state that mirrors iPad/macOS windows.

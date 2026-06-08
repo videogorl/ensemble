@@ -543,6 +543,12 @@ enum MainTabInitialSelectionPolicy {
 
 // MARK: - iPad Sidebar View
 
+enum RootSidebarColumnWidth {
+    static let minimum: CGFloat = 220
+    static let ideal: CGFloat = 260
+    static let maximum: CGFloat = 360
+}
+
 @available(iOS 16.0, macOS 13.0, *)
 public struct SidebarView: View {
     /// Stable sidebar-only playlist row model so SwiftUI diffing does not depend on
@@ -1211,7 +1217,11 @@ public struct SidebarView: View {
                         : TrackListLayoutMetrics.miniPlayerContainerInset
                 )
         }
-        .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 260)
+        .navigationSplitViewColumnWidth(
+            min: RootSidebarColumnWidth.minimum,
+            ideal: RootSidebarColumnWidth.ideal,
+            max: RootSidebarColumnWidth.maximum
+        )
         .toolbar {
             #if os(macOS)
             EnsembleToolbarLeadingSpacer()

@@ -57,4 +57,9 @@ final class PlatformAndDragPolicyTests: XCTestCase {
             .unsupported(reason: "Only tracks provide audio file promises.")
         )
     }
+
+    func testRootSidebarColumnWidthRemainsResizable() {
+        XCTAssertLessThan(RootSidebarColumnWidth.minimum, RootSidebarColumnWidth.ideal)
+        XCTAssertLessThan(RootSidebarColumnWidth.ideal, RootSidebarColumnWidth.maximum)
+    }
 }
