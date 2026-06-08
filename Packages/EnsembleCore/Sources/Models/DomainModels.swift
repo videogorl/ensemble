@@ -385,63 +385,9 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
 }
 
 public extension Album {
-    /// Best-effort artist detail grouping when Plex exposes every release as `type=album`.
-    ///
-    /// PMS does not consistently provide a release-group subtype for music albums, so this
-    /// uses explicit title markers first, then track-count and duration signals from the
-    /// loaded artist tracks. Unknown counts stay classified as albums to avoid hiding a
-    /// full-length release behind a heuristic.
+    /// Artist detail grouping from Plex's release format metadata.
     func isLikelySingleOrEP(artistTracks: [Track] = []) -> Bool {
-        if releaseFormat == .single || releaseFormat == .ep {
-            return true
-        }
-        if releaseFormat == .album {
-            return false
-        }
-
-        let normalizedTitle = title.normalizedReleaseTitle
-        if normalizedTitle.hasSingleOrEPMarker {
-            return true
-        }
-
-        let matchingTracks = artistTracks.filter { track in
-            if track.albumRatingKey == id {
-                return true
-            }
-            return track.albumRatingKey == nil && track.albumName == title
-        }
-
-        let resolvedTrackCount = matchingTracks.isEmpty ? trackCount : matchingTracks.count
-
-        if resolvedTrackCount == 1 {
-            return true
-        }
-
-        guard (2...6).contains(resolvedTrackCount), !matchingTracks.isEmpty else {
-            return false
-        }
-
-        let totalDuration = matchingTracks.reduce(0) { $0 + $1.duration }
-        return totalDuration > 0 && totalDuration <= 30 * 60
-    }
-}
-
-private extension String {
-    var normalizedReleaseTitle: String {
-        folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .lowercased()
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "(", with: " ")
-            .replacingOccurrences(of: ")", with: " ")
-            .replacingOccurrences(of: "[", with: " ")
-            .replacingOccurrences(of: "]", with: " ")
-            .replacingOccurrences(of: "/", with: " ")
-    }
-
-    var hasSingleOrEPMarker: Bool {
-        let words = split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
-        return words.contains("single") || words.contains("ep")
+        releaseFormat == .single || releaseFormat == .ep
     }
 }
 

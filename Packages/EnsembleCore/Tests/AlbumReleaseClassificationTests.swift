@@ -2,23 +2,10 @@ import XCTest
 @testable import EnsembleCore
 
 final class AlbumReleaseClassificationTests: XCTestCase {
-    func testExplicitSingleAndEPTitleMarkersClassifyAsSinglesAndEPs() {
-        XCTAssertTrue(makeAlbum(id: "single", title: "Next Semester - Single", trackCount: 0).isLikelySingleOrEP())
-        XCTAssertTrue(makeAlbum(id: "ep", title: "The Purpose and Distraction EP", trackCount: 0).isLikelySingleOrEP())
-    }
-
-    func testOneTrackReleaseClassifiesAsSingle() {
-        let album = makeAlbum(id: "14305", title: "Tear in My Heart", trackCount: 1)
-
-        XCTAssertTrue(album.isLikelySingleOrEP())
-    }
-
-    func testPlexEPFormatOverridesAlbumSizedTrackCount() {
-        let album = Album(
+    func testPlexEPFormatClassifiesAsSingleOrEP() {
+        let album = makeAlbum(
             id: "12321",
-            key: "/library/metadata/12321",
             title: "A Little Rhythm and a Wicked Feeling",
-            year: 2020,
             trackCount: 8,
             releaseFormat: .ep
         )
@@ -26,27 +13,36 @@ final class AlbumReleaseClassificationTests: XCTestCase {
         XCTAssertTrue(album.isLikelySingleOrEP())
     }
 
-    func testPlexAlbumFormatOverridesShortRuntimeHeuristic() {
-        let album = Album(
+    func testPlexSingleFormatClassifiesAsSingleOrEP() {
+        let album = makeAlbum(
+            id: "14305",
+            title: "Tear in My Heart",
+            trackCount: 1,
+            releaseFormat: .single
+        )
+
+        XCTAssertTrue(album.isLikelySingleOrEP())
+    }
+
+    func testPlexAlbumFormatClassifiesAsAlbum() {
+        let album = makeAlbum(
             id: "album",
-            key: "/library/metadata/album",
             title: "Short Album",
-            year: 2024,
             trackCount: 4,
             releaseFormat: .album
         )
-        let tracks = [
-            makeTrack(id: "1", albumID: "album", duration: 180),
-            makeTrack(id: "2", albumID: "album", duration: 180),
-            makeTrack(id: "3", albumID: "album", duration: 180),
-            makeTrack(id: "4", albumID: "album", duration: 180)
-        ]
 
-        XCTAssertFalse(album.isLikelySingleOrEP(artistTracks: tracks))
+        XCTAssertFalse(album.isLikelySingleOrEP())
     }
 
-    func testShortReleaseWithLoadedTracksClassifiesAsEP() {
-        let album = makeAlbum(id: "ep", title: "Short Release", trackCount: 0)
+    func testUnformattedTitleMarkerStaysClassifiedAsAlbum() {
+        let album = makeAlbum(id: "single", title: "Next Semester - Single", trackCount: 1)
+
+        XCTAssertFalse(album.isLikelySingleOrEP())
+    }
+
+    func testUnformattedShortReleaseStaysClassifiedAsAlbum() {
+        let album = makeAlbum(id: "ep", title: "Short Release", trackCount: 4)
         let tracks = [
             makeTrack(id: "1", albumID: "ep", duration: 180),
             makeTrack(id: "2", albumID: "ep", duration: 210),
@@ -54,31 +50,28 @@ final class AlbumReleaseClassificationTests: XCTestCase {
             makeTrack(id: "4", albumID: "ep", duration: 200)
         ]
 
-        XCTAssertTrue(album.isLikelySingleOrEP(artistTracks: tracks))
+        XCTAssertFalse(album.isLikelySingleOrEP(artistTracks: tracks))
     }
 
-    func testUnknownCountReleaseStaysClassifiedAsAlbum() {
+    func testUnformattedUnknownCountReleaseStaysClassifiedAsAlbum() {
         let album = makeAlbum(id: "album", title: "Breach", trackCount: 0)
 
         XCTAssertFalse(album.isLikelySingleOrEP())
     }
 
-    func testFullLengthReleaseWithLoadedTracksStaysClassifiedAsAlbum() {
-        let album = makeAlbum(id: "6278", title: "Trench", trackCount: 0)
-        let tracks = (1...14).map { index in
-            makeTrack(id: "\(index)", albumID: "6278", duration: 180)
-        }
-
-        XCTAssertFalse(album.isLikelySingleOrEP(artistTracks: tracks))
-    }
-
-    private func makeAlbum(id: String, title: String, trackCount: Int) -> Album {
+    private func makeAlbum(
+        id: String,
+        title: String,
+        trackCount: Int,
+        releaseFormat: AlbumReleaseFormat? = nil
+    ) -> Album {
         Album(
             id: id,
             key: "/library/metadata/\(id)",
             title: title,
             year: 2024,
-            trackCount: trackCount
+            trackCount: trackCount,
+            releaseFormat: releaseFormat
         )
     }
 
