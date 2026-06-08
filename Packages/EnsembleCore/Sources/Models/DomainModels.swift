@@ -200,6 +200,33 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
 
 // MARK: - Album
 
+public enum AlbumReleaseFormat: String, Sendable, Codable {
+    case album
+    case ep
+    case single
+
+    public init?(plexTag: String?) {
+        guard let normalized = plexTag?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .lowercased()
+        else {
+            return nil
+        }
+
+        switch normalized {
+        case "album":
+            self = .album
+        case "ep":
+            self = .ep
+        case "single":
+            self = .single
+        default:
+            return nil
+        }
+    }
+}
+
 public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let id: String // ratingKey
     public let key: String
@@ -216,6 +243,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let rating: Int
     public let genres: [String]
     public let sourceCompositeKey: String?
+    public let releaseFormat: AlbumReleaseFormat?
 
     public init(
         id: String,
@@ -232,7 +260,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         dateModified: Date? = nil,
         rating: Int = 0,
         genres: [String] = [],
-        sourceCompositeKey: String? = nil
+        sourceCompositeKey: String? = nil,
+        releaseFormat: AlbumReleaseFormat? = nil
     ) {
         self.id = id
         self.key = key
@@ -249,6 +278,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.rating = rating
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
+        self.releaseFormat = releaseFormat
     }
 
     /// Convenience initializer for radio/minimal album creation
@@ -278,7 +308,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             lhs.trackCount == rhs.trackCount &&
             lhs.thumbPath == rhs.thumbPath &&
             lhs.rating == rhs.rating &&
-            lhs.genres == rhs.genres
+            lhs.genres == rhs.genres &&
+            lhs.releaseFormat == rhs.releaseFormat
     }
 
     /// Hashable must be consistent with custom Equatable — hash only id.
@@ -361,6 +392,13 @@ public extension Album {
     /// loaded artist tracks. Unknown counts stay classified as albums to avoid hiding a
     /// full-length release behind a heuristic.
     func isLikelySingleOrEP(artistTracks: [Track] = []) -> Bool {
+        if releaseFormat == .single || releaseFormat == .ep {
+            return true
+        }
+        if releaseFormat == .album {
+            return false
+        }
+
         let normalizedTitle = title.normalizedReleaseTitle
         if normalizedTitle.hasSingleOrEPMarker {
             return true

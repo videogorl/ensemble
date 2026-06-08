@@ -225,7 +225,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     private static func mergedAlbums(local: [Album], remote: [Album]) -> [Album] {
         guard !remote.isEmpty else { return sortedAlbumsForArtistDetail(local) }
         var albumsByID = Dictionary(uniqueKeysWithValues: local.map { ($0.sourceScopedID, $0) })
-        for album in remote where albumsByID[album.sourceScopedID] == nil {
+        for album in remote where album.releaseFormat != nil || albumsByID[album.sourceScopedID] == nil {
             albumsByID[album.sourceScopedID] = album
         }
         return sortedAlbumsForArtistDetail(Array(albumsByID.values))

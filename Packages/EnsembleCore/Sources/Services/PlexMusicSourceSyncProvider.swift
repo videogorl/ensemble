@@ -730,13 +730,45 @@ public func getStreamURL(
         do {
             let sectionAlbums = try await apiClient.getArtistAlbums(sectionKey: sectionKey, artistTitle: artistTitle)
             if sectionAlbums.count >= childAlbums.count {
-                return sectionAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
+                let releaseFormats: [String: AlbumReleaseFormat]
+                do {
+                    releaseFormats = try await artistAlbumReleaseFormats(artistTitle: artistTitle)
+                } catch {
+                    EnsembleLogger.debug("PlexMusicSourceSyncProvider: Album format query failed for \(artistKey): \(error.localizedDescription)")
+                    releaseFormats = [:]
+                }
+                return sectionAlbums.map {
+                    Album(
+                        from: $0,
+                        sourceKey: sourceIdentifier.compositeKey,
+                        releaseFormat: releaseFormats[$0.ratingKey]
+                    )
+                }
             }
         } catch {
             EnsembleLogger.debug("PlexMusicSourceSyncProvider: Section artist album query failed for \(artistKey): \(error.localizedDescription)")
         }
 
         return childAlbums.map { Album(from: $0, sourceKey: sourceIdentifier.compositeKey) }
+    }
+
+    private func artistAlbumReleaseFormats(artistTitle: String) async throws -> [String: AlbumReleaseFormat] {
+        let formatFilters = try await apiClient.getAlbumFormatFilters(sectionKey: sectionKey)
+        var formatsByRatingKey: [String: AlbumReleaseFormat] = [:]
+
+        for filter in formatFilters {
+            guard let releaseFormat = AlbumReleaseFormat(plexTag: filter.title) else { continue }
+            let formattedAlbums = try await apiClient.getArtistAlbums(
+                sectionKey: sectionKey,
+                artistTitle: artistTitle,
+                formatKey: filter.key
+            )
+            for album in formattedAlbums {
+                formatsByRatingKey[album.ratingKey] = releaseFormat
+            }
+        }
+
+        return formatsByRatingKey
     }
 
     public func getArtistTracks(artistKey: String) async throws -> [Track] {

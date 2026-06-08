@@ -63,6 +63,54 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(track.audioStreamId, 222)
     }
 
+    func testPlexAlbumDecodesFormatTags() throws {
+        let albumJSON = """
+        {
+            "ratingKey": "12321",
+            "key": "/library/metadata/12321/children",
+            "title": "A Little Rhythm and a Wicked Feeling",
+            "Format": [
+                {
+                    "id": 32101,
+                    "filter": "format=32101",
+                    "tag": "EP"
+                }
+            ]
+        }
+        """
+
+        let album = try JSONDecoder().decode(PlexAlbum.self, from: Data(albumJSON.utf8))
+        XCTAssertEqual(album.format?.map(\.tag), ["EP"])
+    }
+
+    func testPlexLibraryFormatFiltersDecode() throws {
+        let filtersJSON = """
+        {
+            "MediaContainer": {
+                "Directory": [
+                    {
+                        "fastKey": "/library/sections/3/all?format=31744",
+                        "key": "31744",
+                        "title": "Album"
+                    },
+                    {
+                        "fastKey": "/library/sections/3/all?format=32101",
+                        "key": "32101",
+                        "title": "EP"
+                    }
+                ]
+            }
+        }
+        """
+
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexLibraryFilterValue>.self,
+            from: Data(filtersJSON.utf8)
+        )
+        XCTAssertEqual(container.mediaContainer.items.map(\.key), ["31744", "32101"])
+        XCTAssertEqual(container.mediaContainer.items.map(\.title), ["Album", "EP"])
+    }
+
     func testPlexTrackDecodesMultipleLyricsStreamsAndSidecarFile() throws {
         let trackJSON = """
         {

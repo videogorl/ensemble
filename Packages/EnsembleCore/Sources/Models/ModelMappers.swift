@@ -160,7 +160,7 @@ public extension Album {
         )
     }
 
-    init(from plex: PlexAlbum, sourceKey: String? = nil) {
+    init(from plex: PlexAlbum, sourceKey: String? = nil, releaseFormat: AlbumReleaseFormat? = nil) {
         self.init(
             id: plex.ratingKey,
             key: plex.key,
@@ -176,7 +176,8 @@ public extension Album {
             dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
             genres: plex.genreNames,
-            sourceCompositeKey: sourceKey
+            sourceCompositeKey: sourceKey,
+            releaseFormat: releaseFormat ?? AlbumReleaseFormat(plexTag: plex.format?.first?.tag)
         )
     }
 

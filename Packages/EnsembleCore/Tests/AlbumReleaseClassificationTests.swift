@@ -13,6 +13,38 @@ final class AlbumReleaseClassificationTests: XCTestCase {
         XCTAssertTrue(album.isLikelySingleOrEP())
     }
 
+    func testPlexEPFormatOverridesAlbumSizedTrackCount() {
+        let album = Album(
+            id: "12321",
+            key: "/library/metadata/12321",
+            title: "A Little Rhythm and a Wicked Feeling",
+            year: 2020,
+            trackCount: 8,
+            releaseFormat: .ep
+        )
+
+        XCTAssertTrue(album.isLikelySingleOrEP())
+    }
+
+    func testPlexAlbumFormatOverridesShortRuntimeHeuristic() {
+        let album = Album(
+            id: "album",
+            key: "/library/metadata/album",
+            title: "Short Album",
+            year: 2024,
+            trackCount: 4,
+            releaseFormat: .album
+        )
+        let tracks = [
+            makeTrack(id: "1", albumID: "album", duration: 180),
+            makeTrack(id: "2", albumID: "album", duration: 180),
+            makeTrack(id: "3", albumID: "album", duration: 180),
+            makeTrack(id: "4", albumID: "album", duration: 180)
+        ]
+
+        XCTAssertFalse(album.isLikelySingleOrEP(artistTracks: tracks))
+    }
+
     func testShortReleaseWithLoadedTracksClassifiesAsEP() {
         let album = makeAlbum(id: "ep", title: "Short Release", trackCount: 0)
         let tracks = [

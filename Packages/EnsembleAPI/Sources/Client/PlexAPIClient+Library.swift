@@ -189,6 +189,31 @@ extension PlexAPIClient {
         )
     }
 
+    /// Get album format filter values exposed by a music library, e.g. Album, EP, Single.
+    public func getAlbumFormatFilters(sectionKey: String) async throws -> [PlexLibraryFilterValue] {
+        let data = try await serverRequest(
+            path: "/library/sections/\(sectionKey)/format",
+            query: ["type": "9"]
+        )
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexLibraryFilterValue>.self,
+            from: data
+        )
+        return container.mediaContainer.items
+    }
+
+    /// Get albums credited to an artist and constrained to a specific Plex album format.
+    public func getArtistAlbums(sectionKey: String, artistTitle: String, formatKey: String) async throws -> [PlexAlbum] {
+        try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
+                "type": "9",
+                "artist.title": artistTitle,
+                "format": formatKey
+            ]
+        )
+    }
+
     /// Get all tracks in a library section
     public func getTracks(sectionKey: String) async throws -> [PlexTrack] {
         return try await getPagedSectionItems(

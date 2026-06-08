@@ -229,6 +229,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
     public let viewedLeafCount: Int?
     public let media: [PlexMedia]?
     public let genre: [PlexTag]?
+    public let format: [PlexTag]?
 
     enum CodingKeys: String, CodingKey {
         case ratingKey
@@ -247,6 +248,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         case viewedLeafCount
         case media = "Media"
         case genre = "Genre"
+        case format = "Format"
     }
 
     public var id: String { ratingKey }
@@ -262,6 +264,7 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         parentRatingKey = try container.decodeIfPresent(String.self, forKey: .parentRatingKey)
         media = try container.decodeIfPresent([PlexMedia].self, forKey: .media)
         genre = try container.decodeIfPresent([PlexTag].self, forKey: .genre)
+        format = try container.decodeIfPresent([PlexTag].self, forKey: .format)
 
         let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
         title = PlexTitleFallback.albumTitle(from: decodedTitle, media: media)
@@ -277,6 +280,14 @@ public struct PlexAlbum: Codable, Sendable, Identifiable {
         leafCount = try container.decodeIfPresent(Int.self, forKey: .leafCount)
         viewedLeafCount = try container.decodeIfPresent(Int.self, forKey: .viewedLeafCount)
     }
+}
+
+public struct PlexLibraryFilterValue: Codable, Sendable, Identifiable {
+    public let key: String
+    public let title: String
+    public let fastKey: String?
+
+    public var id: String { key }
 }
 
 // MARK: - Album Detail (full metadata from /library/metadata/{id})
