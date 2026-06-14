@@ -99,7 +99,7 @@ public struct PlaylistsView: View {
     @State private var renamePushDP: DisplayPlaylist?
     @State private var renamePushDPTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
-    @State private var cachedDisplayedPlaylists: [DisplayPlaylist] = []
+    @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
@@ -516,8 +516,10 @@ public struct PlaylistsView: View {
     }
 
     private var playlistListView: some View {
-        List {
-            ForEach(cachedDisplayedPlaylists) { dp in
+        let displayedPlaylists = effectivePlaylists
+
+        return List {
+            ForEach(displayedPlaylists) { dp in
                 let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
                     displayPlaylist: dp,
@@ -562,10 +564,10 @@ public struct PlaylistsView: View {
                                 playlistPendingSwipeDelete = dp.primaryPlaylist
                             }
                         }
-                    }
+                }
             }
 
-            playlistCountFooter(count: cachedDisplayedPlaylists.count)
+            playlistCountFooter(count: displayedPlaylists.count)
         }
         .listStyle(.plain)
         .foregroundScrollActivity()
@@ -596,7 +598,7 @@ public struct PlaylistsView: View {
     
     private var stageFlowView: some View {
         StageFlowView(
-            items: cachedDisplayedPlaylists,
+            items: effectivePlaylists,
             nowPlayingVM: nowPlayingVM,
             itemView: { dp in
                 StageFlowItemView(displayPlaylist: dp)
@@ -645,11 +647,10 @@ public struct PlaylistsView: View {
 
     private var effectivePlaylists: [DisplayPlaylist] {
         // Filter out display playlists whose only constituent is pending deletion
-        cachedDisplayedPlaylists.isEmpty
-            ? viewModel.displayPlaylists.filter { dp in
+        cachedDisplayedPlaylists
+            ?? viewModel.displayPlaylists.filter { dp in
                 !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
             }
-            : cachedDisplayedPlaylists
     }
 
     /// Determines the chip style for a DisplayPlaylist row
