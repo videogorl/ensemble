@@ -16,6 +16,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Sync should pre-cache detail-grade album, artist, and playlist artwork before users navigate into artwork-backed detail surfaces. Existing persistent artwork should only skip sync caching when it satisfies the full-size detail requirement; undersized thumbnails remain fallback files and should be replaced during sync while the server is available.
 - If Plex returns source artwork below the requested detail size, the successful detail-size fetch attempt should be recorded with the persistent artwork identity so future syncs do not re-download the same server-limited image until the source path or modified date changes.
 - Siri media index, media context refresh, and automatic startup sync are freshness work where relevant and must stay source-scoped. Defer this work while the device is known offline and route startup sync plus Spotlight/Siri indexing through foreground idle budgeting so launch, scrolling, navigation, Now Playing gestures, share sheets, and audio-critical windows remain responsive on constrained devices.
+- Constrained legacy devices such as iPhone 6s/iPad Air 2 should use a longer foreground idle delay before nonessential work. Navigation events from `NavigationCoordinator` must mark the `ForegroundWorkScheduler` as navigating so automatic startup sync cannot begin under a tab change, push, pop, or external route transition.
 
 ## Owners
 

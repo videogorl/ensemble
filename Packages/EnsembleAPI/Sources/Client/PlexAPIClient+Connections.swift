@@ -48,7 +48,7 @@ extension PlexAPIClient {
 
     /// Updates the active endpoint URL after an external registry or health-check change.
     public func updateCurrentServerURL(_ url: String) {
-        EnsembleLogger.debug("🔄 PlexAPIClient: Updating current server URL to: \(url)")
+        EnsembleLogger.debug("🔄 PlexAPIClient: Updating current server endpoint")
         currentServerURL = url
     }
 
@@ -63,7 +63,7 @@ extension PlexAPIClient {
         }
         let outcome: ConnectionRefreshResult.RefreshOutcome = (selected.url == previousURL) ? .unchanged : .switched
         EnsembleLogger.debug(
-            "✅ PlexAPIClient: Connection refreshed host=\(selected.safeHostDescription) outcome=\(outcome.rawValue)"
+            "✅ PlexAPIClient: Connection refreshed endpointClass=\(selected.endpointClass.rawValue) outcome=\(outcome.rawValue)"
         )
         return ConnectionRefreshResult(
             outcome: outcome,

@@ -76,7 +76,7 @@ public actor ServerConnectionRegistry {
 
         if previous?.endpoint.url != endpoint.url {
             EnsembleLogger.debug(
-                "📍 Registry: \(serverKey) endpoint changed \(previous?.endpoint.url ?? "nil") -> \(endpoint.url) (source=\(source.rawValue))"
+                "📍 Registry: \(serverKey) endpoint changed previousClass=\(previous?.endpoint.endpointClass.rawValue.description ?? "none") newClass=\(endpoint.endpointClass.rawValue) source=\(source.rawValue)"
             )
         }
 

@@ -238,7 +238,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         }
         eventTasks[serverKey] = eventTask
 
-        EnsembleLogger.debug("🔌 WebSocketCoordinator: Connected manager for \(serverKey) (\(name)) url=\(url)")
+        EnsembleLogger.debug("🔌 WebSocketCoordinator: Connected manager for \(serverKey) (\(name))")
     }
 
     private func removeManager(for serverKey: String) {

@@ -740,12 +740,13 @@ public final class AccountManager: ObservableObject {
             return nil
         }
 
-        EnsembleLogger.debug("🔄 makeAPIClient: Creating new client for \(server.name) (\(server.url))")
-
         let insecurePolicy = currentAllowInsecureConnectionsPolicy()
         let orderedConnections = policyFilteredConnections(
             from: server.orderedConnections,
             allowInsecure: insecurePolicy
+        )
+        EnsembleLogger.debug(
+            "makeAPIClient: creating client serverId=\(server.id) endpoints=\(orderedConnections.count)"
         )
 
         let endpointDescriptors = orderedConnections.map { connection in

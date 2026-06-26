@@ -99,7 +99,7 @@ public actor PlexWebSocketManager {
     /// (e.g., after a health check switches from a stale local IP to a remote endpoint).
     public func updateServerURL(_ newURL: String) {
         guard newURL != serverURL else { return }
-        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Endpoint changed → \(newURL)")
+        EnsembleLogger.info("🔌 WebSocket[\(serverName)]: Endpoint changed")
         serverURL = newURL
         // Reset backoff since this is a deliberate endpoint switch, not a failure
         currentBackoff = Self.minBackoff

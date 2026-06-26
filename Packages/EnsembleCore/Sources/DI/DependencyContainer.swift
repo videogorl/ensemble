@@ -87,6 +87,7 @@ public final class DependencyContainer: @unchecked Sendable {
     private var firstConnectRetryTask: Task<Void, Never>?
     private var firstConnectRetryAttempt = 0
     private var lastKnownICloudAccountStatus: CKAccountStatus = .couldNotDetermine
+    private var hasScheduledDeferredSyncStartup = false
     private static let firstConnectRetryDelays: [TimeInterval] = [5, 15, 30, 60]
 
     // MARK: - Network Infrastructure
@@ -348,9 +349,8 @@ public final class DependencyContainer: @unchecked Sendable {
             lastSyncedPinsData = pinManager.exportPinsData()
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.refreshSyncState(reason: "launch")
+        MainActor.assumeIsolated {
+            scheduleDeferredSyncStartup()
         }
         Task { @MainActor [weak builtForegroundWorkScheduler] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -775,8 +775,22 @@ public final class DependencyContainer: @unchecked Sendable {
             wireOfflineCallbacks()
             wirePlaybackCallbacks()
             wireArtworkCallbacks()
-            wireProfileAndCloudCallbacks()
-            wireKVSSyncCallbacks()
+        }
+    }
+
+    @MainActor
+    private func scheduleDeferredSyncStartup() {
+        guard !hasScheduledDeferredSyncStartup else { return }
+        hasScheduledDeferredSyncStartup = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard await self.foregroundWorkScheduler.waitUntilAllowed(.startupSync, policy: .idleOnly) else {
+                EnsembleLogger.info("Sync startup: deferred iCloud/KVS bootstrap skipped because foreground work is unavailable")
+                return
+            }
+            self.wireProfileAndCloudCallbacks()
+            self.wireKVSSyncCallbacks()
+            await self.refreshSyncState(reason: "launch")
         }
     }
 

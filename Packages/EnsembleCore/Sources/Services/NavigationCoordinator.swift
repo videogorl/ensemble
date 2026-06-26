@@ -47,10 +47,34 @@ public final class NavigationCoordinator: ObservableObject {
         case mergedPlaylist(title: String, isSmart: Bool)
         case moodTracks(mood: Mood)
         case view(TabItem) // For pushing library views from the More menu
+
+        var journeyLogDescription: String {
+            switch self {
+            case .displayArtist, .artistDetail, .artist:
+                return "artist"
+            case .displayGenre:
+                return "genre"
+            case .album, .albumDetail:
+                return "album"
+            case .playlist, .playlistDetail:
+                return "playlist"
+            case .mergedPlaylist(_, let isSmart):
+                return isSmart ? "smartPlaylist" : "playlist"
+            case .moodTracks:
+                return "moodTracks"
+            case .view(let tab):
+                return "view(\(tab.rawValue))"
+            }
+        }
     }
     
     /// The currently selected tab
-    @Published public var selectedTab: TabItem = .home
+    @Published public var selectedTab: TabItem = .home {
+        didSet {
+            guard oldValue != selectedTab else { return }
+            logJourney("tabChanged from=\(oldValue.rawValue) to=\(selectedTab.rawValue)")
+        }
+    }
 
     /// Visible tabs in the tab bar (synced from MainTabView to enable fallback logic)
     public var visibleTabs: [TabItem] = [.home, .artists, .playlists, .search]
@@ -90,7 +114,17 @@ public final class NavigationCoordinator: ObservableObject {
     
     @Published public var pendingNavigation: PendingNavigation?
 
-    public init() {}
+    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
+    private var navigationInteractionGeneration = 0
+    private let navigationInteractionDurationNanoseconds: UInt64
+
+    public init(
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
+        navigationInteractionDurationNanoseconds: UInt64 = 700_000_000
+    ) {
+        self.foregroundWorkScheduler = foregroundWorkScheduler
+        self.navigationInteractionDurationNanoseconds = navigationInteractionDurationNanoseconds
+    }
 
     public nonisolated static func targetTab(for destination: Destination) -> TabItem {
         switch destination {
@@ -175,6 +209,7 @@ public final class NavigationCoordinator: ObservableObject {
         // No-op if already viewing same item as last in stack
         guard path(for: tab).last != destination else { return }
 
+        let previousDepth = path(for: tab).count
         switch tab {
         case .home: homePath.append(destination)
         case .songs: songsPath.append(destination)
@@ -187,6 +222,9 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath.append(destination)
         case .settings: settingsPath.append(destination)
         }
+        logJourney(
+            "push tab=\(tab.rawValue) destination=\(destination.journeyLogDescription) depth=\(previousDepth)->\(previousDepth + 1)"
+        )
     }
 
     public func beginRouteTransition(in tab: TabItem, durationNanoseconds: UInt64 = 700_000_000) {
@@ -206,7 +244,8 @@ public final class NavigationCoordinator: ObservableObject {
     }
 
     public func setPath(_ path: [Destination], for tab: TabItem) {
-        guard self.path(for: tab) != path else { return }
+        let previousPath = self.path(for: tab)
+        guard previousPath != path else { return }
 
         switch tab {
         case .home: homePath = path
@@ -220,11 +259,15 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath = path
         case .settings: settingsPath = path
         }
+        logJourney(
+            "setPath tab=\(tab.rawValue) depth=\(previousPath.count)->\(path.count) top=\(path.last?.journeyLogDescription ?? "root")"
+        )
     }
     
     /// Pop to root for a specific tab
     public func popToRoot(tab: TabItem) {
-        guard !path(for: tab).isEmpty else { return }
+        let previousDepth = path(for: tab).count
+        guard previousDepth > 0 else { return }
 
         switch tab {
         case .home: homePath.removeAll()
@@ -238,11 +281,13 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath.removeAll()
         case .settings: settingsPath.removeAll()
         }
+        logJourney("popToRoot tab=\(tab.rawValue) depth=\(previousDepth)->0")
     }
     
     /// Request navigation immediately (using current tab or fallback)
     public func navigate(to destination: Destination) {
         let targetTab = activeNavigationTab()
+        logJourney("navigate targetTab=\(targetTab.rawValue) destination=\(destination.journeyLogDescription)")
         selectedTab = targetTab
         push(destination, in: targetTab)
     }
@@ -250,6 +295,7 @@ public final class NavigationCoordinator: ObservableObject {
     /// Route external content selections to the destination's owning tab.
     public func navigateFromExternalSearch(to destination: Destination) {
         let targetTab = Self.targetTab(for: destination)
+        logJourney("externalRoute targetTab=\(targetTab.rawValue) destination=\(destination.journeyLogDescription)")
         if shouldRouteExternalSearchThroughMore(targetTab: targetTab) {
             routeExternalSearchThroughMore(destination, targetTab: targetTab)
             return
@@ -267,7 +313,9 @@ public final class NavigationCoordinator: ObservableObject {
     /// Request navigation from NowPlaying sheet (handles dismiss-then-navigate)
     /// Uses current tab (or first visible if currently in Search)
     public func navigateFromNowPlaying(to destination: Destination) {
-        pendingNavigation = PendingNavigation(tab: activeNavigationTab(), destination: destination)
+        let targetTab = activeNavigationTab()
+        logJourney("nowPlayingRoutePending targetTab=\(targetTab.rawValue) destination=\(destination.journeyLogDescription)")
+        pendingNavigation = PendingNavigation(tab: targetTab, destination: destination)
     }
     
     /// Handle deep links by popping to root of the first visible tab and pushing the new destination
@@ -325,8 +373,33 @@ public final class NavigationCoordinator: ObservableObject {
     // MARK: - Helper Methods
 
     private func requestAuxiliaryPresentation(_ destination: AuxiliaryPresentation) {
+        logJourney("auxiliaryPresentation destination=\(destination.rawValue)")
         activeAuxiliaryPresentation = destination
         auxiliaryWindowRequest = AuxiliaryWindowRequest(destination: destination)
+    }
+
+    private func logJourney(_ message: String) {
+        markNavigationInteraction()
+        EnsembleLogger.info("USER_JOURNEY: \(message)")
+    }
+
+    private func markNavigationInteraction() {
+        guard let foregroundWorkScheduler else { return }
+
+        navigationInteractionGeneration += 1
+        let generation = navigationInteractionGeneration
+        foregroundWorkScheduler.beginInteraction(.navigating)
+        let durationNanoseconds = navigationInteractionDurationNanoseconds
+
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: durationNanoseconds)
+            guard let self else {
+                foregroundWorkScheduler.endInteraction(.navigating)
+                return
+            }
+            guard self.navigationInteractionGeneration == generation else { return }
+            foregroundWorkScheduler.endInteraction(.navigating)
+        }
     }
 
     private func activeNavigationTab() -> TabItem {

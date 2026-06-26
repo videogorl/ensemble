@@ -13,9 +13,64 @@ public enum EnsembleLogRedactor {
     ]
 
     public static func redactSensitiveValues(in message: String) -> String {
-        let endpointRedacted = redactHostLiterals(in: redactPathLiterals(in: redactURLLiterals(in: message)))
-        return sensitiveNames.reduce(endpointRedacted) { partial, name in
-            redactValue(named: name, in: partial)
+        guard mayContainRedactableContent(message) else {
+            return message
+        }
+
+        var redacted = message
+        if mayContainURL(in: redacted) {
+            redacted = redactURLLiterals(in: redacted)
+        }
+        if mayContainPath(in: redacted) {
+            redacted = redactPathLiterals(in: redacted)
+        }
+        if mayContainHost(in: redacted) {
+            redacted = redactHostLiterals(in: redacted)
+        }
+        if mayContainSensitiveName(in: redacted) {
+            redacted = sensitiveNames.reduce(redacted) { partial, name in
+                redactValue(named: name, in: partial)
+            }
+        }
+        return redacted
+    }
+
+    private static func mayContainRedactableContent(_ message: String) -> Bool {
+        mayContainURL(in: message) ||
+            mayContainPath(in: message) ||
+            mayContainHost(in: message) ||
+            mayContainSensitiveName(in: message)
+    }
+
+    private static func mayContainURL(in message: String) -> Bool {
+        message.range(of: "http://", options: .caseInsensitive) != nil ||
+            message.range(of: "https://", options: .caseInsensitive) != nil
+    }
+
+    private static func mayContainPath(in message: String) -> Bool {
+        message.range(of: "file://", options: .caseInsensitive) != nil ||
+            message.contains("/Users/") ||
+            message.contains("/private/var/") ||
+            message.contains("/var/mobile/") ||
+            message.contains("/var/folders/") ||
+            message.contains("/tmp/") ||
+            message.range(of: "/library", options: .caseInsensitive) != nil ||
+            message.range(of: "/playlists", options: .caseInsensitive) != nil ||
+            message.range(of: "/hubs", options: .caseInsensitive) != nil
+    }
+
+    private static func mayContainHost(in message: String) -> Bool {
+        message.range(of: ".plex.direct", options: .caseInsensitive) != nil ||
+            message.contains("<redacted-path>") ||
+            message.range(of: "/library", options: .caseInsensitive) != nil ||
+            message.range(of: "/playlists", options: .caseInsensitive) != nil ||
+            message.range(of: "/hubs", options: .caseInsensitive) != nil
+    }
+
+    private static func mayContainSensitiveName(in message: String) -> Bool {
+        sensitiveNames.contains { name in
+            message.range(of: name, options: .caseInsensitive) != nil ||
+                message.range(of: "\(name)%3D", options: .caseInsensitive) != nil
         }
     }
 

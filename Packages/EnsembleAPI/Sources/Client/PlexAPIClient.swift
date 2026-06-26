@@ -287,16 +287,13 @@ public actor PlexAPIClient {
         config.timeoutIntervalForResource = 120  // Keep resource timeout longer for large responses
         self.session = URLSession(configuration: config)
         
-        // Log connection details for debugging
         let isHTTPS = connection.url.lowercased().hasPrefix("https://")
-        let altCount = connection.alternativeURLs.count
-        EnsembleLogger.debug("🔌 PlexAPIClient initialized")
-        EnsembleLogger.debug("   Primary URL: \(connection.url) (HTTPS: \(isHTTPS))")
-        EnsembleLogger.debug("   Alternative URLs: \(altCount)")
-        for (index, altURL) in connection.alternativeURLs.enumerated() {
-            let altHTTPS = altURL.lowercased().hasPrefix("https://")
-            EnsembleLogger.debug("   [\(index + 1)] \(altURL) (HTTPS: \(altHTTPS))")
-        }
+        let secureAlternativeCount = connection.alternativeURLs
+            .filter { $0.lowercased().hasPrefix("https://") }
+            .count
+        EnsembleLogger.debug(
+            "PlexAPIClient initialized primaryHTTPS=\(isHTTPS) alternatives=\(connection.alternativeURLs.count) secureAlternatives=\(secureAlternativeCount)"
+        )
 
         // Seed the registry with the initial endpoint so consumers (e.g. WebSocket
         // coordinator) have a valid URL before the first health check completes.
@@ -770,7 +767,7 @@ public actor PlexAPIClient {
             await registry.updateEndpoint(for: key, endpoint: endpoint, source: .requestFailover)
         }
 
-        EnsembleLogger.debug("✅ Found working connection: \(endpoint.url)")
+        EnsembleLogger.debug("✅ Found working connection: \(endpointLogDescription(for: endpoint))")
         return selection
     }
 
@@ -789,11 +786,7 @@ public actor PlexAPIClient {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            // Log the actual error for debugging
-            EnsembleLogger.debug("❌ Request failed: \(error)")
-            if let urlError = error as? URLError {
-                EnsembleLogger.debug("   URLError code: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
-            }
+            EnsembleLogger.debug("❌ Request failed: \(requestFailureLogDescription(error))")
 
             // Fail over only for transport/connectivity failures.
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
@@ -828,13 +821,50 @@ public actor PlexAPIClient {
             headerContext: requestHeaderContext
         ).makeRequest(method: "GET", path: path, query: query, accept: accept)
 
-        // Log request for debugging (only show host and path, not full URL with token)
+        // Keep hot-path request logs URL-free so launch sync does not spend time redacting every line.
         let isHTTPS = url.lowercased().hasPrefix("https://")
-        let urlHost = URLComponents(string: url)?.host ?? "unknown"
-        EnsembleLogger.debug("📡 Request: \(request.httpMethod ?? "GET") \(urlHost)\(path) (HTTPS: \(isHTTPS))")
+        EnsembleLogger.debug(
+            "📡 Request: \(request.httpMethod ?? "GET") pathLength=\(path.count) queryItems=\(query.count) endpointHTTPS=\(isHTTPS)"
+        )
 
         let (data, _) = try await performRequest(request)
         return data
+    }
+
+    private func endpointLogDescription(for endpoint: PlexEndpointDescriptor) -> String {
+        "class=\(endpoint.endpointClass.rawValue) local=\(endpoint.local ? 1 : 0) relay=\(endpoint.relay ? 1 : 0) secure=\(endpoint.secure ? 1 : 0)"
+    }
+
+    private func requestFailureLogDescription(_ error: Error) -> String {
+        if let plexError = error as? PlexAPIError {
+            switch plexError {
+            case .notAuthenticated:
+                return "notAuthenticated"
+            case .noServerSelected:
+                return "noServerSelected"
+            case .invalidURL:
+                return "invalidURL"
+            case .invalidResponse:
+                return "invalidResponse"
+            case .httpError(let statusCode):
+                return "httpError(statusCode:\(statusCode))"
+            case .decodingError(let underlying):
+                return "decodingError(\(String(describing: type(of: underlying))))"
+            case .networkError(let underlying):
+                return "networkError(\(transportFailureLogDescription(underlying)))"
+            }
+        }
+
+        return transportFailureLogDescription(error)
+    }
+
+    private func transportFailureLogDescription(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            return "URLError(code:\(urlError.code.rawValue))"
+        }
+
+        let nsError = error as NSError
+        return "NSError(domain:\(nsError.domain), code:\(nsError.code))"
     }
     
     func serverRequestPUT(path: String, query: [String: String] = [:]) async throws -> Data {

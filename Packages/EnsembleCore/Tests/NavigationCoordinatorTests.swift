@@ -18,6 +18,21 @@ final class NavigationCoordinatorTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .view(.favorites)), .favorites)
     }
 
+    func testJourneyLogDescriptionsStayRedacted() {
+        XCTAssertEqual(
+            NavigationCoordinator.Destination.album(id: "private-album-id", sourceKey: "private-source").journeyLogDescription,
+            "album"
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.Destination.mergedPlaylist(title: "Private Playlist Title", isSmart: true).journeyLogDescription,
+            "smartPlaylist"
+        )
+        XCTAssertEqual(
+            NavigationCoordinator.Destination.view(.albums).journeyLogDescription,
+            "view(Albums)"
+        )
+    }
+
     func testSystemMediaDestinationMapsSourceScopedIdentifiers() {
         XCTAssertEqual(
             NavigationCoordinator.systemMediaDestination(
@@ -109,6 +124,25 @@ final class NavigationCoordinatorTests: XCTestCase {
         coordinator.push(destination, in: .playlists)
 
         XCTAssertEqual(coordinator.pathSnapshot(for: .playlists), [destination])
+    }
+
+    @MainActor
+    func testNavigationMarksForegroundWorkSchedulerAsNavigating() async {
+        let scheduler = RecordingForegroundWorkScheduler()
+        let coordinator = NavigationCoordinator(
+            foregroundWorkScheduler: scheduler,
+            navigationInteractionDurationNanoseconds: 10_000_000
+        )
+
+        coordinator.push(.album(id: "album", sourceKey: nil), in: .albums)
+
+        XCTAssertEqual(scheduler.beginStates, [.navigating])
+        XCTAssertTrue(scheduler.activeStates.contains(.navigating))
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertEqual(scheduler.endStates, [.navigating])
+        XCTAssertFalse(scheduler.activeStates.contains(.navigating))
     }
 
     @MainActor
@@ -219,5 +253,40 @@ final class NavigationCoordinatorTests: XCTestCase {
 
     private static func artist() -> Artist {
         Artist(id: "artist", key: "/library/metadata/artist", name: "Artist")
+    }
+}
+
+@MainActor
+private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, @unchecked Sendable {
+    var activeStates: Set<ForegroundInteractionState> = []
+    var beginStates: [ForegroundInteractionState] = []
+    var endStates: [ForegroundInteractionState] = []
+    var startupSyncInFlight = false
+    var isForegroundActive = true
+
+    var isIdleForNonessentialWork: Bool {
+        activeStates.isEmpty && !startupSyncInFlight && isForegroundActive
+    }
+
+    func beginInteraction(_ state: ForegroundInteractionState) {
+        beginStates.append(state)
+        activeStates.insert(state)
+    }
+
+    func endInteraction(_ state: ForegroundInteractionState) {
+        endStates.append(state)
+        activeStates.remove(state)
+    }
+
+    func setStartupSyncInFlight(_ inFlight: Bool) {
+        startupSyncInFlight = inFlight
+    }
+
+    func setForegroundActive(_ active: Bool) {
+        isForegroundActive = active
+    }
+
+    func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool {
+        isIdleForNonessentialWork
     }
 }

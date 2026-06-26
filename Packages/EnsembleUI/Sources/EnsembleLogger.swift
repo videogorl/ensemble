@@ -17,4 +17,10 @@ public enum EnsembleLogger {
         logger.debug("\(msg, privacy: .public)")
         fileLogHandler?("DEBUG", category, msg)
     }
+
+    static func info(_ message: @autoclosure () -> String) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.info("\(msg, privacy: .public)")
+        fileLogHandler?("INFO", category, msg)
+    }
 }

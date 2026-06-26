@@ -325,10 +325,13 @@ public final class ServerHealthChecker: ObservableObject {
             return .offline
         }
 
-        EnsembleLogger.debug("🔍 ServerHealthChecker: Testing \(connectionURLs.count) URLs for server \(server.name):")
-        for (index, url) in connectionURLs.enumerated() {
-            EnsembleLogger.debug("  [\(index + 1)] \(url)")
-        }
+        let endpointClassCounts = Dictionary(grouping: endpoints, by: \.endpointClass)
+            .map { "\($0.key.rawValue):\($0.value.count)" }
+            .sorted()
+            .joined(separator: ",")
+        EnsembleLogger.debug(
+            "🔍 ServerHealthChecker: Testing \(connectionURLs.count) endpoint(s) for server \(server.name) classes=\(endpointClassCounts)"
+        )
 
         // Try to find the best policy-compliant endpoint.
         let networkContext = networkContextProvider()

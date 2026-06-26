@@ -1308,7 +1308,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         super.init()
         setupAudioSession()
         setupRemoteCommands()
-        setupPlayer()
         refreshPresentationLatencyEstimate()
         setupNetworkObservation()
         setupHealthCheckObservation()
@@ -1347,7 +1346,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         super.init()
         setupAudioSession()
         setupRemoteCommands()
-        setupPlayer()
         refreshPresentationLatencyEstimate()
         setupNetworkObservation()
         setupHealthCheckObservation()
@@ -5154,6 +5152,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         pendingPreBufferTime = nil
+
+        guard prepareAudioEngineForPlaybackIfNeeded() else {
+            return
+        }
 
         EnsembleLogger.debug("[preBuffer] Pre-buffering restored track: \(track.title)")
 

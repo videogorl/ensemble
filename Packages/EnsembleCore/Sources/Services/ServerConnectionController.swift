@@ -135,7 +135,7 @@ final class ServerConnectionController {
         case .connected(let url), .degraded(let url):
             if let apiClient = accountManager.makeAPIClient(accountId: identity.accountId, serverId: identity.serverId) {
                 await apiClient.updateCurrentServerURL(url)
-                EnsembleLogger.debug("✅ ServerConnectionController: Server connection ready for playback: \(url)")
+                EnsembleLogger.debug("✅ ServerConnectionController: Server connection ready for playback")
             }
         case .offline:
             EnsembleLogger.debug("⚠️ ServerConnectionController: Health check reported offline; attempting optimistic failover refresh")
@@ -285,7 +285,7 @@ final class ServerConnectionController {
             if currentURL != state.endpoint.url {
                 await apiClient.updateCurrentServerURL(state.endpoint.url)
                 EnsembleLogger.debug(
-                    "📍 ServerConnectionController: Registry synced API client for \(state.serverKey) to \(state.endpoint.url) (source=\(state.source.rawValue))"
+                    "📍 ServerConnectionController: Registry synced API client for \(state.serverKey) endpointClass=\(state.endpoint.endpointClass.rawValue) source=\(state.source.rawValue)"
                 )
             }
         }

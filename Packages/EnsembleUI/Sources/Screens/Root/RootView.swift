@@ -1,5 +1,6 @@
 import Combine
 import EnsembleCore
+import Foundation
 import SwiftUI
 #if canImport(UIKit)
 import UIKit
@@ -35,7 +36,9 @@ public struct RootView: View {
     }
 
     public init() {
-        let navigationCoordinator = NavigationCoordinator()
+        let navigationCoordinator = NavigationCoordinator(
+            foregroundWorkScheduler: DependencyContainer.shared.foregroundWorkScheduler
+        )
         _navigationCoordinator = StateObject(wrappedValue: navigationCoordinator)
         _nowPlayingVM = StateObject(
             wrappedValue: DependencyContainer.shared.makeNowPlayingViewModel(
@@ -111,15 +114,28 @@ public struct RootView: View {
         }
         .task {
             let deps = DependencyContainer.shared
+            logRootTaskStart()
             deps.accountManager.loadAccounts()
             // Pre-populate server health states so tracks from unchecked servers
             // are dimmed until health checks confirm reachability.
             deps.serverHealthChecker.prepopulateUnknownStates()
             deps.syncCoordinator.refreshProviders()
-            _ = await deps.siriMediaIndexStore.rebuildIndex()
+            if deps.siriMediaIndexStore.loadIndex(maxAge: 3600) == nil,
+               await deps.foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) {
+                _ = await deps.siriMediaIndexStore.rebuildIndex()
+            }
         }
         .macRootWindowMinimumFrame()
         .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
+    }
+
+    private func logRootTaskStart() {
+        if let launchTime = EnsembleStartupTiming.launchTime {
+            let elapsed = Date().timeIntervalSince(launchTime)
+            EnsembleLogger.info("PERF_LAUNCH: rootView.task.start elapsed=\(String(format: "%.3f", elapsed))s")
+        } else {
+            EnsembleLogger.info("PERF_LAUNCH: rootView.task.start elapsed=unknown")
+        }
     }
 
     #if canImport(UIKit)

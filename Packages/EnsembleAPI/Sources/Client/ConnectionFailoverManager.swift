@@ -120,7 +120,7 @@ public actor ConnectionFailoverManager {
         let adaptiveTimeout = probeTimeout(for: networkContext)
 
         if let preferred = preferredRecentHealthyEndpoint(from: candidates) {
-            EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint first: \(preferred.url)")
+            EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint \(probeLogDescription(for: preferred))")
 
             // Use a tighter timeout for the preferred endpoint — it recently worked,
             // so if it doesn't respond quickly, something changed and we should fall
@@ -128,7 +128,7 @@ public actor ConnectionFailoverManager {
             let preferredTimeout = preferred.local ? min(1.5, adaptiveTimeout) : min(3.0, adaptiveTimeout)
             let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: preferredTimeout)
             if probe.success {
-                EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(preferred.url)")
+                EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(probeLogDescription(for: preferred))")
                 return ConnectionSelectionResult(
                     selected: preferred,
                     probes: [probe],
@@ -237,7 +237,7 @@ public actor ConnectionFailoverManager {
         }
 
         EnsembleLogger.debug(
-            "🏆 ConnectionFailover: Selected endpoint \(selected.url) class=\(selected.endpointClass.rawValue)"
+            "🏆 ConnectionFailover: Selected endpoint \(probeLogDescription(for: selected))"
         )
 
         return ConnectionSelectionResult(
@@ -308,7 +308,7 @@ public actor ConnectionFailoverManager {
     /// Record a TLS failure for a URL (places it in cooldown)
     private func recordTLSFailure(_ url: String) {
         tlsFailureCooldowns[url] = Date().addingTimeInterval(tlsCooldownDuration)
-        EnsembleLogger.debug("🔒 ConnectionFailover: Endpoint \(url) in TLS cooldown for \(Int(tlsCooldownDuration))s")
+        EnsembleLogger.debug("🔒 ConnectionFailover: Endpoint entered TLS cooldown for \(Int(tlsCooldownDuration))s")
     }
 
     /// Filter out endpoints that are in TLS cooldown
@@ -385,8 +385,9 @@ public actor ConnectionFailoverManager {
         probeTimeout: TimeInterval? = nil
     ) async -> ConnectionProbeResult {
         let url = endpoint.url
+        let logDescription = probeLogDescription(for: endpoint)
         guard URL(string: url) != nil else {
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Invalid URL")
+            EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Invalid URL")
             let result = ConnectionProbeResult(
                 endpoint: endpoint,
                 success: false,
@@ -402,7 +403,7 @@ public actor ConnectionFailoverManager {
         testURL?.queryItems = [URLQueryItem(name: "X-Plex-Token", value: token)]
 
         guard let requestURL = testURL?.url else {
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed to build test URL")
+            EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Failed to build test URL")
             let result = ConnectionProbeResult(
                 endpoint: endpoint,
                 success: false,
@@ -418,7 +419,7 @@ public actor ConnectionFailoverManager {
         request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
         request.timeoutInterval = probeTimeout ?? timeout
 
-        EnsembleLogger.debug("🔄 ConnectionTest[\(url)]: Testing...")
+        EnsembleLogger.debug("🔄 ConnectionTest \(logDescription): Testing...")
 
         if Task.isCancelled {
             let result = ConnectionProbeResult(
@@ -428,7 +429,7 @@ public actor ConnectionFailoverManager {
                 failureCategory: .cancelled
             )
             lastProbeResultsByURL[url] = result
-            EnsembleLogger.debug("ℹ️ ConnectionTest[\(url)]: Cancelled before test (hedged probe)")
+            EnsembleLogger.debug("ℹ️ ConnectionTest \(logDescription): Cancelled before test (hedged probe)")
             return result
         }
 
@@ -446,7 +447,7 @@ public actor ConnectionFailoverManager {
                 )
                 lastProbeResultsByURL[url] = result
                 updateConnectionHealth(url: url, success: false)
-                EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Invalid response after \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Invalid response after \(String(format: "%.1f", duration))s")
                 return result
             }
 
@@ -461,9 +462,9 @@ public actor ConnectionFailoverManager {
             updateConnectionHealth(url: url, success: isSuccessful)
 
             if isSuccessful {
-                EnsembleLogger.debug("✅ ConnectionTest[\(url)]: Success in \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("✅ ConnectionTest \(logDescription): Success in \(String(format: "%.1f", duration))s")
             } else {
-                EnsembleLogger.debug("❌ ConnectionTest[\(url)]: HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
+                EnsembleLogger.debug("❌ ConnectionTest \(logDescription): HTTP \(httpResponse.statusCode) after \(String(format: "%.1f", duration))s")
             }
 
             return result
@@ -488,9 +489,13 @@ public actor ConnectionFailoverManager {
                 recordTLSFailure(url)
             }
 
-            EnsembleLogger.debug("❌ ConnectionTest[\(url)]: Failed - \(error.localizedDescription)")
+            EnsembleLogger.debug("❌ ConnectionTest \(logDescription): Failed category=\(category.rawValue)")
             return result
         }
+    }
+
+    private func probeLogDescription(for endpoint: PlexEndpointDescriptor) -> String {
+        "class=\(endpoint.endpointClass.rawValue) local=\(endpoint.local ? 1 : 0) relay=\(endpoint.relay ? 1 : 0) secure=\(endpoint.secure ? 1 : 0)"
     }
 
     private func failureCategory(for error: Error) -> ConnectionProbeFailureCategory {
