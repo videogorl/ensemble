@@ -52,7 +52,7 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
         let isConstrainedLegacyDevice = constrainedMemory || os.majorVersion <= 15
         return Self(
             isConstrainedLegacyDevice: isConstrainedLegacyDevice,
-            idleDelay: isConstrainedLegacyDevice ? 4.0 : 1.5
+            idleDelay: isConstrainedLegacyDevice ? 15.0 : 1.5
         )
     }
 }
