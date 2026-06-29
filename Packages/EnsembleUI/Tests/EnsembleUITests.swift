@@ -877,6 +877,28 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertTrue(resolved.hasContextMenu)
     }
 
+    func testTrackRowInteractionModelCheapStateMatchesResolvedActions() {
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            rating: 4,
+            sourceCompositeKey: "plex:account:server:lib"
+        )
+
+        let model = TrackRowInteractionModel(
+            onAddToRecentPlaylist: { _ in },
+            isTrackFavorited: { $0.id == "track-1" },
+            canAddToRecentPlaylist: { $0.id == "track-1" },
+            recentPlaylistTitle: "Road Trip"
+        )
+
+        let resolved = model.resolve(for: track)
+
+        XCTAssertEqual(model.isFavorited(track), resolved.isFavorited)
+        XCTAssertEqual(model.hasContextMenu(for: track), resolved.hasContextMenu)
+    }
+
     func testTrackRowInteractionModelSuppressesUnavailableRecentPlaylistAction() {
         let track = Track(
             id: "track-2",

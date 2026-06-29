@@ -975,7 +975,6 @@ public struct MediaTrackList: UIViewRepresentable {
                    indexPath.row < newGroupedTracks[indexPath.section].tracks.count {
                     let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
                     let isPlaying = track.playbackIdentity == currentTrackId
-                    let resolvedActions = context.coordinator.interactionModel.resolve(for: track)
                     trackCell.configure(
                         with: track,
                         showArtwork: showArtwork,
@@ -984,13 +983,9 @@ public struct MediaTrackList: UIViewRepresentable {
                         isPlaying: isPlaying,
                         isUnavailableOffline: context.coordinator.trackAvailabilityResolver.availability(for: track).shouldDim,
                         isActivelyDownloading: context.coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                        isFavorited: resolvedActions.isFavorited,
+                        isFavorited: context.coordinator.interactionModel.isFavorited(track),
                         supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
-                        menu: context.coordinator.makeContextMenu(
-                            for: track,
-                            at: indexPath,
-                            resolvedActions: resolvedActions
-                        ),
+                        menu: context.coordinator.makeDeferredContextMenu(for: track, at: indexPath),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
                     )
@@ -1057,9 +1052,7 @@ public struct MediaTrackList: UIViewRepresentable {
     }
 
     private func favoriteStateSignature(for tracks: [Track]) -> [Bool] {
-        tracks.map { track in
-            interactionModel.resolve(for: track).isFavorited
-        }
+        tracks.map { interactionModel.isFavorited($0) }
     }
 
     private func groupTracksByDisc(_ tracks: [Track]) -> [MediaTrackGroup] {
@@ -1169,9 +1162,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
-            self.favoriteStateSignature = tracks.map { track in
-                interactionModel.resolve(for: track).isFavorited
-            }
+            self.favoriteStateSignature = tracks.map { interactionModel.isFavorited($0) }
             self.showArtwork = showArtwork
             self.showTrackNumbers = showTrackNumbers
             self.showAlbumName = showAlbumName
@@ -1240,7 +1231,6 @@ public struct MediaTrackList: UIViewRepresentable {
             cell.backgroundColor = .clear
             guard let track = track(at: indexPath) else { return cell }
             let isPlaying = track.playbackIdentity == currentTrackId
-            let resolvedActions = interactionModel.resolve(for: track)
             cell.configure(
                 with: track,
                 showArtwork: showArtwork,
@@ -1249,9 +1239,9 @@ public struct MediaTrackList: UIViewRepresentable {
                 isPlaying: isPlaying,
                 isUnavailableOffline: trackAvailabilityResolver.availability(for: track).shouldDim,
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
-                isFavorited: resolvedActions.isFavorited,
+                isFavorited: interactionModel.isFavorited(track),
                 supplementalMetadataWidth: supplementalMetadataWidth,
-                menu: makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions),
+                menu: makeDeferredContextMenu(for: track, at: indexPath),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader
             )
@@ -1383,6 +1373,23 @@ public struct MediaTrackList: UIViewRepresentable {
                     }
                 }
             )
+        }
+
+        func makeDeferredContextMenu(for track: Track, at indexPath: IndexPath) -> UIMenu? {
+            guard interactionModel.hasContextMenu(for: track) || onRemoveFromPlaylist != nil else { return nil }
+
+            return UIMenu(children: [
+                UIDeferredMenuElement { [weak self] completion in
+                    guard let self else {
+                        completion([])
+                        return
+                    }
+
+                    let resolvedActions = self.interactionModel.resolve(for: track)
+                    let menu = self.makeContextMenu(for: track, at: indexPath, resolvedActions: resolvedActions)
+                    completion(menu?.children ?? [])
+                }
+            ])
         }
 
         // MARK: - Drag Delegate (iPad drag-and-drop for media references)

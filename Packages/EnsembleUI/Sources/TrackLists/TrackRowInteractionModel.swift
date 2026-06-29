@@ -85,6 +85,27 @@ public struct TrackRowInteractionModel {
         self.recentPlaylistTitle = recentPlaylistTitle
     }
 
+    public func isFavorited(_ track: Track) -> Bool {
+        isTrackFavorited?(track) ?? (track.rating >= 8)
+    }
+
+    public func hasContextMenu(for track: Track) -> Bool {
+        let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
+
+        return onPlayNext != nil ||
+            onPlayLast != nil ||
+            onAddToPlaylist != nil ||
+            allowRecentPlaylist ||
+            onToggleFavorite != nil ||
+            onGoToAlbum != nil ||
+            onGoToArtist != nil ||
+            onGetInfo != nil ||
+            onEditMetadata != nil ||
+            onShareLink != nil ||
+            onShareFile != nil ||
+            onDeleteTrack != nil
+    }
+
     public func resolve(for track: Track) -> ResolvedActions {
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
 
@@ -101,7 +122,7 @@ public struct TrackRowInteractionModel {
             onShareLink: onShareLink.map { callback in { callback(track) } },
             onShareFile: onShareFile.map { callback in { callback(track) } },
             onDeleteTrack: onDeleteTrack.map { callback in { callback(track) } },
-            isFavorited: isTrackFavorited?(track) ?? (track.rating >= 8),
+            isFavorited: isFavorited(track),
             recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil
         )
     }
