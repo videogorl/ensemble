@@ -43,6 +43,7 @@ public struct ArtistsView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
+    @State private var cachedArtistSnapshot: ArtistBrowseSnapshot = .empty
 
     public init(
         libraryVM: LibraryViewModel,
@@ -90,6 +91,17 @@ public struct ArtistsView: View {
                 showGenreFilter: true
             )
         }
+        .onReceive(libraryVM.$artistBrowseSnapshot) { snapshot in
+            if snapshot != cachedArtistSnapshot {
+                cachedArtistSnapshot = snapshot
+            }
+        }
+        .onAppear {
+            let snapshot = libraryVM.immediateArtistBrowseSnapshot
+            if snapshot != cachedArtistSnapshot {
+                cachedArtistSnapshot = snapshot
+            }
+        }
     }
 
     @ViewBuilder
@@ -107,7 +119,9 @@ public struct ArtistsView: View {
     }
 
     private var artistSnapshot: ArtistBrowseSnapshot {
-        libraryVM.immediateArtistBrowseSnapshot
+        cachedArtistSnapshot.hasVisibleContent || cachedArtistSnapshot.phase != .idle
+            ? cachedArtistSnapshot
+            : libraryVM.immediateArtistBrowseSnapshot
     }
 
     private var isBrowseToolbarVisible: Bool {

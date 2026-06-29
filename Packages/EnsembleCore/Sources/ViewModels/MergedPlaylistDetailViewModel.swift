@@ -7,11 +7,18 @@ import Foundation
 @MainActor
 public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var displayPlaylist: DisplayPlaylist
-    @Published public private(set) var tracks: [Track] = []
+    @Published public private(set) var tracks: [Track] = [] {
+        didSet { updateDerivedTrackState() }
+    }
+    @Published public private(set) var availableGenres: [String] = []
+    @Published public private(set) var filteredTracks: [Track] = []
+    @Published public private(set) var totalDuration: String = "0 min"
     @Published public private(set) var isLoading = false
     @Published public private(set) var hasLoadedTracks = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { updateDerivedTrackState() }
+    }
 
     /// Resolved server names for each constituent playlist source
     @Published public private(set) var sourceServerNames: [(sourceKey: String, name: String)] = []
@@ -36,6 +43,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "MergedPlaylistDetail-\(displayPlaylist.title)")
+        updateDerivedTrackState()
 
         setupFilterPersistence()
         resolveServerNames()
@@ -150,14 +158,6 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     // MARK: - Filtered Collections
 
-    public var availableGenres: [String] {
-        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
-    }
-
-    public var filteredTracks: [Track] {
-        applyFilters(to: tracks, with: filterOptions)
-    }
-
     @discardableResult
     public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
         guard !displayPlaylist.isSmart else {
@@ -202,8 +202,25 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         }
     }
 
-    public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
+    private func updateDerivedTrackState() {
+        let nextFilteredTracks = applyFilters(to: tracks, with: filterOptions)
+        if filteredTracks != nextFilteredTracks {
+            filteredTracks = nextFilteredTracks
+        }
+
+        let nextAvailableGenres = LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+        if availableGenres != nextAvailableGenres {
+            availableGenres = nextAvailableGenres
+        }
+
+        let nextTotalDuration = Self.formattedDuration(for: nextFilteredTracks)
+        if totalDuration != nextTotalDuration {
+            totalDuration = nextTotalDuration
+        }
+    }
+
+    private static func formattedDuration(for tracks: [Track]) -> String {
+        let total = tracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(total) / 60
         if minutes >= 60 {
             let hours = minutes / 60

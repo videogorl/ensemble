@@ -19,6 +19,7 @@ public struct SongsView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
+    @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -119,6 +120,7 @@ public struct SongsView: View {
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
+            updateNativeTrackSections(from: snapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: snapshot.tracks)
         }
@@ -127,6 +129,7 @@ public struct SongsView: View {
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .onAppear {
+            updateNativeTrackSections(from: trackSnapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
@@ -143,6 +146,19 @@ public struct SongsView: View {
         let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: tracks)
         if rebuiltAlbums != cachedStageFlowAlbums {
             cachedStageFlowAlbums = rebuiltAlbums
+        }
+    }
+
+    private func updateNativeTrackSections(from sections: [LibraryViewModel.TrackSection]) {
+        let nextSections = nativeTrackSections(from: sections)
+        if nextSections != cachedNativeTrackSections {
+            cachedNativeTrackSections = nextSections
+        }
+    }
+
+    private func nativeTrackSections(from sections: [LibraryViewModel.TrackSection]) -> [NativeTrackListSection] {
+        sections.map {
+            NativeTrackListSection(id: $0.letter, title: $0.letter, tracks: $0.tracks)
         }
     }
 
@@ -378,13 +394,9 @@ public struct SongsView: View {
     }
 
     private var largeScreenTrackSections: [NativeTrackListSection] {
-        trackSnapshot.sections.map { section in
-            NativeTrackListSection(
-                id: section.letter,
-                title: section.letter,
-                tracks: section.tracks
-            )
-        }
+        cachedNativeTrackSections.isEmpty && !trackSnapshot.sections.isEmpty
+            ? nativeTrackSections(from: trackSnapshot.sections)
+            : cachedNativeTrackSections
     }
 
     private var largeScreenTrackInteractionModel: TrackRowInteractionModel {

@@ -101,7 +101,8 @@ public struct PlaylistsView: View {
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var demoModeEnabled = DependencyContainer.shared.settingsManager.demoModeEnabled
+    private let settingsManager = DependencyContainer.shared.settingsManager
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
@@ -166,7 +167,10 @@ public struct PlaylistsView: View {
     }
 
     private func refreshCachedDisplayedPlaylists() {
-        cachedDisplayedPlaylists = filteredDisplayedPlaylists(viewModel.displayPlaylists)
+        let next = filteredDisplayedPlaylists(viewModel.displayPlaylists)
+        if cachedDisplayedPlaylists != next {
+            cachedDisplayedPlaylists = next
+        }
     }
 
     private func handlePlaylistMutationEvent(_ event: PlaylistMutationEvent) {
@@ -259,6 +263,10 @@ public struct PlaylistsView: View {
             .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
                 if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
             }
+            .onReceive(settingsManager.objectWillChange) { _ in
+                let latest = settingsManager.demoModeEnabled
+                if latest != demoModeEnabled { demoModeEnabled = latest }
+            }
             // Alert: confirm delete for merged playlists (affects all servers)
             .alert("Delete Merged Playlist?", isPresented: Binding(
                 get: { displayPlaylistPendingDelete != nil },
@@ -312,7 +320,10 @@ public struct PlaylistsView: View {
                 // after sync finishes, which emits the final correct data.
                 guard !viewModel.isRefreshingFromServer else { return }
 
-                cachedDisplayedPlaylists = filteredDisplayedPlaylists(displayPlaylists)
+                let next = filteredDisplayedPlaylists(displayPlaylists)
+                if cachedDisplayedPlaylists != next {
+                    cachedDisplayedPlaylists = next
+                }
             }
             // When refresh completes, catch up immediately rather than waiting for the
             // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
@@ -658,7 +669,7 @@ public struct PlaylistsView: View {
         if dp.isMerged { return .merged }
         if viewModel.hasNameCollision(dp.title) {
             let name = accountManager.serverName(for: dp.primaryPlaylist.sourceCompositeKey ?? "") ?? "Unknown"
-            return .serverName(DemoModeRedaction.serverName(name, isEnabled: settingsManager.demoModeEnabled))
+            return .serverName(DemoModeRedaction.serverName(name, isEnabled: demoModeEnabled))
         }
         return nil
     }

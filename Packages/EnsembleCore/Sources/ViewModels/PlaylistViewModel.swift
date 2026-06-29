@@ -287,8 +287,13 @@ public final class PlaylistViewModel: ObservableObject {
                 let sorted = Self.sortPlaylists(playlists, by: sortOption, ascending: options.sortDirection == .ascending)
                 return Self.filterPlaylists(sorted, searchText: options.searchText)
             }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.filteredPlaylists = $0 }
+            .sink { [weak self] playlists in
+                if self?.filteredPlaylists != playlists {
+                    self?.filteredPlaylists = playlists
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -302,8 +307,13 @@ public final class PlaylistViewModel: ObservableObject {
         .map { playlists, sortOption, sortDirection -> [Playlist] in
             Self.sortPlaylists(playlists, by: sortOption, ascending: sortDirection == .ascending)
         }
+        .removeDuplicates()
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] in self?.sortedPlaylists = $0 }
+        .sink { [weak self] playlists in
+            if self?.sortedPlaylists != playlists {
+                self?.sortedPlaylists = playlists
+            }
+        }
         .store(in: &cancellables)
     }
 
@@ -316,8 +326,13 @@ public final class PlaylistViewModel: ObservableObject {
             .map { playlists, merge -> [DisplayPlaylist] in
                 DisplayPlaylist.group(playlists, merge: merge)
             }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.displayPlaylists = $0 }
+            .sink { [weak self] playlists in
+                if self?.displayPlaylists != playlists {
+                    self?.displayPlaylists = playlists
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -328,8 +343,13 @@ public final class PlaylistViewModel: ObservableObject {
             .map { playlists, merge -> [DisplayPlaylist] in
                 DisplayPlaylist.group(playlists, merge: merge)
             }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.sortedDisplayPlaylists = $0 }
+            .sink { [weak self] playlists in
+                if self?.sortedDisplayPlaylists != playlists {
+                    self?.sortedDisplayPlaylists = playlists
+                }
+            }
             .store(in: &cancellables)
     }
 
@@ -638,11 +658,18 @@ public final class PlaylistViewModel: ObservableObject {
 @MainActor
 public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var playlist: Playlist
-    @Published public private(set) var tracks: [Track] = []
+    @Published public private(set) var tracks: [Track] = [] {
+        didSet { updateDerivedTrackState() }
+    }
+    @Published public private(set) var availableGenres: [String] = []
+    @Published public private(set) var filteredTracks: [Track] = []
+    @Published public private(set) var totalDuration: String = "0 min"
     @Published public private(set) var isLoading = false
     @Published public private(set) var hasLoadedTracks = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { updateDerivedTrackState() }
+    }
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let libraryRepository: LibraryRepositoryProtocol
@@ -671,6 +698,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
+        updateDerivedTrackState()
 
         // Save filter options when they change
         setupFilterPersistence()
@@ -795,18 +823,25 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     // MARK: - Filtered Collections
 
-    /// Available genres for chip bar filtering (derived from playlist tracks)
-    public var availableGenres: [String] {
-        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+    private func updateDerivedTrackState() {
+        let nextFilteredTracks = applyFilters(to: tracks, with: filterOptions)
+        if filteredTracks != nextFilteredTracks {
+            filteredTracks = nextFilteredTracks
+        }
+
+        let nextAvailableGenres = LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+        if availableGenres != nextAvailableGenres {
+            availableGenres = nextAvailableGenres
+        }
+
+        let nextTotalDuration = Self.formattedDuration(for: nextFilteredTracks)
+        if totalDuration != nextTotalDuration {
+            totalDuration = nextTotalDuration
+        }
     }
 
-    /// Filtered tracks based on current filter options
-    public var filteredTracks: [Track] {
-        applyFilters(to: tracks, with: filterOptions)
-    }
-
-    public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
+    private static func formattedDuration(for tracks: [Track]) -> String {
+        let total = tracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(total) / 60
         if minutes >= 60 {
             let hours = minutes / 60
