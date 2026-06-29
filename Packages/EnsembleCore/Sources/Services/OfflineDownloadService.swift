@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import CoreData
 import EnsembleAPI
 import EnsemblePersistence
 import Foundation
@@ -53,6 +54,20 @@ struct OfflineDownloadHealingSummary: Equatable, Sendable {
         let errorText = errorDescription ?? "none"
         return "removed=\(orphanedCompletedDownloadsRemoved),error=\(errorText),at=\(timestamp)"
     }
+}
+
+private struct TruncationScanCandidate: @unchecked Sendable {
+    let downloadObjectID: NSManagedObjectID
+    let title: String
+    let absolutePath: String
+    let expectedSeconds: Double
+}
+
+private struct TruncatedDownloadResult: @unchecked Sendable {
+    let downloadObjectID: NSManagedObjectID
+    let title: String
+    let fileDuration: Double
+    let expectedSeconds: Double
 }
 
 /// Describes why the download queue is currently idle or paused
@@ -1119,51 +1134,78 @@ public final class OfflineDownloadService: ObservableObject {
             let completed = try await downloadManager.fetchCompletedDownloads()
             guard !completed.isEmpty else { return }
 
-            var truncatedCount = 0
-            for download in completed {
+            let candidates = completed.compactMap { download -> TruncationScanCandidate? in
                 guard let filename = download.filePath, !filename.isEmpty,
-                      let track = download.track else { continue }
+                      let track = download.track else { return nil }
 
                 let expectedMs = track.duration
-                guard expectedMs > 10_000 else { continue } // Skip very short tracks
+                guard expectedMs > 10_000 else { return nil } // Skip very short tracks
                 let expectedSeconds = Double(expectedMs) / 1000.0
 
                 let absolutePath = DownloadManager.absolutePath(forFilename: filename)
-                guard FileManager.default.fileExists(atPath: absolutePath) else { continue }
+                return TruncationScanCandidate(
+                    downloadObjectID: download.objectID,
+                    title: track.title,
+                    absolutePath: absolutePath,
+                    expectedSeconds: expectedSeconds
+                )
+            }
 
-                let fileURL = URL(fileURLWithPath: absolutePath)
+            let truncatedDownloads = await Self.findTruncatedDownloads(candidates)
+
+            for result in truncatedDownloads {
+                EnsembleLogger.debug(
+                    "[OfflineDownloads] Truncated download detected: '\(result.title)' file=\(String(format: "%.1f", result.fileDuration))s expected=\(String(format: "%.1f", result.expectedSeconds))s — marking failed"
+                )
+                try? await downloadManager.failDownload(
+                    result.downloadObjectID,
+                    error: "Truncated (\(String(format: "%.0f", result.fileDuration))s vs \(String(format: "%.0f", result.expectedSeconds))s expected)"
+                )
+            }
+
+            if !truncatedDownloads.isEmpty {
+                EnsembleLogger.debug("[OfflineDownloads] Startup scan found \(truncatedDownloads.count) truncated download(s) — marked as failed for re-download")
+            }
+        } catch {
+            EnsembleLogger.debug("[OfflineDownloads] Truncation scan failed: \(error.localizedDescription)")
+        }
+    }
+
+    nonisolated private static func findTruncatedDownloads(_ candidates: [TruncationScanCandidate]) async -> [TruncatedDownloadResult] {
+        await Task.detached(priority: .utility) {
+            var truncatedDownloads: [TruncatedDownloadResult] = []
+
+            for candidate in candidates {
+                guard FileManager.default.fileExists(atPath: candidate.absolutePath) else { continue }
+
+                let fileURL = URL(fileURLWithPath: candidate.absolutePath)
                 do {
                     let audioFile = try AVAudioFile(forReading: fileURL)
                     let sampleRate = audioFile.processingFormat.sampleRate
                     guard sampleRate > 0 else { continue }
                     let fileDuration = Double(audioFile.length) / sampleRate
 
-                    if fileDuration < expectedSeconds * 0.5 && fileDuration < expectedSeconds - 10 {
-                        EnsembleLogger.debug(
-                            "[OfflineDownloads] Truncated download detected: '\(track.title)' file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedSeconds))s — marking failed"
-                        )
-                        // Delete truncated file so DownloadManager self-healing won't recover it.
-                        // resolveAudioFile checks fileExists before using localFilePath, so the
-                        // stale path is harmless — playback will fall through to streaming.
+                    if fileDuration < candidate.expectedSeconds * 0.5 && fileDuration < candidate.expectedSeconds - 10 {
+                        // Delete truncated files off the main actor so DownloadManager
+                        // self-healing cannot recover them before the failed state is saved.
                         try? FileManager.default.removeItem(at: fileURL)
-                        try? await downloadManager.failDownload(
-                            download.objectID,
-                            error: "Truncated (\(String(format: "%.0f", fileDuration))s vs \(String(format: "%.0f", expectedSeconds))s expected)"
+                        truncatedDownloads.append(
+                            TruncatedDownloadResult(
+                                downloadObjectID: candidate.downloadObjectID,
+                                title: candidate.title,
+                                fileDuration: fileDuration,
+                                expectedSeconds: candidate.expectedSeconds
+                            )
                         )
-                        truncatedCount += 1
                     }
                 } catch {
-                    // AVAudioFile can't read this file — skip, don't block other checks
+                    // AVAudioFile can't read this file — skip, don't block other checks.
                     continue
                 }
             }
 
-            if truncatedCount > 0 {
-                EnsembleLogger.debug("[OfflineDownloads] Startup scan found \(truncatedCount) truncated download(s) — marked as failed for re-download")
-            }
-        } catch {
-            EnsembleLogger.debug("[OfflineDownloads] Truncation scan failed: \(error.localizedDescription)")
-        }
+            return truncatedDownloads
+        }.value
     }
 
     /// Cache artwork for a download target (album, artist, or playlist) so it's available offline.

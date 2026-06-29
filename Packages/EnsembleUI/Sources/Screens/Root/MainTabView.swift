@@ -29,6 +29,7 @@ public struct MainTabView: View {
     @State private var enabledTabs: [TabItem] = DependencyContainer.shared.settingsManager.enabledTabs
     @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
     @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
+    @State private var tabInteractionGeneration = 0
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
         Array(enabledTabs.prefix(4))
@@ -228,6 +229,8 @@ public struct MainTabView: View {
     }
     
     private func handleTabTap(_ tag: TabItem) {
+        markTabInteraction()
+
         if navigationCoordinator.selectedTab == tag {
             EnsembleLogger.debug("🧭 Tab selection repeated tab=\(String(describing: tag))")
             // Already on this tab — pop to root or focus search
@@ -246,6 +249,19 @@ public struct MainTabView: View {
         #if os(iOS)
         UISelectionFeedbackGenerator().selectionChanged()
         #endif
+    }
+
+    private func markTabInteraction() {
+        tabInteractionGeneration += 1
+        let generation = tabInteractionGeneration
+        let scheduler = deps.foregroundWorkScheduler
+        scheduler.beginInteraction(.navigating)
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard tabInteractionGeneration == generation else { return }
+            scheduler.endInteraction(.navigating)
+        }
     }
 
     private func updateSettingsSnapshot() {

@@ -119,16 +119,16 @@ public struct SongsView: View {
             if gen != availabilityGeneration { availabilityGeneration = gen }
         }
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
-            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: snapshot.tracks)
-            if rebuiltAlbums != cachedStageFlowAlbums {
-                cachedStageFlowAlbums = rebuiltAlbums
-            }
+            guard isStageFlowActive else { return }
+            rebuildCachedStageFlowAlbums(from: snapshot.tracks)
+        }
+        .onChange(of: isStageFlowActive) { isActive in
+            guard isActive else { return }
+            rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .onAppear {
-            let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: trackSnapshot.tracks)
-            if rebuiltAlbums != cachedStageFlowAlbums {
-                cachedStageFlowAlbums = rebuiltAlbums
-            }
+            guard isStageFlowActive else { return }
+            rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
@@ -136,6 +136,13 @@ public struct SongsView: View {
                 availableGenres: trackSnapshot.availableGenres,
                 showGenreFilter: true
             )
+        }
+    }
+
+    private func rebuildCachedStageFlowAlbums(from tracks: [Track]) {
+        let rebuiltAlbums = SongsStageFlowAlbumBuilder.build(from: tracks)
+        if rebuiltAlbums != cachedStageFlowAlbums {
+            cachedStageFlowAlbums = rebuiltAlbums
         }
     }
 
