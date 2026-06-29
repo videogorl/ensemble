@@ -270,11 +270,11 @@ public final class LibraryViewModel: ObservableObject {
     /// Sort/filter work runs on a background queue; results are delivered on main.
     private func setupComputedPipelines() {
         // Tracks: recompute when the raw list, sort option, or filter options change.
-        // Debounce by 300ms to reduce main-thread layout storms during search typing
+        // Debounce by 100ms to coalesce search/filter typing without making tab switches feel delayed
         // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
         // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
-            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
                 let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
@@ -297,7 +297,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Artists — include albums for genre filtering (artist genres derived from album genres)
         Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
-            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { artists, sortOption, filterOptions, albums -> ([Artist], [DisplayArtist], [ArtistSection]) in
                 let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
@@ -322,11 +322,11 @@ public final class LibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Albums — debounce 300ms to reduce main-thread layout storms during search
+        // Albums — debounce 100ms to coalesce search/filter typing without making tab switches feel delayed
         // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
         // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
-            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { albums, sortOption, filterOptions -> ([Album], [AlbumSection]) in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions)
@@ -350,7 +350,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Genres (no sort option — always alphabetical) — removeDuplicates prevents no-op publishes during sync
         Publishers.CombineLatest3($genres, $albums, $genresFilterOptions)
-            .debounce(for: .milliseconds(300), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { genres, albums, filterOptions -> [DisplayGenre] in
                 LibraryViewModel.displayGenres(from: genres, albums: albums, with: filterOptions)
             }
@@ -367,7 +367,7 @@ public final class LibraryViewModel: ObservableObject {
         // that will produce results are shown (e.g. singles excluded by hideSingles
         // won't contribute their genres to the chip bar).
         Publishers.CombineLatest($albums, $albumsFilterOptions)
-            .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { albums, filterOptions -> [String] in
                 var nonGenreOptions = filterOptions
                 nonGenreOptions.selectedGenres.removeAll()
@@ -390,7 +390,7 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
 
         Publishers.CombineLatest($tracks, $tracksFilterOptions)
-            .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { tracks, filterOptions -> [String] in
                 var nonGenreOptions = filterOptions
                 nonGenreOptions.selectedGenres.removeAll()
@@ -414,7 +414,7 @@ public final class LibraryViewModel: ObservableObject {
 
         // Artist genres: derived from albums that pass non-genre filters
         Publishers.CombineLatest($albums, $artistsFilterOptions)
-            .debounce(for: .milliseconds(200), scheduler: Self.computeQueue)
+            .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
             .map { albums, _ -> [String] in
                 var allGenres = Set<String>()
                 for album in albums where !album.genres.isEmpty {
