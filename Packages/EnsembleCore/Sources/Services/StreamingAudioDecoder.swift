@@ -214,6 +214,7 @@ final class StreamingAudioDecoder {
         var targetOffset = 0
 
         if let packetDescriptions {
+            var outputPacketIndex = 0
             for index in 0 ..< Int(packetCount) {
                 let sourceDescription = packetDescriptions[index]
                 let packetSize = Int(sourceDescription.mDataByteSize)
@@ -222,13 +223,16 @@ final class StreamingAudioDecoder {
                     .advanced(by: Int(sourceDescription.mStartOffset))
                     .assumingMemoryBound(to: UInt8.self)
                 target.advanced(by: targetOffset).update(from: source, count: packetSize)
-                buffer.packetDescriptions![index] = AudioStreamPacketDescription(
+                buffer.packetDescriptions![outputPacketIndex] = AudioStreamPacketDescription(
                     mStartOffset: Int64(targetOffset),
                     mVariableFramesInPacket: sourceDescription.mVariableFramesInPacket,
                     mDataByteSize: UInt32(packetSize)
                 )
                 targetOffset += packetSize
+                outputPacketIndex += 1
             }
+            guard outputPacketIndex > 0 else { return nil }
+            buffer.packetCount = AVAudioPacketCount(outputPacketIndex)
         } else {
             let packetSize = Int(byteCount / max(packetCount, 1))
             guard packetSize > 0 else { return nil }
@@ -246,7 +250,6 @@ final class StreamingAudioDecoder {
         }
 
         buffer.byteLength = UInt32(targetOffset)
-        buffer.packetCount = packetCapacity
         return buffer
     }
 
@@ -276,32 +279,48 @@ final class StreamingAudioDecoder {
 
     private func decode(_ compressedBuffer: AVAudioCompressedBuffer) {
         guard let converter, let outputFormat else { return }
-        guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: 8192) else { return }
 
         var didFeedInput = false
-        var conversionError: NSError?
-        let status = converter.convert(to: output, error: &conversionError) { _, outStatus in
-            if didFeedInput {
-                outStatus.pointee = .noDataNow
-                return nil
-            }
-            didFeedInput = true
-            outStatus.pointee = .haveData
-            return compressedBuffer
-        }
+        while true {
+            guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat, frameCapacity: 8192) else { return }
 
-        guard status != .error, output.frameLength > 0 else {
+            var conversionError: NSError?
+            let status = converter.convert(to: output, error: &conversionError) { _, outStatus in
+                if didFeedInput {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                didFeedInput = true
+                outStatus.pointee = .haveData
+                return compressedBuffer
+            }
+
             if status == .error {
                 EnsembleLogger.debug("[StreamingAudioDecoder] conversion failed: \(conversionError?.localizedDescription ?? "unknown")")
+                return
             }
-            return
-        }
 
-        if !hasReportedFirstPCM {
-            hasReportedFirstPCM = true
-            onFirstPCM?()
+            if output.frameLength > 0 {
+                if !hasReportedFirstPCM {
+                    hasReportedFirstPCM = true
+                    onFirstPCM?()
+                }
+                onPCMBuffer?(output)
+            }
+
+            switch status {
+            case .haveData:
+                if output.frameLength == 0 {
+                    return
+                }
+            case .inputRanDry, .endOfStream:
+                return
+            case .error:
+                return
+            @unknown default:
+                return
+            }
         }
-        onPCMBuffer?(output)
     }
 
     private static let propertyListener: AudioFileStream_PropertyListenerProc = { clientData, _, propertyID, _ in

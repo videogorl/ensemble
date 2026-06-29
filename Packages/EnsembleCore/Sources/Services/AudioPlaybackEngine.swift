@@ -1824,6 +1824,16 @@ public final class AudioPlaybackEngine {
             let elapsed = CACurrentMediaTime() - base.wallTime
             let estimated = min(base.position + elapsed, base.duration)
             self.updateDurablePlaybackPosition(max(0, estimated))
+            if self.streamingPipeline != nil,
+               base.duration > 0,
+               estimated >= base.duration,
+               self.wasPlaying,
+               !self.streamingCompletionNotified {
+                let generation = self.streamingCompletionGeneration
+                DispatchQueue.main.async { [weak self] in
+                    self?.handleStreamingComplete(generation: generation)
+                }
+            }
         }
         timer.resume()
         timeUpdateTimer = timer
