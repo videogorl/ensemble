@@ -43,6 +43,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             accountName: nil
         )
 
+        if try await librarySectionIsUnchanged(since: timestamp) {
+            try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+            progressHandler(1.0)
+            EnsembleLogger.debug("⏭️ Incremental sync: Plex section \(sectionKey) unchanged, skipped library item fetches")
+            return LibrarySyncResult()
+        }
+
         // Fetch existing timestamps to skip unchanged items (avoids expensive per-item CoreData upserts)
         progressHandler(0.05)
         var phaseStart = CFAbsoluteTimeGetCurrent()
@@ -256,6 +263,37 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             removedAlbums: removedAlbums,
             removedTracks: removedTracks
         )
+    }
+
+    private func librarySectionIsUnchanged(since timestamp: TimeInterval) async throws -> Bool {
+        let phaseStart = CFAbsoluteTimeGetCurrent()
+        do {
+            let sections = try await apiClient.getLibrarySections()
+            guard let section = sections.first(where: { $0.key == sectionKey }) else {
+                EnsembleLogger.debug("⏱️ Incremental sync: section preflight found no section \(sectionKey)")
+                return false
+            }
+
+            let shouldSkip = Self.shouldSkipIncrementalLibrarySync(
+                sectionUpdatedAt: section.updatedAt,
+                queryTimestamp: timestamp
+            )
+            EnsembleLogger.debug(
+                "⏱️ Incremental sync: section preflight took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (updatedAt=\(section.updatedAt ?? 0), skip=\(shouldSkip))"
+            )
+            return shouldSkip
+        } catch {
+            if error is CancellationError { throw error }
+            EnsembleLogger.debug("⏱️ Incremental sync: section preflight failed, continuing with item sync: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    static func shouldSkipIncrementalLibrarySync(sectionUpdatedAt: Int?, queryTimestamp: TimeInterval) -> Bool {
+        guard let sectionUpdatedAt else { return false }
+        // Existing item queries use addedAt>= and updatedAt>=, so only skip when the
+        // whole section is older than that exact query window.
+        return sectionUpdatedAt < Int(queryTimestamp)
     }
     
     public func syncLibrary(

@@ -111,6 +111,29 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(container.mediaContainer.items.map(\.title), ["Album", "EP"])
     }
 
+    func testPlexLibrarySectionDecodesUpdatedAt() throws {
+        let sectionJSON = """
+        {
+            "MediaContainer": {
+                "Directory": [
+                    {
+                        "key": "3",
+                        "title": "Music",
+                        "type": "artist",
+                        "updatedAt": 1782502159
+                    }
+                ]
+            }
+        }
+        """
+
+        let container = try JSONDecoder().decode(
+            PlexMediaContainer<PlexLibrarySection>.self,
+            from: Data(sectionJSON.utf8)
+        )
+        XCTAssertEqual(container.mediaContainer.items.first?.updatedAt, 1782502159)
+    }
+
     func testPlexTrackDecodesMultipleLyricsStreamsAndSidecarFile() throws {
         let trackJSON = """
         {

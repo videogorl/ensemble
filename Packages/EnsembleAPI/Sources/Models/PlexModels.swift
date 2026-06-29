@@ -177,6 +177,7 @@ public struct PlexLibrarySection: Codable, Sendable, Identifiable {
     public let scanner: String?
     public let language: String?
     public let allowSync: Bool?
+    public let updatedAt: Int?
 
     public var id: String { key }
 
