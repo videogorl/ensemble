@@ -266,6 +266,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let previousRestartThreshold: TimeInterval = 3
     static let prefetchThrottleDuration: TimeInterval = PlaybackRecoveryPolicy.prefetchThrottleDuration
     static let minUnexpectedPauseInterval: TimeInterval = PlaybackRecoveryPolicy.minUnexpectedPauseInterval
+    private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
 
     static func previousNavigationTarget(
         currentTime: TimeInterval,
@@ -1067,6 +1068,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var preBufferTask: Task<Void, Never>?
     private var qualityDebounceTask: Task<Void, Never>?
     private var gaplessScheduleRequestTask: Task<Void, Never>?
+    private var audioCriticalInteractionEndTask: Task<Void, Never>?
+    private var postPlaybackAutoplayRefreshTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>? // Kept for network stall detection during file resolution
@@ -1128,6 +1131,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let settingsObserver: PlaybackSettingsObserver
     private let reportingController: PlaybackReportingController
     private var systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol?
+    private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
     /// Thread-safe check for aurora visualizer setting (reads UserDefaults directly
@@ -1295,6 +1299,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.trackRatingLocalStore = trackRatingLocalStore
+        self.foregroundWorkScheduler = foregroundWorkScheduler
         queueStore = PlaybackQueueStore()
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
@@ -1334,6 +1339,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.downloadManager = downloadManager
         self.trackRatingLocalStore = trackRatingLocalStore
         self.queueStore = queueStore
+        self.foregroundWorkScheduler = foregroundWorkScheduler
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
         prefetchController = PlaybackPrefetchController()
         smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
@@ -2499,6 +2505,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     public func play(tracks: [Track], startingAt index: Int, context: PlaybackStartContext) async {
         guard !tracks.isEmpty, index >= 0, index < tracks.count else { return }
 
+        let startedAt = Date()
+        let markedAudioCritical = await beginAudioCriticalInteractionIfNeeded(for: context)
+        defer {
+            if markedAudioCritical {
+                scheduleAudioCriticalInteractionEnd()
+            }
+        }
+        EnsembleLogger.info(
+            "USER_JOURNEY: playbackStartRequested mode=play origin=\(context.origin.rawValue) source=\(context.source.rawValue) count=\(tracks.count) startIndex=\(index)"
+        )
+
         resetHandoffForUserPlaybackIntent()
 
         // Queue injection resets instrumental mode (sync both UI flag and engine state)
@@ -2513,6 +2530,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
             playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            EnsembleLogger.info(
+                "USER_JOURNEY: playbackStartFailed mode=play origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) reason=noPlayableTracks offline=\(isDeviceOffline)"
+            )
             return
         }
         let queueTracks = playableQueue.tracks
@@ -2542,6 +2563,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await MainActor.run { evictPlayerItemsNotIn(newTrackIds) }
 
         await playCurrentQueueItem(caller: "play(tracks:)")
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+        EnsembleLogger.info(
+            "USER_JOURNEY: playbackStartPrepared mode=play origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) queueCount=\(queueTracks.count) startIndex=\(playableQueue.startIndex)"
+        )
         savePlaybackState()
         await donatePlaybackStartIfNeeded(
             context: context,
@@ -2549,8 +2574,37 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             shuffle: false
         )
 
-        // Check queue population after starting new playback
-        await checkAndRefreshAutoplayQueue()
+        schedulePostPlaybackAutoplayRefresh()
+    }
+
+    private func beginAudioCriticalInteractionIfNeeded(for context: PlaybackStartContext) async -> Bool {
+        guard Self.shouldMarkAudioCritical(for: context),
+              let foregroundWorkScheduler else {
+            return false
+        }
+
+        await foregroundWorkScheduler.beginInteraction(.audioCritical)
+        return true
+    }
+
+    private func scheduleAudioCriticalInteractionEnd() {
+        guard let foregroundWorkScheduler else { return }
+        audioCriticalInteractionEndTask?.cancel()
+        audioCriticalInteractionEndTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.audioCriticalInteractionHoldNs)
+            guard !Task.isCancelled else { return }
+            foregroundWorkScheduler.endInteraction(.audioCritical)
+            self?.audioCriticalInteractionEndTask = nil
+        }
+    }
+
+    private static func shouldMarkAudioCritical(for context: PlaybackStartContext) -> Bool {
+        switch context.origin {
+        case .appUI, .siri, .appShortcut, .remoteCommand:
+            return true
+        case .autoplay, .gaplessAdvance, .queueRestoration, .backgroundRecovery:
+            return false
+        }
     }
 
     public func shufflePlay(tracks: [Track]) async {
@@ -2559,6 +2613,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func shufflePlay(tracks: [Track], context: PlaybackStartContext) async {
         guard !tracks.isEmpty else { return }
+
+        let startedAt = Date()
+        let markedAudioCritical = await beginAudioCriticalInteractionIfNeeded(for: context)
+        defer {
+            if markedAudioCritical {
+                scheduleAudioCriticalInteractionEnd()
+            }
+        }
+        EnsembleLogger.info(
+            "USER_JOURNEY: playbackStartRequested mode=shuffle origin=\(context.origin.rawValue) source=\(context.source.rawValue) count=\(tracks.count) startIndex=0"
+        )
 
         resetHandoffForUserPlaybackIntent()
 
@@ -2573,6 +2638,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
             playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            EnsembleLogger.info(
+                "USER_JOURNEY: playbackStartFailed mode=shuffle origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) reason=noPlayableTracks offline=\(isDeviceOffline)"
+            )
             return
         }
         let queueTracks = playableQueue.tracks
@@ -2605,6 +2674,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await MainActor.run { evictPlayerItemsNotIn(newTrackIds) }
 
         await playCurrentQueueItem(caller: "shufflePlay")
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+        EnsembleLogger.info(
+            "USER_JOURNEY: playbackStartPrepared mode=shuffle origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) queueCount=\(queueTracks.count) startIndex=0"
+        )
         savePlaybackState()
         await donatePlaybackStartIfNeeded(
             context: context,
@@ -2612,8 +2685,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             shuffle: true
         )
 
-        // Check queue population after starting new playback
-        await checkAndRefreshAutoplayQueue()
+        schedulePostPlaybackAutoplayRefresh()
     }
 
     private func donatePlaybackStartIfNeeded(
@@ -3882,6 +3954,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if remainingTracksInQueue < 5 {
             EnsembleLogger.debug("🎙️ Running low on queued tracks (\(max(0, remainingTracksInQueue)) remaining), refreshing...")
             await refreshAutoplayQueue()
+        }
+    }
+
+    private func schedulePostPlaybackAutoplayRefresh() {
+        postPlaybackAutoplayRefreshTask?.cancel()
+        postPlaybackAutoplayRefreshTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.checkAndRefreshAutoplayQueue()
+            await MainActor.run { [weak self] in
+                self?.postPlaybackAutoplayRefreshTask = nil
+            }
         }
     }
 
@@ -5676,6 +5760,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         fastSeekTask = nil
         gaplessScheduleRequestTask?.cancel()
         gaplessScheduleRequestTask = nil
+        audioCriticalInteractionEndTask?.cancel()
+        audioCriticalInteractionEndTask = nil
+        postPlaybackAutoplayRefreshTask?.cancel()
+        postPlaybackAutoplayRefreshTask = nil
         isFastSeeking = false
         cancelNowPlayingArtworkLoad(clearArtwork: true)
 

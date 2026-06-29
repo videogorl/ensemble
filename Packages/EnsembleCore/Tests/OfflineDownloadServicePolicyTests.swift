@@ -193,7 +193,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
     private func makeService(
         downloadManager: MockDownloadManager = MockDownloadManager(),
-        backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil
+        backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil,
+        launchRecoveryStartedAt: Date = Date()
     ) async -> OfflineDownloadService {
         let accountManager = AccountManager(keychain: TestKeychain())
         let libraryRepository = MockLibraryRepository()
@@ -224,7 +225,8 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             backgroundExecutionCoordinator: backgroundCoordinator ?? MockBackgroundExecutionCoordinator(),
             artworkDownloadManager: MockArtworkDownloadManager(),
             toastCenter: ToastCenter(),
-            lyricsService: LyricsService(syncCoordinator: syncCoordinator)
+            lyricsService: LyricsService(syncCoordinator: syncCoordinator),
+            launchRecoveryStartedAt: launchRecoveryStartedAt
         )
 
         await Task.yield()
@@ -265,6 +267,25 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertTrue(
             downloadManager.statusUpdates.contains { $0.0 == [.downloading] },
             "Launch should still recover interrupted .downloading records without scanning every completed file."
+        )
+    }
+
+    func testForegroundRecoveryDefersHeavyDownloadHealingAfterLaunchGrace() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            launchRecoveryStartedAt: Date().addingTimeInterval(-60)
+        )
+
+        await Task.yield()
+        await service.handleAppWillEnterForeground()
+        await Task.yield()
+
+        XCTAssertEqual(downloadManager.fetchDownloadsCount, 0)
+        XCTAssertEqual(downloadManager.fetchCompletedDownloadsCount, 0)
+        XCTAssertTrue(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] },
+            "Foreground recovery should repair interrupted .downloading records without scanning every completed file."
         )
     }
 

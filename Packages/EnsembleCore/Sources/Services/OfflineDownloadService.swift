@@ -128,7 +128,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let toastCenter: ToastCenter
     private let lyricsService: LyricsService
     private let foregroundWorkScheduler: ForegroundWorkScheduling?
-    private let launchRecoveryStartedAt = Date()
+    private let launchRecoveryStartedAt: Date
 
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
@@ -290,7 +290,8 @@ public final class OfflineDownloadService: ObservableObject {
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         toastCenter: ToastCenter,
         lyricsService: LyricsService,
-        foregroundWorkScheduler: ForegroundWorkScheduling? = nil
+        foregroundWorkScheduler: ForegroundWorkScheduling? = nil,
+        launchRecoveryStartedAt: Date = Date()
     ) {
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
@@ -303,6 +304,7 @@ public final class OfflineDownloadService: ObservableObject {
         self.toastCenter = toastCenter
         self.lyricsService = lyricsService
         self.foregroundWorkScheduler = foregroundWorkScheduler
+        self.launchRecoveryStartedAt = launchRecoveryStartedAt
         self.sidecarAnalysisQueue = SidecarAnalysisQueue(foregroundWorkScheduler: foregroundWorkScheduler)
 
         // Clean up legacy keys from the old transcode blacklist approach.
@@ -1440,7 +1442,7 @@ public final class OfflineDownloadService: ObservableObject {
         case .launch:
             return true
         case .foreground:
-            return Date().timeIntervalSince(launchRecoveryStartedAt) < Self.launchForegroundRecoveryGrace
+            return true
         case .backgroundURLSession, .systemWillSleep, .systemDidWake, .backgroundExpiration:
             return false
         }
@@ -1456,11 +1458,11 @@ public final class OfflineDownloadService: ObservableObject {
             try? await Task.sleep(nanoseconds: Self.deferredLaunchHealingDelayNs)
             guard let self, !Task.isCancelled else { return }
 
-            EnsembleLogger.info("📦 Offline download deferred launch healing started")
+            EnsembleLogger.info("📦 Offline download deferred healing started")
             await self.runDownloadHealing()
             await self.refreshAllTargetProgresses()
             self.deferredLaunchHealingTask = nil
-            EnsembleLogger.info("📦 Offline download deferred launch healing finished")
+            EnsembleLogger.info("📦 Offline download deferred healing finished")
         }
     }
 

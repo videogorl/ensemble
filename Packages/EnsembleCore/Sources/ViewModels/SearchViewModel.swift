@@ -98,6 +98,13 @@ public final class SearchViewModel: ObservableObject {
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
 
+        $searchQuery
+            .removeDuplicates()
+            .sink { [weak self] query in
+                self?.prepareForSearchQueryChange(query)
+            }
+            .store(in: &cancellables)
+
         // Debounced search
         $searchQuery
             .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
@@ -126,7 +133,11 @@ public final class SearchViewModel: ObservableObject {
 
                     let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmedQuery.isEmpty {
-                        await self.search(query: trimmedQuery)
+                        await self.search(
+                            query: trimmedQuery,
+                            startedAt: Date(),
+                            requireCurrentQuery: true
+                        )
                     } else if self.hasLoadedExploreContent {
                         await self.loadExploreContent()
                     }
@@ -148,34 +159,57 @@ public final class SearchViewModel: ObservableObject {
     }
 
     // MARK: - Search
-    
-    private func performSearch(query: String) {
-        searchTask?.cancel()
 
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func prepareForSearchQueryChange(_ query: String) {
+        searchTask?.cancel()
+        searchTask = nil
+
+        let trimmed = trimmedSearchQuery(query)
 
         guard !trimmed.isEmpty else {
             isSearching = false
             searchError = nil
-            unfilteredTrackResults = []
-            unfilteredArtistResults = []
-            unfilteredAlbumResults = []
-            unfilteredPlaylistResults = []
-            trackResults = []
-            artistResults = []
-            displayArtistResults = []
-            albumResults = []
-            playlistResults = []
-            orderedSections = []
+            clearSearchResults()
             return
         }
 
-        searchTask = Task {
-            await search(query: trimmed)
+        isSearching = true
+        searchError = nil
+        EnsembleLogger.info("USER_JOURNEY: searchInputChanged queryLength=\(trimmed.count)")
+    }
+    
+    private func performSearch(query: String) {
+        searchTask?.cancel()
+
+        let trimmed = trimmedSearchQuery(query)
+
+        guard !trimmed.isEmpty else {
+            isSearching = false
+            searchError = nil
+            clearSearchResults()
+            return
+        }
+
+        let startedAt = Date()
+        EnsembleLogger.info("USER_JOURNEY: searchStarted queryLength=\(trimmed.count)")
+
+        searchTask = Task { [trimmed, startedAt] in
+            await search(query: trimmed, startedAt: startedAt, requireCurrentQuery: true)
         }
     }
 
     public func search(query: String) async {
+        await search(query: query, startedAt: Date(), requireCurrentQuery: false)
+    }
+
+    private func search(query: String, startedAt: Date, requireCurrentQuery: Bool) async {
+        let query = trimmedSearchQuery(query)
+        guard !query.isEmpty else {
+            isSearching = false
+            clearSearchResults()
+            return
+        }
+
         isSearching = true
         searchError = nil
 
@@ -186,19 +220,53 @@ public final class SearchViewModel: ObservableObject {
             async let localPlaylists = playlistRepository.searchPlaylists(query: query)
             
             let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
+
+            guard !requireCurrentQuery || isCurrentSearch(query) else {
+                EnsembleLogger.info("USER_JOURNEY: searchDiscardedStale queryLength=\(query.count)")
+                return
+            }
             
             unfilteredTrackResults = tracks.map { Track(from: $0) }
             unfilteredArtistResults = artists.map { Artist(from: $0) }
             unfilteredAlbumResults = albums.map { Album(from: $0) }
             unfilteredPlaylistResults = playlists.map { Playlist(from: $0) }
             applyVisibilityToSearchResults()
+
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+            EnsembleLogger.info(
+                "USER_JOURNEY: searchFinished queryLength=\(query.count) elapsedMs=\(elapsedMs) tracks=\(tracks.count) artists=\(artists.count) albums=\(albums.count) playlists=\(playlists.count)"
+            )
         } catch {
-            if !Task.isCancelled {
+            if !Task.isCancelled, !requireCurrentQuery || isCurrentSearch(query) {
                 self.searchError = error.localizedDescription
+                EnsembleLogger.info("USER_JOURNEY: searchFailed queryLength=\(query.count) error=\(error.localizedDescription)")
             }
         }
 
-        isSearching = false
+        if !requireCurrentQuery || isCurrentSearch(query) {
+            isSearching = false
+        }
+    }
+
+    private func clearSearchResults() {
+        unfilteredTrackResults = []
+        unfilteredArtistResults = []
+        unfilteredAlbumResults = []
+        unfilteredPlaylistResults = []
+        trackResults = []
+        artistResults = []
+        displayArtistResults = []
+        albumResults = []
+        playlistResults = []
+        orderedSections = []
+    }
+
+    private func trimmedSearchQuery(_ query: String) -> String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func isCurrentSearch(_ query: String) -> Bool {
+        trimmedSearchQuery(searchQuery) == query
     }
 
     public func commitCurrentSearch() {
@@ -213,7 +281,11 @@ public final class SearchViewModel: ObservableObject {
                     guard let self else { return }
                     let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmedQuery.isEmpty {
-                        await self.search(query: trimmedQuery)
+                        await self.search(
+                            query: trimmedQuery,
+                            startedAt: Date(),
+                            requireCurrentQuery: true
+                        )
                     } else if self.hasLoadedExploreContent {
                         await self.loadExploreContent()
                     }

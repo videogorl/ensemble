@@ -481,12 +481,25 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
             return
         }
 
-        let items = Self.makeSpotlightItems(from: index.items)
+        let availableArtworkFilenames = Self.cachedArtworkFilenames()
+        var indexedCount = 0
         do {
-            for chunk in items.chunked(into: Self.spotlightChunkSize) {
-                try await spotlightIndex.indexSearchableItems(chunk)
+            for chunk in index.items.chunked(into: Self.spotlightChunkSize) {
+                if let foregroundWorkScheduler,
+                   !foregroundWorkScheduler.isIdleForNonessentialWork {
+                    EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(index.items.count) media items; foreground work became active")
+                    return
+                }
+
+                let items = Self.makeSpotlightItems(
+                    from: chunk,
+                    availableArtworkFilenames: availableArtworkFilenames
+                )
+                try await spotlightIndex.indexSearchableItems(items)
+                indexedCount += items.count
+                await Task.yield()
             }
-            EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(items.count) media items")
+            EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(indexedCount) media items")
         } catch {
             EnsembleLogger.debug("[SystemMedia] Spotlight indexing failed: \(error.localizedDescription)")
         }
@@ -546,8 +559,11 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
         #endif
     }
 
-    static func makeSpotlightItems(from indexItems: [SiriMediaIndexItem]) -> [CSSearchableItem] {
-        let artworkFilenames = cachedArtworkFilenames()
+    static func makeSpotlightItems(
+        from indexItems: [SiriMediaIndexItem],
+        availableArtworkFilenames: Set<String>? = nil
+    ) -> [CSSearchableItem] {
+        let artworkFilenames = availableArtworkFilenames ?? cachedArtworkFilenames()
         return indexItems.map { item in
             let reference = item.reference
             let attributeSet = makeSpotlightAttributeSet(

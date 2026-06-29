@@ -40,7 +40,7 @@ final class PlaybackQueueStore {
         let currentIndexKey = self.currentIndexKey
         let currentTimeKey = self.currentTimeKey
 
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .background) {
             guard !snapshot.queue.isEmpty || !snapshot.history.isEmpty else {
                 defaults.removeObject(forKey: snapshotKey)
                 defaults.removeObject(forKey: queueKey)
