@@ -27,6 +27,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
         private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
         private let presentationTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
         private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
         private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
         private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
@@ -73,7 +74,8 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var currentTimeValue: TimeInterval { currentTimeSubject.value }
         var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { presentationTimeSubject.eraseToAnyPublisher() }
         var presentationTimeValue: TimeInterval { presentationTimeSubject.value }
-        var bufferedProgressValue: Double { 0 }
+        var bufferedProgressValue: Double { bufferedProgressSubject.value }
+        var bufferedProgressPublisher: AnyPublisher<Double, Never> { bufferedProgressSubject.eraseToAnyPublisher() }
         var queuePublisher: AnyPublisher<[QueueItem], Never> { queueSubject.eraseToAnyPublisher() }
         var currentQueueIndexPublisher: AnyPublisher<Int, Never> { queueIndexSubject.eraseToAnyPublisher() }
         var shufflePublisher: AnyPublisher<Bool, Never> { shuffleSubject.eraseToAnyPublisher() }

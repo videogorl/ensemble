@@ -3,12 +3,13 @@ import AVFoundation
 import XCTest
 
 final class StreamingAudioPipelineTests: XCTestCase {
-    func testPipelineEmitsPCMBeforeHTTPStreamCompletesAndWritesCache() throws {
+    func testPipelineEmitsPCMBeforeHTTPStreamCompletesAndWritesCache() async throws {
         let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
         guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
             throw XCTSkip("System M4A fixture is unavailable on this macOS install")
         }
         let data = try Data(contentsOf: fixtureURL)
+        let duration = try await CMTimeGetSeconds(AVURLAsset(url: fixtureURL).load(.duration))
         DelayedAudioURLProtocol.configure(data: data, chunkSize: 4096, delay: 0.002)
 
         let config = URLSessionConfiguration.ephemeral
@@ -22,24 +23,35 @@ final class StreamingAudioPipelineTests: XCTestCase {
             request: request,
             fileExtension: "m4a",
             cacheURL: cacheURL,
+            duration: duration,
             sessionConfiguration: config
         ))
 
         let firstPCM = expectation(description: "first PCM")
+        let firstBufferedProgress = expectation(description: "first buffered progress")
         let completed = expectation(description: "completed")
         var servedAtFirstPCM = 0
+        var servedAtFirstBufferedProgress = 0
         var outputFormat: AVAudioFormat?
+        var bufferedProgressValues: [Double] = []
 
         pipeline.onFormatReady = { outputFormat = $0 }
         pipeline.onFirstPCM = {
             servedAtFirstPCM = DelayedAudioURLProtocol.servedBytes
             firstPCM.fulfill()
         }
+        pipeline.onBufferedProgress = { progress in
+            bufferedProgressValues.append(progress)
+            if progress > 0, progress < 1, servedAtFirstBufferedProgress == 0 {
+                servedAtFirstBufferedProgress = DelayedAudioURLProtocol.servedBytes
+                firstBufferedProgress.fulfill()
+            }
+        }
         pipeline.onComplete = { _ in completed.fulfill() }
         pipeline.onFailure = { error in XCTFail("pipeline failed: \(error)") }
 
         pipeline.start()
-        wait(for: [firstPCM], timeout: 2)
+        await fulfillment(of: [firstPCM, firstBufferedProgress], timeout: 2)
 
         let format = try XCTUnwrap(outputFormat)
         let output = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512))
@@ -47,8 +59,11 @@ final class StreamingAudioPipelineTests: XCTestCase {
 
         XCTAssertGreaterThan(read, 0)
         XCTAssertLessThan(servedAtFirstPCM, data.count)
+        XCTAssertLessThan(servedAtFirstBufferedProgress, data.count)
+        XCTAssertGreaterThan(bufferedProgressValues.first ?? 0, 0)
 
-        wait(for: [completed], timeout: 3)
+        await fulfillment(of: [completed], timeout: 3)
+        XCTAssertEqual(bufferedProgressValues.last ?? 0, 1, accuracy: 0.001)
         let attrs = try FileManager.default.attributesOfItem(atPath: cacheURL.path)
         XCTAssertEqual(attrs[.size] as? Int64, Int64(data.count))
     }

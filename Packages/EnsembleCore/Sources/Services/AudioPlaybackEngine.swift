@@ -200,6 +200,8 @@ public final class AudioPlaybackEngine {
     var onSmartMixPromote: ((_ newTrackId: String) -> Void)?
     /// Fires after the render path has produced PCM for the current track.
     var onFirstAudibleRender: ((_ trackId: String) -> Void)?
+    /// Fires as streaming decode advances far enough to draw loaded waveform regions.
+    var onBufferedProgress: ((_ trackId: String, _ progress: Double) -> Void)?
     /// Fires on unrecoverable engine errors (route change failure, etc.)
     /// Parameters: (error, trackId or nil). When trackId is non-nil, the error
     /// originated from a gapless-scheduled track (not the currently playing one).
@@ -1003,7 +1005,8 @@ public final class AudioPlaybackEngine {
         let pipeline = StreamingAudioPipeline(configuration: .init(
             request: request,
             fileExtension: metadata.cacheFileExtension,
-            cacheURL: cacheURL
+            cacheURL: cacheURL,
+            duration: metadata.duration
         ))
 
         let format = try await startStreamingPipeline(pipeline, trackId: trackId)
@@ -1074,6 +1077,9 @@ public final class AudioPlaybackEngine {
             pipeline.onFirstPCM = {
                 PlaybackJourneyLogger.mark("firstDecodedPCMFrame", trackId: trackId)
                 EnsembleLogger.debug("[StreamingPipeline] first PCM trackId=\(trackId)")
+            }
+            pipeline.onBufferedProgress = { [weak self] progress in
+                self?.onBufferedProgress?(trackId, progress)
             }
             pipeline.onFormatReady = { format in
                 resumeOnce(.success(format))

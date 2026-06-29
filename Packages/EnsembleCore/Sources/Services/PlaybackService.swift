@@ -142,6 +142,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var presentationTimePublisher: AnyPublisher<TimeInterval, Never> { get }
     var presentationTimeValue: TimeInterval { get }
     var bufferedProgressValue: Double { get }
+    var bufferedProgressPublisher: AnyPublisher<Double, Never> { get }
     var queuePublisher: AnyPublisher<[QueueItem], Never> { get }
     var currentQueueIndexPublisher: AnyPublisher<Int, Never> { get }
     var shufflePublisher: AnyPublisher<Bool, Never> { get }
@@ -953,6 +954,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         bufferedProgress
     }
 
+    public var bufferedProgressPublisher: AnyPublisher<Double, Never> {
+        $bufferedProgress.eraseToAnyPublisher()
+    }
+
     public var queuePublisher: AnyPublisher<[QueueItem], Never> {
         $queue.eraseToAnyPublisher()
     }
@@ -1425,6 +1430,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.isSkipTransitionInProgress = false
                     self.disarmSkipTransitionSafety()
                 }
+            }
+        }
+
+        engine.onBufferedProgress = { [weak self] trackId, progress in
+            DispatchQueue.main.async {
+                guard let self, self.currentTrack?.playbackIdentity == trackId else { return }
+                let bounded = min(max(progress, 0), 1)
+                guard bounded >= self.bufferedProgress,
+                      abs(self.bufferedProgress - bounded) > 0.002
+                else { return }
+                self.bufferedProgress = bounded
             }
         }
 

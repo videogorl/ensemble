@@ -27,6 +27,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private let playbackStateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
         private let currentTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
         private let presentationTimeSubject = CurrentValueSubject<TimeInterval, Never>(0)
+        private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
         private let queueSubject = CurrentValueSubject<[QueueItem], Never>([])
         private let queueIndexSubject = CurrentValueSubject<Int, Never>(-1)
         private let shuffleSubject = CurrentValueSubject<Bool, Never>(false)
@@ -67,7 +68,11 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         }
 
         var bufferedProgressValue: Double {
-            0
+            bufferedProgressSubject.value
+        }
+
+        var bufferedProgressPublisher: AnyPublisher<Double, Never> {
+            bufferedProgressSubject.eraseToAnyPublisher()
         }
 
         var duration: TimeInterval {
@@ -258,6 +263,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func setDuration(_ duration: TimeInterval) {
             mockedDuration = duration
+        }
+
+        func setBufferedProgress(_ progress: Double) {
+            bufferedProgressSubject.send(progress)
         }
 
         func play(track: Track, context _: PlaybackStartContext) async {
@@ -1088,6 +1097,32 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(viewModel.playbackProjection.duration, 120, accuracy: 0.001)
         XCTAssertEqual(viewModel.playbackProjection.progress, 0.25, accuracy: 0.001)
         XCTAssertEqual(progressValues.last ?? -1, 0.25, accuracy: 0.001)
+
+        cancellable.cancel()
+    }
+
+    func testPlaybackProjectionTracksBufferedProgressWithoutTimeChange() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 120)
+        var bufferedValues: [Double] = []
+
+        let cancellable = viewModel.playbackProjection.bufferedProgressPublisher
+            .sink { bufferedValues.append($0) }
+
+        playback.setCurrentTrack(track)
+        playback.setDuration(120)
+        playback.setPlaybackState(.playing)
+        playback.setCurrentTime(15)
+        await waitForProjectionPropagation()
+
+        playback.setBufferedProgress(0.6)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(viewModel.playbackProjection.progress, 0.125, accuracy: 0.001)
+        XCTAssertEqual(viewModel.playbackProjection.bufferedProgress, 0.6, accuracy: 0.001)
+        XCTAssertEqual(bufferedValues.last ?? -1, 0.6, accuracy: 0.001)
 
         cancellable.cancel()
     }

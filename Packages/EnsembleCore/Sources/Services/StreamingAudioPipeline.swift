@@ -6,6 +6,7 @@ final class StreamingAudioPipeline: NSObject {
         let request: URLRequest
         let fileExtension: String
         let cacheURL: URL
+        let duration: TimeInterval?
         let bufferSeconds: TimeInterval
         let sessionConfiguration: URLSessionConfiguration
 
@@ -13,12 +14,14 @@ final class StreamingAudioPipeline: NSObject {
             request: URLRequest,
             fileExtension: String,
             cacheURL: URL,
+            duration: TimeInterval? = nil,
             bufferSeconds: TimeInterval = 20,
             sessionConfiguration: URLSessionConfiguration = .default
         ) {
             self.request = request
             self.fileExtension = fileExtension
             self.cacheURL = cacheURL
+            self.duration = duration
             self.bufferSeconds = bufferSeconds
             self.sessionConfiguration = sessionConfiguration
         }
@@ -28,6 +31,7 @@ final class StreamingAudioPipeline: NSObject {
     var onFormatReady: ((AVAudioFormat) -> Void)?
     var onFirstPacket: (() -> Void)?
     var onFirstPCM: (() -> Void)?
+    var onBufferedProgress: ((Double) -> Void)?
     var onComplete: ((URL) -> Void)?
     var onFailure: ((Error) -> Void)?
 
@@ -40,6 +44,8 @@ final class StreamingAudioPipeline: NSObject {
     private var cacheHandle: FileHandle?
     private var hasReceivedFirstByte = false
     private var completed = false
+    private var decodedFrameCount: AVAudioFramePosition = 0
+    private var decodedFrameTarget: AVAudioFramePosition?
 
     init(configuration: Configuration) {
         self.configuration = configuration
@@ -128,8 +134,11 @@ final class StreamingAudioPipeline: NSObject {
                     4096
                 )
                 let ring = try StreamingPCMBuffer(format: format, capacityFrames: Int(capacityFrames))
+                let frameTarget = configuration.duration
+                    .map { AVAudioFramePosition(max(0, $0 * format.sampleRate)) }
                 stateLock.lock()
                 pcmBuffer = ring
+                decodedFrameTarget = frameTarget
                 stateLock.unlock()
                 onFormatReady?(format)
             } catch {
@@ -142,9 +151,16 @@ final class StreamingAudioPipeline: NSObject {
             guard let self else { return }
             stateLock.lock()
             let ring = pcmBuffer
+            decodedFrameCount += AVAudioFramePosition(buffer.frameLength)
+            let progress = decodedFrameTarget
+                .flatMap { $0 > 0 ? Double(self.decodedFrameCount) / Double($0) : nil }
+                .map { min(max($0, 0), 1) }
             stateLock.unlock()
             do {
                 _ = try ring?.write(buffer)
+                if let progress {
+                    onBufferedProgress?(progress)
+                }
             } catch {
                 fail(error)
             }
@@ -171,6 +187,7 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.unlock()
         closeCache()
         if shouldNotify {
+            onBufferedProgress?(1)
             onComplete?(configuration.cacheURL)
         }
     }

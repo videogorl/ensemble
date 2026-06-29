@@ -514,6 +514,13 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        playbackService.bufferedProgressPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.publishPlaybackProjectionSnapshot()
+            }
+            .store(in: &cancellables)
+
         // Update rating when track changes (but not if we're actively updating it)
         $currentTrack
             .sink { [weak self] track in
