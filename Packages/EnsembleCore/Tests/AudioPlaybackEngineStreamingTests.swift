@@ -91,4 +91,33 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         XCTAssertEqual(engine.currentTime(), 0, accuracy: 0.2)
         engine.stop()
     }
+
+    func testStreamingSourceStartTimeAnchorsPlaybackClock() async throws {
+        let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
+        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw XCTSkip("System M4A fixture is unavailable on this macOS install")
+        }
+
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        let trackId = "streaming-start-offset-test"
+        let source = PlaybackSource.directHTTP(
+            URLRequest(url: fixtureURL),
+            metadata: PlaybackSourceMetadata(
+                trackId: trackId,
+                ratingKey: "1",
+                estimatedContentLength: nil,
+                duration: 10,
+                startTime: 4,
+                isSeekable: true,
+                cacheFileExtension: "m4a"
+            )
+        )
+
+        try await engine.load(source: source, trackId: trackId)
+        try engine.play()
+
+        XCTAssertEqual(engine.currentTime(), 4, accuracy: 0.5)
+        engine.stop()
+    }
 }

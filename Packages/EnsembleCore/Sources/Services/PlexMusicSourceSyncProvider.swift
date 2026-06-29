@@ -663,7 +663,8 @@ public func getStreamURL(
         for trackRatingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality,
-        metadataDurationSeconds: Double? = nil
+        metadataDurationSeconds: Double? = nil,
+        startTime: TimeInterval = 0
     ) async throws -> StreamDecision {
         EnsembleLogger.debug("[PlexProvider] makeStreamDecision: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
 
@@ -672,7 +673,8 @@ public func getStreamURL(
                 ratingKey: trackRatingKey,
                 trackStreamKey: trackStreamKey,
                 quality: quality,
-                metadataDurationSeconds: metadataDurationSeconds
+                metadataDurationSeconds: metadataDurationSeconds,
+                startTime: startTime
             )
             switch decision {
             case .directStream:

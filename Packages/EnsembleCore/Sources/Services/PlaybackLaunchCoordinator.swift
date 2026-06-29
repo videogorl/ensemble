@@ -67,7 +67,7 @@ final class PlaybackLaunchCoordinator {
 
         await dependencies.loadAndPlay(source, track)
 
-        if let recoverySeekTime, recoverySeekTime > 0 {
+        if source.fileURL != nil, let recoverySeekTime, recoverySeekTime > 0 {
             await MainActor.run {
                 dependencies.seek(recoverySeekTime)
             }

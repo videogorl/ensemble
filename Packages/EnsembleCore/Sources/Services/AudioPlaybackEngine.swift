@@ -75,6 +75,7 @@ public final class AudioPlaybackEngine {
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
     private var streamingPipeline: StreamingAudioPipeline?
+    private var streamingStartTime: TimeInterval = 0
     private var streamingCompletionGeneration: UInt64 = 0
     private var streamingCompletionNotified = false
 
@@ -991,6 +992,7 @@ public final class AudioPlaybackEngine {
         currentTrackId = trackId
         pendingRouteRecoveryPosition = nil
         seekFrameOffset = 0
+        streamingStartTime = 0
         playerTimeBaseOffset = 0
         currentContentStartFrame = 0
         currentContentFrameCount = 0
@@ -1012,6 +1014,8 @@ public final class AudioPlaybackEngine {
         let format = try await startStreamingPipeline(pipeline, trackId: trackId)
         sampleRate = format.sampleRate
         fileDuration = metadata.duration ?? 0
+        streamingStartTime = Self.clampedPlaybackPosition(metadata.startTime, duration: fileDuration)
+        seekFrameOffset = AVAudioFramePosition(streamingStartTime * sampleRate)
         currentContentFrameCount = AVAudioFrameCount(max(0, fileDuration * sampleRate))
         streamingPipeline = pipeline
         streamingCompletionNotified = false
@@ -1045,6 +1049,7 @@ public final class AudioPlaybackEngine {
             "[AudioEngine] Loaded streaming source trackId=\(trackId)"
             + " rate=\(sampleRate)"
             + " duration=\(String(format: "%.1f", fileDuration))s"
+            + " start=\(String(format: "%.1f", streamingStartTime))s"
             + " ext=\(metadata.cacheFileExtension)"
         )
     }
@@ -1094,6 +1099,7 @@ public final class AudioPlaybackEngine {
     private func clearStreamingPipeline() {
         streamingPipeline?.cancel()
         streamingPipeline = nil
+        streamingStartTime = 0
         if let streamingSourceNode {
             engine.disconnectNodeOutput(streamingSourceNode)
             engine.detach(streamingSourceNode)
@@ -1561,15 +1567,16 @@ public final class AudioPlaybackEngine {
         cancelSmartMixTransition()
         if streamingPipeline != nil {
             pendingRouteRecoveryPosition = nil
-            seekFrameOffset = AVAudioFramePosition(time * sampleRate)
+            let startPosition = time > 0 ? time : streamingStartTime
+            seekFrameOffset = AVAudioFramePosition(startPosition * sampleRate)
             playerTimeBaseOffset = 0
             if !engine.isRunning {
                 try engine.start()
             }
             applyIsolationParameters()
             wasPlaying = true
-            startTimeUpdates(from: time)
-            EnsembleLogger.debug("[AudioEngine] Streaming play from \(String(format: "%.1f", time))s")
+            startTimeUpdates(from: startPosition)
+            EnsembleLogger.debug("[AudioEngine] Streaming play from \(String(format: "%.1f", startPosition))s")
             return
         }
         guard let file = currentFile else {
@@ -1693,6 +1700,7 @@ public final class AudioPlaybackEngine {
         }
         clearStreamingPipeline()
         wasPlaying = false
+        streamingStartTime = 0
         seekFrameOffset = 0
         playerTimeBaseOffset = 0
         currentContentStartFrame = 0

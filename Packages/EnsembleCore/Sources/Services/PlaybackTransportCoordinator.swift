@@ -10,7 +10,7 @@ final class PlaybackTransportCoordinator {
         let isClearlyInvalidLocalPayload: @Sendable (URL) -> Bool
         let ensureServerConnection: @Sendable (Track) async throws -> Void
         let serverFailureMessage: @Sendable (Track) async -> String?
-        let makeStreamDecision: @Sendable (Track, StreamingQuality) async throws -> StreamDecision
+        let makeStreamDecision: @Sendable (Track, StreamingQuality, TimeInterval) async throws -> StreamDecision
         let assembleStreamResolution: @Sendable (Track, StreamDecision) async throws -> StreamResolution
         let refreshConnection: @Sendable () async throws -> Void
         let shouldRetryStreamURLRequest: @Sendable (Error) -> Bool
@@ -27,9 +27,10 @@ final class PlaybackTransportCoordinator {
         self.dependencies = dependencies
     }
 
-    func resolvePlaybackSource(for track: Track) async throws -> PlaybackSource {
+    func resolvePlaybackSource(for track: Track, startTime: TimeInterval = 0) async throws -> PlaybackSource {
         let trackIdentity = track.playbackIdentity
-        if let existingTask = withLock({ sourceResolutionTasks[trackIdentity] }) {
+        let taskKey = sourceResolutionTaskKey(trackIdentity: trackIdentity, startTime: startTime)
+        if let existingTask = withLock({ sourceResolutionTasks[taskKey] }) {
             return try await existingTask.value
         }
 
@@ -37,16 +38,16 @@ final class PlaybackTransportCoordinator {
             guard let self else {
                 throw PlaybackError.unknown(NSError(domain: "PlaybackTransportCoordinator", code: -1))
             }
-            return try await self.resolvePlaybackSourceImpl(for: track)
+            return try await self.resolvePlaybackSourceImpl(for: track, startTime: startTime)
         }
-        withLock { sourceResolutionTasks[trackIdentity] = task }
+        withLock { sourceResolutionTasks[taskKey] = task }
 
         do {
             let result = try await task.value
-            _ = withLock { sourceResolutionTasks.removeValue(forKey: trackIdentity) }
+            _ = withLock { sourceResolutionTasks.removeValue(forKey: taskKey) }
             return result
         } catch {
-            _ = withLock { sourceResolutionTasks.removeValue(forKey: trackIdentity) }
+            _ = withLock { sourceResolutionTasks.removeValue(forKey: taskKey) }
             throw error
         }
     }
@@ -58,8 +59,7 @@ final class PlaybackTransportCoordinator {
 
     func cancelResolution(for trackId: String) {
         withLock {
-            sourceResolutionTasks[trackId]?.cancel()
-            sourceResolutionTasks.removeValue(forKey: trackId)
+            cancelResolutionTasksLocked(for: trackId)
         }
     }
 
@@ -70,8 +70,7 @@ final class PlaybackTransportCoordinator {
                 cachedStreamDecisions.removeValue(forKey: trackId)
             }
             if cancelTask {
-                sourceResolutionTasks[trackId]?.cancel()
-                sourceResolutionTasks.removeValue(forKey: trackId)
+                cancelResolutionTasksLocked(for: trackId)
             }
         }
     }
@@ -108,9 +107,10 @@ final class PlaybackTransportCoordinator {
         withLock { cachedStreamDecisions.count }
     }
 
-    private func resolvePlaybackSourceImpl(for track: Track) async throws -> PlaybackSource {
+    private func resolvePlaybackSourceImpl(for track: Track, startTime: TimeInterval) async throws -> PlaybackSource {
         let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
         let quality = StreamingQuality(rawValue: qualityString) ?? .high
+        let normalizedStartTime = normalizedStartTime(startTime)
 
         let networkState = await dependencies.networkState()
         let isDefinitelyOffline = networkState == .offline || networkState == .limited
@@ -136,7 +136,7 @@ final class PlaybackTransportCoordinator {
             throw PlaybackError.offline
         }
 
-        if let completedURL = completedLoaderURLIfAvailable(for: track) {
+        if normalizedStartTime == 0, let completedURL = completedLoaderURLIfAvailable(for: track) {
             return .cachedFile(completedURL, origin: .transcodeCache)
         }
 
@@ -147,7 +147,7 @@ final class PlaybackTransportCoordinator {
             throw PlaybackError.serverUnavailable(message: failureMessage)
         }
 
-        let decision = try await streamDecision(for: track, quality: quality)
+        let decision = try await streamDecision(for: track, quality: quality, startTime: normalizedStartTime)
         let resolution: StreamResolution
         do {
             resolution = try await dependencies.assembleStreamResolution(track, decision)
@@ -156,14 +156,14 @@ final class PlaybackTransportCoordinator {
         }
 
         do {
-            return try await handleStreamResolution(resolution, for: track)
+            return try await handleStreamResolution(resolution, for: track, startTime: normalizedStartTime)
         } catch {
             guard dependencies.shouldRetryStreamURLRequest(error) else {
                 throw dependencies.mapToPlaybackError(error)
             }
             try await dependencies.refreshConnection()
             let freshResolution = try await dependencies.assembleStreamResolution(track, decision)
-            return try await handleStreamResolution(freshResolution, for: track)
+            return try await handleStreamResolution(freshResolution, for: track, startTime: normalizedStartTime)
         }
     }
 
@@ -183,21 +183,24 @@ final class PlaybackTransportCoordinator {
         }
     }
 
-    private func streamDecision(for track: Track, quality: StreamingQuality) async throws -> StreamDecision {
+    private func streamDecision(for track: Track, quality: StreamingQuality, startTime: TimeInterval) async throws -> StreamDecision {
         let trackIdentity = track.playbackIdentity
+        if startTime > 0 {
+            return try await dependencies.makeStreamDecision(track, quality, startTime)
+        }
         if let cached = withLock({ cachedStreamDecisions[trackIdentity] }) {
             return cached
         }
 
         do {
-            let decision = try await dependencies.makeStreamDecision(track, quality)
+            let decision = try await dependencies.makeStreamDecision(track, quality, 0)
             withLock { cachedStreamDecisions[trackIdentity] = decision }
             return decision
         } catch {
             if dependencies.shouldRetryStreamURLRequest(error) {
                 do {
                     try await dependencies.refreshConnection()
-                    let retried = try await dependencies.makeStreamDecision(track, quality)
+                    let retried = try await dependencies.makeStreamDecision(track, quality, 0)
                     withLock { cachedStreamDecisions[trackIdentity] = retried }
                     return retried
                 } catch {
@@ -210,7 +213,8 @@ final class PlaybackTransportCoordinator {
 
     private func handleStreamResolution(
         _ resolution: StreamResolution,
-        for track: Track
+        for track: Track,
+        startTime: TimeInterval
     ) async throws -> PlaybackSource {
         switch resolution {
         case let .downloadedFile(url):
@@ -224,6 +228,7 @@ final class PlaybackTransportCoordinator {
                 ratingKey: track.id,
                 estimatedContentLength: nil,
                 duration: track.duration,
+                startTime: 0,
                 isSeekable: true,
                 cacheFileExtension: url.pathExtension.isEmpty ? "mp3" : url.pathExtension
             ))
@@ -233,9 +238,27 @@ final class PlaybackTransportCoordinator {
                 ratingKey: config.ratingKey,
                 estimatedContentLength: config.estimatedContentLength,
                 duration: config.metadataDuration,
+                startTime: config.startTime > 0 ? config.startTime : startTime,
                 isSeekable: false,
                 cacheFileExtension: "mp3"
             ))
+        }
+    }
+
+    private func sourceResolutionTaskKey(trackIdentity: String, startTime: TimeInterval) -> String {
+        let normalized = normalizedStartTime(startTime)
+        return normalized > 0 ? "\(trackIdentity)#start=\(Int(normalized))" : trackIdentity
+    }
+
+    private func normalizedStartTime(_ startTime: TimeInterval) -> TimeInterval {
+        guard startTime.isFinite, startTime > 0 else { return 0 }
+        return floor(startTime)
+    }
+
+    private func cancelResolutionTasksLocked(for trackId: String) {
+        for key in sourceResolutionTasks.keys where key == trackId || key.hasPrefix("\(trackId)#") {
+            sourceResolutionTasks[key]?.cancel()
+            sourceResolutionTasks.removeValue(forKey: key)
         }
     }
 

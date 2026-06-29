@@ -803,12 +803,16 @@ public final class SyncCoordinator: ObservableObject {
     /// Phase 1: Make a streaming decision for a track without embedding the server endpoint URL.
     /// The returned `StreamDecision` can be cached across network transitions — it captures
     /// codec, quality, and session parameters that don't change when the endpoint changes.
-    public func makeStreamDecision(for track: Track, quality: StreamingQuality = .original) async throws -> StreamDecision {
+    public func makeStreamDecision(
+        for track: Track,
+        quality: StreamingQuality = .original,
+        startTime: TimeInterval = 0
+    ) async throws -> StreamDecision {
         let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
         if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
             return try await resolution.provider.makeStreamDecision(
                 for: track.id, trackStreamKey: track.streamKey,
-                quality: quality, metadataDurationSeconds: track.duration
+                quality: quality, metadataDurationSeconds: track.duration, startTime: startTime
             )
         }
 

@@ -58,7 +58,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in _ = ensureCalls.increment() },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
+                makeStreamDecision: { _, _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
                 assembleStreamResolution: { _, _ in XCTFail("should not assemble resolution"); throw PlexAPIError.invalidURL },
                 refreshConnection: { XCTFail("should not refresh connection") },
                 shouldRetryStreamURLRequest: { _ in false },
@@ -95,7 +95,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in _ = ensureCalls.increment() },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
+                makeStreamDecision: { _, _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
                 assembleStreamResolution: { _, _ in XCTFail("should not assemble resolution"); throw PlexAPIError.invalidURL },
                 refreshConnection: { XCTFail("should not refresh connection") },
                 shouldRetryStreamURLRequest: { _ in false },
@@ -128,7 +128,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _ in .directStream(partKey: "/library/parts/direct/file.mp3") },
+                makeStreamDecision: { _, _, _ in .directStream(partKey: "/library/parts/direct/file.mp3") },
                 assembleStreamResolution: { _, _ in .directStream(remoteURL) },
                 refreshConnection: {},
                 shouldRetryStreamURLRequest: { _ in false },
@@ -165,7 +165,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _ in
+                makeStreamDecision: { _, _, _ in
                     .progressiveTranscode(TranscodeStreamDecision(
                         path: "/music/:/transcode/universal/start.mp3",
                         queryItems: [],
@@ -197,6 +197,61 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         XCTAssertFalse(metadata.isSeekable)
         XCTAssertEqual(metadata.estimatedContentLength, 1024)
         XCTAssertEqual(metadata.cacheFileExtension, "mp3")
+    }
+
+    func testResolvePlaybackSourceCarriesStreamingSeekStartTime() async throws {
+        let track = Track(
+            id: "track-transcode-seek",
+            key: "/library/metadata/transcode-seek",
+            title: "Transcode Seek",
+            duration: 210,
+            sourceCompositeKey: "plex:test"
+        )
+        let remoteURL = try XCTUnwrap(URL(string: "https://example.test/music/:/transcode/universal/start.mp3?offset=184"))
+        let request = URLRequest(url: remoteURL)
+        let coordinator = PlaybackTransportCoordinator(
+            dependencies: .init(
+                networkState: { .online(.wifi) },
+                preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                isClearlyInvalidLocalPayload: { _ in false },
+                ensureServerConnection: { _ in },
+                serverFailureMessage: { _ in nil },
+                makeStreamDecision: { _, _, startTime in
+                    XCTAssertEqual(startTime, 184)
+                    return .progressiveTranscode(TranscodeStreamDecision(
+                        path: "/music/:/transcode/universal/start.mp3",
+                        queryItems: [URLQueryItem(name: "offset", value: "184")],
+                        ratingKey: track.id,
+                        estimatedContentLength: 1024,
+                        metadataDuration: track.duration,
+                        startTime: startTime
+                    ))
+                },
+                assembleStreamResolution: { _, decision in
+                    guard case let .progressiveTranscode(transcode) = decision else {
+                        throw PlexAPIError.invalidURL
+                    }
+                    return .progressiveTranscode(ProgressiveStreamConfig(
+                        streamRequest: request,
+                        ratingKey: transcode.ratingKey,
+                        estimatedContentLength: transcode.estimatedContentLength,
+                        metadataDuration: transcode.metadataDuration,
+                        startTime: transcode.startTime
+                    ))
+                },
+                refreshConnection: {},
+                shouldRetryStreamURLRequest: { _ in false },
+                mapToPlaybackError: { .unknown($0) }
+            )
+        )
+
+        let source = try await coordinator.resolvePlaybackSource(for: track, startTime: 184.7)
+
+        guard case let .transcodedHTTP(resolvedRequest, metadata) = source else {
+            return XCTFail("expected transcodedHTTP")
+        }
+        XCTAssertEqual(resolvedRequest.url, remoteURL)
+        XCTAssertEqual(metadata.startTime, 184)
     }
 
     func testResolveAudioFileCachesStreamDecisionAcrossCalls() async throws {
@@ -232,7 +287,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { _, _ in
+                makeStreamDecision: { _, _, _ in
                     _ = decisionCalls.increment()
                     return .directStream(partKey: "/library/parts/2/file.mp3")
                 },
@@ -286,7 +341,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 isClearlyInvalidLocalPayload: { _ in false },
                 ensureServerConnection: { _ in },
                 serverFailureMessage: { _ in nil },
-                makeStreamDecision: { track, _ in
+                makeStreamDecision: { track, _, _ in
                     _ = decisionCalls.increment()
                     return .directStream(partKey: "/library/parts/\(track.sourceScopedID)/file.mp3")
                 },

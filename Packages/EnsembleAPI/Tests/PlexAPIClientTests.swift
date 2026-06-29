@@ -18,6 +18,27 @@ final class PlexAPIClientTests: XCTestCase {
         }
     }
 
+    func testUniversalStreamQueryItemsIncludeSeekOffset() async {
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain()
+        )
+
+        let queryItems = await client.buildUniversalStreamQueryItems(
+            ratingKey: "10101",
+            quality: .high,
+            sessionId: "session-1",
+            startTime: 184.7
+        )
+
+        XCTAssertEqual(queryItems.first(where: { $0.name == "offset" })?.value, "184")
+    }
+
     func testPlexModelsDecoding() throws {
         // Test PlexTrack decoding
         let trackJSON = """

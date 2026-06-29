@@ -11,8 +11,27 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
     let ratingKey: String?
     let estimatedContentLength: Int64?
     let duration: TimeInterval?
+    let startTime: TimeInterval
     let isSeekable: Bool
     let cacheFileExtension: String
+
+    init(
+        trackId: String,
+        ratingKey: String?,
+        estimatedContentLength: Int64?,
+        duration: TimeInterval?,
+        startTime: TimeInterval = 0,
+        isSeekable: Bool,
+        cacheFileExtension: String
+    ) {
+        self.trackId = trackId
+        self.ratingKey = ratingKey
+        self.estimatedContentLength = estimatedContentLength
+        self.duration = duration
+        self.startTime = startTime
+        self.isSeekable = isSeekable
+        self.cacheFileExtension = cacheFileExtension
+    }
 }
 
 enum PlaybackSource: Sendable {
@@ -37,9 +56,9 @@ enum PlaybackSource: Sendable {
         case let .cachedFile(_, origin):
             return "kind=cachedFile origin=\(origin.rawValue)"
         case let .directHTTP(_, metadata):
-            return "kind=directHTTP seekable=\(metadata.isSeekable) ext=\(metadata.cacheFileExtension)"
+            return "kind=directHTTP seekable=\(metadata.isSeekable) start=\(String(format: "%.2f", metadata.startTime)) ext=\(metadata.cacheFileExtension)"
         case let .transcodedHTTP(_, metadata):
-            return "kind=transcodedHTTP seekable=\(metadata.isSeekable) ext=\(metadata.cacheFileExtension)"
+            return "kind=transcodedHTTP seekable=\(metadata.isSeekable) start=\(String(format: "%.2f", metadata.startTime)) ext=\(metadata.cacheFileExtension)"
         }
     }
 }

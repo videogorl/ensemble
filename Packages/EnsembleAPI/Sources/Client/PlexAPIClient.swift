@@ -44,17 +44,20 @@ public struct ProgressiveStreamConfig: Sendable {
     public let ratingKey: String
     public let estimatedContentLength: Int64
     public let metadataDuration: Double?
+    public let startTime: TimeInterval
 
     public init(
         streamRequest: URLRequest,
         ratingKey: String,
         estimatedContentLength: Int64,
-        metadataDuration: Double?
+        metadataDuration: Double?,
+        startTime: TimeInterval = 0
     ) {
         self.streamRequest = streamRequest
         self.ratingKey = ratingKey
         self.estimatedContentLength = estimatedContentLength
         self.metadataDuration = metadataDuration
+        self.startTime = startTime
     }
 }
 
@@ -105,14 +108,16 @@ public struct TranscodeStreamDecision: Sendable {
     public let ratingKey: String
     public let estimatedContentLength: Int64
     public let metadataDuration: Double?
+    public let startTime: TimeInterval
 
     public init(path: String, queryItems: [URLQueryItem], ratingKey: String,
-                estimatedContentLength: Int64, metadataDuration: Double?) {
+                estimatedContentLength: Int64, metadataDuration: Double?, startTime: TimeInterval = 0) {
         self.path = path
         self.queryItems = queryItems
         self.ratingKey = ratingKey
         self.estimatedContentLength = estimatedContentLength
         self.metadataDuration = metadataDuration
+        self.startTime = startTime
     }
 }
 

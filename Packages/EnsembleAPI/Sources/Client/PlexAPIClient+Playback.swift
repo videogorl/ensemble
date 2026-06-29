@@ -167,7 +167,8 @@ extension PlexAPIClient {
     public func getUniversalStreamURL(
         ratingKey: String,
         quality: StreamingQuality = .original,
-        sessionId: String? = nil
+        sessionId: String? = nil,
+        startTime: TimeInterval = 0
     ) async throws -> URL {
         EnsembleLogger.debug("🎵 PlexAPIClient.getUniversalStreamURL(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
 
@@ -175,7 +176,8 @@ extension PlexAPIClient {
         let queryItems = buildUniversalStreamQueryItems(
             ratingKey: ratingKey,
             quality: quality,
-            sessionId: resolvedSessionId
+            sessionId: resolvedSessionId,
+            startTime: startTime
         )
 
         try await callTranscodeDecision(queryItems: queryItems)
@@ -215,9 +217,11 @@ extension PlexAPIClient {
         ratingKey: String,
         trackStreamKey: String?,
         quality: StreamingQuality,
-        metadataDurationSeconds: Double?
+        metadataDurationSeconds: Double?,
+        startTime: TimeInterval = 0
     ) async throws -> StreamDecision {
-        if quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
+        let normalizedStartTime = Self.normalizedTranscodeOffset(startTime)
+        if normalizedStartTime == 0, quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
             EnsembleLogger.debug("[makeStreamDecision] original quality → directStream(partKey)")
             return .directStream(partKey: streamKey)
         }
@@ -227,18 +231,20 @@ extension PlexAPIClient {
             let queryItems = buildUniversalStreamQueryItems(
                 ratingKey: ratingKey,
                 quality: quality,
-                sessionId: sessionId
+                sessionId: sessionId,
+                startTime: normalizedStartTime
             )
 
             let decision = try await callTranscodeDecision(queryItems: queryItems)
 
             switch decision.decision {
-            case .directplay, .copy:
+            case .directplay where normalizedStartTime == 0,
+                 .copy where normalizedStartTime == 0:
                 let partKey = decision.directStreamPartKey ?? streamKey
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → directStream(partKey)")
                 return .directStream(partKey: partKey)
 
-            case .transcode, .unknown:
+            case .directplay, .copy, .transcode, .unknown:
                 let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
                 EnsembleLogger.debug("[makeStreamDecision] decision=\(decision.decision.rawValue) → progressiveTranscode")
                 return .progressiveTranscode(TranscodeStreamDecision(
@@ -246,7 +252,8 @@ extension PlexAPIClient {
                     queryItems: queryItems,
                     ratingKey: ratingKey,
                     estimatedContentLength: estimated,
-                    metadataDuration: metadataDurationSeconds
+                    metadataDuration: metadataDurationSeconds,
+                    startTime: normalizedStartTime
                 ))
             }
         }
@@ -255,7 +262,8 @@ extension PlexAPIClient {
         let queryItems = buildUniversalStreamQueryItems(
             ratingKey: ratingKey,
             quality: quality,
-            sessionId: sessionId
+            sessionId: sessionId,
+            startTime: normalizedStartTime
         )
         try await callTranscodeDecision(queryItems: queryItems)
         let estimated = estimateTranscodeSize(quality: quality, durationSeconds: metadataDurationSeconds)
@@ -265,7 +273,8 @@ extension PlexAPIClient {
             queryItems: queryItems,
             ratingKey: ratingKey,
             estimatedContentLength: estimated,
-            metadataDuration: metadataDurationSeconds
+            metadataDuration: metadataDurationSeconds,
+            startTime: normalizedStartTime
         ))
     }
 
@@ -297,7 +306,8 @@ extension PlexAPIClient {
                 streamRequest: request,
                 ratingKey: transcode.ratingKey,
                 estimatedContentLength: transcode.estimatedContentLength,
-                metadataDuration: transcode.metadataDuration
+                metadataDuration: transcode.metadataDuration,
+                startTime: transcode.startTime
             )
             EnsembleLogger.debug("[assembleStream] progressiveTranscode → \(url)")
             return .progressiveTranscode(config)
@@ -310,13 +320,15 @@ extension PlexAPIClient {
     func buildUniversalStreamQueryItems(
         ratingKey: String,
         quality: StreamingQuality,
-        sessionId: String
+        sessionId: String,
+        startTime: TimeInterval = 0
     ) -> [URLQueryItem] {
         var queryItems: [URLQueryItem] = [
             URLQueryItem(name: "path", value: "/library/metadata/\(ratingKey)"),
             URLQueryItem(name: "protocol", value: "http"),
             URLQueryItem(name: "mediaIndex", value: "0"),
             URLQueryItem(name: "partIndex", value: "0"),
+            URLQueryItem(name: "offset", value: Self.transcodeOffsetValue(startTime)),
             URLQueryItem(name: "X-Plex-Token", value: serverConnection.token),
             URLQueryItem(name: "X-Plex-Client-Identifier", value: clientIdentifier)
         ]
@@ -346,6 +358,7 @@ extension PlexAPIClient {
         queryItems: [URLQueryItem],
         metadataDuration metadataDurationSeconds: Double?
     ) throws -> ProgressiveStreamConfig {
+        let startTime = queryItems.first(where: { $0.name == "offset" })?.value.flatMap(TimeInterval.init) ?? 0
         let url = try buildTranscodeURL(
             path: "/music/:/transcode/universal/start.mp3",
             queryItems: queryItems
@@ -365,8 +378,18 @@ extension PlexAPIClient {
             streamRequest: request,
             ratingKey: ratingKey,
             estimatedContentLength: estimatedLength,
-            metadataDuration: metadataDurationSeconds
+            metadataDuration: metadataDurationSeconds,
+            startTime: startTime
         )
+    }
+
+    static func normalizedTranscodeOffset(_ startTime: TimeInterval) -> TimeInterval {
+        guard startTime.isFinite, startTime > 0 else { return 0 }
+        return floor(startTime)
+    }
+
+    static func transcodeOffsetValue(_ startTime: TimeInterval) -> String {
+        String(Int(normalizedTranscodeOffset(startTime)))
     }
 
     /// Estimate the download size of a transcode based on quality bitrate and duration.

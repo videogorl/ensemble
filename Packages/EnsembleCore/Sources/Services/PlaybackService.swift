@@ -1191,11 +1191,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 guard let self else { return nil }
                 return await self.syncCoordinator.serverFailureMessage(for: track)
             },
-            makeStreamDecision: { [weak self] track, quality in
+            makeStreamDecision: { [weak self] track, quality, startTime in
                 guard let self else {
                     throw PlaybackError.unknown(NSError(domain: "PlaybackService", code: -1))
                 }
-                return try await self.syncCoordinator.makeStreamDecision(for: track, quality: quality)
+                return try await self.syncCoordinator.makeStreamDecision(for: track, quality: quality, startTime: startTime)
             },
             assembleStreamResolution: { [weak self] track, decision in
                 guard let self else {
@@ -3517,6 +3517,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updateNowPlayingInfo()
             savePlaybackState()
         } catch {
+            if (error as? AudioPlaybackEngineError) == .streamingSeekUnavailable {
+                EnsembleLogger.playback("ENGINE: seek requires stream restart at \(String(format: "%.2f", clampedTime))s")
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.playCurrentQueueItem(
+                        forcingFreshItem: false,
+                        seekTo: clampedTime,
+                        caller: "seek(stream-restart)"
+                    )
+                }
+                return
+            }
             EnsembleLogger.playback("ENGINE: seek failed -- \(error.localizedDescription)")
         }
     }
@@ -4413,7 +4425,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     PlaybackJourneyLogger.mark("sourceDecisionCompleted", trackId: trackIdentity, detail: source.journeyDescription)
                 } else {
                     PlaybackJourneyLogger.mark("sourceDecisionStarted", trackId: trackIdentity, detail: "transport")
-                    source = try await resolvePlaybackSource(for: request.track)
+                    source = try await resolvePlaybackSource(for: request.track, startTime: request.recoverySeekTime ?? 0)
                     PlaybackJourneyLogger.mark("sourceDecisionCompleted", trackId: trackIdentity, detail: source.journeyDescription)
                 }
 
@@ -4427,7 +4439,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                         EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(request.track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
                         await evictTruncatedFile(fileURL: fileURL, track: request.track, fileDuration: fileDuration, expectedDuration: expectedDuration)
-                        source = try await resolvePlaybackSource(for: request.track)
+                        source = try await resolvePlaybackSource(for: request.track, startTime: request.recoverySeekTime ?? 0)
                     }
                 }
 
@@ -4648,8 +4660,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Resolve a playable source for a track. File-backed sources are cached;
     /// remote sources stream incrementally through `AudioPlaybackEngine`.
-    private func resolvePlaybackSource(for track: Track) async throws -> PlaybackSource {
-        let source = try await transportCoordinator.resolvePlaybackSource(for: track)
+    private func resolvePlaybackSource(for track: Track, startTime: TimeInterval = 0) async throws -> PlaybackSource {
+        let source = try await transportCoordinator.resolvePlaybackSource(for: track, startTime: startTime)
         if let fileURL = source.fileURL {
             await MainActor.run { cacheFileURL(fileURL, for: track.playbackIdentity) }
         }

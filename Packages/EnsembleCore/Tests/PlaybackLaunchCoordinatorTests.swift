@@ -84,4 +84,48 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(soughtTime.withValue { $0 } ?? 0, 42, accuracy: 0.001)
         XCTAssertEqual(prefetchCount.withValue { $0 }, 1)
     }
+
+    func testCompleteLaunchDoesNotPostSeekStreamingSources() async {
+        let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200)
+        let loadedTrackID = LockedBox<String?>(nil)
+        let soughtTime = LockedBox<TimeInterval?>(nil)
+        let prefetchCount = LockedBox(0)
+        let source = PlaybackSource.transcodedHTTP(
+            URLRequest(url: URL(string: "https://example.test/start.mp3")!),
+            metadata: PlaybackSourceMetadata(
+                trackId: track.playbackIdentity,
+                ratingKey: track.id,
+                estimatedContentLength: nil,
+                duration: track.duration,
+                startTime: 42,
+                isSeekable: false,
+                cacheFileExtension: "mp3"
+            )
+        )
+
+        let coordinator = PlaybackLaunchCoordinator(
+            dependencies: .init(
+                processorCount: { 8 },
+                isVisualizerEnabled: { true },
+                isInstrumentalModeActive: { false },
+                enqueueVisualizerLoad: { _, _, _ in },
+                loadAndPlay: { _, track in
+                    loadedTrackID.set(track.id)
+                },
+                seek: { time in
+                    soughtTime.set(time)
+                },
+                prefetchNext: {
+                    prefetchCount.set(prefetchCount.withValue { $0 + 1 })
+                }
+            )
+        )
+
+        await coordinator.completeLaunch(for: track, source: source, recoverySeekTime: 42)
+        await Task.yield()
+
+        XCTAssertEqual(loadedTrackID.withValue { $0 }, "1")
+        XCTAssertNil(soughtTime.withValue { $0 })
+        XCTAssertEqual(prefetchCount.withValue { $0 }, 1)
+    }
 }
