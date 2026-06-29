@@ -44,6 +44,49 @@ final class StreamingPCMBufferTests: XCTestCase {
         XCTAssertEqual(ring.remainingCapacity, 0)
     }
 
+    func testBlockingWriteWaitsForReaderAndPreservesOverflowFrames() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 2))
+        let ring = try StreamingPCMBuffer(format: format, capacityFrames: 2)
+        let writerStarted = expectation(description: "writer started")
+        let writerFinished = expectation(description: "writer finished")
+
+        DispatchQueue.global(qos: .utility).async {
+            writerStarted.fulfill()
+            do {
+                try ring.writeBlocking(
+                    try self.makeBuffer(format: format, left: [1, 2, 3, 4], right: [5, 6, 7, 8])
+                ) {
+                    true
+                }
+                writerFinished.fulfill()
+            } catch {
+                XCTFail("blocking write failed: \(error)")
+            }
+        }
+
+        wait(for: [writerStarted], timeout: 1)
+        waitUntil(timeout: 1) {
+            ring.availableFrames == 2
+        }
+        let first = try emptyBuffer(format: format, capacity: 2)
+        XCTAssertEqual(ring.availableFrames, 2)
+        XCTAssertEqual(try ring.read(into: first, frameCount: 2), 2)
+        XCTAssertEqual(samples(first, channel: 0), [1, 2])
+
+        wait(for: [writerFinished], timeout: 1)
+        let second = try emptyBuffer(format: format, capacity: 2)
+        XCTAssertEqual(try ring.read(into: second, frameCount: 2), 2)
+        XCTAssertEqual(samples(second, channel: 0), [3, 4])
+        XCTAssertEqual(samples(second, channel: 1), [7, 8])
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline, !condition() {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+    }
+
     private func makeBuffer(format: AVAudioFormat, left: [Float], right: [Float]) throws -> AVAudioPCMBuffer {
         XCTAssertEqual(left.count, right.count)
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(left.count)))

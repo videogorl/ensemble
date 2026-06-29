@@ -9,7 +9,7 @@ final class StreamingPCMBuffer {
     let format: AVAudioFormat
     let capacityFrames: Int
 
-    private let lock = NSLock()
+    private let condition = NSCondition()
     private var channels: [[Float]]
     private var readIndex = 0
     private var writeIndex = 0
@@ -32,14 +32,14 @@ final class StreamingPCMBuffer {
     }
 
     var availableFrames: Int {
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
         return storedFrames
     }
 
     var remainingCapacity: Int {
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
         return capacityFrames - storedFrames
     }
 
@@ -52,22 +52,46 @@ final class StreamingPCMBuffer {
             throw BufferError.unsupportedFormat
         }
 
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
 
         let framesToWrite = min(Int(buffer.frameLength), capacityFrames - storedFrames)
         guard framesToWrite > 0 else { return 0 }
 
-        for frameOffset in 0 ..< framesToWrite {
-            let targetIndex = (writeIndex + frameOffset) % capacityFrames
-            for channelIndex in channels.indices {
-                channels[channelIndex][targetIndex] = sourceChannels[channelIndex][frameOffset]
-            }
+        writeLocked(sourceChannels: sourceChannels, sourceOffset: 0, frameCount: framesToWrite)
+        condition.signal()
+        return framesToWrite
+    }
+
+    func writeBlocking(
+        _ buffer: AVAudioPCMBuffer,
+        shouldContinue: () -> Bool
+    ) throws {
+        guard buffer.format.commonFormat == .pcmFormatFloat32,
+              !buffer.format.isInterleaved,
+              buffer.format.channelCount == format.channelCount,
+              let sourceChannels = buffer.floatChannelData else {
+            throw BufferError.unsupportedFormat
         }
 
-        writeIndex = (writeIndex + framesToWrite) % capacityFrames
-        storedFrames += framesToWrite
-        return framesToWrite
+        let totalFrames = Int(buffer.frameLength)
+        var writtenFrames = 0
+
+        condition.lock()
+        defer { condition.unlock() }
+
+        while writtenFrames < totalFrames, shouldContinue() {
+            let freeFrames = capacityFrames - storedFrames
+            if freeFrames == 0 {
+                condition.wait(until: Date().addingTimeInterval(0.05))
+                continue
+            }
+
+            let framesToWrite = min(totalFrames - writtenFrames, freeFrames)
+            writeLocked(sourceChannels: sourceChannels, sourceOffset: writtenFrames, frameCount: framesToWrite)
+            writtenFrames += framesToWrite
+            condition.signal()
+        }
     }
 
     @discardableResult
@@ -79,8 +103,8 @@ final class StreamingPCMBuffer {
             throw BufferError.unsupportedFormat
         }
 
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
 
         let requestedFrames = min(Int(frameCount), Int(buffer.frameCapacity))
         let framesToRead = min(requestedFrames, storedFrames)
@@ -99,6 +123,9 @@ final class StreamingPCMBuffer {
         readIndex = (readIndex + framesToRead) % capacityFrames
         storedFrames -= framesToRead
         buffer.frameLength = AVAudioFrameCount(requestedFrames)
+        if framesToRead > 0 {
+            condition.signal()
+        }
         return framesToRead
     }
 
@@ -107,8 +134,8 @@ final class StreamingPCMBuffer {
         into audioBufferList: UnsafeMutablePointer<AudioBufferList>,
         frameCount: AVAudioFrameCount
     ) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
 
         let requestedFrames = Int(frameCount)
         let framesToRead = min(requestedFrames, storedFrames)
@@ -129,14 +156,40 @@ final class StreamingPCMBuffer {
 
         readIndex = (readIndex + framesToRead) % capacityFrames
         storedFrames -= framesToRead
+        if framesToRead > 0 {
+            condition.signal()
+        }
         return framesToRead
     }
 
     func clear() {
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
         readIndex = 0
         writeIndex = 0
         storedFrames = 0
+        condition.broadcast()
+    }
+
+    func wakeWaiters() {
+        condition.lock()
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    private func writeLocked(
+        sourceChannels: UnsafePointer<UnsafeMutablePointer<Float>>,
+        sourceOffset: Int,
+        frameCount: Int
+    ) {
+        for frameOffset in 0 ..< frameCount {
+            let targetIndex = (writeIndex + frameOffset) % capacityFrames
+            for channelIndex in channels.indices {
+                channels[channelIndex][targetIndex] = sourceChannels[channelIndex][sourceOffset + frameOffset]
+            }
+        }
+
+        writeIndex = (writeIndex + frameCount) % capacityFrames
+        storedFrames += frameCount
     }
 }

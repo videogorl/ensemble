@@ -44,6 +44,7 @@ final class StreamingAudioPipeline: NSObject {
     private var cacheHandle: FileHandle?
     private var hasReceivedFirstByte = false
     private var completed = false
+    private var cancelled = false
     private var decodedFrameCount: AVAudioFramePosition = 0
     private var decodedFrameTarget: AVAudioFramePosition?
 
@@ -96,6 +97,11 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     func cancel() {
+        stateLock.lock()
+        cancelled = true
+        let pcmBuffer = self.pcmBuffer
+        stateLock.unlock()
+        pcmBuffer?.wakeWaiters()
         task?.cancel()
         session?.invalidateAndCancel()
         closeCache()
@@ -157,7 +163,9 @@ final class StreamingAudioPipeline: NSObject {
                 .map { min(max($0, 0), 1) }
             stateLock.unlock()
             do {
-                _ = try ring?.write(buffer)
+                try ring?.writeBlocking(buffer) { [weak self] in
+                    self?.isActiveForWrites == true
+                }
                 if let progress {
                     onBufferedProgress?(progress)
                 }
@@ -184,7 +192,9 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.lock()
         let shouldNotify = !completed
         completed = true
+        let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
+        pcmBuffer?.wakeWaiters()
         closeCache()
         if shouldNotify {
             onBufferedProgress?(1)
@@ -193,8 +203,19 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     private func fail(_ error: Error) {
+        stateLock.lock()
+        cancelled = true
+        let pcmBuffer = self.pcmBuffer
+        stateLock.unlock()
+        pcmBuffer?.wakeWaiters()
         closeCache()
         onFailure?(error)
+    }
+
+    private var isActiveForWrites: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return !cancelled
     }
 
     private func closeCache() {
