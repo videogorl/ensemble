@@ -49,6 +49,24 @@ enum PlaybackSource: Sendable {
         }
     }
 
+    var initialBufferedProgress: Double {
+        switch self {
+        case .localFile, .cachedFile:
+            return 1
+        case let .directHTTP(_, metadata), let .transcodedHTTP(_, metadata):
+            guard
+                let duration = metadata.duration,
+                duration.isFinite,
+                duration > 0,
+                metadata.startTime.isFinite,
+                metadata.startTime > 0
+            else {
+                return 0
+            }
+            return min(max(metadata.startTime / duration, 0), 1)
+        }
+    }
+
     var journeyDescription: String {
         switch self {
         case .localFile:

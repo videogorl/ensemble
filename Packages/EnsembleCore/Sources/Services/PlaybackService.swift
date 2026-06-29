@@ -5123,7 +5123,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         unexpectedPauseCount = 0
         lastUnexpectedPauseAt = nil
 
-        bufferedProgress = source.fileURL == nil ? 0 : 1.0
+        bufferedProgress = source.initialBufferedProgress
 
         // CRITICAL: If the audio session is currently interrupted or a route change
         // is in progress, do NOT attempt to play yet.

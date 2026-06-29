@@ -3,6 +3,56 @@ import Foundation
 import XCTest
 
 final class AudioPlaybackEngineStreamingTests: XCTestCase {
+    func testOffsetStreamingBufferedProgressMapsOntoTrackTimeline() {
+        XCTAssertEqual(
+            AudioPlaybackEngine.absoluteStreamingBufferedProgress(
+                0.10,
+                startTime: 4,
+                duration: 10
+            ),
+            0.50,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            AudioPlaybackEngine.absoluteStreamingBufferedProgress(
+                1,
+                startTime: 4,
+                duration: 10
+            ),
+            1,
+            accuracy: 0.001
+        )
+    }
+
+    func testZeroStartStreamingBufferedProgressRemainsStreamRelative() {
+        XCTAssertEqual(
+            AudioPlaybackEngine.absoluteStreamingBufferedProgress(
+                0.25,
+                startTime: 0,
+                duration: 10
+            ),
+            0.25,
+            accuracy: 0.001
+        )
+    }
+
+    func testOffsetStreamingSourceInitialBufferedProgressStartsAtOffset() {
+        let source = PlaybackSource.transcodedHTTP(
+            URLRequest(url: URL(string: "https://audio.test/start.mp3")!),
+            metadata: PlaybackSourceMetadata(
+                trackId: "offset-source",
+                ratingKey: "1",
+                estimatedContentLength: nil,
+                duration: 10,
+                startTime: 4,
+                isSeekable: false,
+                cacheFileExtension: "mp3"
+            )
+        )
+
+        XCTAssertEqual(source.initialBufferedProgress, 0.4, accuracy: 0.001)
+    }
+
     func testEngineLoadsStreamingSourceThroughSourceContract() async throws {
         let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
         guard FileManager.default.fileExists(atPath: fixtureURL.path) else {

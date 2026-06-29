@@ -1011,7 +1011,12 @@ public final class AudioPlaybackEngine {
             duration: metadata.duration
         ))
 
-        let format = try await startStreamingPipeline(pipeline, trackId: trackId)
+        let format = try await startStreamingPipeline(
+            pipeline,
+            trackId: trackId,
+            startTime: metadata.startTime,
+            duration: metadata.duration
+        )
         sampleRate = format.sampleRate
         fileDuration = metadata.duration ?? 0
         streamingStartTime = Self.clampedPlaybackPosition(metadata.startTime, duration: fileDuration)
@@ -1056,7 +1061,9 @@ public final class AudioPlaybackEngine {
 
     private func startStreamingPipeline(
         _ pipeline: StreamingAudioPipeline,
-        trackId: String
+        trackId: String,
+        startTime: TimeInterval,
+        duration: TimeInterval?
     ) async throws -> AVAudioFormat {
         try await withCheckedThrowingContinuation { continuation in
             let lock = NSLock()
@@ -1084,7 +1091,14 @@ public final class AudioPlaybackEngine {
                 EnsembleLogger.debug("[StreamingPipeline] first PCM trackId=\(trackId)")
             }
             pipeline.onBufferedProgress = { [weak self] progress in
-                self?.onBufferedProgress?(trackId, progress)
+                self?.onBufferedProgress?(
+                    trackId,
+                    Self.absoluteStreamingBufferedProgress(
+                        progress,
+                        startTime: startTime,
+                        duration: duration
+                    )
+                )
             }
             pipeline.onFormatReady = { format in
                 resumeOnce(.success(format))
@@ -1094,6 +1108,26 @@ public final class AudioPlaybackEngine {
             }
             pipeline.start()
         }
+    }
+
+    static func absoluteStreamingBufferedProgress(
+        _ streamProgress: Double,
+        startTime: TimeInterval,
+        duration: TimeInterval?
+    ) -> Double {
+        let boundedStreamProgress = min(max(streamProgress, 0), 1)
+        guard
+            let duration,
+            duration.isFinite,
+            duration > 0,
+            startTime.isFinite,
+            startTime > 0
+        else {
+            return boundedStreamProgress
+        }
+
+        let startProgress = min(max(startTime / duration, 0), 1)
+        return min(max(startProgress + boundedStreamProgress, startProgress), 1)
     }
 
     private func clearStreamingPipeline() {
