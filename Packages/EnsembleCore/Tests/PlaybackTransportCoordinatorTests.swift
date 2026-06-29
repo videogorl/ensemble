@@ -72,6 +72,133 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         XCTAssertEqual(ensureCalls.value, 0)
     }
 
+    func testResolvePlaybackSourceUsesPreparedLocalFileWithoutServerCalls() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let localURL = tempDir.appendingPathComponent("transport-local-source-\(UUID().uuidString).mp3")
+        try Data(repeating: 0x41, count: 512).write(to: localURL)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+
+        let track = Track(
+            id: "track-local-source",
+            key: "/library/metadata/local-source",
+            title: "Local Source",
+            duration: 180,
+            localFilePath: localURL.path,
+            sourceCompositeKey: "plex:test"
+        )
+
+        let ensureCalls = LockedCounter()
+        let coordinator = PlaybackTransportCoordinator(
+            dependencies: .init(
+                networkState: { .online(.wifi) },
+                preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                isClearlyInvalidLocalPayload: { _ in false },
+                ensureServerConnection: { _ in _ = ensureCalls.increment() },
+                serverFailureMessage: { _ in nil },
+                makeStreamDecision: { _, _ in XCTFail("should not request stream decision"); throw PlexAPIError.invalidURL },
+                assembleStreamResolution: { _, _ in XCTFail("should not assemble resolution"); throw PlexAPIError.invalidURL },
+                refreshConnection: { XCTFail("should not refresh connection") },
+                shouldRetryStreamURLRequest: { _ in false },
+                mapToPlaybackError: { .unknown($0) }
+            )
+        )
+
+        let source = try await coordinator.resolvePlaybackSource(for: track)
+
+        guard case let .localFile(resolvedURL) = source else {
+            return XCTFail("expected localFile")
+        }
+        XCTAssertEqual(resolvedURL.path, localURL.path)
+        XCTAssertEqual(ensureCalls.value, 0)
+    }
+
+    func testResolvePlaybackSourceReturnsDirectHTTPWithoutDownloading() async throws {
+        let track = Track(
+            id: "track-direct",
+            key: "/library/metadata/direct",
+            title: "Direct",
+            duration: 180,
+            sourceCompositeKey: "plex:test"
+        )
+        let remoteURL = try XCTUnwrap(URL(string: "https://example.test/library/parts/direct/file.mp3"))
+        let coordinator = PlaybackTransportCoordinator(
+            dependencies: .init(
+                networkState: { .online(.wifi) },
+                preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                isClearlyInvalidLocalPayload: { _ in false },
+                ensureServerConnection: { _ in },
+                serverFailureMessage: { _ in nil },
+                makeStreamDecision: { _, _ in .directStream(partKey: "/library/parts/direct/file.mp3") },
+                assembleStreamResolution: { _, _ in .directStream(remoteURL) },
+                refreshConnection: {},
+                shouldRetryStreamURLRequest: { _ in false },
+                mapToPlaybackError: { .unknown($0) }
+            )
+        )
+
+        let source = try await coordinator.resolvePlaybackSource(for: track)
+
+        guard case let .directHTTP(request, metadata) = source else {
+            return XCTFail("expected directHTTP")
+        }
+        XCTAssertEqual(request.url, remoteURL)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertEqual(metadata.trackId, track.playbackIdentity)
+        XCTAssertTrue(metadata.isSeekable)
+        XCTAssertEqual(metadata.cacheFileExtension, "mp3")
+    }
+
+    func testResolvePlaybackSourceReturnsTranscodedHTTPWithoutWaitingForDownload() async throws {
+        let track = Track(
+            id: "track-transcode",
+            key: "/library/metadata/transcode",
+            title: "Transcode",
+            duration: 180,
+            sourceCompositeKey: "plex:test"
+        )
+        let remoteURL = try XCTUnwrap(URL(string: "https://example.test/music/:/transcode/universal/start.mp3"))
+        let request = URLRequest(url: remoteURL)
+        let coordinator = PlaybackTransportCoordinator(
+            dependencies: .init(
+                networkState: { .online(.wifi) },
+                preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                isClearlyInvalidLocalPayload: { _ in false },
+                ensureServerConnection: { _ in },
+                serverFailureMessage: { _ in nil },
+                makeStreamDecision: { _, _ in
+                    .progressiveTranscode(TranscodeStreamDecision(
+                        path: "/music/:/transcode/universal/start.mp3",
+                        queryItems: [],
+                        ratingKey: track.id,
+                        estimatedContentLength: 1024,
+                        metadataDuration: track.duration
+                    ))
+                },
+                assembleStreamResolution: { _, _ in
+                    .progressiveTranscode(ProgressiveStreamConfig(
+                        streamRequest: request,
+                        ratingKey: track.id,
+                        estimatedContentLength: 1024,
+                        metadataDuration: track.duration
+                    ))
+                },
+                refreshConnection: {},
+                shouldRetryStreamURLRequest: { _ in false },
+                mapToPlaybackError: { .unknown($0) }
+            )
+        )
+
+        let source = try await coordinator.resolvePlaybackSource(for: track)
+
+        guard case let .transcodedHTTP(resolvedRequest, metadata) = source else {
+            return XCTFail("expected transcodedHTTP")
+        }
+        XCTAssertEqual(resolvedRequest.url, remoteURL)
+        XCTAssertFalse(metadata.isSeekable)
+        XCTAssertEqual(metadata.estimatedContentLength, 1024)
+        XCTAssertEqual(metadata.cacheFileExtension, "mp3")
+    }
+
     func testResolveAudioFileCachesStreamDecisionAcrossCalls() async throws {
         let track = Track(
             id: "track-2",

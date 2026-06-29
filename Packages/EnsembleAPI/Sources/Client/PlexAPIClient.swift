@@ -44,6 +44,18 @@ public struct ProgressiveStreamConfig: Sendable {
     public let ratingKey: String
     public let estimatedContentLength: Int64
     public let metadataDuration: Double?
+
+    public init(
+        streamRequest: URLRequest,
+        ratingKey: String,
+        estimatedContentLength: Int64,
+        metadataDuration: Double?
+    ) {
+        self.streamRequest = streamRequest
+        self.ratingKey = ratingKey
+        self.estimatedContentLength = estimatedContentLength
+        self.metadataDuration = metadataDuration
+    }
 }
 
 /// Result of resolving how to stream a track — either a remote URL AVPlayer

@@ -58,6 +58,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 
 - New ViewModel: `Packages/EnsembleCore/Sources/ViewModels/`
 - New Core service: `Packages/EnsembleCore/Sources/Services/`
+- New playback source/transport contract: `Packages/EnsembleCore/Sources/Services/`
 - New playback planner/analysis service: `Packages/EnsembleCore/Sources/Services/`
 - Shared artwork wash renderer/cache: `Packages/EnsembleCore/Sources/Services/ArtworkBlurRenderer.swift`
 - Shared Foundation-only utility: `Packages/EnsembleSupport/Sources/`

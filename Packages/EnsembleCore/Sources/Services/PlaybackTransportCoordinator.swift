@@ -2,7 +2,7 @@ import EnsembleAPI
 import Foundation
 
 /// Owns stream-decision, resolution-task, and progressive-loader state so
-/// PlaybackService can delegate transport concerns without changing its API.
+/// PlaybackService can delegate transport concerns without owning Plex endpoint details.
 final class PlaybackTransportCoordinator {
     struct Dependencies {
         let networkState: @Sendable () async -> NetworkState
@@ -20,41 +20,46 @@ final class PlaybackTransportCoordinator {
     private let dependencies: Dependencies
     private let lock = NSLock()
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
-    private var fileResolutionTasks: [String: Task<URL, Error>] = [:]
+    private var sourceResolutionTasks: [String: Task<PlaybackSource, Error>] = [:]
     private var streamLoaders: [String: ProgressiveStreamLoader] = [:]
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
     }
 
-    func resolveAudioFile(for track: Track) async throws -> URL {
+    func resolvePlaybackSource(for track: Track) async throws -> PlaybackSource {
         let trackIdentity = track.playbackIdentity
-        if let existingTask = withLock({ fileResolutionTasks[trackIdentity] }) {
+        if let existingTask = withLock({ sourceResolutionTasks[trackIdentity] }) {
             return try await existingTask.value
         }
 
-        let task = Task<URL, Error> { [weak self] in
+        let task = Task<PlaybackSource, Error> { [weak self] in
             guard let self else {
                 throw PlaybackError.unknown(NSError(domain: "PlaybackTransportCoordinator", code: -1))
             }
-            return try await self.resolveAudioFileImpl(for: track)
+            return try await self.resolvePlaybackSourceImpl(for: track)
         }
-        withLock { fileResolutionTasks[trackIdentity] = task }
+        withLock { sourceResolutionTasks[trackIdentity] = task }
 
         do {
             let result = try await task.value
-            _ = withLock { fileResolutionTasks.removeValue(forKey: trackIdentity) }
+            _ = withLock { sourceResolutionTasks.removeValue(forKey: trackIdentity) }
             return result
         } catch {
-            _ = withLock { fileResolutionTasks.removeValue(forKey: trackIdentity) }
+            _ = withLock { sourceResolutionTasks.removeValue(forKey: trackIdentity) }
             throw error
         }
     }
 
+    func resolveAudioFile(for track: Track) async throws -> URL {
+        let source = try await resolvePlaybackSource(for: track)
+        return try await materializeSourceToFile(source, for: track)
+    }
+
     func cancelResolution(for trackId: String) {
         withLock {
-            fileResolutionTasks[trackId]?.cancel()
-            fileResolutionTasks.removeValue(forKey: trackId)
+            sourceResolutionTasks[trackId]?.cancel()
+            sourceResolutionTasks.removeValue(forKey: trackId)
         }
     }
 
@@ -65,8 +70,8 @@ final class PlaybackTransportCoordinator {
                 cachedStreamDecisions.removeValue(forKey: trackId)
             }
             if cancelTask {
-                fileResolutionTasks[trackId]?.cancel()
-                fileResolutionTasks.removeValue(forKey: trackId)
+                sourceResolutionTasks[trackId]?.cancel()
+                sourceResolutionTasks.removeValue(forKey: trackId)
             }
         }
     }
@@ -77,10 +82,10 @@ final class PlaybackTransportCoordinator {
                 loader.cancel()
             }
             streamLoaders.removeAll()
-            for task in fileResolutionTasks.values {
+            for task in sourceResolutionTasks.values {
                 task.cancel()
             }
-            fileResolutionTasks.removeAll()
+            sourceResolutionTasks.removeAll()
             if removeDecisions {
                 cachedStreamDecisions.removeAll()
             }
@@ -103,7 +108,7 @@ final class PlaybackTransportCoordinator {
         withLock { cachedStreamDecisions.count }
     }
 
-    private func resolveAudioFileImpl(for track: Track) async throws -> URL {
+    private func resolvePlaybackSourceImpl(for track: Track) async throws -> PlaybackSource {
         let qualityString = UserDefaults.standard.string(forKey: "streamingQuality") ?? "high"
         let quality = StreamingQuality(rawValue: qualityString) ?? .high
 
@@ -114,13 +119,13 @@ final class PlaybackTransportCoordinator {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = dependencies.preparedLocalPlaybackURL(localPath)
                 if !dependencies.isClearlyInvalidLocalPayload(localPlaybackURL) {
-                    return localPlaybackURL
+                    return .localFile(localPlaybackURL)
                 }
                 if localPlaybackURL.path != localPath {
                     try? FileManager.default.removeItem(at: localPlaybackURL)
                     let originalURL = URL(fileURLWithPath: localPath)
                     if !dependencies.isClearlyInvalidLocalPayload(originalURL) {
-                        return originalURL
+                        return .localFile(originalURL)
                     }
                 }
                 if isDefinitelyOffline { throw PlaybackError.corruptLocalFile }
@@ -132,7 +137,7 @@ final class PlaybackTransportCoordinator {
         }
 
         if let completedURL = completedLoaderURLIfAvailable(for: track) {
-            return completedURL
+            return .cachedFile(completedURL, origin: .transcodeCache)
         }
 
         do {
@@ -151,14 +156,14 @@ final class PlaybackTransportCoordinator {
         }
 
         do {
-            return try await handleStreamResolution(resolution, for: track, quality: quality)
+            return try await handleStreamResolution(resolution, for: track)
         } catch {
             guard dependencies.shouldRetryStreamURLRequest(error) else {
                 throw dependencies.mapToPlaybackError(error)
             }
             try await dependencies.refreshConnection()
             let freshResolution = try await dependencies.assembleStreamResolution(track, decision)
-            return try await handleStreamResolution(freshResolution, for: track, quality: quality)
+            return try await handleStreamResolution(freshResolution, for: track)
         }
     }
 
@@ -171,7 +176,7 @@ final class PlaybackTransportCoordinator {
             if loader.completionError != nil {
                 streamLoaders.removeValue(forKey: trackIdentity)?.cancel()
                 cachedStreamDecisions.removeValue(forKey: trackIdentity)
-                fileResolutionTasks.removeValue(forKey: trackIdentity)
+                sourceResolutionTasks.removeValue(forKey: trackIdentity)
                 return nil
             }
             return loader.localFileURL
@@ -205,24 +210,75 @@ final class PlaybackTransportCoordinator {
 
     private func handleStreamResolution(
         _ resolution: StreamResolution,
-        for track: Track,
-        quality: StreamingQuality
-    ) async throws -> URL {
+        for track: Track
+    ) async throws -> PlaybackSource {
         switch resolution {
         case let .downloadedFile(url):
-            return url
+            return .cachedFile(url, origin: .streamCache)
         case let .directStream(url):
-            if url.isFileURL { return url }
-            return try await downloadStreamToTempFile(url: url, trackId: track.playbackIdentity)
+            if url.isFileURL { return .localFile(url) }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            return .directHTTP(request, metadata: PlaybackSourceMetadata(
+                trackId: track.playbackIdentity,
+                ratingKey: track.id,
+                estimatedContentLength: nil,
+                duration: track.duration,
+                isSeekable: true,
+                cacheFileExtension: url.pathExtension.isEmpty ? "mp3" : url.pathExtension
+            ))
         case let .progressiveTranscode(config):
-            return try await startProgressiveDownload(for: track, config: config, quality: quality)
+            return .transcodedHTTP(config.streamRequest, metadata: PlaybackSourceMetadata(
+                trackId: track.playbackIdentity,
+                ratingKey: config.ratingKey,
+                estimatedContentLength: config.estimatedContentLength,
+                duration: config.metadataDuration,
+                isSeekable: false,
+                cacheFileExtension: "mp3"
+            ))
+        }
+    }
+
+    private func materializeSourceToFile(_ source: PlaybackSource, for track: Track) async throws -> URL {
+        switch source {
+        case let .localFile(url), let .cachedFile(url, _):
+            return url
+        case let .directHTTP(request, metadata):
+            guard let url = request.url else { throw PlaybackError.streamURLUnavailable }
+            return try await downloadStreamToTempFile(
+                url: url,
+                trackId: metadata.trackId
+            )
+        case let .transcodedHTTP(request, metadata):
+            return try await startProgressiveDownload(
+                for: track,
+                request: request,
+                ratingKey: metadata.ratingKey ?? track.id,
+                estimatedContentLength: metadata.estimatedContentLength ?? 0,
+                metadataDuration: metadata.duration
+            )
         }
     }
 
     private func startProgressiveDownload(
         for track: Track,
-        config: ProgressiveStreamConfig,
-        quality: StreamingQuality
+        config: ProgressiveStreamConfig
+    ) async throws -> URL {
+        try await startProgressiveDownload(
+            for: track,
+            request: config.streamRequest,
+            ratingKey: config.ratingKey,
+            estimatedContentLength: config.estimatedContentLength,
+            metadataDuration: config.metadataDuration
+        )
+    }
+
+    private func startProgressiveDownload(
+        for track: Track,
+        request: URLRequest,
+        ratingKey: String,
+        estimatedContentLength: Int64,
+        metadataDuration: Double?
     ) async throws -> URL {
         let trackIdentity = track.playbackIdentity
         if let existing = withLock({ streamLoaders[trackIdentity] }) {
@@ -230,24 +286,22 @@ final class PlaybackTransportCoordinator {
                 if let error = existing.completionError { throw error }
                 return existing.localFileURL
             }
-            return try await waitForDownload(loader: existing, trackId: trackIdentity, quality: quality)
+            return try await waitForDownload(loader: existing)
         }
 
         let loader = ProgressiveStreamLoader(
-            request: config.streamRequest,
-            ratingKey: config.ratingKey,
+            request: request,
+            ratingKey: ratingKey,
             cacheIdentity: trackIdentity,
-            estimatedContentLength: config.estimatedContentLength,
-            metadataDuration: config.metadataDuration
+            estimatedContentLength: estimatedContentLength,
+            metadataDuration: metadataDuration
         )
         withLock { streamLoaders[trackIdentity] = loader }
-        return try await waitForDownload(loader: loader, trackId: trackIdentity, quality: quality)
+        return try await waitForDownload(loader: loader)
     }
 
     private func waitForDownload(
-        loader: ProgressiveStreamLoader,
-        trackId _: String,
-        quality _: StreamingQuality
+        loader: ProgressiveStreamLoader
     ) async throws -> URL {
         if loader.isDownloadComplete {
             if let error = loader.completionError { throw error }
