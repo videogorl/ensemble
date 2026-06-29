@@ -20,6 +20,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - Playback start paths must pass `PlaybackStartContext`. Only direct app UI starts donate to system media; Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery are non-donating.
 - macOS Dock menu playback controls are user commands for the existing queue/playback state. They must dispatch through `PlaybackService`/active Now Playing owners and must not add system-media donations or mutate `MPRemoteCommandCenter` directly.
 - Playback should prefer valid local files/downloads when present. Corrupt or invalid local files fail locally while online paths may recover by streaming or refreshing.
+- Network playback should start from incremental `PlaybackSource` streams instead of waiting for complete temp files. Direct Plex file streams and PMS universal transcodes decode through `AudioPlaybackEngine` via the streaming decoder/pipeline; write-through cache files are follow-on assets for analysis, replay, and local scheduling, not startup prerequisites.
 - Device-offline queues are filtered to downloaded tracks. Device-online queues skip non-downloaded tracks from unavailable servers.
 - Direct file streams and universal transcode can both be valid. Do not disable either broadly without live endpoint proof and a scoped failing path.
 - Timeline and scrobble reporting must remain source-exact; do not fall back across Plex source boundaries.
@@ -31,7 +32,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - `PlaybackService` remains the playback facade and side-effect boundary for queue mutation and transport retry loops.
 - `QueueManager` owns queue state and pure queue operations.
 - `PlaybackQueueController` owns queue persistence, history normalization, autoplay flattening, and download-state restamping.
-- `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
+- `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `StreamingAudioPipeline`, `StreamingAudioDecoder`, `StreamingPCMBuffer`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
 - `ForegroundWorkScheduler` owns playback-safe budgeting for optional analysis work; it must not block user-initiated playback commands or download transfers.
 - `PlaybackNowPlayingBridge` owns `MPNowPlayingInfoCenter` and remote command writes.
 - `SystemMediaIntegrationService` owns donations, Spotlight indexing/deletion, and media user-context refresh.

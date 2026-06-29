@@ -4,15 +4,15 @@
 
 Ensemble uses smart routing via `PlexAPIClient.resolveStreamURL()`:
 
-1. **Original quality + stream key** → direct file URL (no decision call). Instant playback (<1s).
+1. **Original quality + stream key** → direct file URL (no decision call). Incremental playback through `AudioPlaybackEngine`.
 2. **Non-original quality** → call decision endpoint:
-   - `directplay` or `copy` → direct file URL (<1s startup)
-   - `transcode` → **progressive stream** via `ProgressiveStreamLoader` (~1-2s startup)
-3. **No stream key** → progressive transcode stream (decision call + start.mp3).
+   - `directplay` or `copy` → direct file URL, decoded incrementally
+   - `transcode` → universal `start.mp3`, decoded incrementally while writing cache
+3. **No stream key** → universal transcode stream (decision call + start.mp3), decoded incrementally while writing cache.
 
-Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) that AVPlayer handles natively.
+Direct file stream (`/library/parts/...`) returns proper HTTP headers (`Accept-Ranges: bytes`, `Content-Length`, `206 Partial Content`) and is suitable for incremental native decoding.
 
-Progressive transcode uses `AVAssetResourceLoaderDelegate` with custom `ensemble-transcode://` URL scheme to bridge PMS's chunked `Transfer-Encoding` response to AVPlayer. Data is written to a growing temp file and served to AVPlayer as it arrives. Post-download: XING header injection + frequency analysis via `onDownloadComplete` callback.
+Current playback uses `PlaybackSource` → `StreamingAudioPipeline` → `StreamingAudioDecoder` → `StreamingPCMBuffer` → `AudioPlaybackEngine`. Network bytes are written through to cache while decoded PCM feeds an `AVAudioSourceNode`; complete cache files remain useful for analysis, replay, and local scheduling.
 
 The previous direct-stream-failure set and universal-endpoint-disable switch were removed in May 2026 because they were not connected to any live failure signal. Keep playback recovery scoped to the concrete failing load path instead of adding provider-wide cooldown switches.
 
@@ -128,7 +128,8 @@ without it). Each download uses a unique session ID so concurrent downloads do n
 - Offline downloads: `PlexAPIClient.getUniversalDownloadURL()` — returns URL for URLSession download task (caller must call decision separately)
 - Playback (transcode needed): `PlexAPIClient.downloadUniversalStreamToFile()` — calls decision + downloads to temp file, returns file URL for AVPlayer
 - Playback (smart routing): `PlexAPIClient.resolveStreamURL()` — calls decision, returns `.directStream(URL)`, `.downloadedFile(URL)`, or `.progressiveTranscode(ProgressiveStreamConfig)` based on PMS decision
-- Progressive streaming: `ProgressiveStreamLoader` (EnsembleCore) — AVAssetResourceLoaderDelegate that bridges chunked transcode to AVPlayer via `ensemble-transcode://` custom URL scheme
+- Incremental playback streaming: `StreamingAudioPipeline` + `StreamingAudioDecoder` (EnsembleCore) feed decoded PCM into `AudioPlaybackEngine` while writing cache
+- Compatibility/local-file materialization: `ProgressiveStreamLoader` remains available for paths that explicitly need a completed temp file
 
 
 ## Waveform / Loudness Data
