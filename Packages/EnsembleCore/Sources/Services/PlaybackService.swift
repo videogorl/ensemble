@@ -3508,17 +3508,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let trackId = currentTrack?.playbackIdentity {
             PlaybackJourneyLogger.mark("seekRequested", trackId: trackId, detail: "time=\(String(format: "%.2f", clampedTime))")
         }
-        updatePlaybackTimes(rawTime: clampedTime)
         do {
             try audioEngine?.seek(to: clampedTime)
+            updatePlaybackTimes(rawTime: clampedTime)
             if let trackId = currentTrack?.playbackIdentity {
                 PlaybackJourneyLogger.mark("seekCompleted", trackId: trackId, detail: "time=\(String(format: "%.2f", clampedTime))")
             }
+            updateNowPlayingInfo()
+            savePlaybackState()
         } catch {
             EnsembleLogger.playback("ENGINE: seek failed -- \(error.localizedDescription)")
         }
-        updateNowPlayingInfo()
-        savePlaybackState()
     }
 
     // MARK: - Fast Seeking (Long-Press Scrubbing)

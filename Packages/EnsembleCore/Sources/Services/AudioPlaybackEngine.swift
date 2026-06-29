@@ -1707,14 +1707,7 @@ public final class AudioPlaybackEngine {
     func seek(to time: TimeInterval) throws {
         cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         if streamingPipeline != nil {
-            // Preserve presentation truth for active streaming renders; source
-            // replacement owns network-range restarts.
-            seekFrameOffset = AVAudioFramePosition(time * sampleRate)
-            playerTimeBaseOffset = 0
-            updateDurablePlaybackPosition(time)
-            captureWallTimeBase(position: time)
-            EnsembleLogger.debug("[AudioEngine] Streaming seek position updated to \(String(format: "%.1f", time))s")
-            return
+            throw AudioPlaybackEngineError.streamingSeekUnavailable
         }
         guard let file = currentFile else { return }
         pendingRouteRecoveryPosition = nil
@@ -2267,6 +2260,7 @@ public final class AudioPlaybackEngine {
 public enum AudioPlaybackEngineError: Error, LocalizedError {
     case soundIsolationUnavailable
     case noFileLoaded
+    case streamingSeekUnavailable
 
     public var errorDescription: String? {
         switch self {
@@ -2274,6 +2268,8 @@ public enum AudioPlaybackEngineError: Error, LocalizedError {
             return "AUSoundIsolation audio unit is not available on this device"
         case .noFileLoaded:
             return "No audio file has been loaded"
+        case .streamingSeekUnavailable:
+            return "Seeking is not available until the current stream is seekable"
         }
     }
 }
