@@ -102,6 +102,36 @@ final class StreamingPCMBuffer {
         return framesToRead
     }
 
+    @discardableResult
+    func read(
+        into audioBufferList: UnsafeMutablePointer<AudioBufferList>,
+        frameCount: AVAudioFrameCount
+    ) -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let requestedFrames = Int(frameCount)
+        let framesToRead = min(requestedFrames, storedFrames)
+        let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+
+        for channelIndex in 0 ..< min(buffers.count, channels.count) {
+            let audioBuffer = buffers[channelIndex]
+            guard let data = audioBuffer.mData?.assumingMemoryBound(to: Float.self) else { continue }
+            for frameOffset in 0 ..< requestedFrames {
+                if frameOffset < framesToRead {
+                    let sourceIndex = (readIndex + frameOffset) % capacityFrames
+                    data[frameOffset] = channels[channelIndex][sourceIndex]
+                } else {
+                    data[frameOffset] = 0
+                }
+            }
+        }
+
+        readIndex = (readIndex + framesToRead) % capacityFrames
+        storedFrames -= framesToRead
+        return framesToRead
+    }
+
     func clear() {
         lock.lock()
         defer { lock.unlock() }

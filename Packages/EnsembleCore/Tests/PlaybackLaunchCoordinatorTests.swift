@@ -62,8 +62,8 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
                 enqueueVisualizerLoad: { track, _, _ in
                     visualizerTrackID.set(track.id)
                 },
-                loadAndPlay: { resolvedURL, track in
-                    loadedURL.set(resolvedURL)
+                loadAndPlay: { source, track in
+                    loadedURL.set(source.fileURL)
                     loadedTrackID.set(track.id)
                 },
                 seek: { time in
@@ -75,7 +75,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
             )
         )
 
-        await coordinator.completeLaunch(for: track, fileURL: url, recoverySeekTime: 42)
+        await coordinator.completeLaunch(for: track, source: .localFile(url), recoverySeekTime: 42)
         await Task.yield()
 
         XCTAssertEqual(visualizerTrackID.withValue { $0 }, "1")

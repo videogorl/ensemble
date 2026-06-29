@@ -58,6 +58,12 @@ final class StreamingAudioPipeline: NSObject {
         return pcmBuffer?.availableFrames ?? 0
     }
 
+    var isComplete: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return completed
+    }
+
     func start() {
         do {
             try FileManager.default.createDirectory(
@@ -99,6 +105,18 @@ final class StreamingAudioPipeline: NSObject {
             return 0
         }
         return try pcmBuffer.read(into: buffer, frameCount: frameCount)
+    }
+
+    @discardableResult
+    func render(
+        into audioBufferList: UnsafeMutablePointer<AudioBufferList>,
+        frameCount: AVAudioFrameCount
+    ) -> Int {
+        stateLock.lock()
+        let pcmBuffer = self.pcmBuffer
+        stateLock.unlock()
+        guard let pcmBuffer else { return 0 }
+        return pcmBuffer.read(into: audioBufferList, frameCount: frameCount)
     }
 
     private func wire(_ decoder: StreamingAudioDecoder) {

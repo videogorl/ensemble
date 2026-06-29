@@ -1,6 +1,6 @@
 import Foundation
 
-/// Owns the success path after a playable file URL has been resolved.
+/// Owns the success path after a playable source has been resolved.
 /// Keeps visualizer planning, engine load, recovery seek, and gapless prefetch
 /// out of PlaybackService's request/retry loop.
 final class PlaybackLaunchCoordinator {
@@ -14,7 +14,7 @@ final class PlaybackLaunchCoordinator {
         let isVisualizerEnabled: @Sendable () -> Bool
         let isInstrumentalModeActive: @Sendable () -> Bool
         let enqueueVisualizerLoad: @Sendable (Track, URL, VisualizerPlan) -> Void
-        let loadAndPlay: @MainActor (URL, Track) -> Void
+        let loadAndPlay: @MainActor (PlaybackSource, Track) async -> Void
         let seek: @MainActor (TimeInterval) -> Void
         let prefetchNext: @Sendable () async -> Void
     }
@@ -48,22 +48,24 @@ final class PlaybackLaunchCoordinator {
 
     func completeLaunch(
         for track: Track,
-        fileURL: URL,
+        source: PlaybackSource,
         recoverySeekTime: TimeInterval?
     ) async {
-        if let plan = Self.visualizerPlan(
-            isVisualizerEnabled: dependencies.isVisualizerEnabled(),
-            isInstrumentalModeActive: dependencies.isInstrumentalModeActive(),
-            processorCount: dependencies.processorCount()
-        ) {
-            dependencies.enqueueVisualizerLoad(track, fileURL, plan)
+        if let fileURL = source.fileURL {
+            if let plan = Self.visualizerPlan(
+                isVisualizerEnabled: dependencies.isVisualizerEnabled(),
+                isInstrumentalModeActive: dependencies.isInstrumentalModeActive(),
+                processorCount: dependencies.processorCount()
+            ) {
+                dependencies.enqueueVisualizerLoad(track, fileURL, plan)
+            } else {
+                EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
+            }
         } else {
-            EnsembleLogger.debug("[Visualizer] Skipped: isVisualizerEnabled=false")
+            EnsembleLogger.debug("[Visualizer] Streaming source uses live PCM until cache analysis completes")
         }
 
-        await MainActor.run {
-            dependencies.loadAndPlay(fileURL, track)
-        }
+        await dependencies.loadAndPlay(source, track)
 
         if let recoverySeekTime, recoverySeekTime > 0 {
             await MainActor.run {

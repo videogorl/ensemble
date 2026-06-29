@@ -29,6 +29,7 @@ public final class AudioPlaybackEngine {
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     private let smartMixPlayerNode = AVAudioPlayerNode()
+    private var streamingSourceNode: AVAudioSourceNode?
     private let outgoingHighPassEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let smartMixHighPassEQ = AVAudioUnitEQ(numberOfBands: 1)
     private let primaryTimePitch = AVAudioUnitTimePitch()
@@ -73,6 +74,9 @@ public final class AudioPlaybackEngine {
     private var sampleRate: Double = 44100
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
+    private var streamingPipeline: StreamingAudioPipeline?
+    private var streamingCompletionGeneration: UInt64 = 0
+    private var streamingCompletionNotified = false
 
     // MARK: - Encoder Delay Compensation
 
@@ -254,6 +258,9 @@ public final class AudioPlaybackEngine {
 
         // Disconnect existing connections from deck sources
         engine.disconnectNodeOutput(playerNode)
+        if let streamingSourceNode {
+            engine.disconnectNodeOutput(streamingSourceNode)
+        }
         engine.disconnectNodeOutput(smartMixPlayerNode)
         engine.disconnectNodeOutput(primaryTimePitch)
         engine.disconnectNodeOutput(outgoingHighPassEQ)
@@ -264,7 +271,11 @@ public final class AudioPlaybackEngine {
             engine.disconnectNodeOutput(effect)
         }
 
-        engine.connect(playerNode, to: primaryTimePitch, format: connectFormat)
+        if let streamingSourceNode {
+            engine.connect(streamingSourceNode, to: primaryTimePitch, format: connectFormat)
+        } else {
+            engine.connect(playerNode, to: primaryTimePitch, format: connectFormat)
+        }
         engine.connect(primaryTimePitch, to: outgoingHighPassEQ, format: connectFormat)
         engine.connect(outgoingHighPassEQ, to: deckMixer, format: connectFormat)
         engine.connect(smartMixPlayerNode, to: incomingTimePitch, format: connectFormat)
@@ -897,6 +908,7 @@ public final class AudioPlaybackEngine {
     /// Schedules the full file so it's ready for `resume()` without a separate `play(from:)` call.
     /// (`play(from:)` and `seek(to:)` call `playerNode.stop()` first, which clears this schedule.)
     func load(fileURL: URL, trackId: String) throws {
+        clearStreamingPipeline()
         cancelSmartMixTransition()
         activePlaybackDeck = .primary
         smartMixPlayerNode.stop()
@@ -949,6 +961,126 @@ public final class AudioPlaybackEngine {
 
         let trimmed = contentStart > 0 ? ", trim=\(contentStart)+\(Int64(file.length) - Int64(contentStart) - Int64(contentFrames))" : ""
         EnsembleLogger.debug("[AudioEngine] Loaded: \(fileURL.lastPathComponent), rate=\(sampleRate), frames=\(contentFrames)/\(file.length)\(trimmed), duration=\(String(format: "%.1f", fileDuration))s, trackId=\(trackId)")
+    }
+
+    func load(source: PlaybackSource, trackId: String) async throws {
+        switch source {
+        case let .localFile(url), let .cachedFile(url, _):
+            try load(fileURL: url, trackId: trackId)
+        case let .directHTTP(request, metadata), let .transcodedHTTP(request, metadata):
+            try await loadStreamingSource(request: request, metadata: metadata, trackId: trackId)
+        }
+    }
+
+    private func loadStreamingSource(
+        request: URLRequest,
+        metadata: PlaybackSourceMetadata,
+        trackId: String
+    ) async throws {
+        cancelSmartMixTransition()
+        clearStreamingPipeline()
+        activePlaybackDeck = .primary
+        smartMixPlayerNode.stop()
+        setVolume(1, for: .primary)
+        setVolume(0, for: .smartMix)
+        currentFile = nil
+        currentTrackId = trackId
+        pendingRouteRecoveryPosition = nil
+        seekFrameOffset = 0
+        playerTimeBaseOffset = 0
+        currentContentStartFrame = 0
+        currentContentFrameCount = 0
+        scheduledFiles.removeAll()
+        updateDurablePlaybackPosition(0)
+
+        let cacheURL = PlaybackStreamCacheIdentity.streamCacheDirectory
+            .appendingPathComponent(PlaybackStreamCacheIdentity.fileName(
+                for: trackId,
+                pathExtension: metadata.cacheFileExtension
+            ))
+        let pipeline = StreamingAudioPipeline(configuration: .init(
+            request: request,
+            fileExtension: metadata.cacheFileExtension,
+            cacheURL: cacheURL
+        ))
+
+        let format = try await startStreamingPipeline(pipeline, trackId: trackId)
+        sampleRate = format.sampleRate
+        fileDuration = metadata.duration ?? 0
+        currentContentFrameCount = AVAudioFrameCount(max(0, fileDuration * sampleRate))
+        streamingPipeline = pipeline
+        streamingCompletionNotified = false
+        scheduleGeneration &+= 1
+        streamingCompletionGeneration = scheduleGeneration
+
+        let sourceNode = AVAudioSourceNode(format: format) { [weak self, weak pipeline] _, _, frameCount, audioBufferList in
+            guard let self, let pipeline else { return noErr }
+            let read = pipeline.render(into: audioBufferList, frameCount: frameCount)
+            if read == 0, pipeline.isComplete {
+                DispatchQueue.main.async {
+                    self.handleStreamingComplete(generation: self.streamingCompletionGeneration)
+                }
+            }
+            return noErr
+        }
+        streamingSourceNode = sourceNode
+        engine.attach(sourceNode)
+        buildGraph(format: format)
+        applyIsolationParameters()
+
+        EnsembleLogger.debug(
+            "[AudioEngine] Loaded streaming source trackId=\(trackId)"
+            + " rate=\(sampleRate)"
+            + " duration=\(String(format: "%.1f", fileDuration))s"
+            + " ext=\(metadata.cacheFileExtension)"
+        )
+    }
+
+    private func startStreamingPipeline(
+        _ pipeline: StreamingAudioPipeline,
+        trackId: String
+    ) async throws -> AVAudioFormat {
+        try await withCheckedThrowingContinuation { continuation in
+            let lock = NSLock()
+            var didResume = false
+            let resumeOnce: (Result<AVAudioFormat, Error>) -> Void = { result in
+                lock.lock()
+                guard !didResume else {
+                    lock.unlock()
+                    return
+                }
+                didResume = true
+                lock.unlock()
+                continuation.resume(with: result)
+            }
+            pipeline.onFirstByte = {
+                EnsembleLogger.debug("[StreamingPipeline] first byte trackId=\(trackId)")
+            }
+            pipeline.onFirstPacket = {
+                EnsembleLogger.debug("[StreamingPipeline] first packet trackId=\(trackId)")
+            }
+            pipeline.onFirstPCM = {
+                EnsembleLogger.debug("[StreamingPipeline] first PCM trackId=\(trackId)")
+            }
+            pipeline.onFormatReady = { format in
+                resumeOnce(.success(format))
+            }
+            pipeline.onFailure = { error in
+                resumeOnce(.failure(error))
+            }
+            pipeline.start()
+        }
+    }
+
+    private func clearStreamingPipeline() {
+        streamingPipeline?.cancel()
+        streamingPipeline = nil
+        if let streamingSourceNode {
+            engine.disconnectNodeOutput(streamingSourceNode)
+            engine.detach(streamingSourceNode)
+        }
+        streamingSourceNode = nil
+        streamingCompletionNotified = false
     }
 
     // MARK: - Gapless Scheduling
@@ -1408,6 +1540,19 @@ public final class AudioPlaybackEngine {
     /// Schedule and start playback from the given time offset (in user-visible seconds).
     func play(from time: TimeInterval = 0) throws {
         cancelSmartMixTransition()
+        if streamingPipeline != nil {
+            pendingRouteRecoveryPosition = nil
+            seekFrameOffset = AVAudioFramePosition(time * sampleRate)
+            playerTimeBaseOffset = 0
+            if !engine.isRunning {
+                try engine.start()
+            }
+            applyIsolationParameters()
+            wasPlaying = true
+            startTimeUpdates(from: time)
+            EnsembleLogger.debug("[AudioEngine] Streaming play from \(String(format: "%.1f", time))s")
+            return
+        }
         guard let file = currentFile else {
             throw AudioPlaybackEngineError.noFileLoaded
         }
@@ -1488,6 +1633,14 @@ public final class AudioPlaybackEngine {
             // Engine restart can reset AU state — re-apply isolation parameters
             applyIsolationParameters()
         }
+        if streamingPipeline != nil {
+            let observedPosition = currentTimeSubject.value
+            wasPlaying = true
+            startTimeUpdates(from: observedPosition)
+            updateDurablePlaybackPosition(observedPosition)
+            EnsembleLogger.debug("[AudioEngine] Streaming resumed")
+            return
+        }
         let observedPosition = currentTimeSubject.value
         let resumePosition = Self.resolvedRouteRecoveryPosition(
             livePosition: currentTime(),
@@ -1515,6 +1668,7 @@ public final class AudioPlaybackEngine {
         if engine.isRunning {
             engine.stop()
         }
+        clearStreamingPipeline()
         wasPlaying = false
         seekFrameOffset = 0
         playerTimeBaseOffset = 0
@@ -1529,6 +1683,16 @@ public final class AudioPlaybackEngine {
     /// Seek to a new position within the current file (in user-visible seconds).
     func seek(to time: TimeInterval) throws {
         cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
+        if streamingPipeline != nil {
+            // Preserve presentation truth for active streaming renders; source
+            // replacement owns network-range restarts.
+            seekFrameOffset = AVAudioFramePosition(time * sampleRate)
+            playerTimeBaseOffset = 0
+            updateDurablePlaybackPosition(time)
+            captureWallTimeBase(position: time)
+            EnsembleLogger.debug("[AudioEngine] Streaming seek position updated to \(String(format: "%.1f", time))s")
+            return
+        }
         guard let file = currentFile else { return }
         pendingRouteRecoveryPosition = nil
 
@@ -1825,6 +1989,16 @@ public final class AudioPlaybackEngine {
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
             onPlaybackComplete?()
         }
+    }
+
+    private func handleStreamingComplete(generation: UInt64) {
+        guard generation == streamingCompletionGeneration else { return }
+        guard wasPlaying, !streamingCompletionNotified else { return }
+        streamingCompletionNotified = true
+        wasPlaying = false
+        stopTimeUpdates()
+        EnsembleLogger.debug("[AudioEngine] Streaming source complete -- queue exhausted")
+        onPlaybackComplete?()
     }
 
     /// Handle completion of a gapless-scheduled file.

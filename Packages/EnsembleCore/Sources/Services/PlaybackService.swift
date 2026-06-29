@@ -1229,8 +1229,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     )
                 }
             },
-            loadAndPlay: { [weak self] fileURL, track in
-                self?.loadAndPlayFile(fileURL: fileURL, track: track)
+            loadAndPlay: { [weak self] source, track in
+                await self?.loadAndPlaySource(source, track: track)
             },
             seek: { [weak self] time in
                 self?.seek(to: time)
@@ -4360,31 +4360,32 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         for attempt in 0 ..< maxRetries {
             do {
                 if attempt > 0 {
-                    EnsembleLogger.debug("[playCurrentQueueItem] Retrying resolveAudioFile (attempt \(attempt + 1)/\(maxRetries))")
+                    EnsembleLogger.debug("[playCurrentQueueItem] Retrying resolvePlaybackSource (attempt \(attempt + 1)/\(maxRetries))")
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
 
-                // Check for cached URL first
-                var fileURL: URL
+                // Check for cached file first; remote sources resolve through transport.
+                var source: PlaybackSource
                 if let cachedURL = await MainActor.run(body: { getCachedFileURL(for: trackIdentity) }),
                    !request.forcingFreshItem,
                    FileManager.default.fileExists(atPath: cachedURL.path)
                 {
-                    fileURL = cachedURL
+                    source = .cachedFile(cachedURL, origin: .streamCache)
                 } else {
-                    fileURL = try await resolveAudioFile(for: request.track)
+                    source = try await resolvePlaybackSource(for: request.track)
                 }
 
                 // Validate cached file isn't truncated (interrupted download or stale cache).
                 // A truncated file causes premature track completion and stale gapless state.
                 let expectedDuration = request.track.duration
-                if PlaybackLocalFilePolicy.shouldCheckForTruncation(expectedDuration: expectedDuration) {
+                if let fileURL = source.fileURL,
+                   PlaybackLocalFilePolicy.shouldCheckForTruncation(expectedDuration: expectedDuration) {
                     let probeFile = try AVAudioFile(forReading: fileURL)
                     let fileDuration = Double(probeFile.length) / probeFile.processingFormat.sampleRate
                     if PlaybackLocalFilePolicy.shouldTreatAsTruncated(fileDuration: fileDuration, expectedDuration: expectedDuration) {
                         EnsembleLogger.debug("[playCurrentQueueItem] Truncated file for '\(request.track.title)': file=\(String(format: "%.1f", fileDuration))s expected=\(String(format: "%.1f", expectedDuration))s — re-downloading")
                         await evictTruncatedFile(fileURL: fileURL, track: request.track, fileDuration: fileDuration, expectedDuration: expectedDuration)
-                        fileURL = try await resolveAudioFile(for: request.track)
+                        source = try await resolvePlaybackSource(for: request.track)
                     }
                 }
 
@@ -4400,7 +4401,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
                 await launchCoordinator.completeLaunch(
                     for: request.track,
-                    fileURL: fileURL,
+                    source: source,
                     recoverySeekTime: request.recoverySeekTime
                 )
                 return
@@ -4602,13 +4603,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playbackState = .failed(failureMessage ?? "Server is unavailable")
     }
 
-    /// Resolve a playable audio file URL for a track.
-    /// Downloaded tracks return immediately. Streaming tracks download to a temp file first.
-    /// Deduplicates concurrent requests for the same track.
+    /// Resolve a playable source for a track. File-backed sources are cached;
+    /// remote sources stream incrementally through `AudioPlaybackEngine`.
+    private func resolvePlaybackSource(for track: Track) async throws -> PlaybackSource {
+        let source = try await transportCoordinator.resolvePlaybackSource(for: track)
+        if let fileURL = source.fileURL {
+            await MainActor.run { cacheFileURL(fileURL, for: track.playbackIdentity) }
+        }
+        return source
+    }
+
     private func resolveAudioFile(for track: Track) async throws -> URL {
-        let result = try await transportCoordinator.resolveAudioFile(for: track)
-        await MainActor.run { cacheFileURL(result, for: track.playbackIdentity) }
-        return result
+        let fileURL = try await transportCoordinator.resolveAudioFile(for: track)
+        await MainActor.run { cacheFileURL(fileURL, for: track.playbackIdentity) }
+        return fileURL
     }
 
     private func shouldRetryStreamURLRequest(after error: Error) -> Bool {
@@ -5023,8 +5031,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Load a file into AudioPlaybackEngine and start playback.
     @MainActor
     private func loadAndPlayFile(fileURL: URL, track: Track) {
+        Task { @MainActor in
+            await loadAndPlaySource(.localFile(fileURL), track: track)
+        }
+    }
+
+    @MainActor
+    private func loadAndPlaySource(_ source: PlaybackSource, track: Track) async {
         guard let engine = audioEngine else {
-            EnsembleLogger.playback("ENGINE: loadAndPlayFile called with no engine")
+            EnsembleLogger.playback("ENGINE: loadAndPlaySource called with no engine")
             playbackState = .failed("Audio engine not initialized")
             return
         }
@@ -5034,14 +5049,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         #endif
 
-        // Cache the resolved file URL
-        cacheFileURL(fileURL, for: trackIdentity)
+        if let fileURL = source.fileURL {
+            cacheFileURL(fileURL, for: trackIdentity)
+        }
 
         // Clear any scheduled gapless files from the previous track
         engine.clearScheduledFiles()
 
-        // Activate pre-computed frequency timeline for the visualizer
-        audioAnalyzer.activateTimeline(for: trackIdentity)
+        if source.fileURL != nil {
+            audioAnalyzer.activateTimeline(for: trackIdentity)
+        }
 
         // Cancel loading state delay
         loadingStateTask?.cancel()
@@ -5051,15 +5068,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         unexpectedPauseCount = 0
         lastUnexpectedPauseAt = nil
 
-        // Buffered progress is always 1.0 for local files
-        bufferedProgress = 1.0
+        bufferedProgress = source.fileURL == nil ? 0 : 1.0
 
         // CRITICAL: If the audio session is currently interrupted or a route change
         // is in progress, do NOT attempt to play yet.
         if isInterrupted || isRouteChangeInProgress {
             EnsembleLogger.debug("[loadAndPlayFile] deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)")
             do {
-                try engine.load(fileURL: fileURL, trackId: trackIdentity)
+                try await engine.load(source: source, trackId: trackIdentity)
             } catch {
                 EnsembleLogger.playback("ENGINE: load failed -- \(error.localizedDescription)")
                 playbackState = .failed(error.localizedDescription)
@@ -5071,7 +5087,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         do {
-            try engine.load(fileURL: fileURL, trackId: trackIdentity)
+            try await engine.load(source: source, trackId: trackIdentity)
             try engine.play()
             refreshPresentationLatencyEstimate()
             trackStartWallTime = CACurrentMediaTime()
