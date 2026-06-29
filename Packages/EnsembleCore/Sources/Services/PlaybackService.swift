@@ -1413,6 +1413,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        engine.onFirstAudibleRender = { [weak self] trackId in
+            DispatchQueue.main.async {
+                guard let self, self.currentTrack?.playbackIdentity == trackId else { return }
+                if self.playbackState == .loading || self.playbackState == .buffering {
+                    self.playbackState = .playing
+                    self.updateNowPlayingInfo()
+                    self.audioAnalyzer.resumeUpdates()
+                    self.consecutivePlaybackFailures = 0
+                    self.endTrackTransitionBackgroundTask()
+                    self.isSkipTransitionInProgress = false
+                    self.disarmSkipTransitionSafety()
+                }
+            }
+        }
+
         engine.onError = { [weak self] error, trackId in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -3474,9 +3489,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioEngine?.cancelSmartMixTransition(continueIncoming: audioEngine?.hasPromotedSmartMixTransition == true)
         let effectiveDur = duration
         let clampedTime = effectiveDur > 0 ? max(0, min(time, effectiveDur)) : max(0, time)
+        if let trackId = currentTrack?.playbackIdentity {
+            PlaybackJourneyLogger.mark("seekRequested", trackId: trackId, detail: "time=\(String(format: "%.2f", clampedTime))")
+        }
         updatePlaybackTimes(rawTime: clampedTime)
         do {
             try audioEngine?.seek(to: clampedTime)
+            if let trackId = currentTrack?.playbackIdentity {
+                PlaybackJourneyLogger.mark("seekCompleted", trackId: trackId, detail: "time=\(String(format: "%.2f", clampedTime))")
+            }
         } catch {
             EnsembleLogger.playback("ENGINE: seek failed -- \(error.localizedDescription)")
         }
@@ -4325,6 +4346,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let hasLocalFile = track.localFilePath != nil
         let quality = queue[currentQueueIndex].streamingQuality ?? "original"
         EnsembleLogger.playback("TRACK: '\(track.title)' by \(track.artistName ?? "Unknown") [caller: \(caller), idx: \(currentQueueIndex)/\(queue.count), local: \(hasLocalFile), quality: \(quality)]")
+        PlaybackJourneyLogger.start(trackId: trackIdentity, title: track.title, caller: caller)
 
         // Cancel any pending loading state transition
         loadingStateTask?.cancel()
@@ -4370,9 +4392,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                    !request.forcingFreshItem,
                    FileManager.default.fileExists(atPath: cachedURL.path)
                 {
+                    PlaybackJourneyLogger.mark("sourceDecisionStarted", trackId: trackIdentity, detail: "cachedFile")
                     source = .cachedFile(cachedURL, origin: .streamCache)
+                    PlaybackJourneyLogger.mark("sourceDecisionCompleted", trackId: trackIdentity, detail: source.journeyDescription)
                 } else {
+                    PlaybackJourneyLogger.mark("sourceDecisionStarted", trackId: trackIdentity, detail: "transport")
                     source = try await resolvePlaybackSource(for: request.track)
+                    PlaybackJourneyLogger.mark("sourceDecisionCompleted", trackId: trackIdentity, detail: source.journeyDescription)
                 }
 
                 // Validate cached file isn't truncated (interrupted download or stale cache).
@@ -4407,6 +4433,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             } catch {
                 lastError = error
+                PlaybackJourneyLogger.mark("sourceDecisionFailed", trackId: trackIdentity, detail: error.localizedDescription)
                 EnsembleLogger.debug("[playCurrentQueueItem] Failed (attempt \(attempt + 1)): \(error)")
 
                 if !PlaybackSessionStateMachine.shouldRetryResolution(after: error, attempt: attempt) {
@@ -5075,7 +5102,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if isInterrupted || isRouteChangeInProgress {
             EnsembleLogger.debug("[loadAndPlayFile] deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)")
             do {
+                PlaybackJourneyLogger.mark("engineLoadStarted", trackId: trackIdentity, detail: source.journeyDescription)
                 try await engine.load(source: source, trackId: trackIdentity)
+                PlaybackJourneyLogger.mark("engineLoadCompleted", trackId: trackIdentity, detail: source.journeyDescription)
             } catch {
                 EnsembleLogger.playback("ENGINE: load failed -- \(error.localizedDescription)")
                 playbackState = .failed(error.localizedDescription)
@@ -5087,23 +5116,27 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         do {
+            PlaybackJourneyLogger.mark("engineLoadStarted", trackId: trackIdentity, detail: source.journeyDescription)
             try await engine.load(source: source, trackId: trackIdentity)
+            PlaybackJourneyLogger.mark("engineLoadCompleted", trackId: trackIdentity, detail: source.journeyDescription)
             try engine.play()
             refreshPresentationLatencyEstimate()
             trackStartWallTime = CACurrentMediaTime()
             automaticAdvanceTimeGateExpiresAt = 0
-            playbackState = .playing
+            let isStreamingSource = source.fileURL == nil
+            playbackState = isStreamingSource ? .buffering : .playing
             updateNowPlayingInfo()
-            audioAnalyzer.resumeUpdates()
+            if !isStreamingSource {
+                audioAnalyzer.resumeUpdates()
+                // Audio is confirmed flowing — safe to reset the circuit breaker
+                consecutivePlaybackFailures = 0
 
-            // Audio is confirmed flowing — safe to reset the circuit breaker
-            consecutivePlaybackFailures = 0
+                // Release background task protection
+                endTrackTransitionBackgroundTask()
 
-            // Release background task protection
-            endTrackTransitionBackgroundTask()
-
-            isSkipTransitionInProgress = false
-            disarmSkipTransitionSafety()
+                isSkipTransitionInProgress = false
+                disarmSkipTransitionSafety()
+            }
 
             EnsembleLogger.playback("ENGINE: playing '\(track.title)'")
         } catch {
@@ -5111,6 +5144,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // instead of repeatedly hitting the same deleted or corrupt file
             removeCachedPlayerItem(for: trackIdentity)
 
+            PlaybackJourneyLogger.mark("engineLoadFailed", trackId: trackIdentity, detail: error.localizedDescription)
             EnsembleLogger.playback("ENGINE: load/play failed -- \(error.localizedDescription)")
             isSkipTransitionInProgress = false
             disarmSkipTransitionSafety()

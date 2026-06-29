@@ -29,4 +29,17 @@ enum PlaybackSource: Sendable {
             return nil
         }
     }
+
+    var journeyDescription: String {
+        switch self {
+        case .localFile:
+            return "kind=localFile"
+        case let .cachedFile(_, origin):
+            return "kind=cachedFile origin=\(origin.rawValue)"
+        case let .directHTTP(_, metadata):
+            return "kind=directHTTP seekable=\(metadata.isSeekable) ext=\(metadata.cacheFileExtension)"
+        case let .transcodedHTTP(_, metadata):
+            return "kind=transcodedHTTP seekable=\(metadata.isSeekable) ext=\(metadata.cacheFileExtension)"
+        }
+    }
 }

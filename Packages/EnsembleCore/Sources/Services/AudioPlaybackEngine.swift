@@ -198,6 +198,8 @@ public final class AudioPlaybackEngine {
     var onTrackAdvance: ((_ newTrackId: String) -> Void)?
     /// Fires when SmartMix crosses the transition midpoint and app metadata should promote.
     var onSmartMixPromote: ((_ newTrackId: String) -> Void)?
+    /// Fires after the render path has produced PCM for the current track.
+    var onFirstAudibleRender: ((_ trackId: String) -> Void)?
     /// Fires on unrecoverable engine errors (route change failure, etc.)
     /// Parameters: (error, trackId or nil). When trackId is non-nil, the error
     /// originated from a gapless-scheduled track (not the currently playing one).
@@ -1013,9 +1015,17 @@ public final class AudioPlaybackEngine {
         scheduleGeneration &+= 1
         streamingCompletionGeneration = scheduleGeneration
 
+        var didLogFirstAudibleRender = false
         let sourceNode = AVAudioSourceNode(format: format) { [weak self, weak pipeline] _, _, frameCount, audioBufferList in
             guard let self, let pipeline else { return noErr }
             let read = pipeline.render(into: audioBufferList, frameCount: frameCount)
+            if read > 0, !didLogFirstAudibleRender {
+                didLogFirstAudibleRender = true
+                DispatchQueue.main.async {
+                    PlaybackJourneyLogger.mark("firstAudibleRender", trackId: trackId)
+                    self.onFirstAudibleRender?(trackId)
+                }
+            }
             if read == 0, pipeline.isComplete {
                 DispatchQueue.main.async {
                     self.handleStreamingComplete(generation: self.streamingCompletionGeneration)
@@ -1054,12 +1064,15 @@ public final class AudioPlaybackEngine {
                 continuation.resume(with: result)
             }
             pipeline.onFirstByte = {
+                PlaybackJourneyLogger.mark("firstResponseByte", trackId: trackId)
                 EnsembleLogger.debug("[StreamingPipeline] first byte trackId=\(trackId)")
             }
             pipeline.onFirstPacket = {
+                PlaybackJourneyLogger.mark("firstParsedPacket", trackId: trackId)
                 EnsembleLogger.debug("[StreamingPipeline] first packet trackId=\(trackId)")
             }
             pipeline.onFirstPCM = {
+                PlaybackJourneyLogger.mark("firstDecodedPCMFrame", trackId: trackId)
                 EnsembleLogger.debug("[StreamingPipeline] first PCM trackId=\(trackId)")
             }
             pipeline.onFormatReady = { format in
@@ -1597,6 +1610,10 @@ public final class AudioPlaybackEngine {
         activePlayerNode.play()
         wasPlaying = true
         startTimeUpdates(from: time)
+        if let currentTrackId {
+            PlaybackJourneyLogger.mark("firstAudibleRender", trackId: currentTrackId, detail: "fileBacked")
+            onFirstAudibleRender?(currentTrackId)
+        }
 
         EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(fileFrame)/\(currentContentFrameCount))")
     }
@@ -1958,6 +1975,7 @@ public final class AudioPlaybackEngine {
         }
 
         if let next = scheduledFiles.first {
+            let previousTrackId = currentTrackId
             // Gapless advance: capture the current playerTime as the new base.
             // playerNode keeps running across gapless segments, so sampleTime
             // includes frames from all previous segments since the last stop().
@@ -1980,6 +1998,10 @@ public final class AudioPlaybackEngine {
 
             EnsembleLogger.debug("[AudioEngine] Gapless advance to trackId=\(next.trackId), baseOffset=\(playerTimeBaseOffset)")
 
+            if let previousTrackId {
+                PlaybackJourneyLogger.finish("currentTrackEndedAdvanced", trackId: previousTrackId, detail: "next=\(next.trackId)")
+            }
+            PlaybackJourneyLogger.mark("currentTrackAdvanced", trackId: next.trackId, detail: "gapless")
             onTrackAdvance?(next.trackId)
             updateDurablePlaybackPosition(0)
         } else {
@@ -1987,6 +2009,9 @@ public final class AudioPlaybackEngine {
             wasPlaying = false
             stopTimeUpdates()
             EnsembleLogger.debug("[AudioEngine] All segments complete -- queue exhausted")
+            if let currentTrackId {
+                PlaybackJourneyLogger.finish("currentTrackEndedAdvanced", trackId: currentTrackId, detail: "queueExhausted")
+            }
             onPlaybackComplete?()
         }
     }
@@ -1998,6 +2023,9 @@ public final class AudioPlaybackEngine {
         wasPlaying = false
         stopTimeUpdates()
         EnsembleLogger.debug("[AudioEngine] Streaming source complete -- queue exhausted")
+        if let currentTrackId {
+            PlaybackJourneyLogger.finish("currentTrackEndedAdvanced", trackId: currentTrackId, detail: "streaming queueExhausted")
+        }
         onPlaybackComplete?()
     }
 
