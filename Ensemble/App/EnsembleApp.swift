@@ -41,6 +41,7 @@ struct EnsembleApp: App {
                 .environment(\.dependencies, DependencyContainer.shared)
                 .installGlobalToastWindow(toastCenter: DependencyContainer.shared.toastCenter)
                 .onAppear {
+                    startPersistentLogSessionIfNeeded()
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
                     #if os(iOS)
                     WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
@@ -162,6 +163,15 @@ struct EnsembleApp: App {
         #endif
     }
 
+    private func startPersistentLogSessionIfNeeded() {
+        guard !hasStartedLogSession else { return }
+        hasStartedLogSession = true
+        let handler = DependencyContainer.shared.persistentLogService.logHandler
+        EnsembleUI.EnsembleLogger.fileLogHandler = handler
+        AppLogger.fileLogHandler = handler
+        DependencyContainer.shared.persistentLogService.startSession()
+    }
+
     private func handleScenePhaseChange(_ phase: ScenePhase) {
         #if os(iOS)
         Task { @MainActor in
@@ -176,13 +186,7 @@ struct EnsembleApp: App {
 
                 // Start persistent log session on first activation.
                 // Wire UI + App loggers here (Core/API/Persistence wired in DependencyContainer).
-                if !hasStartedLogSession {
-                    hasStartedLogSession = true
-                    let handler = DependencyContainer.shared.persistentLogService.logHandler
-                    EnsembleUI.EnsembleLogger.fileLogHandler = handler
-                    AppLogger.fileLogHandler = handler
-                    DependencyContainer.shared.persistentLogService.startSession()
-                }
+                startPersistentLogSessionIfNeeded()
 
                 // Schedule background refresh on first activation (iOS 16+)
                 if #available(iOS 16.0, *) {
@@ -263,13 +267,7 @@ struct EnsembleApp: App {
             case .active:
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 // Start persistent log session on first activation (macOS)
-                if !hasStartedLogSession {
-                    hasStartedLogSession = true
-                    let handler = DependencyContainer.shared.persistentLogService.logHandler
-                    EnsembleUI.EnsembleLogger.fileLogHandler = handler
-                    AppLogger.fileLogHandler = handler
-                    DependencyContainer.shared.persistentLogService.startSession()
-                }
+                startPersistentLogSessionIfNeeded()
 
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
