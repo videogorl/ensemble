@@ -578,7 +578,13 @@ public final class AudioPlaybackEngine {
         // neural-network effect; if AVAudioEngine must split a large hardware buffer
         // into several smaller AU render calls, deadline misses become much more
         // likely on device.
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            effect.auAudioUnit.maximumFramesToRender = Self.instrumentalIsolationMaxFramesToRender
+        }
+        #else
         effect.auAudioUnit.maximumFramesToRender = Self.instrumentalIsolationMaxFramesToRender
+        #endif
 
         isolationNodeCreated = true
 
@@ -897,6 +903,19 @@ public final class AudioPlaybackEngine {
         }
 
         // Try AUParameterTree (may be empty for this AU)
+        #if os(macOS)
+        if #available(macOS 13.0, *) {
+            if let avUnit = isolationEffect, let tree = avUnit.auAudioUnit.parameterTree {
+                for param in tree.allParameters {
+                    EnsembleLogger.debug("[AudioEngine]   Tree param: address=\(param.address), name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
+                }
+            } else {
+                EnsembleLogger.debug("[AudioEngine]   No AUParameterTree available")
+            }
+        } else {
+            EnsembleLogger.debug("[AudioEngine]   AUParameterTree unavailable before macOS 13")
+        }
+        #else
         if let avUnit = isolationEffect, let tree = avUnit.auAudioUnit.parameterTree {
             for param in tree.allParameters {
                 EnsembleLogger.debug("[AudioEngine]   Tree param: address=\(param.address), name='\(param.displayName)', min=\(param.minValue), max=\(param.maxValue), value=\(param.value)")
@@ -904,6 +923,7 @@ public final class AudioPlaybackEngine {
         } else {
             EnsembleLogger.debug("[AudioEngine]   No AUParameterTree available")
         }
+        #endif
         EnsembleLogger.debug("[AudioEngine] === End parameter dump ===")
     }
 

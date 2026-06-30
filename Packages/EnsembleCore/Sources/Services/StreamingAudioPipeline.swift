@@ -16,14 +16,21 @@ final class StreamingAudioPipeline: NSObject {
             cacheURL: URL,
             duration: TimeInterval? = nil,
             bufferSeconds: TimeInterval = 20,
-            sessionConfiguration: URLSessionConfiguration = .default
+            sessionConfiguration: URLSessionConfiguration? = nil
         ) {
             self.request = request
             self.fileExtension = fileExtension
             self.cacheURL = cacheURL
             self.duration = duration
             self.bufferSeconds = bufferSeconds
-            self.sessionConfiguration = sessionConfiguration
+            self.sessionConfiguration = sessionConfiguration ?? Self.defaultSessionConfiguration()
+        }
+
+        private static func defaultSessionConfiguration() -> URLSessionConfiguration {
+            let configuration = URLSessionConfiguration.default
+            configuration.networkServiceType = .avStreaming
+            configuration.waitsForConnectivity = true
+            return configuration
         }
     }
 

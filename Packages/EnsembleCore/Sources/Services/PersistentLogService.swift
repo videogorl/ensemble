@@ -78,7 +78,11 @@ public final class PersistentLogService: ObservableObject {
         get { UserDefaults.standard.bool(forKey: Self.enabledKey) }
         set {
             UserDefaults.standard.set(newValue, forKey: Self.enabledKey)
-            if !newValue {
+            if newValue {
+                if currentSessionURL == nil {
+                    startSession()
+                }
+            } else {
                 writer.close()
                 currentSessionURL = nil
             }

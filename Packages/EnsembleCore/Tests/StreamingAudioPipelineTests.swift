@@ -3,6 +3,21 @@ import AVFoundation
 import XCTest
 
 final class StreamingAudioPipelineTests: XCTestCase {
+    func testDefaultConfigurationMarksRequestsAsAVStreaming() throws {
+        let request = URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/file.m4a")))
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("streaming-pipeline-\(UUID().uuidString).m4a")
+
+        let config = StreamingAudioPipeline.Configuration(
+            request: request,
+            fileExtension: "m4a",
+            cacheURL: cacheURL
+        )
+
+        XCTAssertEqual(config.sessionConfiguration.networkServiceType, .avStreaming)
+        XCTAssertTrue(config.sessionConfiguration.waitsForConnectivity)
+    }
+
     func testPipelineEmitsPCMBeforeHTTPStreamCompletesAndWritesCache() async throws {
         let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
         guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
