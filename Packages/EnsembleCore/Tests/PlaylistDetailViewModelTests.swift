@@ -23,6 +23,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
+        var favoriteTracks: [CDTrack] = []
+
         func refreshContext() async {}
         func fetchArtists() async throws -> [CDArtist] { [] }
         func fetchArtist(ratingKey: String) async throws -> CDArtist? { nil }
@@ -38,7 +40,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
         func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] { [] }
         func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] { [] }
-        func fetchFavoriteTracks() async throws -> [CDTrack] { [] }
+        func fetchFavoriteTracks() async throws -> [CDTrack] { favoriteTracks }
         func fetchTrack(ratingKey: String) async throws -> CDTrack? { nil }
         func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? { nil }
         func upsertTrack(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date?, rating: Int?, playCount: Int?, genreNames: String?, sourceCompositeKey: String?) async throws -> CDTrack { throw MockError.unimplemented }
@@ -294,6 +296,24 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
     }
 
+    private func makeCachedFavoriteTrack(
+        id: String,
+        title: String,
+        context: NSManagedObjectContext
+    ) -> CDTrack {
+        let cdTrack = CDTrack(context: context)
+        cdTrack.ratingKey = id
+        cdTrack.key = "/library/metadata/\(id)"
+        cdTrack.title = title
+        cdTrack.artistName = "Artist"
+        cdTrack.albumName = "Album"
+        cdTrack.duration = 100_000
+        cdTrack.rating = 10
+        cdTrack.lastRatedAt = Date()
+        cdTrack.sourceCompositeKey = "plex:account-1:server-1:lib-1"
+        return cdTrack
+    }
+
     private func makeCachedPlaylist(
         _ playlist: Playlist,
         tracks: [Track],
@@ -513,6 +533,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter()
         )
         await firstViewModel.loadPlaylists()
+        XCTAssertEqual(firstViewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-a"])
 
         let secondViewModel = PlaylistViewModel(
             playlistRepository: playlistRepository,
@@ -527,6 +548,25 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         await secondViewModel.loadPlaylists()
         XCTAssertFalse(secondViewModel.isShowingStaleSnapshot)
+    }
+
+    func testPlaylistViewModelSeedsInitialInstanceFromPersistentCache() {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let coreDataStack = CoreDataStack.inMemory()
+        let playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        _ = makeCachedPlaylist(playlist, tracks: [], context: coreDataStack.viewContext)
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+        XCTAssertEqual(viewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-a"])
     }
 
     func testPlaylistViewModelClearsStaleSeedWhenCacheIsActuallyEmpty() async {
@@ -561,6 +601,45 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         XCTAssertTrue(secondViewModel.playlists.isEmpty)
         XCTAssertFalse(secondViewModel.isShowingStaleSnapshot)
+    }
+
+    func testFavoritesViewModelSeedsNewInstanceFromLastGoodSnapshot() async {
+        FavoritesViewModel.resetLastGoodSnapshotForTesting()
+        let libraryRepository = MockLibraryRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        libraryRepository.favoriteTracks = [
+            makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: context)
+        ]
+
+        let firstViewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+        await firstViewModel.loadTracks()
+
+        XCTAssertEqual(firstViewModel.tracks.map(\.id), ["track-a"])
+        XCTAssertEqual(firstViewModel.filteredTracks.map(\.id), ["track-a"])
+
+        libraryRepository.favoriteTracks = []
+        let secondViewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+
+        XCTAssertEqual(secondViewModel.tracks.map(\.id), ["track-a"])
+        XCTAssertEqual(secondViewModel.filteredTracks.map(\.id), ["track-a"])
+
+        await secondViewModel.loadTracks()
+
+        XCTAssertTrue(secondViewModel.tracks.isEmpty)
+        XCTAssertTrue(secondViewModel.filteredTracks.isEmpty)
+    }
+
+    func testFavoritesViewModelSeedsInitialInstanceFromPersistentCache() {
+        FavoritesViewModel.resetLastGoodSnapshotForTesting()
+        let coreDataStack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: coreDataStack)
+        _ = makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: coreDataStack.viewContext)
+
+        let viewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["track-a"])
+        XCTAssertEqual(viewModel.filteredTracks.map(\.id), ["track-a"])
+        XCTAssertFalse(viewModel.isLoading)
     }
 
     func testPlaylistDetailPreservesTracksDuringIntermediateEmptyRelationshipReload() async {

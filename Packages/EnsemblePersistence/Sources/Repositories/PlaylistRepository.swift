@@ -104,6 +104,26 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         try await fetchPlaylists(sourceCompositeKey: nil)
     }
 
+    public func fetchPlaylistsSnapshot(sourceCompositeKey: String? = nil) throws -> [CDPlaylist] {
+        let context = self.coreDataStack.viewContext
+        var result: Result<[CDPlaylist], Error>!
+        context.performAndWait {
+            let request = CDPlaylist.fetchRequest()
+            if let sourceCompositeKey {
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+            }
+            request.sortDescriptors = [
+                NSSortDescriptor(
+                    key: "title",
+                    ascending: true,
+                    selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+                )
+            ]
+            result = Result { try context.fetch(request) }
+        }
+        return try result.get()
+    }
+
     public func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] {
         try await withCheckedThrowingContinuation { continuation in
             let context = self.coreDataStack.viewContext

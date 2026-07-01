@@ -78,6 +78,7 @@ public final class PlaylistViewModel: ObservableObject {
         }
 
         seedFromLastGoodSnapshotIfAvailable()
+        seedFromPersistentCacheIfAvailable()
 
         // Save filter options when they change
         setupFilterPersistence()
@@ -428,23 +429,22 @@ public final class PlaylistViewModel: ObservableObject {
         guard !snapshot.isEmpty else { return }
         playlists = snapshot
         visibleSnapshot = snapshot
-        filteredPlaylists = Self.filterPlaylists(
-            Self.sortPlaylists(
-                snapshot,
-                by: playlistSortOption,
-                ascending: filterOptions.sortDirection == .ascending
-            ),
-            searchText: filterOptions.searchText
-        )
-        sortedPlaylists = Self.sortPlaylists(
-            snapshot,
-            by: playlistSortOption,
-            ascending: filterOptions.sortDirection == .ascending
-        )
-        displayPlaylists = DisplayPlaylist.group(filteredPlaylists, merge: isMergeEnabled)
-        sortedDisplayPlaylists = DisplayPlaylist.group(sortedPlaylists, merge: isMergeEnabled)
-        nameCollisionTitles = DisplayPlaylist.detectNameCollisions(snapshot)
+        applyDerivedPlaylistSnapshots(snapshot)
         isShowingStaleSnapshot = true
+    }
+
+    private func seedFromPersistentCacheIfAvailable() {
+        guard playlists.isEmpty,
+              let repository = playlistRepository as? PlaylistRepository,
+              let snapshot = try? repository.fetchPlaylistsSnapshot().map({ Playlist(from: $0) }) else {
+            return
+        }
+        let filteredSnapshot = filterPlaylistsForEnabledSources(snapshot)
+        guard !filteredSnapshot.isEmpty else { return }
+        playlists = filteredSnapshot
+        visibleSnapshot = filteredSnapshot
+        applyDerivedPlaylistSnapshots(filteredSnapshot)
+        updateLastGoodSnapshotIfNeeded(filteredSnapshot)
     }
 
     private func updateLastGoodSnapshotIfNeeded(_ playlists: [Playlist]) {
@@ -483,6 +483,24 @@ public final class PlaylistViewModel: ObservableObject {
         guard playlists != nextPlaylists else { return }
         playlists = nextPlaylists
         visibleSnapshot = nextPlaylists
+        applyDerivedPlaylistSnapshots(nextPlaylists)
+    }
+
+    private func applyDerivedPlaylistSnapshots(_ snapshot: [Playlist]) {
+        let nextSorted = Self.sortPlaylists(
+            snapshot,
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        let nextFiltered = Self.filterPlaylists(nextSorted, searchText: filterOptions.searchText)
+        let nextDisplay = DisplayPlaylist.group(nextFiltered, merge: isMergeEnabled)
+        let nextSortedDisplay = DisplayPlaylist.group(nextSorted, merge: isMergeEnabled)
+
+        if filteredPlaylists != nextFiltered { filteredPlaylists = nextFiltered }
+        if sortedPlaylists != nextSorted { sortedPlaylists = nextSorted }
+        if displayPlaylists != nextDisplay { displayPlaylists = nextDisplay }
+        if sortedDisplayPlaylists != nextSortedDisplay { sortedDisplayPlaylists = nextSortedDisplay }
+        nameCollisionTitles = DisplayPlaylist.detectNameCollisions(snapshot)
     }
 
     private func scheduleCoalescedPlaylistReload(reason: String) {
@@ -621,6 +639,10 @@ public final class PlaylistViewModel: ObservableObject {
     private func fetchCachedPlaylists() async throws -> [Playlist] {
         let cached = try await playlistRepository.fetchPlaylists()
         let playlists = cached.map { Playlist(from: $0) }
+        return filterPlaylistsForEnabledSources(playlists)
+    }
+
+    private func filterPlaylistsForEnabledSources(_ playlists: [Playlist]) -> [Playlist] {
         guard let accountManager else {
             return playlists
         }

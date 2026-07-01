@@ -7,6 +7,12 @@ import Foundation
 /// Spans all configured servers and libraries
 @MainActor
 public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelProtocol {
+    private static var lastGoodTracksSnapshot: [Track] = []
+
+    static func resetLastGoodSnapshotForTesting() {
+        lastGoodTracksSnapshot = []
+    }
+
     @Published public private(set) var tracks: [Track] = []
     @Published public var filterOptions: FilterOptions
     @Published public var favoritesSortOption: FavoritesSortOption = .dateFavorited {
@@ -36,6 +42,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             self.favoritesSortOption = savedSort
         }
 
+        seedFromLastGoodSnapshotIfAvailable()
+        seedFromPersistentCacheIfAvailable()
         setupFilterPersistence()
         setupFilteredTracksPipeline()
         observeDownloadChanges()
@@ -74,20 +82,24 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     /// Loads favorite tracks directly from CoreData (offline-first)
     /// Fetches all tracks with rating >= 8 (4+ stars) across all sources
     public func loadTracks() async {
-        isLoading = true
+        if tracks.isEmpty {
+            isLoading = true
+        }
         error = nil
 
         do {
             let favoriteTracks = try await libraryRepository.fetchFavoriteTracks()
-            tracks = favoriteTracks.map { Track(from: $0) }
+            let nextTracks = favoriteTracks.map { Track(from: $0) }
+            publishTracksIfChanged(nextTracks)
+            updateLastGoodSnapshot(nextTracks)
         } catch {
             // Silently fail - offline-first means we show what we have
             self.error = error.localizedDescription
-            tracks = []
+            if tracks.isEmpty {
+                publishTracksIfChanged([])
+            }
         }
 
-        filteredTracks = Self.filterAndSort(tracks, sortOption: favoritesSortOption, filterOptions: filterOptions)
-        totalDuration = Self.computeTotalDuration(filteredTracks)
         hasLoadedTracks = true
         isLoading = false
     }
@@ -186,5 +198,55 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             return "\(hours) hr \(mins) min"
         }
         return "\(minutes) min"
+    }
+
+    private func seedFromLastGoodSnapshotIfAvailable() {
+        let snapshot = Self.lastGoodTracksSnapshot
+        guard !snapshot.isEmpty else { return }
+        tracks = snapshot
+        applyFilteredTracks(snapshot)
+        hasLoadedTracks = true
+    }
+
+    private func seedFromPersistentCacheIfAvailable() {
+        guard tracks.isEmpty,
+              let repository = libraryRepository as? LibraryRepository,
+              let snapshot = try? repository.fetchFavoriteTracksSnapshot().map({ Track(from: $0) }),
+              !snapshot.isEmpty else {
+            return
+        }
+        tracks = snapshot
+        applyFilteredTracks(snapshot)
+        updateLastGoodSnapshot(snapshot)
+        hasLoadedTracks = true
+        isLoading = false
+    }
+
+    private func publishTracksIfChanged(_ nextTracks: [Track]) {
+        if tracks != nextTracks {
+            tracks = nextTracks
+        }
+        applyFilteredTracks(nextTracks)
+    }
+
+    private func applyFilteredTracks(_ nextTracks: [Track]) {
+        let filtered = Self.filterAndSort(nextTracks, sortOption: favoritesSortOption, filterOptions: filterOptions)
+        if filteredTracks != filtered {
+            filteredTracks = filtered
+        }
+        let duration = Self.computeTotalDuration(filtered)
+        if totalDuration != duration {
+            totalDuration = duration
+        }
+    }
+
+    private func updateLastGoodSnapshot(_ nextTracks: [Track]) {
+        guard !nextTracks.isEmpty else {
+            Self.lastGoodTracksSnapshot = []
+            return
+        }
+        if Self.lastGoodTracksSnapshot != nextTracks {
+            Self.lastGoodTracksSnapshot = nextTracks
+        }
     }
 }

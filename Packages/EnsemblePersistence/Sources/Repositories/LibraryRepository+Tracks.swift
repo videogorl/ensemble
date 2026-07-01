@@ -204,6 +204,24 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchFavoriteTracksSnapshot() throws -> [CDTrack] {
+        let context = coreDataStack.viewContext
+        var result: Result<[CDTrack], Error>!
+        context.performAndWait {
+            let request = CDTrack.fetchRequest()
+            request.predicate = NSPredicate(format: "rating >= 8")
+            request.sortDescriptors = [
+                NSSortDescriptor(
+                    key: "title",
+                    ascending: true,
+                    selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
+                )
+            ]
+            result = Result { try context.fetch(request) }
+        }
+        return try result.get()
+    }
+
     public func fetchTrack(ratingKey: String) async throws -> CDTrack? {
         try await fetchTrack(ratingKey: ratingKey, sourceCompositeKey: nil)
     }
