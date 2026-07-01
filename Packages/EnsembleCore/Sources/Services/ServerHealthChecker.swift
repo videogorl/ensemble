@@ -285,7 +285,6 @@ public final class ServerHealthChecker: ObservableObject {
 
         recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
         serverFailureReasons.removeValue(forKey: serverKey)
-        EnsembleLogger.debug("🏥 ServerHealthChecker: Refreshed cached healthy state for \(serverKey)")
     }
 
     // MARK: - Private Methods

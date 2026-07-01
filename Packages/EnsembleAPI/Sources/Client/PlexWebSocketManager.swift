@@ -353,7 +353,6 @@ public actor PlexWebSocketManager {
                 }
 
             case "preference":
-                EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: Settings changed")
                 broadcast(.settingsUpdate)
 
             default:
