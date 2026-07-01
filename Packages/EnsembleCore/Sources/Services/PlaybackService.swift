@@ -5572,8 +5572,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         for i in searchStart ..< queue.count {
             let track = queue[i].track
-            // Accept downloaded tracks or tracks from a different (available) server
-            if track.isDownloaded || syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey) {
+            // Accept downloaded tracks or tracks from servers that are not known-offline.
+            if track.isDownloaded || syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey) {
                 return i
             }
         }

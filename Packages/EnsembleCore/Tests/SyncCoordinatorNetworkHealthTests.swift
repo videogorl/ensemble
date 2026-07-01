@@ -405,6 +405,16 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(healthRefreshCount, 1)
     }
 
+    func testPossiblyAvailableTreatsUnknownHealthAsPlayable() {
+        let (coordinator, _) = makeCoordinator()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+
+        coordinator.serverHealthChecker.prepopulateUnknownStates()
+
+        XCTAssertFalse(coordinator.isServerAvailable(sourceKey: sourceKey))
+        XCTAssertTrue(coordinator.isServerPossiblyAvailable(sourceKey: sourceKey))
+    }
+
     func testSyncPublishesOnlyMaterialLibraryChanges() async {
         let (coordinator, _) = makeCoordinator()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
