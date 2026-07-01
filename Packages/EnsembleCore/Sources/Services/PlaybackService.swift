@@ -2543,8 +2543,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 scheduleAudioCriticalInteractionEnd()
             }
         }
-        EnsembleLogger.info(
-            "USER_JOURNEY: playbackStartRequested mode=play origin=\(context.origin.rawValue) source=\(context.source.rawValue) count=\(tracks.count) startIndex=\(index)"
+        UserJourneyLogger.log(
+            context: "playback",
+            event: "startRequested",
+            details: [
+                "mode": "play",
+                "origin": context.origin.rawValue,
+                "source": context.source.rawValue,
+                "count": "\(tracks.count)",
+                "startIndex": "\(index)"
+            ]
         )
 
         resetHandoffForUserPlaybackIntent()
@@ -2562,8 +2570,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
-            EnsembleLogger.info(
-                "USER_JOURNEY: playbackStartFailed mode=play origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) reason=noPlayableTracks offline=\(isDeviceOffline)"
+            UserJourneyLogger.log(
+                context: "playback",
+                event: "startFailed",
+                details: [
+                    "mode": "play",
+                    "origin": context.origin.rawValue,
+                    "source": context.source.rawValue,
+                    "elapsedMs": "\(elapsedMs)",
+                    "reason": "noPlayableTracks",
+                    "offline": "\(isDeviceOffline)"
+                ]
             )
             return
         }
@@ -2595,8 +2612,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(caller: "play(tracks:)")
         let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
-        EnsembleLogger.info(
-            "USER_JOURNEY: playbackStartPrepared mode=play origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) queueCount=\(queueTracks.count) startIndex=\(playableQueue.startIndex)"
+        UserJourneyLogger.log(
+            context: "playback",
+            event: "startPrepared",
+            details: [
+                "mode": "play",
+                "origin": context.origin.rawValue,
+                "source": context.source.rawValue,
+                "elapsedMs": "\(elapsedMs)",
+                "queueCount": "\(queueTracks.count)",
+                "startIndex": "\(playableQueue.startIndex)"
+            ]
         )
         savePlaybackState()
         await donatePlaybackStartIfNeeded(
@@ -2652,8 +2678,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 scheduleAudioCriticalInteractionEnd()
             }
         }
-        EnsembleLogger.info(
-            "USER_JOURNEY: playbackStartRequested mode=shuffle origin=\(context.origin.rawValue) source=\(context.source.rawValue) count=\(tracks.count) startIndex=0"
+        UserJourneyLogger.log(
+            context: "playback",
+            event: "startRequested",
+            details: [
+                "mode": "shuffle",
+                "origin": context.origin.rawValue,
+                "source": context.source.rawValue,
+                "count": "\(tracks.count)",
+                "startIndex": "0"
+            ]
         )
 
         resetHandoffForUserPlaybackIntent()
@@ -2670,8 +2704,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
-            EnsembleLogger.info(
-                "USER_JOURNEY: playbackStartFailed mode=shuffle origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) reason=noPlayableTracks offline=\(isDeviceOffline)"
+            UserJourneyLogger.log(
+                context: "playback",
+                event: "startFailed",
+                details: [
+                    "mode": "shuffle",
+                    "origin": context.origin.rawValue,
+                    "source": context.source.rawValue,
+                    "elapsedMs": "\(elapsedMs)",
+                    "reason": "noPlayableTracks",
+                    "offline": "\(isDeviceOffline)"
+                ]
             )
             return
         }
@@ -2706,8 +2749,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         await playCurrentQueueItem(caller: "shufflePlay")
         let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
-        EnsembleLogger.info(
-            "USER_JOURNEY: playbackStartPrepared mode=shuffle origin=\(context.origin.rawValue) source=\(context.source.rawValue) elapsedMs=\(elapsedMs) queueCount=\(queueTracks.count) startIndex=0"
+        UserJourneyLogger.log(
+            context: "playback",
+            event: "startPrepared",
+            details: [
+                "mode": "shuffle",
+                "origin": context.origin.rawValue,
+                "source": context.source.rawValue,
+                "elapsedMs": "\(elapsedMs)",
+                "queueCount": "\(queueTracks.count)",
+                "startIndex": "0"
+            ]
         )
         savePlaybackState()
         await donatePlaybackStartIfNeeded(

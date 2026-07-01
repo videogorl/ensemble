@@ -175,7 +175,11 @@ public final class SearchViewModel: ObservableObject {
 
         isSearching = true
         searchError = nil
-        EnsembleLogger.info("USER_JOURNEY: searchInputChanged queryLength=\(trimmed.count)")
+        UserJourneyLogger.log(
+            context: "search",
+            event: "inputChanged",
+            details: ["queryLength": "\(trimmed.count)"]
+        )
     }
     
     private func performSearch(query: String) {
@@ -191,7 +195,11 @@ public final class SearchViewModel: ObservableObject {
         }
 
         let startedAt = Date()
-        EnsembleLogger.info("USER_JOURNEY: searchStarted queryLength=\(trimmed.count)")
+        UserJourneyLogger.log(
+            context: "search",
+            event: "started",
+            details: ["queryLength": "\(trimmed.count)"]
+        )
 
         searchTask = Task { [trimmed, startedAt] in
             await search(query: trimmed, startedAt: startedAt, requireCurrentQuery: true)
@@ -222,7 +230,11 @@ public final class SearchViewModel: ObservableObject {
             let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
 
             guard !requireCurrentQuery || isCurrentSearch(query) else {
-                EnsembleLogger.info("USER_JOURNEY: searchDiscardedStale queryLength=\(query.count)")
+                UserJourneyLogger.log(
+                    context: "search",
+                    event: "discardedStale",
+                    details: ["queryLength": "\(query.count)"]
+                )
                 return
             }
             
@@ -233,13 +245,29 @@ public final class SearchViewModel: ObservableObject {
             applyVisibilityToSearchResults()
 
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
-            EnsembleLogger.info(
-                "USER_JOURNEY: searchFinished queryLength=\(query.count) elapsedMs=\(elapsedMs) tracks=\(tracks.count) artists=\(artists.count) albums=\(albums.count) playlists=\(playlists.count)"
+            UserJourneyLogger.log(
+                context: "search",
+                event: "finished",
+                details: [
+                    "queryLength": "\(query.count)",
+                    "elapsedMs": "\(elapsedMs)",
+                    "tracks": "\(tracks.count)",
+                    "artists": "\(artists.count)",
+                    "albums": "\(albums.count)",
+                    "playlists": "\(playlists.count)"
+                ]
             )
         } catch {
             if !Task.isCancelled, !requireCurrentQuery || isCurrentSearch(query) {
                 self.searchError = error.localizedDescription
-                EnsembleLogger.info("USER_JOURNEY: searchFailed queryLength=\(query.count) error=\(error.localizedDescription)")
+                UserJourneyLogger.log(
+                    context: "search",
+                    event: "failed",
+                    details: [
+                        "queryLength": "\(query.count)",
+                        "error": String(describing: type(of: error))
+                    ]
+                )
             }
         }
 

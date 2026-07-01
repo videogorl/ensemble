@@ -72,7 +72,10 @@ public final class NavigationCoordinator: ObservableObject {
     @Published public var selectedTab: TabItem = .home {
         didSet {
             guard oldValue != selectedTab else { return }
-            logJourney("tabChanged from=\(oldValue.rawValue) to=\(selectedTab.rawValue)")
+            logJourney(
+                event: "tabChanged",
+                details: ["from": oldValue.rawValue, "to": selectedTab.rawValue]
+            )
         }
     }
 
@@ -223,7 +226,12 @@ public final class NavigationCoordinator: ObservableObject {
         case .settings: settingsPath.append(destination)
         }
         logJourney(
-            "push tab=\(tab.rawValue) destination=\(destination.journeyLogDescription) depth=\(previousDepth)->\(previousDepth + 1)"
+            event: "push",
+            details: [
+                "tab": tab.rawValue,
+                "destination": destination.journeyLogDescription,
+                "depth": "\(previousDepth)->\(previousDepth + 1)"
+            ]
         )
     }
 
@@ -260,7 +268,12 @@ public final class NavigationCoordinator: ObservableObject {
         case .settings: settingsPath = path
         }
         logJourney(
-            "setPath tab=\(tab.rawValue) depth=\(previousPath.count)->\(path.count) top=\(path.last?.journeyLogDescription ?? "root")"
+            event: "setPath",
+            details: [
+                "tab": tab.rawValue,
+                "depth": "\(previousPath.count)->\(path.count)",
+                "top": path.last?.journeyLogDescription ?? "root"
+            ]
         )
     }
     
@@ -281,13 +294,22 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: downloadsPath.removeAll()
         case .settings: settingsPath.removeAll()
         }
-        logJourney("popToRoot tab=\(tab.rawValue) depth=\(previousDepth)->0")
+        logJourney(
+            event: "popToRoot",
+            details: ["tab": tab.rawValue, "depth": "\(previousDepth)->0"]
+        )
     }
     
     /// Request navigation immediately (using current tab or fallback)
     public func navigate(to destination: Destination) {
         let targetTab = activeNavigationTab()
-        logJourney("navigate targetTab=\(targetTab.rawValue) destination=\(destination.journeyLogDescription)")
+        logJourney(
+            event: "navigate",
+            details: [
+                "targetTab": targetTab.rawValue,
+                "destination": destination.journeyLogDescription
+            ]
+        )
         selectedTab = targetTab
         push(destination, in: targetTab)
     }
@@ -295,7 +317,13 @@ public final class NavigationCoordinator: ObservableObject {
     /// Route external content selections to the destination's owning tab.
     public func navigateFromExternalSearch(to destination: Destination) {
         let targetTab = Self.targetTab(for: destination)
-        logJourney("externalRoute targetTab=\(targetTab.rawValue) destination=\(destination.journeyLogDescription)")
+        logJourney(
+            event: "externalRoute",
+            details: [
+                "targetTab": targetTab.rawValue,
+                "destination": destination.journeyLogDescription
+            ]
+        )
         if shouldRouteExternalSearchThroughMore(targetTab: targetTab) {
             routeExternalSearchThroughMore(destination, targetTab: targetTab)
             return
@@ -314,7 +342,13 @@ public final class NavigationCoordinator: ObservableObject {
     /// Uses current tab (or first visible if currently in Search)
     public func navigateFromNowPlaying(to destination: Destination) {
         let targetTab = activeNavigationTab()
-        logJourney("nowPlayingRoutePending targetTab=\(targetTab.rawValue) destination=\(destination.journeyLogDescription)")
+        logJourney(
+            event: "nowPlayingRoutePending",
+            details: [
+                "targetTab": targetTab.rawValue,
+                "destination": destination.journeyLogDescription
+            ]
+        )
         pendingNavigation = PendingNavigation(tab: targetTab, destination: destination)
     }
     
@@ -373,14 +407,17 @@ public final class NavigationCoordinator: ObservableObject {
     // MARK: - Helper Methods
 
     private func requestAuxiliaryPresentation(_ destination: AuxiliaryPresentation) {
-        logJourney("auxiliaryPresentation destination=\(destination.rawValue)")
+        logJourney(
+            event: "auxiliaryPresentation",
+            details: ["destination": destination.rawValue]
+        )
         activeAuxiliaryPresentation = destination
         auxiliaryWindowRequest = AuxiliaryWindowRequest(destination: destination)
     }
 
-    private func logJourney(_ message: String) {
+    private func logJourney(event: String, details: [String: String] = [:]) {
         markNavigationInteraction()
-        EnsembleLogger.info("USER_JOURNEY: \(message)")
+        UserJourneyLogger.log(context: "navigation", event: event, details: details)
     }
 
     private func markNavigationInteraction() {

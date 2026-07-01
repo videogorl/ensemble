@@ -43,6 +43,7 @@ struct EnsembleApp: App {
                 .onAppear {
                     startPersistentLogSessionIfNeeded()
                     AppLogger.info("SIRI_APP: RootView.onAppear - app UI is visible")
+                    UserJourneyLogger.log(context: "app", event: "rootVisible")
                     #if os(iOS)
                     WatchCompanionBridge.shared.configure(dependencies: DependencyContainer.shared)
                     #endif
@@ -178,6 +179,7 @@ struct EnsembleApp: App {
             AppLogger.debug("📱 Scene phase changed to \(String(describing: phase))")
             switch phase {
             case .active:
+                UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {
@@ -228,6 +230,7 @@ struct EnsembleApp: App {
                 WatchCompanionBridge.shared.refresh()
 
             case .background:
+                UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
@@ -253,6 +256,7 @@ struct EnsembleApp: App {
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()
 
             case .inactive:
+                UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "inactive"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
                 break
             @unknown default:

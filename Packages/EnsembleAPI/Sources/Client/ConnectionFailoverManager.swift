@@ -89,13 +89,16 @@ public actor ConnectionFailoverManager {
         allowInsecure: AllowInsecureConnectionsPolicy,
         networkContext: NetworkReachabilityContext = .unknown
     ) async -> ConnectionSelectionResult {
+        let selectionStart = Date()
         guard !endpoints.isEmpty else {
-            return ConnectionSelectionResult(
+            let result = ConnectionSelectionResult(
                 selected: nil,
                 probes: [],
                 reusedPreferredPath: false,
                 skippedInsecureCount: 0
             )
+            logSelectionCompleted(result, startedAt: selectionStart, originalCount: 0, networkContext: networkContext)
+            return result
         }
 
         // Filter by network reachability first to skip unreachable endpoint classes
@@ -119,6 +122,10 @@ public actor ConnectionFailoverManager {
         // Compute adaptive timeout based on network context
         let adaptiveTimeout = probeTimeout(for: networkContext)
 
+        EnsembleLogger.debug(
+            "🌐 ConnectionFailover: Selection start endpoints=\(endpoints.count) reachable=\(reachableEndpoints.count) active=\(activeCandidates.count) candidates=\(candidates.count) context=\(networkContext.logDescription) timeoutMs=\(Int(adaptiveTimeout * 1000)) skippedInsecure=\(ordering.skippedInsecureCount)"
+        )
+
         if let preferred = preferredRecentHealthyEndpoint(from: candidates) {
             EnsembleLogger.debug("⚡️ ConnectionFailover: Trying preferred recent endpoint \(probeLogDescription(for: preferred))")
 
@@ -129,12 +136,14 @@ public actor ConnectionFailoverManager {
             let probe = await probeConnection(endpoint: preferred, token: token, probeTimeout: preferredTimeout)
             if probe.success {
                 EnsembleLogger.debug("⚡️ ConnectionFailover: Reused preferred endpoint \(probeLogDescription(for: preferred))")
-                return ConnectionSelectionResult(
+                let result = ConnectionSelectionResult(
                     selected: preferred,
                     probes: [probe],
                     reusedPreferredPath: true,
                     skippedInsecureCount: ordering.skippedInsecureCount
                 )
+                logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+                return result
             }
 
             candidates.removeAll { $0.url == preferred.url }
@@ -142,12 +151,14 @@ public actor ConnectionFailoverManager {
         }
 
         guard !candidates.isEmpty else {
-            return ConnectionSelectionResult(
+            let result = ConnectionSelectionResult(
                 selected: nil,
                 probes: [],
                 reusedPreferredPath: false,
                 skippedInsecureCount: ordering.skippedInsecureCount
             )
+            logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+            return result
         }
 
         // Determine the best possible endpoint class among candidates so we know
@@ -228,24 +239,28 @@ public actor ConnectionFailoverManager {
 
         guard let selected else {
             EnsembleLogger.debug("❌ ConnectionFailover: No successful endpoints from \(candidates.count) probes")
-            return ConnectionSelectionResult(
+            let result = ConnectionSelectionResult(
                 selected: nil,
                 probes: probes,
                 reusedPreferredPath: false,
                 skippedInsecureCount: ordering.skippedInsecureCount
             )
+            logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+            return result
         }
 
         EnsembleLogger.debug(
             "🏆 ConnectionFailover: Selected endpoint \(probeLogDescription(for: selected))"
         )
 
-        return ConnectionSelectionResult(
+        let result = ConnectionSelectionResult(
             selected: selected,
             probes: probes,
             reusedPreferredPath: false,
             skippedInsecureCount: ordering.skippedInsecureCount
         )
+        logSelectionCompleted(result, startedAt: selectionStart, originalCount: endpoints.count, networkContext: networkContext)
+        return result
     }
     
     /// Get connection health status
@@ -498,6 +513,18 @@ public actor ConnectionFailoverManager {
         "class=\(endpoint.endpointClass.rawValue) local=\(endpoint.local ? 1 : 0) relay=\(endpoint.relay ? 1 : 0) secure=\(endpoint.secure ? 1 : 0)"
     }
 
+    private func logSelectionCompleted(
+        _ result: ConnectionSelectionResult,
+        startedAt: Date,
+        originalCount: Int,
+        networkContext: NetworkReachabilityContext
+    ) {
+        let elapsedMs = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
+        EnsembleLogger.debug(
+            "🌐 ConnectionFailover: Selection complete elapsedMs=\(elapsedMs) originalEndpoints=\(originalCount) context=\(networkContext.logDescription) \(result.diagnosticSummary)"
+        )
+    }
+
     private func failureCategory(for error: Error) -> ConnectionProbeFailureCategory {
         if error is CancellationError {
             return .cancelled
@@ -526,6 +553,19 @@ public actor ConnectionFailoverManager {
             return .tls
         }
         return .other
+    }
+}
+
+private extension NetworkReachabilityContext {
+    var logDescription: String {
+        switch self {
+        case .localNetwork:
+            return "local"
+        case .remoteNetwork:
+            return "remote"
+        case .unknown:
+            return "unknown"
+        }
     }
 }
 

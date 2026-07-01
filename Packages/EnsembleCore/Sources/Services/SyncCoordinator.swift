@@ -1578,10 +1578,15 @@ public final class SyncCoordinator: ObservableObject {
         let currentState = networkMonitor.networkState
 
         EnsembleLogger.debug("🌐 SyncCoordinator: App entering foreground with state \(currentState.description)")
+        UserJourneyLogger.log(
+            context: "network",
+            event: "appForeground",
+            details: ["state": currentState.description]
+        )
 
         let decision = networkLifecycleController.foregroundDecision(for: currentState)
         EnsembleLogger.debug(
-            "🌐 SyncCoordinator: Foreground decision offline=\(String(describing: decision.offlineValue)) refresh=\(decision.healthRefreshRequest != nil)"
+            "🌐 SyncCoordinator: Foreground decision \(decision.diagnosticSummary)"
         )
         applyOfflineDecision(decision.offlineValue)
 
@@ -1600,7 +1605,16 @@ public final class SyncCoordinator: ObservableObject {
         let decision = networkLifecycleController.observeNetworkState(state)
 
         EnsembleLogger.debug(
-            "🌐 SyncCoordinator: Network transition \(decision.previousState?.description ?? "nil") -> \(state.description)"
+            "🌐 SyncCoordinator: Network transition \(decision.diagnosticSummary)"
+        )
+        UserJourneyLogger.log(
+            context: "network",
+            event: "stateChanged",
+            details: [
+                "from": decision.previousState?.description ?? "nil",
+                "to": state.description,
+                "transition": decision.transition.logDescription
+            ]
         )
         if case .interfaceSwitch(let from, let to) = decision.transition {
             EnsembleLogger.debug("🌐 SyncCoordinator: Detected interface switch \(from.description) -> \(to.description)")
@@ -1683,6 +1697,9 @@ public final class SyncCoordinator: ObservableObject {
         if didSchedule {
             isCheckingHealth = true
         }
+        EnsembleLogger.debug(
+            "🌐 SyncCoordinator: Health refresh request reason=\(reason.description) force=\(forceServerRefresh) scheduled=\(didSchedule)"
+        )
     }
 
     private func enabledServerKeysForHealthChecks() -> Set<String> {

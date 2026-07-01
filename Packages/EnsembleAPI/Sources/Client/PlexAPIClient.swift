@@ -755,6 +755,7 @@ public actor PlexAPIClient {
             throw PlexAPIError.networkError(URLError(.notConnectedToInternet))
         }
 
+        let startedAt = Date()
         EnsembleLogger.debug("🔄 Attempting connection failover...")
 
         let selection = await failoverManager.findBestConnection(
@@ -763,10 +764,11 @@ public actor PlexAPIClient {
             selectionPolicy: serverConnection.selectionPolicy,
             allowInsecure: serverConnection.allowInsecurePolicy
         )
+        let elapsedMs = Int((Date().timeIntervalSince(startedAt) * 1000).rounded())
 
         guard let endpoint = selection.selected else {
             EnsembleLogger.debug(
-                "❌ No working connections found (probes=\(selection.probes.count), skippedInsecure=\(selection.skippedInsecureCount))"
+                "❌ No working connections found elapsedMs=\(elapsedMs) \(selection.diagnosticSummary)"
             )
             throw PlexAPIError.networkError(
                 NSError(
@@ -784,7 +786,9 @@ public actor PlexAPIClient {
             await registry.updateEndpoint(for: key, endpoint: endpoint, source: .requestFailover)
         }
 
-        EnsembleLogger.debug("✅ Found working connection: \(endpointLogDescription(for: endpoint))")
+        EnsembleLogger.debug(
+            "✅ Found working connection elapsedMs=\(elapsedMs) \(endpointLogDescription(for: endpoint)) \(selection.diagnosticSummary)"
+        )
         return selection
     }
 
