@@ -7,6 +7,7 @@ public actor ConnectionFailoverManager {
     private let requestPerformer: DataRequestPerformer
     private let timeout: TimeInterval
     private let preferredConnectionReuseWindow: TimeInterval = 5 * 60
+    private let networkFailureCooldownDuration: TimeInterval = 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     private var lastProbeResultsByURL: [String: ConnectionProbeResult] = [:]
 
@@ -107,13 +108,12 @@ public actor ConnectionFailoverManager {
         // Filter out endpoints in TLS cooldown (recent persistent TLS failures)
         let activeCandidates = filterByTLSCooldown(reachableEndpoints)
 
-        // Move endpoints with recent network-unreachable failures to the end.
-        // This avoids wasting time probing IPv6 addresses that consistently fail
-        // while still trying them if all other endpoints fail.
-        let orderedCandidates = deprioritizeNetworkUnreachable(activeCandidates)
+        // Skip endpoints that recently failed at the network layer while keeping
+        // them as fallbacks if every candidate is currently cooling down.
+        let viableCandidates = filterByRecentNetworkFailures(activeCandidates)
 
         let ordering = PlexEndpointPolicy.orderedCandidates(
-            from: orderedCandidates,
+            from: viableCandidates,
             selectionPolicy: selectionPolicy,
             allowInsecure: allowInsecure
         )
@@ -336,30 +336,36 @@ public actor ConnectionFailoverManager {
         return filtered
     }
 
-    /// Deprioritize endpoints that had recent network-unreachable failures (-1009).
-    /// These are typically IPv6 endpoints that aren't routable on the current network.
-    /// They're moved to the end of the list (not removed) so they're still tried if
-    /// all higher-priority endpoints fail. This avoids wasting time on consistently
-    /// unreachable addresses while preserving correctness if the network changes.
-    private func deprioritizeNetworkUnreachable(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
-        var prioritized: [PlexEndpointDescriptor] = []
-        var deprioritized: [PlexEndpointDescriptor] = []
+    /// Filter endpoints that had a recent network-layer failure.
+    private func filterByRecentNetworkFailures(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+        let now = Date()
+        var filtered: [PlexEndpointDescriptor] = []
+        var skippedCount = 0
 
         for endpoint in endpoints {
             if let lastResult = lastProbeResultsByURL[endpoint.url],
                !lastResult.success,
-               lastResult.failureCategory == .network {
-                deprioritized.append(endpoint)
+               lastResult.failureCategory == .network,
+               let lastAttempt = connectionHealth[endpoint.url]?.lastAttempt,
+               now.timeIntervalSince(lastAttempt) < networkFailureCooldownDuration {
+                skippedCount += 1
             } else {
-                prioritized.append(endpoint)
+                filtered.append(endpoint)
             }
         }
 
-        if !deprioritized.isEmpty {
-            EnsembleLogger.debug("🌐 ConnectionFailover: Deprioritized \(deprioritized.count) endpoint(s) with recent network-unreachable failures")
+        guard !filtered.isEmpty else {
+            if skippedCount > 0 {
+                EnsembleLogger.debug("🌐 ConnectionFailover: Retrying \(skippedCount) network-failed endpoint(s); no fallback candidates remain")
+            }
+            return endpoints
         }
 
-        return prioritized + deprioritized
+        if skippedCount > 0 {
+            EnsembleLogger.debug("🌐 ConnectionFailover: Skipping \(skippedCount) endpoint(s) in network failure cooldown")
+        }
+
+        return filtered
     }
 
     private func updateConnectionHealth(url: String, success: Bool) {

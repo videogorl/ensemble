@@ -329,6 +329,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     private let notificationCenter: NotificationCenter
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var rebuildObserverToken: NSObjectProtocol?
+    private var spotlightRefreshTask: Task<Void, Never>?
 
     #if !os(macOS)
     private let intentDonor: SystemMediaIntentDonating
@@ -454,6 +455,22 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     }
 
     public func refreshSpotlightIndex() async {
+        if let spotlightRefreshTask {
+            EnsembleLogger.debug("[SystemMedia] Spotlight refresh coalesced with active refresh")
+            await spotlightRefreshTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSpotlightIndexRefresh()
+        }
+        spotlightRefreshTask = task
+        await task.value
+        spotlightRefreshTask = nil
+    }
+
+    private func performSpotlightIndexRefresh() async {
         if let foregroundWorkScheduler {
             guard await foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) else {
                 EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; foreground work is not available")

@@ -117,6 +117,52 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         }
     }
 
+    private actor NetworkFailureCooldownNetwork {
+        enum Mode {
+            case remoteSucceeds
+            case remoteFails
+        }
+
+        private var mode: Mode = .remoteSucceeds
+        private var hits: [String: Int] = [:]
+
+        func setMode(_ mode: Mode) {
+            self.mode = mode
+        }
+
+        func hitCount(for host: String) -> Int {
+            hits[host, default: 0]
+        }
+
+        func perform(_ request: URLRequest) throws -> (Data, URLResponse) {
+            guard let url = request.url, let host = url.host else {
+                throw URLError(.badURL)
+            }
+
+            hits[host, default: 0] += 1
+
+            if host == "bad-local.example" {
+                throw URLError(.notConnectedToInternet)
+            }
+
+            let statusCode: Int
+            switch mode {
+            case .remoteSucceeds:
+                statusCode = 200
+            case .remoteFails:
+                statusCode = 500
+            }
+
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+    }
+
     func testPreferredURLFastPathSkipsParallelProbeWhenHealthyAndWorking() async throws {
         let network = MockNetwork(mode: .preferredSucceeds)
         let manager = ConnectionFailoverManager(timeout: 0.2) { request in
@@ -356,5 +402,43 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         )
 
         XCTAssertEqual(result.selected?.url, "https://remote.example")
+    }
+
+    func testRecentNetworkFailureEndpointIsSkippedWhenFallbackExists() async throws {
+        let network = NetworkFailureCooldownNetwork()
+        let manager = ConnectionFailoverManager(timeout: 0.2) { request in
+            try await network.perform(request)
+        }
+
+        let endpoints = [
+            PlexEndpointDescriptor(url: "https://bad-local.example", local: true, relay: false),
+            PlexEndpointDescriptor(url: "https://remote.example", local: false, relay: false)
+        ]
+
+        let first = await manager.findBestConnection(
+            endpoints: endpoints,
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+
+        XCTAssertEqual(first.selected?.url, "https://remote.example")
+        let badLocalHitCountAfterFirstProbe = await network.hitCount(for: "bad-local.example")
+        XCTAssertEqual(badLocalHitCountAfterFirstProbe, 1)
+
+        await network.setMode(.remoteFails)
+
+        let second = await manager.findBestConnection(
+            endpoints: endpoints,
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+
+        XCTAssertNil(second.selected)
+        let badLocalHitCountAfterSecondProbe = await network.hitCount(for: "bad-local.example")
+        let remoteHitCount = await network.hitCount(for: "remote.example")
+        XCTAssertEqual(badLocalHitCountAfterSecondProbe, 1)
+        XCTAssertGreaterThanOrEqual(remoteHitCount, 2)
     }
 }

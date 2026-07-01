@@ -628,13 +628,7 @@ public final class SearchViewModel: ObservableObject {
                     guard !Task.isCancelled else { return }
                     let title = plexHub.title.lowercased()
 
-                    var metadata: [PlexHubMetadata] = []
-                    if let existing = plexHub.metadata, !existing.isEmpty {
-                        metadata = existing
-                    } else if let key = plexHub.key ?? plexHub.hubKey,
-                              let items = try? await task.client.getHubItems(hubKey: key) {
-                        metadata = items
-                    }
+                    let metadata = plexHub.metadata ?? []
 
                     let filteredMetadata = metadata.filter { item in
                         let type = item.type?.lowercased() ?? ""

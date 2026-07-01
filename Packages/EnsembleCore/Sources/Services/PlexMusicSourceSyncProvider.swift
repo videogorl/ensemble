@@ -4,6 +4,8 @@ import Foundation
 
 /// Syncs a single Plex server+library to CoreData
 public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    static let playlistOrphanCheckInterval: TimeInterval = 24 * 60 * 60
+
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
@@ -497,6 +499,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Update last playlist sync timestamp
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
 
         EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists)")
         progressHandler(1.0)
@@ -511,6 +514,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let syncStart = CFAbsoluteTimeGetCurrent()
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+        let orphanTimestampKey = Self.playlistOrphanCheckKey(for: serverSourceKey)
 
         // Get last sync timestamp
         let lastSyncTimestamp = UserDefaults.standard.double(forKey: timestampKey)
@@ -576,22 +580,35 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         EnsembleLogger.debug("⏱️ Incremental playlist upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
 
-        // Orphan removal: Fetch playlist inventory and remove deleted playlists
+        // Orphan removal: fetch inventory only after playlist changes or on a periodic cleanup.
         progressHandler(0.7)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
-        let playlistInventory = try await apiClient.getPlaylistInventory()
-        let validPlaylistKeys = Set(playlistInventory.map { $0.ratingKey })
-        progressHandler(0.85)
+        let shouldCheckOrphans = Self.shouldCheckPlaylistOrphans(
+            changedPlaylistCount: changedPlaylists.count,
+            lastCheckedAt: UserDefaults.standard.double(forKey: orphanTimestampKey),
+            now: Date()
+        )
+        let removedPlaylists: Int
+        if shouldCheckOrphans {
+            phaseStart = CFAbsoluteTimeGetCurrent()
+            EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
+            let playlistInventory = try await apiClient.getPlaylistInventory()
+            let validPlaylistKeys = Set(playlistInventory.map { $0.ratingKey })
+            progressHandler(0.85)
 
-        let removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
-        if removedPlaylists > 0 {
-            EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
+            removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
+            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: orphanTimestampKey)
+            if removedPlaylists > 0 {
+                EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
+            } else {
+                EnsembleLogger.debug("✅ No orphaned playlists found")
+            }
+
+            EnsembleLogger.debug("⏱️ Incremental playlist orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
         } else {
-            EnsembleLogger.debug("✅ No orphaned playlists found")
+            removedPlaylists = 0
+            progressHandler(0.9)
+            EnsembleLogger.debug("⏭️ Incremental playlist orphan check skipped; no playlist changes and recent cleanup exists")
         }
-
-        EnsembleLogger.debug("⏱️ Incremental playlist orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
 
         // Update last playlist sync timestamp
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
@@ -603,6 +620,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             changedPlaylists: changedPlaylists.count,
             removedPlaylists: removedPlaylists
         )
+    }
+
+    static func shouldCheckPlaylistOrphans(
+        changedPlaylistCount: Int,
+        lastCheckedAt: TimeInterval,
+        now: Date,
+        interval: TimeInterval = playlistOrphanCheckInterval
+    ) -> Bool {
+        guard changedPlaylistCount == 0 else { return true }
+        guard lastCheckedAt > 0 else { return true }
+        return now.timeIntervalSince1970 - lastCheckedAt >= interval
+    }
+
+    private static func playlistOrphanCheckKey(for serverSourceKey: String) -> String {
+        "lastPlaylistOrphanCheckAt_\(serverSourceKey)"
     }
 
 public func getStreamURL(

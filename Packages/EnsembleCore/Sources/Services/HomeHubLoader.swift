@@ -159,8 +159,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 group.addTask {
                     await Self.fetchSectionHubs(
                         task: task,
-                        hubCount: hubCount,
-                        knownFailedHubKeys: updatedFailedHubKeys
+                        hubCount: hubCount
                     )
                 }
             }
@@ -315,8 +314,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     private static func fetchSectionHubs(
         task: FetchTask,
-        hubCount: String,
-        knownFailedHubKeys: Set<String>
+        hubCount: String
     ) async -> (hubs: [Hub], failedKeys: Set<String>) {
         var hubs: [Hub] = []
         var newFailedKeys = Set<String>()
@@ -337,23 +335,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                             }
                             hubItems = Array(filteredMetadata.prefix(12)).map {
                                 HubItem(from: $0, sourceKey: task.sourceKey)
-                            }
-                        } else if let key = plexHub.key ?? plexHub.hubKey {
-                            guard !knownFailedHubKeys.contains(key) else {
-                                return (hub: nil, failedKey: nil)
-                            }
-
-                            do {
-                                let metadata = try await task.client.getHubItems(hubKey: key)
-                                let filteredMetadata = metadata.filter { item in
-                                    let type = item.type?.lowercased() ?? ""
-                                    return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                                }
-                                hubItems = Array(filteredMetadata.prefix(12)).map {
-                                    HubItem(from: $0, sourceKey: task.sourceKey)
-                                }
-                            } catch {
-                                return (hub: nil, failedKey: key)
                             }
                         }
 
