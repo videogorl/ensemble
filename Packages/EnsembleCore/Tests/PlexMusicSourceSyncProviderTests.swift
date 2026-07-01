@@ -64,4 +64,40 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             )
         )
     }
+
+    func testPlaylistTrackSyncSkipsUnchangedPlaylist() {
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+                serverUpdatedAt: 100,
+                existingModifiedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+    }
+
+    func testPlaylistTrackSyncFetchesChangedPlaylist() {
+        XCTAssertTrue(
+            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+                serverUpdatedAt: 101,
+                existingModifiedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+    }
+
+    func testPlaylistTrackSyncFetchesNewPlaylist() {
+        XCTAssertTrue(
+            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+                serverUpdatedAt: 100,
+                existingModifiedAt: nil
+            )
+        )
+    }
+
+    func testPlaylistTrackSyncSkipsExistingPlaylistWhenServerUpdatedAtIsMissing() {
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
+                serverUpdatedAt: nil,
+                existingModifiedAt: Date.distantPast
+            )
+        )
+    }
 }

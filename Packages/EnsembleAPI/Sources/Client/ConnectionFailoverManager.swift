@@ -10,6 +10,7 @@ public actor ConnectionFailoverManager {
     private let networkFailureCooldownDuration: TimeInterval = 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     private var lastProbeResultsByURL: [String: ConnectionProbeResult] = [:]
+    private var inFlightSelections: [ConnectionSelectionKey: Task<ConnectionSelectionResult, Never>] = [:]
 
     // TLS failure cooldown tracking - deprioritize endpoints with persistent TLS errors
     private var tlsFailureCooldowns: [String: Date] = [:]  // URL -> cooldown expiry
@@ -89,6 +90,43 @@ public actor ConnectionFailoverManager {
         selectionPolicy: ConnectionSelectionPolicy,
         allowInsecure: AllowInsecureConnectionsPolicy,
         networkContext: NetworkReachabilityContext = .unknown
+    ) async -> ConnectionSelectionResult {
+        let key = ConnectionSelectionKey(
+            endpoints: endpoints,
+            token: token,
+            selectionPolicy: selectionPolicy,
+            allowInsecure: allowInsecure,
+            networkContext: networkContext
+        )
+
+        if let task = inFlightSelections[key] {
+            EnsembleLogger.debug(
+                "🌐 ConnectionFailover: Reusing in-flight selection endpoints=\(endpoints.count) context=\(networkContext.logDescription)"
+            )
+            return await task.value
+        }
+
+        let task = Task {
+            await self.performFindBestConnection(
+                endpoints: endpoints,
+                token: token,
+                selectionPolicy: selectionPolicy,
+                allowInsecure: allowInsecure,
+                networkContext: networkContext
+            )
+        }
+        inFlightSelections[key] = task
+        let result = await task.value
+        inFlightSelections[key] = nil
+        return result
+    }
+
+    private func performFindBestConnection(
+        endpoints: [PlexEndpointDescriptor],
+        token: String,
+        selectionPolicy: ConnectionSelectionPolicy,
+        allowInsecure: AllowInsecureConnectionsPolicy,
+        networkContext: NetworkReachabilityContext
     ) async -> ConnectionSelectionResult {
         let selectionStart = Date()
         guard !endpoints.isEmpty else {
@@ -277,6 +315,10 @@ public actor ConnectionFailoverManager {
     public func resetHealthTracking() {
         connectionHealth.removeAll()
         lastProbeResultsByURL.removeAll()
+        for task in inFlightSelections.values {
+            task.cancel()
+        }
+        inFlightSelections.removeAll()
         tlsFailureCooldowns.removeAll()
     }
     
@@ -559,6 +601,42 @@ public actor ConnectionFailoverManager {
             return .tls
         }
         return .other
+    }
+}
+
+private struct ConnectionSelectionKey: Hashable {
+    let endpoints: [EndpointKey]
+    let token: String
+    let selectionPolicy: String
+    let allowInsecure: String
+    let networkContext: String
+
+    init(
+        endpoints: [PlexEndpointDescriptor],
+        token: String,
+        selectionPolicy: ConnectionSelectionPolicy,
+        allowInsecure: AllowInsecureConnectionsPolicy,
+        networkContext: NetworkReachabilityContext
+    ) {
+        self.endpoints = endpoints.map(EndpointKey.init)
+        self.token = token
+        self.selectionPolicy = selectionPolicy.rawValue
+        self.allowInsecure = allowInsecure.rawValue
+        self.networkContext = networkContext.logDescription
+    }
+}
+
+private struct EndpointKey: Hashable {
+    let url: String
+    let local: Bool
+    let relay: Bool
+    let secure: Bool
+
+    init(_ endpoint: PlexEndpointDescriptor) {
+        url = endpoint.url
+        local = endpoint.local
+        relay = endpoint.relay
+        secure = endpoint.secure
     }
 }
 

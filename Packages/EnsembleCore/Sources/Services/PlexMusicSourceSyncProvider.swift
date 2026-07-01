@@ -465,12 +465,19 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         let playlistSyncStart = CFAbsoluteTimeGetCurrent()
         progressHandler(0.1)
+        let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
         let playlists = try await apiClient.getPlaylists()
         EnsembleLogger.debug("⏱️ Playlist sync: fetched \(playlists.count) playlists in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s")
 
+        var fetchedTrackLists = 0
+        var skippedTrackLists = 0
         for (index, playlist) in playlists.enumerated() {
             let playlistProgress = 0.1 + (0.8 * Double(index) / Double(playlists.count))
             progressHandler(playlistProgress)
+            let shouldFetchTracks = Self.shouldFetchPlaylistTracks(
+                serverUpdatedAt: playlist.updatedAt,
+                existingModifiedAt: existingTimestamps[playlist.ratingKey]
+            )
 
             _ = try await repository.upsertPlaylist(
                 ratingKey: playlist.ratingKey,
@@ -487,6 +494,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 sourceCompositeKey: serverSourceKey
             )
 
+            guard shouldFetchTracks else {
+                skippedTrackLists += 1
+                continue
+            }
+
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
             EnsembleLogger.debug("📋 Syncing playlist '\(playlist.title)': \(trackKeys.count) tracks")
@@ -494,6 +506,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 EnsembleLogger.debug("📋 First track key: \(trackKeys[0])")
             }
             try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
+            fetchedTrackLists += 1
         }
 
         // Update last playlist sync timestamp
@@ -501,9 +514,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
 
-        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists)")
+        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists))")
         progressHandler(1.0)
-        return PlaylistSyncResult(changedPlaylists: playlists.count)
+        return PlaylistSyncResult(changedPlaylists: fetchedTrackLists)
     }
 
     /// Sync only playlists that changed since last sync (incremental)
@@ -620,6 +633,15 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             changedPlaylists: changedPlaylists.count,
             removedPlaylists: removedPlaylists
         )
+    }
+
+    static func shouldFetchPlaylistTracks(
+        serverUpdatedAt: Int?,
+        existingModifiedAt: Date?
+    ) -> Bool {
+        guard let existingModifiedAt else { return true }
+        guard let serverUpdatedAt else { return false }
+        return serverUpdatedAt != Int(existingModifiedAt.timeIntervalSince1970)
     }
 
     static func shouldCheckPlaylistOrphans(

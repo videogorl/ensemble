@@ -404,6 +404,38 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         XCTAssertEqual(result.selected?.url, "https://remote.example")
     }
 
+    func testConcurrentMatchingSelectionsShareProbeWork() async throws {
+        let network = DelayedHostNetwork(
+            statusCodesByHost: ["shared.example": 200],
+            delaysByHost: ["shared.example": 200_000_000]
+        )
+        let manager = ConnectionFailoverManager(timeout: 2.0) { request in
+            try await network.perform(request)
+        }
+        let endpoints = [
+            PlexEndpointDescriptor(url: "https://shared.example", local: false, relay: false)
+        ]
+
+        async let first = manager.findBestConnection(
+            endpoints: endpoints,
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+        async let second = manager.findBestConnection(
+            endpoints: endpoints,
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+
+        let results = await [first, second]
+        let hitCount = await network.hitCount(for: "shared.example")
+
+        XCTAssertEqual(results.map(\.selected?.url), ["https://shared.example", "https://shared.example"])
+        XCTAssertEqual(hitCount, 1)
+    }
+
     func testRecentNetworkFailureEndpointIsSkippedWhenFallbackExists() async throws {
         let network = NetworkFailureCooldownNetwork()
         let manager = ConnectionFailoverManager(timeout: 0.2) { request in
