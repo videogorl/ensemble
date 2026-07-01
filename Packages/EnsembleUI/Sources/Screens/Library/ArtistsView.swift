@@ -732,7 +732,7 @@ public struct ArtistDetailView: View {
                         }
 
                         // Favorited Tracks (4+ stars)
-                        if !viewModel.favoritedTracks.isEmpty {
+                        if !detailFavoritedTracks.isEmpty {
                             favoritedTracksSection
                                 .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
                         }
@@ -1012,28 +1012,32 @@ public struct ArtistDetailView: View {
         return image.cropping(to: cropRect)
     }
 
+    private var detailSnapshot: ArtistDetailDisplaySnapshot {
+        displayArtist.isMerged ? mergedViewModel.displaySnapshot : viewModel.displaySnapshot
+    }
+
     private var detailAlbums: [Album] {
-        displayArtist.isMerged ? mergedViewModel.filteredAlbums : viewModel.filteredAlbums
+        detailSnapshot.filteredAlbums
     }
 
     private var detailStudioAlbums: [Album] {
-        detailAlbums.filter { !$0.isLikelySingleOrEP(artistTracks: detailTracks) }
+        detailSnapshot.studioAlbums
     }
 
     private var detailSinglesAndEPs: [Album] {
-        detailAlbums.filter { $0.isLikelySingleOrEP(artistTracks: detailTracks) }
+        detailSnapshot.singlesAndEPs
     }
 
     private var detailTracks: [Track] {
-        displayArtist.isMerged ? mergedViewModel.filteredTracks : viewModel.filteredTracks
+        detailSnapshot.filteredTracks
     }
 
     private var detailTrackCount: Int {
-        displayArtist.isMerged ? mergedViewModel.trackCount : viewModel.trackCount
+        detailSnapshot.trackCount
     }
 
     private var detailFavoritedTracks: [Track] {
-        displayArtist.isMerged ? mergedViewModel.favoritedTracks : viewModel.favoritedTracks
+        detailSnapshot.favoritedTracks
     }
 
     // MARK: - Hero Banner
@@ -1514,10 +1518,10 @@ public struct ArtistDetailView: View {
     }
 
     private func mergedSourceSection(_ section: MergedArtistSourceSection) -> some View {
-        let albums = mergedViewModel.filteredAlbums(for: section)
-        let studioAlbums = albums.filter { !$0.isLikelySingleOrEP(artistTracks: section.tracks) }
-        let singlesAndEPs = albums.filter { $0.isLikelySingleOrEP(artistTracks: section.tracks) }
-        let favoritedTracks = mergedViewModel.favoritedTracks(for: section)
+        let snapshot = mergedViewModel.sourceDisplaySnapshot(for: section)
+        let studioAlbums = snapshot.studioAlbums
+        let singlesAndEPs = snapshot.singlesAndEPs
+        let favoritedTracks = snapshot.favoritedTracks
 
         return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             HStack(alignment: .firstTextBaseline, spacing: EnsembleDesign.Spacing.md) {
@@ -1526,7 +1530,7 @@ public struct ArtistDetailView: View {
                         .font(EnsembleDesign.Typography.sectionTitle)
                         .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                    Text(sourceSectionMetadata(section, albums: albums, favoritedTracks: favoritedTracks, totalTracks: section.tracks))
+                    Text(sourceSectionMetadata(section, snapshot: snapshot, totalTracks: section.tracks))
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
@@ -1559,16 +1563,13 @@ public struct ArtistDetailView: View {
 
     private func sourceSectionMetadata(
         _ section: MergedArtistSourceSection,
-        albums: [Album],
-        favoritedTracks: [Track],
+        snapshot: ArtistDetailDisplaySnapshot,
         totalTracks: [Track]
     ) -> String {
-        let singlesAndEPs = albums.filter { $0.isLikelySingleOrEP(artistTracks: totalTracks) }
-        let studioAlbumCount = albums.count - singlesAndEPs.count
         return [
-            artistStatsAlbumText(albumCount: studioAlbumCount, singlesAndEPCount: singlesAndEPs.count),
+            artistStatsAlbumText(albumCount: snapshot.studioAlbums.count, singlesAndEPCount: snapshot.singlesAndEPs.count),
             "\(totalTracks.count) song\(totalTracks.count == 1 ? "" : "s")",
-            "\(favoritedTracks.count) favorited",
+            "\(snapshot.favoritedTracks.count) favorited",
             displaySourceSubtitle(section.sourceSubtitle)
         ].joined(separator: " · ")
     }

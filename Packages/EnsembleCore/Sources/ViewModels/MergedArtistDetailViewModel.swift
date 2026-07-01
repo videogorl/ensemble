@@ -29,10 +29,16 @@ public struct MergedArtistSourceSection: Identifiable, Equatable, Sendable {
 @MainActor
 public final class MergedArtistDetailViewModel: ObservableObject {
     @Published public private(set) var displayArtist: DisplayArtist
-    @Published public private(set) var sourceSections: [MergedArtistSourceSection] = []
+    @Published public private(set) var sourceSections: [MergedArtistSourceSection] = [] {
+        didSet { rebuildDisplaySnapshots() }
+    }
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { rebuildDisplaySnapshots() }
+    }
+    @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
+    @Published public private(set) var sourceDisplaySnapshots: [String: ArtistDetailDisplaySnapshot] = [:]
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
@@ -140,27 +146,27 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     public var filteredAlbums: [Album] {
-        MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail)
+        displaySnapshot.filteredAlbums
     }
 
     public var filteredTracks: [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .artistDetail)
+        displaySnapshot.filteredTracks
     }
 
     public var trackCount: Int {
-        filteredTracks.count
+        displaySnapshot.trackCount
     }
 
     public var favoritedTracks: [Track] {
-        tracks.filter { $0.rating >= 8 }
+        displaySnapshot.favoritedTracks
     }
 
     public var availableGenres: [String] {
-        LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
+        displaySnapshot.availableGenres
     }
 
     public var totalDuration: String {
-        let totalSeconds = filteredTracks.reduce(0) { $0 + $1.duration }
+        let totalSeconds = displaySnapshot.filteredTracks.reduce(0) { $0 + $1.duration }
         let minutes = Int(totalSeconds) / 60
         if minutes >= 60 {
             return "\(minutes / 60) hr \(minutes % 60) min"
@@ -169,15 +175,48 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     public func filteredTracks(for section: MergedArtistSourceSection) -> [Track] {
-        MediaFilterEngine.filterTracks(section.tracks, with: filterOptions, configuration: .artistDetail)
+        sourceDisplaySnapshot(for: section).filteredTracks
     }
 
     public func filteredAlbums(for section: MergedArtistSourceSection) -> [Album] {
-        MediaFilterEngine.filterAlbums(section.albums, with: filterOptions, configuration: .artistDetail)
+        sourceDisplaySnapshot(for: section).filteredAlbums
     }
 
     public func favoritedTracks(for section: MergedArtistSourceSection) -> [Track] {
-        section.tracks.filter { $0.rating >= 8 }
+        sourceDisplaySnapshot(for: section).favoritedTracks
+    }
+
+    public func sourceDisplaySnapshot(for section: MergedArtistSourceSection) -> ArtistDetailDisplaySnapshot {
+        sourceDisplaySnapshots[section.id] ?? ArtistDetailDisplaySnapshot(
+            albums: section.albums,
+            tracks: section.tracks,
+            filterOptions: filterOptions
+        )
+    }
+
+    private func rebuildDisplaySnapshots() {
+        let allAlbums = sourceSections.flatMap(\.albums)
+        let allTracks = sourceSections.flatMap(\.tracks)
+        let nextDisplay = ArtistDetailDisplaySnapshot(albums: allAlbums, tracks: allTracks, filterOptions: filterOptions)
+        let nextSourceDisplays = Dictionary(
+            uniqueKeysWithValues: sourceSections.map { section in
+                (
+                    section.id,
+                    ArtistDetailDisplaySnapshot(
+                        albums: section.albums,
+                        tracks: section.tracks,
+                        filterOptions: filterOptions
+                    )
+                )
+            }
+        )
+
+        if displaySnapshot != nextDisplay {
+            displaySnapshot = nextDisplay
+        }
+        if sourceDisplaySnapshots != nextSourceDisplays {
+            sourceDisplaySnapshots = nextSourceDisplays
+        }
     }
 
     private func albums(for artist: Artist) async throws -> [Album] {

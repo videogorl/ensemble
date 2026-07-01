@@ -231,6 +231,46 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.favoritedTracks(for: viewModel.sourceSections[1]).map(\.sourceScopedID), [
             "\(sharedFreeSource)||7551"
         ])
+        XCTAssertEqual(viewModel.displaySnapshot.favoritedTracks.map(\.sourceScopedID), [
+            "\(sharedSubscriberSource)||7551",
+            "\(sharedFreeSource)||7551"
+        ])
+
+        viewModel.filterOptions.searchText = "Ordinaryish"
+
+        XCTAssertEqual(viewModel.displaySnapshot.filteredTracks.map(\.title), [
+            "Ordinaryish People"
+        ])
+        XCTAssertEqual(viewModel.sourceDisplaySnapshot(for: viewModel.sourceSections[0]).filteredTracks.map(\.title), [
+            "Ordinaryish People"
+        ])
+        XCTAssertTrue(viewModel.sourceDisplaySnapshot(for: viewModel.sourceSections[1]).filteredTracks.isEmpty)
+    }
+
+    func testArtistDetailDisplaySnapshotCachesFilteredReleaseAndFavoriteCollections() {
+        var filterOptions = FilterOptions()
+        filterOptions.searchText = "maybe"
+
+        let snapshot = ArtistDetailDisplaySnapshot(
+            albums: [
+                Album(id: "album", key: "/library/metadata/album", title: "Maybe Album", sourceCompositeKey: "source", releaseFormat: .album),
+                Album(id: "single", key: "/library/metadata/single", title: "Maybe Single", sourceCompositeKey: "source", releaseFormat: .single),
+                Album(id: "other", key: "/library/metadata/other", title: "Other", sourceCompositeKey: "source", releaseFormat: .album)
+            ],
+            tracks: [
+                Track(id: "1", key: "/library/metadata/1", title: "Maybe Man", duration: 180, rating: 10, genres: ["Pop"], sourceCompositeKey: "source"),
+                Track(id: "2", key: "/library/metadata/2", title: "Other Song", duration: 200, rating: 6, genres: ["Rock"], sourceCompositeKey: "source")
+            ],
+            filterOptions: filterOptions
+        )
+
+        XCTAssertEqual(snapshot.filteredAlbums.map(\.id), ["album", "single"])
+        XCTAssertEqual(snapshot.studioAlbums.map(\.id), ["album"])
+        XCTAssertEqual(snapshot.singlesAndEPs.map(\.id), ["single"])
+        XCTAssertEqual(snapshot.filteredTracks.map(\.id), ["1"])
+        XCTAssertEqual(snapshot.favoritedTracks.map(\.id), ["1"])
+        XCTAssertEqual(snapshot.availableGenres, ["Pop", "Rock"])
+        XCTAssertEqual(snapshot.trackCount, 1)
     }
 
     private func makeAlbum(ratingKey: String, title: String, sourceCompositeKey: String) -> CDAlbum {

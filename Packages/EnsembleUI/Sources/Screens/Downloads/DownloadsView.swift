@@ -71,16 +71,19 @@ public struct DownloadsView: View {
     private var downloadListView: some View {
         List {
             // Libraries section — shows each sync-enabled library with toggle + drill-in
-            if !viewModel.librarySummaries.isEmpty {
-                Section {
+            Section {
+                if viewModel.librarySummaries.isEmpty {
+                    Text(viewModel.librarySummariesPlaceholderText)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                } else {
                     ForEach(viewModel.librarySummaries) { library in
                         libraryRow(for: library)
                     }
-                } header: {
-                    EnsembleUtilitySectionHeader("Libraries")
-                } footer: {
-                    Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
                 }
+            } header: {
+                EnsembleUtilitySectionHeader("Libraries")
+            } footer: {
+                Text("Toggle to enable entire libraries for offline playback. Tap a row to see downloaded tracks.")
             }
 
             // Pending Changes entry — only when there are queued mutations
@@ -130,11 +133,16 @@ public struct DownloadsView: View {
     #if os(macOS)
     private var macOSDownloadContent: some View {
         EnsembleUtilityScreenScaffold {
-            if !viewModel.librarySummaries.isEmpty {
-                EnsembleUtilityCardSection(
-                    "Libraries",
-                    footer: "Toggle to enable entire libraries for offline playback. Open a row to see downloaded tracks."
-                ) {
+            EnsembleUtilityCardSection(
+                "Libraries",
+                footer: "Toggle to enable entire libraries for offline playback. Open a row to see downloaded tracks."
+            ) {
+                if viewModel.librarySummaries.isEmpty {
+                    EnsembleUtilityCardRow {
+                        Text(viewModel.librarySummariesPlaceholderText)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                } else {
                     ForEach(viewModel.librarySummaries) { library in
                         macOSLibraryRow(for: library)
                     }

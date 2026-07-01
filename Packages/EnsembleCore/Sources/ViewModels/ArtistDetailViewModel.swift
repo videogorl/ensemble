@@ -2,14 +2,72 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+public struct ArtistDetailDisplaySnapshot: Equatable, Sendable {
+    public let filteredAlbums: [Album]
+    public let studioAlbums: [Album]
+    public let singlesAndEPs: [Album]
+    public let filteredTracks: [Track]
+    public let favoritedTracks: [Track]
+    public let availableGenres: [String]
+    public let trackCount: Int
+
+    public static let empty = ArtistDetailDisplaySnapshot(albums: [], tracks: [], filterOptions: FilterOptions())
+
+    public init(albums: [Album], tracks: [Track], filterOptions: FilterOptions) {
+        let filteredAlbums = MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail)
+        let filteredTracks = MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .artistDetail)
+
+        self.filteredAlbums = filteredAlbums
+        self.studioAlbums = filteredAlbums.filter { !$0.isLikelySingleOrEP() }
+        self.singlesAndEPs = filteredAlbums.filter { $0.isLikelySingleOrEP() }
+        self.filteredTracks = filteredTracks
+        self.favoritedTracks = tracks.filter { $0.rating >= 8 }
+        self.availableGenres = Self.extractUniqueGenres(from: tracks.flatMap(\.genres))
+        self.trackCount = filteredTracks.count
+    }
+
+    private static func extractUniqueGenres(from names: [String]) -> [String] {
+        let filtered = names.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return Array(Set(filtered)).sorted()
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.filteredAlbums == rhs.filteredAlbums &&
+            sourceScopedIDs(lhs.filteredAlbums) == sourceScopedIDs(rhs.filteredAlbums) &&
+            sourceScopedIDs(lhs.studioAlbums) == sourceScopedIDs(rhs.studioAlbums) &&
+            sourceScopedIDs(lhs.singlesAndEPs) == sourceScopedIDs(rhs.singlesAndEPs) &&
+            lhs.filteredTracks == rhs.filteredTracks &&
+            sourceScopedIDs(lhs.filteredTracks) == sourceScopedIDs(rhs.filteredTracks) &&
+            lhs.favoritedTracks == rhs.favoritedTracks &&
+            sourceScopedIDs(lhs.favoritedTracks) == sourceScopedIDs(rhs.favoritedTracks) &&
+            lhs.availableGenres == rhs.availableGenres &&
+            lhs.trackCount == rhs.trackCount
+    }
+
+    private static func sourceScopedIDs(_ albums: [Album]) -> [String] {
+        albums.map(\.sourceScopedID)
+    }
+
+    private static func sourceScopedIDs(_ tracks: [Track]) -> [String] {
+        tracks.map(\.sourceScopedID)
+    }
+}
+
 @MainActor
 public final class ArtistDetailViewModel: ObservableObject {
     @Published public private(set) var artist: Artist
-    @Published public private(set) var albums: [Album] = []
-    @Published public private(set) var tracks: [Track] = []
+    @Published public private(set) var albums: [Album] = [] {
+        didSet { rebuildDisplaySnapshot() }
+    }
+    @Published public private(set) var tracks: [Track] = [] {
+        didSet { rebuildDisplaySnapshot() }
+    }
     @Published public private(set) var isLoading = false
     @Published public private(set) var error: String?
-    @Published public var filterOptions: FilterOptions
+    @Published public var filterOptions: FilterOptions {
+        didSet { rebuildDisplaySnapshot() }
+    }
+    @Published public private(set) var displaySnapshot: ArtistDetailDisplaySnapshot = .empty
 
     /// Rich metadata loaded on-demand from the single-item metadata endpoint
     @Published public private(set) var artistDetail: ArtistDetail?
@@ -175,16 +233,16 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     /// Filtered albums based on current filter options
     public var filteredAlbums: [Album] {
-        applyFilters(to: albums, with: filterOptions)
+        displaySnapshot.filteredAlbums
     }
 
     /// Filtered tracks based on current filter options
     public var filteredTracks: [Track] {
-        applyFilters(to: tracks, with: filterOptions)
+        displaySnapshot.filteredTracks
     }
 
     public var totalDuration: String {
-        let totalSeconds = filteredTracks.reduce(0) { $0 + $1.duration }
+        let totalSeconds = displaySnapshot.filteredTracks.reduce(0) { $0 + $1.duration }
         let hours = Int(totalSeconds) / 3600
         let minutes = (Int(totalSeconds) % 3600) / 60
 
@@ -195,22 +253,19 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     public var trackCount: Int {
-        filteredTracks.count
+        displaySnapshot.trackCount
     }
 
     /// Tracks rated 4+ stars (rating >= 8 on 0-10 scale) by this artist
     public var favoritedTracks: [Track] {
-        tracks.filter { $0.rating >= 8 }
+        displaySnapshot.favoritedTracks
     }
 
-    // MARK: - Filter Application
-
-    private func applyFilters(to albums: [Album], with options: FilterOptions) -> [Album] {
-        MediaFilterEngine.filterAlbums(albums, with: options, configuration: .artistDetail)
-    }
-
-    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .artistDetail)
+    private func rebuildDisplaySnapshot() {
+        let next = ArtistDetailDisplaySnapshot(albums: albums, tracks: tracks, filterOptions: filterOptions)
+        if displaySnapshot != next {
+            displaySnapshot = next
+        }
     }
 
     private static func mergedAlbums(local: [Album], remote: [Album]) -> [Album] {

@@ -178,6 +178,19 @@ public final class DownloadsViewModel: ObservableObject {
         offlineDownloadService.isLibraryDownloadEnabled(sourceCompositeKey: sourceCompositeKey)
     }
 
+    public var librarySummariesPlaceholderText: String {
+        if accountManager.isAwaitingCloudSources {
+            return "Loading libraries..."
+        }
+        if !accountManager.hasAnySources {
+            return "No music sources configured"
+        }
+        if accountManager.enabledSources().isEmpty {
+            return "No sync-enabled libraries"
+        }
+        return "Loading libraries..."
+    }
+
     /// Toggle library-level download on or off
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
         guard DownloadCapabilityPolicy.canAttemptDownload(for: sourceCompositeKey, accountManager: accountManager) else {
