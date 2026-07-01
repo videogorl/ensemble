@@ -11,6 +11,25 @@ final class DownloadsViewModelTests: XCTestCase {
         func delete(_ key: String) throws {}
     }
 
+    private final class NoopBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
+        var onExecutionRequested: (() -> Void)?
+        var onExpiration: (() -> Void)?
+        var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)?
+        var onSystemWillSleep: (() -> Void)?
+        var onSystemDidWake: (() -> Void)?
+
+        func register() {}
+        func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
+        func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
+        func finishCurrentTask(success: Bool) {}
+        func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+            onBackgroundURLSessionEvents?(identifier, completionHandler)
+        }
+        func completeBackgroundURLSessionEvents(identifier: String) {}
+        func handleSystemWillSleep() { onSystemWillSleep?() }
+        func handleSystemDidWake() { onSystemDidWake?() }
+    }
+
     func testArtistDownloadItemsIncludeSourceDisplayText() {
         let accountManager = makeAccountManager()
         let subscriberSource = "plex:subscriber:server:3"
@@ -34,6 +53,61 @@ final class DownloadsViewModelTests: XCTestCase {
             "Subscriber Server - Music · felicity@nysics.com"
         ])
         XCTAssertNil(items.first { $0.kind == .album }?.sourceDisplayText)
+    }
+
+    func testLibrarySummariesSeedFromEnabledLibrariesOnInit() {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let targetRepository = OfflineDownloadTargetRepository(coreDataStack: stack)
+        let accountManager = makeAccountManager()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 1_000,
+            monitorQueue: DispatchQueue(label: "downloads.view.model.test.network"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let serverHealthChecker = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
+        let syncCoordinator = SyncCoordinator(
+            accountManager: accountManager,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            artworkDownloadManager: ArtworkDownloadManager(),
+            networkMonitor: networkMonitor,
+            serverHealthChecker: serverHealthChecker
+        )
+        let offlineDownloadService = OfflineDownloadService(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            networkMonitor: networkMonitor,
+            backgroundExecutionCoordinator: NoopBackgroundExecutionCoordinator(),
+            artworkDownloadManager: ArtworkDownloadManager(),
+            toastCenter: ToastCenter(),
+            lyricsService: LyricsService(syncCoordinator: syncCoordinator)
+        )
+
+        let viewModel = DownloadsViewModel(
+            offlineDownloadService: offlineDownloadService,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            mutationCoordinator: MutationCoordinator(
+                repository: PendingMutationRepository(coreDataStack: stack),
+                networkMonitor: networkMonitor,
+                syncCoordinator: syncCoordinator
+            ),
+            accountManager: accountManager,
+            downloadManager: downloadManager
+        )
+
+        XCTAssertEqual(viewModel.librarySummaries.map { $0.sourceCompositeKey }, [
+            "plex:free:server:3",
+            "plex:free:server:1",
+            "plex:subscriber:server:3"
+        ])
     }
 
     private func makeSnapshot(

@@ -5,7 +5,7 @@ import Foundation
 // MARK: - Library Download Summary
 
 /// Aggregated download info for a single sync-enabled library
-public struct LibraryDownloadSummary: Identifiable {
+public struct LibraryDownloadSummary: Identifiable, Equatable {
     public let id: String  // sourceCompositeKey
     public let sourceCompositeKey: String
     public let serverName: String
@@ -132,6 +132,14 @@ public final class DownloadsViewModel: ObservableObject {
         // Rebuild library summaries when targets or accounts change
         offlineDownloadService.$targets
             .combineLatest(accountManager.$plexAccounts)
+            .sink { [weak self] _, _ in
+                self?.publishLibrarySummaryShells()
+            }
+            .store(in: &cancellables)
+
+        // Fill in heavier counts and size estimates after the stable shell rows exist.
+        offlineDownloadService.$targets
+            .combineLatest(accountManager.$plexAccounts)
             .debounce(for: .milliseconds(200), scheduler: DispatchQueue.main)
             .sink { [weak self] _, _ in
                 Task { [weak self] in
@@ -188,6 +196,47 @@ public final class DownloadsViewModel: ObservableObject {
     }
 
     // MARK: - Library Summaries
+
+    private func publishLibrarySummaryShells() {
+        let existingByID = Dictionary(uniqueKeysWithValues: librarySummaries.map { ($0.id, $0) })
+        let summaries = accountManager.plexAccounts.flatMap { account in
+            account.servers.flatMap { server in
+                server.libraries.filter(\.isEnabled).map { library in
+                    let sourceCompositeKey = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    ).compositeKey
+                    let existing = existingByID[sourceCompositeKey]
+                    let targetSnapshot = offlineDownloadService.targets.first {
+                        $0.kind == .library && $0.sourceCompositeKey == sourceCompositeKey
+                    }
+
+                    return LibraryDownloadSummary(
+                        id: sourceCompositeKey,
+                        sourceCompositeKey: sourceCompositeKey,
+                        serverName: server.name,
+                        libraryName: library.title,
+                        canDownload: DownloadCapabilityPolicy.canAttemptDownload(
+                            for: sourceCompositeKey,
+                            accountManager: accountManager
+                        ),
+                        isEnabled: offlineDownloadService.isLibraryDownloadEnabled(
+                            sourceCompositeKey: sourceCompositeKey
+                        ),
+                        downloadedTrackCount: existing?.downloadedTrackCount ?? 0,
+                        totalTrackCount: existing?.totalTrackCount ?? library.trackCount ?? 0,
+                        downloadedBytes: existing?.downloadedBytes ?? 0,
+                        estimatedTotalBytes: existing?.estimatedTotalBytes ?? 0,
+                        status: targetSnapshot?.status ?? existing?.status,
+                        progress: targetSnapshot?.progress ?? existing?.progress ?? 0
+                    )
+                }
+            }
+        }
+        assignLibrarySummaries(summaries)
+    }
 
     /// Rebuilds aggregated download stats for each sync-enabled library
     private func rebuildLibrarySummaries() async {
@@ -257,10 +306,17 @@ public final class DownloadsViewModel: ObservableObject {
             }
         }
 
-        librarySummaries = summaries.sorted {
+        assignLibrarySummaries(summaries)
+    }
+
+    private func assignLibrarySummaries(_ summaries: [LibraryDownloadSummary]) {
+        let sorted = summaries.sorted {
             let lhs = "\($0.serverName): \($0.libraryName)"
             let rhs = "\($1.serverName): \($1.libraryName)"
             return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+        }
+        if librarySummaries != sorted {
+            librarySummaries = sorted
         }
     }
 
