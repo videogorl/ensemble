@@ -1,6 +1,6 @@
 import XCTest
 @testable import EnsembleCore
-import EnsembleAPI
+@testable import EnsembleAPI
 import EnsemblePersistence
 
 @MainActor
@@ -510,8 +510,28 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
             storage.removeValue(forKey: key)
         }
     }
-    
-    private func makeChecker() -> ServerHealthChecker {
+
+    private actor ProbeCounter {
+        private var count = 0
+
+        func value() -> Int { count }
+
+        func perform(_ request: URLRequest) throws -> (Data, URLResponse) {
+            count += 1
+            guard let url = request.url else {
+                throw URLError(.badURL)
+            }
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+    }
+
+    private func makeAccountManager() -> AccountManager {
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -523,6 +543,14 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
                         id: "server-1",
                         name: "Server",
                         url: "https://example.com",
+                        connections: [
+                            PlexConnectionConfig(
+                                uri: "https://example.com",
+                                local: false,
+                                relay: false,
+                                protocol: "https"
+                            )
+                        ],
                         token: "token",
                         libraries: [
                             PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
@@ -531,10 +559,13 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
                 ]
             )
         )
+        return accountManager
+    }
 
+    private func makeChecker() -> ServerHealthChecker {
         let networkMonitor = NetworkMonitor()
         return ServerHealthChecker(
-            accountManager: accountManager,
+            accountManager: makeAccountManager(),
             networkMonitor: networkMonitor
         )
     }
@@ -544,5 +575,34 @@ final class ServerHealthCheckerCachePolicyTests: XCTestCase {
         let availableTTL = checker.cacheTTL(for: .connected(url: "https://example.com"))
         let unavailableTTL = checker.cacheTTL(for: .offline)
         XCTAssertGreaterThan(availableTTL, unavailableTTL)
+    }
+
+    func testWebSocketHealthySignalExtendsCachedHealthWithoutProbing() async {
+        let accountManager = makeAccountManager()
+        let counter = ProbeCounter()
+        var now = Date(timeIntervalSince1970: 1_000)
+        let failover = ConnectionFailoverManager(timeout: 0.1) { request in
+            try await counter.perform(request)
+        }
+        let checker = ServerHealthChecker(
+            accountManager: accountManager,
+            failoverManager: failover,
+            cacheTTL: 120,
+            unavailableCacheTTL: 10,
+            nowProvider: { now }
+        )
+
+        _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+        let firstProbeCount = await counter.value()
+        XCTAssertEqual(firstProbeCount, 1)
+
+        now = now.addingTimeInterval(100)
+        checker.markServerHealthy(accountId: "account-1", serverId: "server-1")
+
+        now = now.addingTimeInterval(100)
+        _ = await checker.checkServer(accountId: "account-1", serverId: "server-1", forceRefresh: false)
+
+        let secondProbeCount = await counter.value()
+        XCTAssertEqual(secondProbeCount, 1)
     }
 }

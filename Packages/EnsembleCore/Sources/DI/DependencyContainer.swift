@@ -820,7 +820,9 @@ public final class DependencyContainer: @unchecked Sendable {
             let currentState = await MainActor.run {
                 serverHealthChecker.getServerState(accountId: accountId, serverId: serverId)
             }
-            if !currentState.isAvailable {
+            if currentState.isAvailable {
+                serverHealthChecker.markServerHealthy(accountId: accountId, serverId: serverId)
+            } else {
                 _ = await serverHealthChecker.checkServer(accountId: accountId, serverId: serverId)
             }
         }

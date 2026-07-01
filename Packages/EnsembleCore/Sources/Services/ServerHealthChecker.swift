@@ -279,6 +279,15 @@ public final class ServerHealthChecker: ObservableObject {
         return serverFailureReasons[serverKey]
     }
 
+    public func markServerHealthy(accountId: String, serverId: String) {
+        let serverKey = makeServerKey(accountId: accountId, serverId: serverId)
+        guard let state = serverStates[serverKey], state.isAvailable else { return }
+
+        recentChecks[serverKey] = CachedCheckEntry(state: state, checkedAt: nowProvider())
+        serverFailureReasons.removeValue(forKey: serverKey)
+        EnsembleLogger.debug("🏥 ServerHealthChecker: Refreshed cached healthy state for \(serverKey)")
+    }
+
     // MARK: - Private Methods
 
     /// Perform health check for a single server
