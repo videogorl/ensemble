@@ -21,6 +21,7 @@ final class DownloadQueueCoordinator {
 
     private let dependencies: Dependencies
     private var queueTask: Task<Void, Never>?
+    private var loggedNoPendingInCurrentIdleBurst = false
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -70,12 +71,16 @@ final class DownloadQueueCoordinator {
     private func runQueueLoop() async {
         let initialPending = await dependencies.fetchPendingCount()
         if initialPending == 0 {
-            EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
+            if !loggedNoPendingInCurrentIdleBurst {
+                EnsembleLogger.debug("📥 Queue loop: no pending downloads, skipping worker spawn")
+                loggedNoPendingInCurrentIdleBurst = true
+            }
             queueTask = nil
             dependencies.setQueueRunning(false)
             dependencies.refreshQueueStatus()
             return
         }
+        loggedNoPendingInCurrentIdleBurst = false
 
         let workMode = dependencies.currentWorkMode()
         let workerCount = dependencies.queueWorkerCount(initialPending, workMode)

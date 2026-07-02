@@ -202,7 +202,6 @@ public struct ArtworkView: View {
         }
 
         guard resolvedPath != nil else {
-            EnsembleLogger.debug("🎨 ArtworkView[\(size.rawValue)]: No path available - primary:\(path ?? "nil") fallback:\(fallbackPath ?? "nil")")
             artworkURL = nil
             resolvedImage = nil
             return
