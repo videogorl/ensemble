@@ -240,7 +240,7 @@ public actor PlexAPIClient {
     let productVersion: String
     let platformName: String
     let deviceName: String
-    private let failoverManager: ConnectionFailoverManager
+    let failoverManager: ConnectionFailoverManager
 
     let serverConnection: PlexServerConnection
     let selectedLibrary: PlexLibrarySelection?
@@ -800,6 +800,7 @@ public actor PlexAPIClient {
         accept: String = "application/json"
     ) async throws -> Data {
         try await ensureNetworkAvailableForServerRequest(path: path)
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "GET request")
 
         // Try with current URL first
         do {
@@ -811,12 +812,71 @@ public actor PlexAPIClient {
 
             // Fail over only for transport/connectivity failures.
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                EnsembleLogger.debug("⚠️ Attempting failover to alternative URLs...")
+                await recordCurrentEndpointFailure(error)
+                EnsembleLogger.debug("⚠️ GET request failed with current endpoint, attempting failover...")
                 _ = try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequest(url: currentServerURL, path: path, query: query, accept: accept)
             }
             throw error
+        }
+    }
+
+    @discardableResult
+    func syncCurrentEndpointFromRegistryIfNeeded(reason: String) async -> Bool {
+        guard let registry = connectionRegistry,
+              let key = serverKey,
+              let state = await registry.currentState(for: key),
+              state.endpoint.url != currentServerURL else {
+            return false
+        }
+
+        await updateCurrentServerEndpoint(state.endpoint, source: state.source)
+        EnsembleLogger.debug("📍 PlexAPIClient: Synced endpoint from registry before \(reason)")
+        return true
+    }
+
+    private func recordCurrentEndpointFailure(_ error: Error) async {
+        let transportError = transportError(from: error)
+        guard shouldRecordCurrentEndpointFailure(transportError) else {
+            return
+        }
+
+        let endpoint = serverConnection.endpoints.first { $0.url == currentServerURL }
+            ?? PlexEndpointDescriptor(url: currentServerURL, local: false, relay: false)
+        await failoverManager.recordConnectionFailure(endpoint: endpoint, error: transportError)
+    }
+
+    private func transportError(from error: Error) -> Error {
+        if let plexError = error as? PlexAPIError,
+           case .networkError(let underlying) = plexError {
+            return underlying
+        }
+        return error
+    }
+
+    private func shouldRecordCurrentEndpointFailure(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else {
+            return false
+        }
+
+        switch urlError.code {
+        case .cannotFindHost,
+             .dnsLookupFailed,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .dataNotAllowed,
+             .secureConnectionFailed,
+             .serverCertificateUntrusted,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .clientCertificateRejected:
+            return true
+        case .timedOut:
+            return false
+        default:
+            return false
         }
     }
     
@@ -890,6 +950,7 @@ public actor PlexAPIClient {
     
     func serverRequestPUT(path: String, query: [String: String] = [:]) async throws -> Data {
         try await ensureNetworkAvailableForServerRequest(path: path)
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "PUT request")
 
         // Try with current URL first
         do {
@@ -899,7 +960,8 @@ public actor PlexAPIClient {
         } catch {
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                EnsembleLogger.debug("⚠️ PUT request failed with current URL, attempting failover...")
+                await recordCurrentEndpointFailure(error)
+                EnsembleLogger.debug("⚠️ PUT request failed with current endpoint, attempting failover...")
                 _ = try await attemptFailover()
                 // Retry with new URL
                 return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
@@ -921,6 +983,7 @@ public actor PlexAPIClient {
 
     func serverRequestPOST(path: String, query: [String: String] = [:]) async throws -> Data {
         try await ensureNetworkAvailableForServerRequest(path: path)
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "POST request")
 
         do {
             return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
@@ -928,7 +991,8 @@ public actor PlexAPIClient {
             throw CancellationError()
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                EnsembleLogger.debug("⚠️ POST request failed with current URL, attempting failover...")
+                await recordCurrentEndpointFailure(error)
+                EnsembleLogger.debug("⚠️ POST request failed with current endpoint, attempting failover...")
                 _ = try await attemptFailover()
                 return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
             }
@@ -949,6 +1013,7 @@ public actor PlexAPIClient {
 
     func serverRequestDELETE(path: String, query: [String: String] = [:]) async throws -> Data {
         try await ensureNetworkAvailableForServerRequest(path: path)
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "DELETE request")
 
         do {
             return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
@@ -956,7 +1021,8 @@ public actor PlexAPIClient {
             throw CancellationError()
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
-                EnsembleLogger.debug("⚠️ DELETE request failed with current URL, attempting failover...")
+                await recordCurrentEndpointFailure(error)
+                EnsembleLogger.debug("⚠️ DELETE request failed with current endpoint, attempting failover...")
                 _ = try await attemptFailover()
                 return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
             }
@@ -1015,6 +1081,10 @@ public actor PlexAPIClient {
 
     internal func shouldAttemptFailoverForTesting(after error: Error) -> Bool {
         shouldAttemptFailover(after: error)
+    }
+
+    internal func shouldRecordCurrentEndpointFailureForTesting(_ error: Error) -> Bool {
+        shouldRecordCurrentEndpointFailure(error)
     }
 
     /// Build Plex metadata URI format used for playlist mutations.

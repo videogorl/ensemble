@@ -186,6 +186,29 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         XCTAssertEqual(otherHits, 0)
     }
 
+    func testRecordedSuccessUsesPreferredFastPath() async throws {
+        let network = MockNetwork(mode: .preferredSucceeds)
+        let manager = ConnectionFailoverManager(timeout: 0.2) { request in
+            try await network.perform(request)
+        }
+
+        await manager.recordConnectionSuccess(
+            endpoint: PlexEndpointDescriptor(url: "https://preferred.local", local: false, relay: false)
+        )
+
+        let result = await manager.findFastestConnection(
+            urls: ["https://preferred.local", "https://other.local"],
+            token: "token"
+        )
+
+        let preferredHits = await network.hitCount(for: "preferred.local")
+        let otherHits = await network.hitCount(for: "other.local")
+
+        XCTAssertEqual(result, "https://preferred.local")
+        XCTAssertEqual(preferredHits, 1)
+        XCTAssertEqual(otherHits, 0)
+    }
+
     func testPreferredURLFailureFallsBackToParallelProbe() async throws {
         let network = MockNetwork(mode: .preferredSucceeds)
         let manager = ConnectionFailoverManager(timeout: 0.2) { request in
@@ -472,5 +495,33 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         let remoteHitCount = await network.hitCount(for: "remote.example")
         XCTAssertEqual(badLocalHitCountAfterSecondProbe, 1)
         XCTAssertGreaterThanOrEqual(remoteHitCount, 2)
+    }
+
+    func testRecordedProbeTimeoutEndpointIsSkippedWhenFallbackExists() async throws {
+        let network = NetworkFailureCooldownNetwork()
+        let manager = ConnectionFailoverManager(timeout: 0.2) { request in
+            try await network.perform(request)
+        }
+
+        let timedOutEndpoint = PlexEndpointDescriptor(url: "https://bad-local.example", local: true, relay: false)
+        let remoteEndpoint = PlexEndpointDescriptor(url: "https://remote.example", local: false, relay: false)
+
+        await manager.recordConnectionFailure(endpoint: timedOutEndpoint, error: URLError(.timedOut))
+
+        let result = await manager.findBestConnection(
+            endpoints: [timedOutEndpoint, remoteEndpoint],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+
+        let timedOutHitCount = await network.hitCount(for: "bad-local.example")
+        let remoteHitCount = await network.hitCount(for: "remote.example")
+        let lastProbe = await manager.getLastProbeResult(url: timedOutEndpoint.url)
+
+        XCTAssertEqual(result.selected?.url, remoteEndpoint.url)
+        XCTAssertEqual(timedOutHitCount, 0)
+        XCTAssertEqual(remoteHitCount, 1)
+        XCTAssertEqual(lastProbe?.failureCategory, .timeout)
     }
 }

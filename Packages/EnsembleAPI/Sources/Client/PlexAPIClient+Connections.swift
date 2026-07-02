@@ -52,6 +52,19 @@ extension PlexAPIClient {
         currentServerURL = url
     }
 
+    /// Updates the active endpoint with descriptor context from health checks or request failover.
+    public func updateCurrentServerEndpoint(_ endpoint: PlexEndpointDescriptor, source: EndpointUpdateSource) async {
+        EnsembleLogger.debug("🔄 PlexAPIClient: Updating current server endpoint")
+        currentServerURL = endpoint.url
+
+        switch source {
+        case .healthCheck, .requestFailover:
+            await failoverManager.recordConnectionSuccess(endpoint: endpoint)
+        case .connectionRefresh:
+            break
+        }
+    }
+
     /// Proactively probes for the best available endpoint and publishes the outcome.
     @discardableResult
     public func refreshConnection() async throws -> ConnectionRefreshResult {

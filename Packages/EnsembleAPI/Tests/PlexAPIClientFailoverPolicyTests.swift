@@ -39,6 +39,22 @@ final class PlexAPIClientFailoverPolicyTests: XCTestCase {
         XCTAssertTrue(shouldFailover)
     }
 
+    func testRealRequestTimeoutDoesNotSeedCurrentEndpointCooldown() async {
+        let client = makeClient()
+        let shouldRecord = await client.shouldRecordCurrentEndpointFailureForTesting(
+            URLError(.timedOut)
+        )
+        XCTAssertFalse(shouldRecord)
+    }
+
+    func testDefinitiveTransportFailureSeedsCurrentEndpointCooldown() async {
+        let client = makeClient()
+        let shouldRecord = await client.shouldRecordCurrentEndpointFailureForTesting(
+            URLError(.cannotFindHost)
+        )
+        XCTAssertTrue(shouldRecord)
+    }
+
     func testHTTPErrorsDoNotTriggerFailoverAttempt() async {
         let client = makeClient()
         let shouldFailover = await client.shouldAttemptFailoverForTesting(

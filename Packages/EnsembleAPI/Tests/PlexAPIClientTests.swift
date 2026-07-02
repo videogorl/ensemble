@@ -18,6 +18,44 @@ final class PlexAPIClientTests: XCTestCase {
         }
     }
 
+    func testCurrentEndpointSyncUsesRegistrySelection() async {
+        let registry = ServerConnectionRegistry()
+        let serverKey = "account:server"
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://stale.example.com",
+                alternativeURLs: ["https://fresh.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            connectionRegistry: registry,
+            serverKey: serverKey
+        )
+
+        for _ in 0..<20 {
+            if await registry.currentURL(for: serverKey) != nil {
+                break
+            }
+            await Task.yield()
+        }
+
+        await registry.updateEndpoint(
+            for: serverKey,
+            endpoint: PlexEndpointDescriptor(url: "https://fresh.example.com", local: false, relay: false),
+            source: .healthCheck
+        )
+
+        let didSync = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
+        let currentURL = await client.getCurrentServerURL()
+        let didSyncAgain = await client.syncCurrentEndpointFromRegistryIfNeeded(reason: "test")
+
+        XCTAssertTrue(didSync)
+        XCTAssertEqual(currentURL, "https://fresh.example.com")
+        XCTAssertFalse(didSyncAgain)
+    }
+
     func testUniversalStreamQueryItemsIncludeSeekOffset() async {
         let client = PlexAPIClient(
             connection: PlexServerConnection(

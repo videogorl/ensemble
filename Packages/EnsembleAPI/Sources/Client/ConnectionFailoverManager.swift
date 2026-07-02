@@ -7,7 +7,7 @@ public actor ConnectionFailoverManager {
     private let requestPerformer: DataRequestPerformer
     private let timeout: TimeInterval
     private let preferredConnectionReuseWindow: TimeInterval = 5 * 60
-    private let networkFailureCooldownDuration: TimeInterval = 60
+    private let transportFailureCooldownDuration: TimeInterval = 60
     private var connectionHealth: [String: ConnectionHealth] = [:]
     private var lastProbeResultsByURL: [String: ConnectionProbeResult] = [:]
     private var inFlightSelections: [ConnectionSelectionKey: Task<ConnectionSelectionResult, Never>] = [:]
@@ -146,9 +146,9 @@ public actor ConnectionFailoverManager {
         // Filter out endpoints in TLS cooldown (recent persistent TLS failures)
         let activeCandidates = filterByTLSCooldown(reachableEndpoints)
 
-        // Skip endpoints that recently failed at the network layer while keeping
+        // Skip endpoints that recently failed at the transport layer while keeping
         // them as fallbacks if every candidate is currently cooling down.
-        let viableCandidates = filterByRecentNetworkFailures(activeCandidates)
+        let viableCandidates = filterByRecentTransportFailures(activeCandidates)
 
         let ordering = PlexEndpointPolicy.orderedCandidates(
             from: viableCandidates,
@@ -310,6 +310,38 @@ public actor ConnectionFailoverManager {
     public func getLastProbeResult(url: String) -> ConnectionProbeResult? {
         lastProbeResultsByURL[url]
     }
+
+    /// Records a failed endpoint observation so immediate failover does not reprobe a recently broken candidate.
+    public func recordConnectionFailure(endpoint: PlexEndpointDescriptor, error: Error) {
+        let category = failureCategory(for: error)
+        let result = ConnectionProbeResult(
+            endpoint: endpoint,
+            success: false,
+            duration: 0,
+            failureCategory: category
+        )
+        lastProbeResultsByURL[endpoint.url] = result
+
+        if category != .cancelled {
+            updateConnectionHealth(url: endpoint.url, success: false)
+        }
+
+        if category == .tls {
+            recordTLSFailure(endpoint.url)
+        }
+    }
+
+    /// Records an externally verified healthy endpoint so future selections can use the preferred fast path.
+    public func recordConnectionSuccess(endpoint: PlexEndpointDescriptor) {
+        let result = ConnectionProbeResult(
+            endpoint: endpoint,
+            success: true,
+            duration: 0,
+            failureCategory: nil
+        )
+        lastProbeResultsByURL[endpoint.url] = result
+        updateConnectionHealth(url: endpoint.url, success: true)
+    }
     
     /// Reset connection health tracking
     public func resetHealthTracking() {
@@ -378,8 +410,8 @@ public actor ConnectionFailoverManager {
         return filtered
     }
 
-    /// Filter endpoints that had a recent network-layer failure.
-    private func filterByRecentNetworkFailures(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
+    /// Filter endpoints that had a recent transport-layer failure.
+    private func filterByRecentTransportFailures(_ endpoints: [PlexEndpointDescriptor]) -> [PlexEndpointDescriptor] {
         let now = Date()
         var filtered: [PlexEndpointDescriptor] = []
         var skippedCount = 0
@@ -387,9 +419,9 @@ public actor ConnectionFailoverManager {
         for endpoint in endpoints {
             if let lastResult = lastProbeResultsByURL[endpoint.url],
                !lastResult.success,
-               lastResult.failureCategory == .network,
+               shouldCoolDownFailureCategory(lastResult.failureCategory),
                let lastAttempt = connectionHealth[endpoint.url]?.lastAttempt,
-               now.timeIntervalSince(lastAttempt) < networkFailureCooldownDuration {
+               now.timeIntervalSince(lastAttempt) < transportFailureCooldownDuration {
                 skippedCount += 1
             } else {
                 filtered.append(endpoint)
@@ -398,16 +430,25 @@ public actor ConnectionFailoverManager {
 
         guard !filtered.isEmpty else {
             if skippedCount > 0 {
-                EnsembleLogger.debug("🌐 ConnectionFailover: Retrying \(skippedCount) network-failed endpoint(s); no fallback candidates remain")
+                EnsembleLogger.debug("🌐 ConnectionFailover: Retrying \(skippedCount) transport-failed endpoint(s); no fallback candidates remain")
             }
             return endpoints
         }
 
         if skippedCount > 0 {
-            EnsembleLogger.debug("🌐 ConnectionFailover: Skipping \(skippedCount) endpoint(s) in network failure cooldown")
+            EnsembleLogger.debug("🌐 ConnectionFailover: Skipping \(skippedCount) endpoint(s) in transport failure cooldown")
         }
 
         return filtered
+    }
+
+    private func shouldCoolDownFailureCategory(_ category: ConnectionProbeFailureCategory?) -> Bool {
+        switch category {
+        case .dns, .network, .refused, .timeout:
+            return true
+        case .cancelled, .other, .tls, nil:
+            return false
+        }
     }
 
     private func updateConnectionHealth(url: String, success: Bool) {

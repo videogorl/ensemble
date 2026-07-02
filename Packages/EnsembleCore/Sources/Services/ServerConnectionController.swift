@@ -57,14 +57,17 @@ final class ServerConnectionController {
                 let serverKey = "\(account.id):\(server.id)"
 
                 if let registry = connectionRegistry,
-                   let registryURL = await registry.currentURL(for: serverKey),
+                   let registryState = await registry.currentState(for: serverKey),
                    let apiClient = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) {
                     let currentURL = await apiClient.getCurrentServerURL()
-                    if currentURL != registryURL {
-                        await apiClient.updateCurrentServerURL(registryURL)
+                    if currentURL != registryState.endpoint.url {
+                        await apiClient.updateCurrentServerEndpoint(
+                            registryState.endpoint,
+                            source: registryState.source
+                        )
                         didApplyEndpointChange = true
                         EnsembleLogger.debug(
-                            "✅ ServerConnectionController: Updated API client for server \(server.name) from registry: \(registryURL)"
+                            "✅ ServerConnectionController: Updated API client for server \(server.name) from registry endpointClass=\(registryState.endpoint.endpointClass.rawValue)"
                         )
                     }
                     continue
@@ -283,7 +286,7 @@ final class ServerConnectionController {
         if let apiClient = accountManager.makeAPIClient(accountId: accountId, serverId: serverId) {
             let currentURL = await apiClient.getCurrentServerURL()
             if currentURL != state.endpoint.url {
-                await apiClient.updateCurrentServerURL(state.endpoint.url)
+                await apiClient.updateCurrentServerEndpoint(state.endpoint, source: state.source)
                 EnsembleLogger.debug(
                     "📍 ServerConnectionController: Registry synced API client for \(state.serverKey) endpointClass=\(state.endpoint.endpointClass.rawValue) source=\(state.source.rawValue)"
                 )

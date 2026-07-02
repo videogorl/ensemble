@@ -280,13 +280,7 @@ extension PlexAPIClient {
 
     /// Phase 2: Assemble a `StreamResolution` from a `StreamDecision` using the current server endpoint.
     public func assembleStreamResolution(from decision: StreamDecision) async throws -> StreamResolution {
-        if let registry = connectionRegistry, let key = serverKey,
-           let freshURL = await registry.currentURL(for: key) {
-            if freshURL != currentServerURL {
-                EnsembleLogger.debug("[assembleStream] Endpoint synced from registry: \(currentServerURL) → \(freshURL)")
-                currentServerURL = freshURL
-            }
-        }
+        await syncCurrentEndpointFromRegistryIfNeeded(reason: "stream assembly")
 
         switch decision {
         case .directStream(let partKey):
