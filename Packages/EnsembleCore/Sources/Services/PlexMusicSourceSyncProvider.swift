@@ -78,19 +78,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistChanges.uniqueCount) from server, \(artistsToSync.count) actually changed")
         phaseStart = CFAbsoluteTimeGetCurrent()
-        for artist in artistsToSync {
-            _ = try await repository.upsertArtist(
-                ratingKey: artist.ratingKey,
-                key: artist.key,
-                name: artist.title,
-                summary: artist.summary,
-                thumbPath: artist.thumb,
-                artPath: artist.art,
-                dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: sourceKey
-            )
-        }
+        try await repository.batchUpsertArtists(
+            artistsToSync.map(Self.artistUpsertInput),
+            sourceCompositeKey: sourceKey
+        )
 
         // Sync albums added or updated since timestamp
         progressHandler(0.25)
@@ -114,30 +105,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         // Build album genre lookup for incremental track upserts
         var incrementalAlbumGenres: [String: String] = [:]
-        for album in albumsToSync {
-            let genreString = album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
-            if let genreString = genreString {
+        let albumInputs = albumsToSync.map { album in
+            let input = Self.albumUpsertInput(from: album)
+            if let genreString = input.genreNames {
                 incrementalAlbumGenres[album.ratingKey] = genreString
             }
-            _ = try await repository.upsertAlbum(
-                ratingKey: album.ratingKey,
-                key: album.key,
-                title: album.title,
-                artistName: album.parentTitle,
-                albumArtist: album.parentTitle,
-                artistRatingKey: album.parentRatingKey,
-                summary: album.summary,
-                thumbPath: album.thumb,
-                artPath: album.art,
-                year: album.year,
-                trackCount: album.leafCount,
-                dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: 0,
-                genreNames: genreString,
-                sourceCompositeKey: sourceKey
-            )
+            return input
         }
+        try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
 
         // Sync tracks added or updated since timestamp
         progressHandler(0.4)
@@ -327,6 +302,39 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         return IncrementalChangeSet(uniqueItems: uniqueItems, changedItems: changedItems)
     }
+
+    private static func artistUpsertInput(from artist: PlexArtist) -> ArtistUpsertInput {
+        ArtistUpsertInput(
+            ratingKey: artist.ratingKey,
+            key: artist.key,
+            name: artist.title,
+            summary: artist.summary,
+            thumbPath: artist.thumb,
+            artPath: artist.art,
+            dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        )
+    }
+
+    private static func albumUpsertInput(from album: PlexAlbum) -> AlbumUpsertInput {
+        AlbumUpsertInput(
+            ratingKey: album.ratingKey,
+            key: album.key,
+            title: album.title,
+            artistName: album.parentTitle,
+            albumArtist: album.parentTitle,
+            artistRatingKey: album.parentRatingKey,
+            summary: album.summary,
+            thumbPath: album.thumb,
+            artPath: album.art,
+            year: album.year,
+            trackCount: album.leafCount,
+            dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: 0,
+            genreNames: album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
+        )
+    }
     
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
@@ -352,18 +360,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         var phaseStart = CFAbsoluteTimeGetCurrent()
         let artists = try await apiClient.getArtists(sectionKey: sectionKey)
         let artistRatingKeys = Set(artists.map { $0.ratingKey })
-        let artistInputs = artists.map { artist in
-            ArtistUpsertInput(
-                ratingKey: artist.ratingKey,
-                key: artist.key,
-                name: artist.title,
-                summary: artist.summary,
-                thumbPath: artist.thumb,
-                artPath: artist.art,
-                dateAdded: artist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: artist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
-            )
-        }
+        let artistInputs = artists.map(Self.artistUpsertInput)
         try await repository.batchUpsertArtists(artistInputs, sourceCompositeKey: sourceKey)
 
         EnsembleLogger.debug("⏱️ Full sync: artists \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(artists.count) items)")
@@ -376,27 +373,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
         var albumGenresByKey: [String: String] = [:]
         let albumInputs = albums.map { album in
-            let genreString = album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
-            if let genreString = genreString {
+            let input = Self.albumUpsertInput(from: album)
+            if let genreString = input.genreNames {
                 albumGenresByKey[album.ratingKey] = genreString
             }
-            return AlbumUpsertInput(
-                ratingKey: album.ratingKey,
-                key: album.key,
-                title: album.title,
-                artistName: album.parentTitle,
-                albumArtist: album.parentTitle,
-                artistRatingKey: album.parentRatingKey,
-                summary: album.summary,
-                thumbPath: album.thumb,
-                artPath: album.art,
-                year: album.year,
-                trackCount: album.leafCount,
-                dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: 0,
-                genreNames: genreString
-            )
+            return input
         }
         try await repository.batchUpsertAlbums(albumInputs, sourceCompositeKey: sourceKey)
 
