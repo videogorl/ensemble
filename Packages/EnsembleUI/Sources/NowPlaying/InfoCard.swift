@@ -529,27 +529,16 @@ public struct InfoCard: View {
     /// Extract server key from track's sourceCompositeKey
     /// Format: "plex:accountId:serverId:libraryId" -> "accountId:serverId"
     private func extractServerKey(from sourceCompositeKey: String?) -> String? {
-        guard let key = sourceCompositeKey else { return nil }
-        let components = key.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[1]):\(components[2])"
+        MediaSourceIdentity.parse(sourceCompositeKey)?.accountServerKey
     }
 
     /// Resolve server name from account manager
     private func resolveServerName() -> String? {
-        guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
-            return nil
-        }
-
-        let keyComponents = serverKey.split(separator: ":")
-        guard keyComponents.count >= 2 else { return nil }
-
-        let accountId = String(keyComponents[0])
-        let serverId = String(keyComponents[1])
+        guard let identity = MediaSourceIdentity.parse(currentTrack?.sourceCompositeKey) else { return nil }
 
         // Find the account and server
-        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId })
+        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
+              let server = account.servers.first(where: { $0.id == identity.serverId })
         else {
             return nil
         }
@@ -568,17 +557,14 @@ public struct InfoCard: View {
     /// Resolve library name from the track's sourceCompositeKey
     /// Format: "plex:accountId:serverId:libraryId" -> find matching library title
     private func resolveLibraryName() -> String? {
-        guard let key = currentTrack?.sourceCompositeKey else { return nil }
-        let components = key.split(separator: ":")
-        guard components.count >= 4 else { return nil }
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        let libraryId = String(components[3])
+        guard let identity = MediaSourceIdentity.parse(currentTrack?.sourceCompositeKey),
+              let libraryId = identity.libraryId else {
+            return nil
+        }
 
         // Walk accounts → servers → libraries to find matching title
-        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }),
+        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
+              let server = account.servers.first(where: { $0.id == identity.serverId }),
               let library = server.libraries.first(where: { $0.id == libraryId })
         else {
             return nil

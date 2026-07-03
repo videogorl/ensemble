@@ -1323,19 +1323,15 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        let components = sourceKey.split(separator: ":")
-        guard components.count >= 4 else {
+        guard let identity = MediaSourceIdentity.parse(sourceKey),
+              let libraryId = identity.libraryId else {
             EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
             return
         }
 
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        let libraryId = String(components[3])
-
-        if let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
-           let server = account.servers.first(where: { $0.id == serverId }) {
-            EnsembleLogger.debug("🔍 Using provider for server: \(server.name) (ID: \(serverId), Library: \(libraryId))")
+        if let account = accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
+           let server = account.servers.first(where: { $0.id == identity.serverId }) {
+            EnsembleLogger.debug("🔍 Using provider for server: \(server.name) (ID: \(identity.serverId), Library: \(libraryId))")
         } else {
             EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
         }
@@ -1882,24 +1878,15 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔄 SyncCoordinator.makeRadioProvider() called")
         EnsembleLogger.debug("  - Source key: \(sourceKey)")
         
-        // Parse source key to extract identifiers
-        // Format: sourceType:accountId:serverId:libraryId (e.g., "plex:account123:server456:library789")
-        let components = sourceKey.split(separator: ":")
-        EnsembleLogger.debug("  - Key components: \(components)")
-        EnsembleLogger.debug("  - Component count: \(components.count)")
-        
-        guard components.count >= 4,
-              let sourceType = MusicSourceType(rawValue: String(components[0])) else {
+        guard let identity = MediaSourceIdentity.parse(sourceKey),
+              let libraryId = identity.libraryId,
+              let sourceType = MusicSourceType(rawValue: identity.type) else {
             EnsembleLogger.debug("❌ Invalid source key format: \(sourceKey)")
             return nil
         }
         EnsembleLogger.debug("  - Source type: \(sourceType)")
-
-        let accountId = String(components[1])
-        let serverId = String(components[2])
-        let libraryId = String(components[3])
-        EnsembleLogger.debug("  - Account ID: \(accountId)")
-        EnsembleLogger.debug("  - Server ID: \(serverId)")
+        EnsembleLogger.debug("  - Account ID: \(identity.accountId)")
+        EnsembleLogger.debug("  - Server ID: \(identity.serverId)")
         EnsembleLogger.debug("  - Library ID: \(libraryId)")
 
         // Currently only Plex is supported
@@ -1911,8 +1898,8 @@ public final class SyncCoordinator: ObservableObject {
         // Get API client for this source
         EnsembleLogger.debug("🔄 Creating API client...")
         guard let apiClient = accountManager.makeAPIClient(
-            accountId: accountId,
-            serverId: serverId
+            accountId: identity.accountId,
+            serverId: identity.serverId
         ) else {
             EnsembleLogger.debug("❌ Could not create API client for source: \(sourceKey)")
             return nil

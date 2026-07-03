@@ -326,13 +326,14 @@ public final class MetadataMutationService {
     }
 
     private func sourceContext(for sourceCompositeKey: String?) throws -> SourceContext {
-        guard let sourceCompositeKey else { throw MetadataMutationError.invalidSource }
-        let components = sourceCompositeKey.split(separator: ":").map(String.init)
-        guard components.count >= 4 else { throw MetadataMutationError.invalidSource }
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey),
+              let libraryId = identity.libraryId else {
+            throw MetadataMutationError.invalidSource
+        }
         return SourceContext(
-            accountId: components[1],
-            serverId: components[2],
-            libraryId: components[3]
+            accountId: identity.accountId,
+            serverId: identity.serverId,
+            libraryId: libraryId
         )
     }
 }

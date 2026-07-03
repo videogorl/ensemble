@@ -708,13 +708,10 @@ public final class AccountManager: ObservableObject {
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
     /// Returns the server's friendly name, or nil if not found.
     public func serverName(for sourceCompositeKey: String) -> String? {
-        let parts = sourceCompositeKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-        let accountId = String(parts[1])
-        let serverId = String(parts[2])
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey) else { return nil }
 
-        guard let account = plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }) else {
+        guard let account = plexAccounts.first(where: { $0.id == identity.accountId }),
+              let server = account.servers.first(where: { $0.id == identity.serverId }) else {
             return nil
         }
         return server.name

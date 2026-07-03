@@ -1816,34 +1816,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // Skip waveform fetch if no stream ID — fallback waveform is already set above
             guard let streamId = track.streamId else { return }
 
-            // Parse source composite key to get API client
-            if let sourceKey = track.sourceCompositeKey {
-                let components = sourceKey.split(separator: ":")
-                if components.count >= 3 {
-                    let accountId = String(components[1])
-                    let serverId = String(components[2])
-
-                    // Get API client from account manager
-                    if let apiClient = self.syncCoordinator.accountManager.makeAPIClient(
-                        accountId: accountId,
-                        serverId: serverId
-                    ) {
-                        do {
-                            // Attempt to fetch loudness timeline from Plex using correct endpoint
-                            if let timeline = try await apiClient.getLoudnessTimeline(forStreamId: streamId, subsample: 128),
-                               let loudness = timeline.loudness,
-                               !loudness.isEmpty
-                            {
-                                // Normalize loudness values to 0.0-1.0 range for visualization
-                                let normalizedHeights = self.normalizeLoudnessData(loudness)
-                                self.waveformHeights = normalizedHeights
-                                EnsembleLogger.debug("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
-                                return
-                            }
-                        } catch {
-                            EnsembleLogger.debug("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
-                        }
+            if let identity = MediaSourceIdentity.parse(track.sourceCompositeKey),
+               let apiClient = self.syncCoordinator.accountManager.makeAPIClient(
+                   accountId: identity.accountId,
+                   serverId: identity.serverId
+               ) {
+                do {
+                    // Attempt to fetch loudness timeline from Plex using correct endpoint
+                    if let timeline = try await apiClient.getLoudnessTimeline(forStreamId: streamId, subsample: 128),
+                       let loudness = timeline.loudness,
+                       !loudness.isEmpty
+                    {
+                        // Normalize loudness values to 0.0-1.0 range for visualization
+                        let normalizedHeights = self.normalizeLoudnessData(loudness)
+                        self.waveformHeights = normalizedHeights
+                        EnsembleLogger.debug("✅ Replaced fallback with real waveform data from Plex (\(normalizedHeights.count) samples)")
+                        return
                     }
+                } catch {
+                    EnsembleLogger.debug("ℹ️ Could not fetch Plex waveform data (using fallback): \(error.localizedDescription)")
                 }
             }
         }

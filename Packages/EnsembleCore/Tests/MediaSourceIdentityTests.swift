@@ -10,7 +10,18 @@ final class MediaSourceIdentityTests: XCTestCase {
         XCTAssertEqual(identity?.serverId, "server")
         XCTAssertEqual(identity?.libraryId, "library")
         XCTAssertEqual(identity?.serverSourceKey, "plex:account:server")
+        XCTAssertEqual(identity?.accountServerKey, "account:server")
+        XCTAssertEqual(identity?.isServerScoped, false)
         XCTAssertEqual(identity?.librarySourceKey, "plex:account:server:library")
+    }
+
+    func testParsesServerScopedSourceKey() {
+        let identity = MediaSourceIdentity.parse("plex:account:server")
+
+        XCTAssertEqual(identity?.serverSourceKey, "plex:account:server")
+        XCTAssertEqual(identity?.accountServerKey, "account:server")
+        XCTAssertEqual(identity?.isServerScoped, true)
+        XCTAssertNil(identity?.librarySourceKey)
     }
 
     func testServerSourceKeyReturnsFirstThreeComponents() {

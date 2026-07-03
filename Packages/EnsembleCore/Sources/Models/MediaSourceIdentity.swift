@@ -18,6 +18,14 @@ public struct MediaSourceIdentity: Equatable, Sendable {
         "\(type):\(accountId):\(serverId)"
     }
 
+    public var accountServerKey: String {
+        "\(accountId):\(serverId)"
+    }
+
+    public var isServerScoped: Bool {
+        libraryId == nil
+    }
+
     public var librarySourceKey: String? {
         guard let libraryId else { return nil }
         return "\(serverSourceKey):\(libraryId)"

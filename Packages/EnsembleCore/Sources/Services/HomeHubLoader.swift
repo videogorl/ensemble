@@ -376,8 +376,8 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         var serverTasks: [(sourceKey: String, client: PlexAPIClient)] = []
 
         for task in fetchTasks {
-            let serverId = task.sourceKey.split(separator: ":").prefix(2).joined(separator: ":")
-            if handledServers.insert(serverId).inserted {
+            guard let serverKey = MediaSourceIdentity.serverSourceKey(from: task.sourceKey) else { continue }
+            if handledServers.insert(serverKey).inserted {
                 serverTasks.append((task.sourceKey, task.client))
             }
         }
@@ -466,9 +466,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     }
 
     private func serverKey(from hubId: String) -> String? {
-        let components = hubId.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
+        MediaSourceIdentity.serverSourceKey(from: hubId)
     }
 
     private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
@@ -574,11 +572,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     private func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
         func serverKey(_ hubId: String) -> String {
-            let components = hubId.split(separator: ":")
-            if components.count >= 3 {
-                return "\(components[0]):\(components[1]):\(components[2])"
-            }
-            return "global"
+            MediaSourceIdentity.serverSourceKey(from: hubId) ?? "global"
         }
 
         var hubGroups: [String: [Hub]] = [:]

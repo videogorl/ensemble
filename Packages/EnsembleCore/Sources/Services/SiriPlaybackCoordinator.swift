@@ -633,7 +633,7 @@ public final class SiriPlaybackCoordinator {
     }
 
     private func isServerSourceKey(_ sourceCompositeKey: String) -> Bool {
-        sourceCompositeKey.split(separator: ":").count == 3
+        MediaSourceIdentity.parse(sourceCompositeKey)?.isServerScoped == true
     }
 
     private func choosePreferredCandidate<T>(
@@ -740,10 +740,9 @@ public final class SiriPlaybackCoordinator {
         var keys = enabledLibrarySourceKeys
 
         for libraryKey in enabledLibrarySourceKeys {
-            let components = libraryKey.split(separator: ":")
-            guard components.count >= 3 else { continue }
-            let serverKey = components.prefix(3).joined(separator: ":")
-            keys.insert(serverKey)
+            if let serverKey = MediaSourceIdentity.serverSourceKey(from: libraryKey) {
+                keys.insert(serverKey)
+            }
         }
 
         return keys

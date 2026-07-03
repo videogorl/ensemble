@@ -697,9 +697,7 @@ public final class HomeViewModel: ObservableObject {
     /// Extract the server key from a hub ID.
     /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubId}" — server key is the first 3 components.
     private func serverKey(from hubId: String) -> String? {
-        let components = hubId.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return "\(components[0]):\(components[1]):\(components[2])"
+        MediaSourceIdentity.serverSourceKey(from: hubId)
     }
     
     private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {

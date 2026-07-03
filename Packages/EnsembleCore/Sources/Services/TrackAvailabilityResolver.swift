@@ -166,13 +166,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
         EnsembleLogger.debug("🔄 TrackAvailabilityResolver: generation bumped to \(availabilityGeneration), serverStates=\(serverHealthChecker.serverStates.mapValues { $0.description })")
     }
 
-    /// Extract the server key (accountId:serverId) from a source composite key.
-    /// Source composite keys follow the format: "plex:<accountId>:<serverId>:<libraryId>"
     private func extractServerKey(from sourceCompositeKey: String?) -> String? {
-        guard let key = sourceCompositeKey else { return nil }
-        let parts = key.split(separator: ":")
-        // Expected format: "plex:accountId:serverId:libraryId"
-        guard parts.count >= 3 else { return nil }
-        return "\(parts[1]):\(parts[2])"
+        MediaSourceIdentity.parse(sourceCompositeKey)?.accountServerKey
     }
 }

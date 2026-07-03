@@ -266,26 +266,17 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         sourceCompositeKey: String?,
         accountManager: AccountManager
     ) -> SourceContext {
-        guard let key = sourceCompositeKey else {
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey) else {
             return SourceContext(serverName: nil, libraryName: nil)
         }
 
-        let components = key.split(separator: ":").map(String.init)
-        guard components.count >= 3 else {
-            return SourceContext(serverName: nil, libraryName: nil)
-        }
-
-        let accountId = components[1]
-        let serverId = components[2]
-        let libraryId = components.count >= 4 ? components[3] : nil
-
-        guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId })
+        guard let account = accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
+              let server = account.servers.first(where: { $0.id == identity.serverId })
         else {
             return SourceContext(serverName: nil, libraryName: nil)
         }
 
-        let libraryName = libraryId.flatMap { id in
+        let libraryName = identity.libraryId.flatMap { id in
             server.libraries.first(where: { $0.id == id })?.title
         }
 
