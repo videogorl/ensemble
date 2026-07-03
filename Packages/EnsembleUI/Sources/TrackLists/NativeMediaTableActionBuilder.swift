@@ -134,6 +134,55 @@ enum TrackActionPresentation {
     }
 }
 
+private func nativeMediaTableMenuAvailability(
+    for track: Track,
+    resolvedActions: TrackRowInteractionModel.ResolvedActions,
+    onRemoveFromPlaylist: (() -> Void)?,
+    onRemoveFromQueue: (() -> Void)?
+) -> MediaMenuAvailability {
+    MediaMenuAvailability(
+        hasRecentPlaylist: resolvedActions.onAddToRecentPlaylist != nil && resolvedActions.recentPlaylistTitle != nil,
+        canAddToRecentPlaylist: true,
+        canGoToAlbum: resolvedActions.onGoToAlbum != nil && track.albumRatingKey != nil,
+        canGoToArtist: resolvedActions.onGoToArtist != nil && track.artistRatingKey != nil,
+        canGetInfo: resolvedActions.onGetInfo != nil,
+        canShareLink: resolvedActions.onShareLink != nil,
+        canShareAudioFile: resolvedActions.onShareFile != nil,
+        canFavorite: resolvedActions.onToggleFavorite != nil,
+        canDownload: false,
+        canPin: false,
+        canEditMetadata: resolvedActions.onEditMetadata != nil,
+        canDelete: resolvedActions.onDeleteTrack != nil,
+        canRename: false,
+        canEditPlaylist: false,
+        canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
+        canRemoveFromQueue: onRemoveFromQueue != nil
+    )
+}
+
+private func nativeMediaTableMenuHandlers(
+    for resolvedActions: TrackRowInteractionModel.ResolvedActions,
+    onRemoveFromPlaylist: (() -> Void)?,
+    onRemoveFromQueue: (() -> Void)?
+) -> MediaMenuHandlers {
+    MediaMenuHandlers(
+        playNext: resolvedActions.onPlayNext,
+        playLast: resolvedActions.onPlayLast,
+        addToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
+        addToPlaylist: resolvedActions.onAddToPlaylist,
+        goToAlbum: resolvedActions.onGoToAlbum,
+        goToArtist: resolvedActions.onGoToArtist,
+        getInfo: resolvedActions.onGetInfo,
+        editMetadata: resolvedActions.onEditMetadata,
+        favorite: resolvedActions.onToggleFavorite,
+        shareLink: resolvedActions.onShareLink,
+        shareAudioFile: resolvedActions.onShareFile,
+        removeFromPlaylist: onRemoveFromPlaylist,
+        removeFromQueue: onRemoveFromQueue,
+        deleteTrack: resolvedActions.onDeleteTrack
+    )
+}
+
 #if canImport(UIKit)
 
 /// Builds native UIKit menu actions for table-backed media rows.
@@ -154,7 +203,7 @@ enum NativeMediaTableActionBuilder {
             sections: MediaMenuCatalog.sections(
                 for: .track,
                 context: context,
-                availability: availability(
+                availability: nativeMediaTableMenuAvailability(
                     for: track,
                     resolvedActions: resolvedActions,
                     onRemoveFromPlaylist: onRemoveFromPlaylist,
@@ -165,60 +214,11 @@ enum NativeMediaTableActionBuilder {
                 recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
                 isFavorited: resolvedActions.isFavorited
             ),
-            handlers: handlers(
+            handlers: nativeMediaTableMenuHandlers(
                 for: resolvedActions,
                 onRemoveFromPlaylist: onRemoveFromPlaylist,
                 onRemoveFromQueue: onRemoveFromQueue
             )
-        )
-    }
-
-    private static func availability(
-        for track: Track,
-        resolvedActions: TrackRowInteractionModel.ResolvedActions,
-        onRemoveFromPlaylist: (() -> Void)?,
-        onRemoveFromQueue: (() -> Void)?
-    ) -> MediaMenuAvailability {
-        MediaMenuAvailability(
-            hasRecentPlaylist: resolvedActions.onAddToRecentPlaylist != nil && resolvedActions.recentPlaylistTitle != nil,
-            canAddToRecentPlaylist: true,
-            canGoToAlbum: resolvedActions.onGoToAlbum != nil && track.albumRatingKey != nil,
-            canGoToArtist: resolvedActions.onGoToArtist != nil && track.artistRatingKey != nil,
-            canGetInfo: resolvedActions.onGetInfo != nil,
-            canShareLink: resolvedActions.onShareLink != nil,
-            canShareAudioFile: resolvedActions.onShareFile != nil,
-            canFavorite: resolvedActions.onToggleFavorite != nil,
-            canDownload: false,
-            canPin: false,
-            canEditMetadata: resolvedActions.onEditMetadata != nil,
-            canDelete: resolvedActions.onDeleteTrack != nil,
-            canRename: false,
-            canEditPlaylist: false,
-            canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
-            canRemoveFromQueue: onRemoveFromQueue != nil
-        )
-    }
-
-    private static func handlers(
-        for resolvedActions: TrackRowInteractionModel.ResolvedActions,
-        onRemoveFromPlaylist: (() -> Void)?,
-        onRemoveFromQueue: (() -> Void)?
-    ) -> MediaMenuHandlers {
-        MediaMenuHandlers(
-            playNext: resolvedActions.onPlayNext,
-            playLast: resolvedActions.onPlayLast,
-            addToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-            addToPlaylist: resolvedActions.onAddToPlaylist,
-            goToAlbum: resolvedActions.onGoToAlbum,
-            goToArtist: resolvedActions.onGoToArtist,
-            getInfo: resolvedActions.onGetInfo,
-            editMetadata: resolvedActions.onEditMetadata,
-            favorite: resolvedActions.onToggleFavorite,
-            shareLink: resolvedActions.onShareLink,
-            shareAudioFile: resolvedActions.onShareFile,
-            removeFromPlaylist: onRemoveFromPlaylist,
-            removeFromQueue: onRemoveFromQueue,
-            deleteTrack: resolvedActions.onDeleteTrack
         )
     }
 }
@@ -240,7 +240,7 @@ enum NativeMediaTableActionBuilder {
             sections: MediaMenuCatalog.sections(
                 for: .track,
                 context: context,
-                availability: availability(
+                availability: nativeMediaTableMenuAvailability(
                     for: track,
                     resolvedActions: resolvedActions,
                     onRemoveFromPlaylist: onRemoveFromPlaylist,
@@ -251,60 +251,11 @@ enum NativeMediaTableActionBuilder {
                 recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
                 isFavorited: resolvedActions.isFavorited
             ),
-            handlers: handlers(
+            handlers: nativeMediaTableMenuHandlers(
                 for: resolvedActions,
                 onRemoveFromPlaylist: onRemoveFromPlaylist,
                 onRemoveFromQueue: onRemoveFromQueue
             )
-        )
-    }
-
-    private static func availability(
-        for track: Track,
-        resolvedActions: TrackRowInteractionModel.ResolvedActions,
-        onRemoveFromPlaylist: (() -> Void)?,
-        onRemoveFromQueue: (() -> Void)?
-    ) -> MediaMenuAvailability {
-        MediaMenuAvailability(
-            hasRecentPlaylist: resolvedActions.onAddToRecentPlaylist != nil && resolvedActions.recentPlaylistTitle != nil,
-            canAddToRecentPlaylist: true,
-            canGoToAlbum: resolvedActions.onGoToAlbum != nil && track.albumRatingKey != nil,
-            canGoToArtist: resolvedActions.onGoToArtist != nil && track.artistRatingKey != nil,
-            canGetInfo: resolvedActions.onGetInfo != nil,
-            canShareLink: resolvedActions.onShareLink != nil,
-            canShareAudioFile: resolvedActions.onShareFile != nil,
-            canFavorite: resolvedActions.onToggleFavorite != nil,
-            canDownload: false,
-            canPin: false,
-            canEditMetadata: resolvedActions.onEditMetadata != nil,
-            canDelete: resolvedActions.onDeleteTrack != nil,
-            canRename: false,
-            canEditPlaylist: false,
-            canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
-            canRemoveFromQueue: onRemoveFromQueue != nil
-        )
-    }
-
-    private static func handlers(
-        for resolvedActions: TrackRowInteractionModel.ResolvedActions,
-        onRemoveFromPlaylist: (() -> Void)?,
-        onRemoveFromQueue: (() -> Void)?
-    ) -> MediaMenuHandlers {
-        MediaMenuHandlers(
-            playNext: resolvedActions.onPlayNext,
-            playLast: resolvedActions.onPlayLast,
-            addToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
-            addToPlaylist: resolvedActions.onAddToPlaylist,
-            goToAlbum: resolvedActions.onGoToAlbum,
-            goToArtist: resolvedActions.onGoToArtist,
-            getInfo: resolvedActions.onGetInfo,
-            editMetadata: resolvedActions.onEditMetadata,
-            favorite: resolvedActions.onToggleFavorite,
-            shareLink: resolvedActions.onShareLink,
-            shareAudioFile: resolvedActions.onShareFile,
-            removeFromPlaylist: onRemoveFromPlaylist,
-            removeFromQueue: onRemoveFromQueue,
-            deleteTrack: resolvedActions.onDeleteTrack
         )
     }
 }
