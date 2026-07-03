@@ -654,8 +654,8 @@ final class AuroraBandShapeProcessor: ObservableObject {
         let requestID = latestRequestID
         let bandCount = bandCount
 
-        processingQueue.async {
-            let shapedBands = Self.calculateBandValues(from: bands, bandCount: bandCount)
+        processingQueue.async { [weak self, bands, bandCount] in
+            let shapedBands = AuroraBandShapeProcessor.calculateBandValues(from: bands, bandCount: bandCount)
 
             Task { @MainActor [weak self] in
                 guard let self else { return }

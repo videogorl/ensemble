@@ -159,9 +159,6 @@ public struct QueueCard: View {
                     } label: {
                         Label("Save Queue as Playlist", systemImage: EnsembleDesign.Icon.saveQueue)
                     }
-
-                    // TODO: Future "Replay" action for replaying past queues
-                    // Button { } label: { Label("Replay Queue...", systemImage: "clock.arrow.circlepath") }
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
                         .font(.system(size: EnsembleScaffold.NowPlaying.menuIconSize))
