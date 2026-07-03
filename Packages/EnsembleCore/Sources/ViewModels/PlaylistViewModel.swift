@@ -233,8 +233,7 @@ public final class PlaylistViewModel: ObservableObject {
     private static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
         switch option {
         case .title:
-            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
-            return sortByCachedKey(playlists, keyExtractor: { $0.title.sortingKey }, ascending: asc)
+            return playlists.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: asc)
         case .trackCount:
             return playlists.sorted { asc ? $0.trackCount < $1.trackCount : $0.trackCount > $1.trackCount }
         case .duration:
@@ -255,19 +254,6 @@ public final class PlaylistViewModel: ObservableObject {
                 : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
             }
         }
-    }
-
-    /// Sort by pre-computed string keys — computes sortingKey once per element.
-    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
-    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
-        let keyed = items.map { ($0, keyExtractor($0)) }
-        return keyed.sorted {
-            let result = $0.1.localizedStandardCompare($1.1)
-            if result == .orderedSame {
-                return $0.0.id < $1.0.id
-            }
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map { $0.0 }
     }
 
     private static func filterPlaylists(_ playlists: [Playlist], searchText: String) -> [Playlist] {

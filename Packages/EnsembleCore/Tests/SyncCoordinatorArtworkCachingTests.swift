@@ -8,21 +8,6 @@ import XCTest
 
 @MainActor
 final class SyncCoordinatorArtworkCachingTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private final class RecordingArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
         struct DownloadRecord {

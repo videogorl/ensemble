@@ -812,11 +812,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func runInitialLoads() async {
-        async let trackLoad: () = loadTracksIfNeeded()
+        await loadTracksIfNeeded()
         if let supplementalLoad {
             await supplementalLoad()
         }
-        _ = await trackLoad
     }
 
     private func loadTracksIfNeeded() async {

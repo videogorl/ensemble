@@ -4,11 +4,6 @@ import XCTest
 
 @MainActor
 final class SearchViewModelResponseTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        func save(_ value: String, forKey key: String) throws {}
-        func get(_ key: String) throws -> String? { nil }
-        func delete(_ key: String) throws {}
-    }
 
     func testNonEmptyQueryShowsSearchingBeforeDebounceRuns() {
         let viewModel = makeViewModel()

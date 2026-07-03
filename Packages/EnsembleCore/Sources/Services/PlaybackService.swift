@@ -824,8 +824,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     static func smartMixTempoMatchingGate(processInfo: ProcessInfo = .processInfo) -> (allowed: Bool, reason: String?) {
-        if processInfo.processorCount <= 2 {
-            return (false, "processor-count-\(processInfo.processorCount)")
+        let processorCount = processInfo.processorCount
+        if processorCount <= 2 {
+            return (false, "processor-count-\(processorCount)")
         }
         if processInfo.isLowPowerModeEnabled {
             return (false, "low-power-mode")
@@ -1135,6 +1136,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let resolvedFileCache: PlaybackResolvedFileCache
     private let settingsObserver: PlaybackSettingsObserver
     private let reportingController: PlaybackReportingController
+    private let processorCount = ProcessInfo.processInfo.processorCount
     private var systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol?
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
@@ -1219,7 +1221,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     )
     private lazy var launchCoordinator = PlaybackLaunchCoordinator(
         dependencies: .init(
-            processorCount: { ProcessInfo.processInfo.processorCount },
+            processorCount: { [processorCount] in processorCount },
             isVisualizerEnabled: { [weak self] in self?.isVisualizerEnabled ?? false },
             isInstrumentalModeActive: { [weak self] in self?.isInstrumentalModeActive ?? false },
             enqueueVisualizerLoad: { [weak self] track, fileURL, plan in
@@ -5115,7 +5117,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             // during the critical post-schedule period when the user is likely interacting.
             if shouldAnalyzeVisualizer {
                 let analyzer = audioAnalyzer
-                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let isLowCoreDevice = self.processorCount <= 2
                 let throttle = isInstrumentalModeActive || isLowCoreDevice
                 let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
                 Task.detached {
@@ -5397,7 +5399,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Pre-load frequency timeline (throttle during instrumental mode or on low-core devices)
             if isVisualizerEnabled {
-                let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+                let isLowCoreDevice = processorCount <= 2
                 let throttle = isInstrumentalModeActive || isLowCoreDevice
                 let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
                 Task.detached { [audioAnalyzer] in
@@ -5660,7 +5662,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             let analyzer = self.audioAnalyzer
             let trackId = track.playbackIdentity
-            let isLowCoreDevice = ProcessInfo.processInfo.processorCount <= 2
+            let isLowCoreDevice = self.processorCount <= 2
             let throttle = self.isInstrumentalModeActive || isLowCoreDevice
             let priority: TaskPriority
             if self.isInstrumentalModeActive {

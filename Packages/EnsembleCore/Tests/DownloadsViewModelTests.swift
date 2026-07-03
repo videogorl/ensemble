@@ -5,11 +5,6 @@ import XCTest
 
 @MainActor
 final class DownloadsViewModelTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        func save(_ value: String, forKey key: String) throws {}
-        func get(_ key: String) throws -> String? { nil }
-        func delete(_ key: String) throws {}
-    }
 
     private final class NoopBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
         var onExecutionRequested: (() -> Void)?

@@ -2,21 +2,6 @@ import XCTest
 @testable import EnsembleAPI
 
 final class PlexAPIClientFailoverPolicyTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private func makeClient() -> PlexAPIClient {
         PlexAPIClient(

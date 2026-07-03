@@ -5,21 +5,6 @@ import EnsemblePersistence
 
 @MainActor
 final class SyncCoordinatorNetworkHealthTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         func refreshContext() async {}
@@ -495,21 +480,6 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
 
 @MainActor
 final class ServerHealthCheckerCachePolicyTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        private var storage: [String: String] = [:]
-
-        func save(_ value: String, forKey key: String) throws {
-            storage[key] = value
-        }
-
-        func get(_ key: String) throws -> String? {
-            storage[key]
-        }
-
-        func delete(_ key: String) throws {
-            storage.removeValue(forKey: key)
-        }
-    }
 
     private actor ProbeCounter {
         private var count = 0

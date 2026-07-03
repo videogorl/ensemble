@@ -4,11 +4,6 @@ import XCTest
 
 @MainActor
 final class DownloadCapabilityPolicyTests: XCTestCase {
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        func save(_ value: String, forKey key: String) throws {}
-        func get(_ key: String) throws -> String? { nil }
-        func delete(_ key: String) throws {}
-    }
 
     func testPlexPassSubscriberWithAllowSyncCanDownload() {
         let manager = makeAccountManager(accountId: "subscriber", subscription: PlexSubscription(active: true, features: ["pass"]), allowSync: true)

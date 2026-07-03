@@ -139,12 +139,11 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         let ascending = direction == .ascending
         switch sortOption {
         case .title:
-            // Pre-compute sort keys to avoid O(n log n) calls to sortingKey
-            return sortByCachedKey(tracks, keyExtractor: { $0.title.sortingKey }, ascending: ascending)
+            return tracks.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: ascending)
         case .artist:
-            return sortByCachedKey(tracks, keyExtractor: { ($0.artistName ?? "").sortingKey }, ascending: ascending)
+            return tracks.sortedByCachedStringKey({ ($0.artistName ?? "").sortingKey }, ascending: ascending)
         case .album:
-            return sortByCachedKey(tracks, keyExtractor: { ($0.albumName ?? "").sortingKey }, ascending: ascending)
+            return tracks.sortedByCachedStringKey({ ($0.albumName ?? "").sortingKey }, ascending: ascending)
         case .dateFavorited:
             return tracks.sorted { a, b in
                 compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
@@ -160,19 +159,6 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         case .playCount:
             return tracks.sorted { ascending ? $0.playCount < $1.playCount : $0.playCount > $1.playCount }
         }
-    }
-
-    /// Sort by pre-computed string keys — computes sortingKey once per element.
-    /// Uses ID as tiebreaker for stable ordering (prevents flicker when items share the same sort key).
-    private static func sortByCachedKey<T: Identifiable>(_ items: [T], keyExtractor: (T) -> String, ascending: Bool) -> [T] where T.ID == String {
-        let keyed = items.map { ($0, keyExtractor($0)) }
-        return keyed.sorted {
-            let result = $0.1.localizedStandardCompare($1.1)
-            if result == .orderedSame {
-                return $0.0.id < $1.0.id
-            }
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map { $0.0 }
     }
 
     /// Compares optional dates with nils sorting last regardless of direction

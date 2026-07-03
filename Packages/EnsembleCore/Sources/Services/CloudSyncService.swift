@@ -199,7 +199,7 @@ public actor CloudSyncService {
             notificationInfo.shouldSendContentAvailable = true // Silent push
             subscription.notificationInfo = notificationInfo
 
-            try await database.save(subscription)
+            _ = try await database.save(subscription)
             isSubscribed = true
             profileTransportState = .available
             nextProfilePullAllowedAt = nil

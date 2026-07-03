@@ -10,12 +10,6 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         case unimplemented
     }
 
-    private final class TestKeychain: KeychainServiceProtocol, @unchecked Sendable {
-        func save(_ value: String, forKey key: String) throws {}
-        func get(_ key: String) throws -> String? { nil }
-        func delete(_ key: String) throws {}
-    }
-
     private final class LibraryRepositorySpy: LibraryRepositoryProtocol, @unchecked Sendable {
         var albumsByArtistSource: [String: [CDAlbum]] = [:]
         var tracksByArtistSource: [String: [CDTrack]] = [:]
