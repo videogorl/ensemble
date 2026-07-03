@@ -127,3 +127,78 @@ public struct TrackRowInteractionModel {
         )
     }
 }
+
+extension TrackRowInteractionModel {
+    @MainActor
+    static func nowPlayingActions(
+        nowPlayingVM: NowPlayingViewModel,
+        deps: DependencyContainer,
+        navigationCoordinator: NavigationCoordinator? = nil,
+        includeAlbumNavigation: Bool = true,
+        includeArtistNavigation: Bool = true,
+        recentPlaylistTitle: String?,
+        onAddToPlaylist: @escaping ([Track]) -> Void,
+        onGetInfo: @escaping (Track) -> Void
+    ) -> TrackRowInteractionModel {
+        let goToAlbum: ((Track) -> Void)?
+        if includeAlbumNavigation, let navigationCoordinator {
+            goToAlbum = { track in
+                guard let albumId = track.albumRatingKey else { return }
+                navigationCoordinator.routeFromMenu(
+                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
+                    in: navigationCoordinator.selectedTab
+                )
+            }
+        } else {
+            goToAlbum = nil
+        }
+        let goToArtist: ((Track) -> Void)?
+        if includeArtistNavigation, let navigationCoordinator {
+            goToArtist = { track in
+                guard let artistId = track.artistRatingKey else { return }
+                navigationCoordinator.routeFromMenu(
+                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                    in: navigationCoordinator.selectedTab
+                )
+            }
+        } else {
+            goToArtist = nil
+        }
+
+        return TrackRowInteractionModel(
+            onPlayNext: { track in
+                nowPlayingVM.playNext(track)
+            },
+            onPlayLast: { track in
+                nowPlayingVM.playLast(track)
+            },
+            onAddToPlaylist: { track in
+                onAddToPlaylist([track])
+            },
+            onAddToRecentPlaylist: { track in
+                PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
+            },
+            onToggleFavorite: { track in
+                Task {
+                    await nowPlayingVM.toggleTrackFavorite(track)
+                }
+            },
+            onGoToAlbum: goToAlbum,
+            onGoToArtist: goToArtist,
+            onGetInfo: onGetInfo,
+            onShareLink: { track in
+                ShareActions.shareTrackLink(track, deps: deps)
+            },
+            onShareFile: { track in
+                ShareActions.shareTrackFile(track, deps: deps)
+            },
+            isTrackFavorited: { track in
+                nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToRecentPlaylist: { track in
+                PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM) != nil
+            },
+            recentPlaylistTitle: recentPlaylistTitle
+        )
+    }
+}

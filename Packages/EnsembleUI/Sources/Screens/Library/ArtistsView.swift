@@ -1680,49 +1680,17 @@ public struct ArtistDetailView: View {
         tracks: [Track],
         supplementalMetadataWidth: CGFloat
     ) -> some View {
-            let interactionModel = TrackRowInteractionModel(
-                onPlayNext: { track in
-                    nowPlayingVM.playNext(track)
-                },
-                onPlayLast: { track in
-                    nowPlayingVM.playLast(track)
-                },
-                onAddToPlaylist: { track in
-                    presentPlaylistPicker(with: [track])
-                },
-                onAddToRecentPlaylist: { track in
-                    addToRecentPlaylist(track)
-                },
-                onToggleFavorite: { track in
-                    Task {
-                        await nowPlayingVM.toggleTrackFavorite(track)
-                    }
-                },
-                onGoToAlbum: { track in
-                    if let albumId = track.albumRatingKey {
-                        self.navigationCoordinator.routeFromMenu(
-                            to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                            in: self.navigationCoordinator.selectedTab
-                        )
-                    }
-                },
-                onGetInfo: { track in
-                    libraryItemInfoRequest = .track(track)
-                },
-                onShareLink: { track in
-                    ShareActions.shareTrackLink(track, deps: dependencies)
-                },
-                onShareFile: { track in
-                    ShareActions.shareTrackFile(track, deps: dependencies)
-                },
-                isTrackFavorited: { track in
-                    nowPlayingVM.isTrackFavorited(track)
-                },
-                canAddToRecentPlaylist: { track in
-                    recentPlaylistTitle(for: track) != nil
-                },
+            let interactionModel = TrackRowInteractionModel.nowPlayingActions(
+                nowPlayingVM: nowPlayingVM,
+                deps: dependencies,
+                navigationCoordinator: navigationCoordinator,
+                includeArtistNavigation: false,
                 recentPlaylistTitle: nvmRecentPlaylistTitle
-            )
+            ) { tracks in
+                presentPlaylistPicker(with: tracks)
+            } onGetInfo: { track in
+                libraryItemInfoRequest = .track(track)
+            }
 
             // Track list (UIKit table for consistent swipe actions and row height)
             #if os(iOS)
@@ -1771,11 +1739,4 @@ public struct ArtistDetailView: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
 }

@@ -853,55 +853,16 @@ public struct SearchView: View {
     }
 
     private var trackInteractionModel: TrackRowInteractionModel {
-        TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGoToAlbum: { track in
-                guard let albumId = track.albumRatingKey else { return }
-                navigationCoordinator.routeFromMenu(
-                    to: .album(id: albumId, sourceKey: track.sourceCompositeKey),
-                    in: navigationCoordinator.selectedTab
-                )
-            },
-            onGoToArtist: { track in
-                guard let artistId = track.artistRatingKey else { return }
-                navigationCoordinator.routeFromMenu(
-                    to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
-                    in: navigationCoordinator.selectedTab
-                )
-            },
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
+        .nowPlayingActions(
+            nowPlayingVM: nowPlayingVM,
+            deps: deps,
+            navigationCoordinator: navigationCoordinator,
             recentPlaylistTitle: nvmRecentPlaylistTitle
-        )
+        ) { tracks in
+            presentPlaylistPicker(with: tracks)
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
     }
 
     private func playSearchResult(_ track: Track) {
@@ -913,14 +874,6 @@ public struct SearchView: View {
 
     private func presentPlaylistPicker(with tracks: [Track]) {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
-    }
-
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
     }
 
     private func compactSection<T: Identifiable, Content: View>(

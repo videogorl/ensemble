@@ -100,39 +100,7 @@ struct StageFlowTrackPanel: View {
                     managesOwnScrolling: true,
                     bottomContentInset: 4,
                     rowHeight: 58,
-                    onPlayNext: { track in
-                        nowPlayingVM.playNext(track)
-                    },
-                    onPlayLast: { track in
-                        nowPlayingVM.playLast(track)
-                    },
-                    onAddToPlaylist: { track in
-                        presentPlaylistPicker(with: [track])
-                    },
-                    onAddToRecentPlaylist: { track in
-                        addToRecentPlaylist(track)
-                    },
-                    onToggleFavorite: { track in
-                        Task {
-                            await nowPlayingVM.toggleTrackFavorite(track)
-                        }
-                    },
-                    onGetInfo: { track in
-                        libraryItemInfoRequest = .track(track)
-                    },
-                    onShareLink: { track in
-                        ShareActions.shareTrackLink(track, deps: deps)
-                    },
-                    onShareFile: { track in
-                        ShareActions.shareTrackFile(track, deps: deps)
-                    },
-                    isTrackFavorited: { track in
-                        nowPlayingVM.isTrackFavorited(track)
-                    },
-                    canAddToRecentPlaylist: { track in
-                        recentPlaylistTitle(for: track) != nil
-                    },
-                    recentPlaylistTitle: recentPlaylistTitle
+                    interactionModel: trackInteractionModel
                 ) { _, index in
                     nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
@@ -227,49 +195,17 @@ struct StageFlowTrackPanel: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func addToRecentPlaylist(_ track: Track) {
-        PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
-    }
-
-    private func recentPlaylistTitle(for track: Track) -> String? {
-        PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM)
-    }
-
     private var trackInteractionModel: TrackRowInteractionModel {
-        TrackRowInteractionModel(
-            onPlayNext: { track in
-                nowPlayingVM.playNext(track)
-            },
-            onPlayLast: { track in
-                nowPlayingVM.playLast(track)
-            },
-            onAddToPlaylist: { track in
-                presentPlaylistPicker(with: [track])
-            },
-            onAddToRecentPlaylist: { track in
-                addToRecentPlaylist(track)
-            },
-            onToggleFavorite: { track in
-                Task {
-                    await nowPlayingVM.toggleTrackFavorite(track)
-                }
-            },
-            onGetInfo: { track in
-                libraryItemInfoRequest = .track(track)
-            },
-            onShareLink: { track in
-                ShareActions.shareTrackLink(track, deps: deps)
-            },
-            onShareFile: { track in
-                ShareActions.shareTrackFile(track, deps: deps)
-            },
-            isTrackFavorited: { track in
-                nowPlayingVM.isTrackFavorited(track)
-            },
-            canAddToRecentPlaylist: { track in
-                recentPlaylistTitle(for: track) != nil
-            },
+        .nowPlayingActions(
+            nowPlayingVM: nowPlayingVM,
+            deps: deps,
+            includeAlbumNavigation: false,
+            includeArtistNavigation: false,
             recentPlaylistTitle: recentPlaylistTitle
-        )
+        ) { tracks in
+            presentPlaylistPicker(with: tracks)
+        } onGetInfo: { track in
+            libraryItemInfoRequest = .track(track)
+        }
     }
 }
