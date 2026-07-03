@@ -534,14 +534,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         SiriMatchingHelpers.loadIndex()
     }
 
-    private func normalize(_ raw: String) -> String {
-        SiriPhraseNormalizer.basic(raw)
-    }
-
-    private func normalizedQueryVariants(for raw: String) -> [String] {
-        SiriPhraseNormalizer.queryVariants(for: raw)
-    }
-
     private func bestQueryVariant(from raw: String) -> String? {
         SiriPhraseNormalizer.bestQueryVariant(for: raw)
     }

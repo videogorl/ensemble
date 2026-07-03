@@ -773,22 +773,6 @@ public struct ControlsCard: View {
         }
     }
 
-    private func presentPlaylistPicker(with tracks: [Track], title: String) {
-        guard !tracks.isEmpty else {
-            deps.toastCenter.show(
-                ToastPayload(
-                    style: .warning,
-                    iconSystemName: EnsembleDesign.Icon.error,
-                    title: "No tracks available",
-                    message: "Try again in a moment.",
-                    dedupeKey: "playlist-picker-empty-\(title)"
-                )
-            )
-            return
-        }
-        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-    }
-
     private func getScrubRate(verticalDistance: CGFloat) -> Double {
         switch verticalDistance {
         case 0 ..< EnsembleScaffold.NowPlaying.scrubFullSpeedDistance: return 1.0
