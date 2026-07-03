@@ -8,13 +8,11 @@ public enum EnsembleLogger {
 
     /// Closure wired by PersistentLogService to receive log entries for file writing.
     /// Parameters: (level, category, message)
-    public static var fileLogHandler: ((String, String, String) -> Void)?
+    public static var fileLogHandler: EnsembleFileLogHandler?
 
     private static let category = "persistence"
 
     static func debug(_ message: @autoclosure () -> String) {
-        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
-        logger.debug("\(msg, privacy: .public)")
-        fileLogHandler?("DEBUG", category, msg)
+        EnsembleLogEmitter.debug(message(), logger: logger, category: category, fileLogHandler: fileLogHandler)
     }
 }

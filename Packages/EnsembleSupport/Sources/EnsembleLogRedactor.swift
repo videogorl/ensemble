@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+public typealias EnsembleFileLogHandler = (String, String, String) -> Void
 
 /// Shared privacy redactor for log messages before they reach unified or
 /// persistent diagnostic logs.
@@ -134,5 +137,52 @@ public enum EnsembleLogRedactor {
                 with: "$1<redacted>",
                 options: .regularExpression
             )
+    }
+}
+
+/// Writes privacy-redacted messages to unified and optional persistent logs.
+public enum EnsembleLogEmitter {
+    public static func debug(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.debug("\(msg, privacy: .public)")
+        fileLogHandler?("DEBUG", category, msg)
+    }
+
+    public static func info(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.info("\(msg, privacy: .public)")
+        fileLogHandler?("INFO", category, msg)
+    }
+
+    public static func error(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.error("\(msg, privacy: .public)")
+        fileLogHandler?("ERROR", category, msg)
+    }
+
+    public static func fault(
+        _ message: @autoclosure () -> String,
+        logger: Logger,
+        category: String,
+        fileLogHandler: EnsembleFileLogHandler?
+    ) {
+        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
+        logger.fault("\(msg, privacy: .public)")
+        fileLogHandler?("FAULT", category, msg)
     }
 }

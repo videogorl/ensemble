@@ -1,7 +1,26 @@
 import XCTest
+import OSLog
 @testable import EnsembleSupport
 
 final class EnsembleLogRedactorTests: XCTestCase {
+    func testEmitterRedactsBeforePersistentSink() {
+        var captured: (level: String, category: String, message: String)?
+        let logger = Logger(subsystem: "com.videogorl.ensemble.tests", category: "support")
+
+        EnsembleLogEmitter.error(
+            "Request Authorization: Bearer secret-token path=/library/metadata/1",
+            logger: logger,
+            category: "support",
+            fileLogHandler: { level, category, message in
+                captured = (level, category, message)
+            }
+        )
+
+        XCTAssertEqual(captured?.level, "ERROR")
+        XCTAssertEqual(captured?.category, "support")
+        XCTAssertEqual(captured?.message, "Request Authorization: <redacted> path=<redacted-path>")
+    }
+
     func testRedactsSensitiveHeadersAndTokenFields() {
         let message = "Headers: X-Plex-Token: secret-token, Authorization: Bearer bearer-secret, accessToken=account-secret authToken=session-secret rawToken=jwt-secret token=generic-secret"
 
