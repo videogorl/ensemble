@@ -5552,9 +5552,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Re-stamp streamingQuality on all non-downloaded queue items
     private func updateQueueStreamingQuality(_ quality: String) {
-        if queueController.updateStreamingQuality(quality, queue: &queue) {
+        if queueController.updateStreamingQuality(
+            quality,
+            queue: &queue,
+            existingLocalFilePaths: existingDownloadedQueueFilePaths()
+        ) {
             savePlaybackState()
         }
+    }
+
+    private func existingDownloadedQueueFilePaths() -> Set<String> {
+        let localPaths = Set(queue.compactMap(\.track.localFilePath))
+        guard !localPaths.isEmpty else { return [] }
+
+        let downloadsDirectory = DownloadManager.downloadsDirectory.standardizedFileURL
+        let downloadedFilenames = Set(
+            (try? FileManager.default.contentsOfDirectory(
+                at: downloadsDirectory,
+                includingPropertiesForKeys: nil
+            ).map(\.lastPathComponent)) ?? []
+        )
+
+        return Set(localPaths.filter { path in
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            if url.deletingLastPathComponent() == downloadsDirectory {
+                return downloadedFilenames.contains(url.lastPathComponent)
+            }
+            return FileManager.default.fileExists(atPath: path)
+        })
     }
 
     /// Check each queue item for newly downloaded (or removed) tracks and

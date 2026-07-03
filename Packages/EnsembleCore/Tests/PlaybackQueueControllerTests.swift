@@ -95,6 +95,36 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertFalse(unchanged)
     }
 
+    func testUpdateStreamingQualityUsesPrecomputedExistingLocalPaths() {
+        let controller = makeController()
+        var queue = [
+            QueueItem(
+                track: makeTrack(id: "downloaded", localFilePath: "/downloads/downloaded.mp3"),
+                streamingQuality: "old"
+            ),
+            QueueItem(
+                track: makeTrack(id: "missing-local", localFilePath: "/downloads/missing.mp3"),
+                streamingQuality: "old"
+            ),
+        ]
+
+        var fileExistsCalls = 0
+        let changed = controller.updateStreamingQuality(
+            "medium",
+            queue: &queue,
+            existingLocalFilePaths: ["/downloads/downloaded.mp3"],
+            fileExists: { _ in
+                fileExistsCalls += 1
+                return false
+            }
+        )
+
+        XCTAssertTrue(changed)
+        XCTAssertEqual(fileExistsCalls, 0)
+        XCTAssertEqual(queue[0].streamingQuality, "old")
+        XCTAssertEqual(queue[1].streamingQuality, "medium")
+    }
+
     func testRefreshDownloadStateAddsLocalPathClearsQualityAndReportsNonCurrentEviction() async {
         let controller = makeController()
         var queue = [

@@ -77,11 +77,13 @@ final class PlaybackQueueController {
     func updateStreamingQuality(
         _ quality: String,
         queue: inout [QueueItem],
+        existingLocalFilePaths: Set<String>? = nil,
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
         var changed = false
         for i in queue.indices {
-            if let path = queue[i].track.localFilePath, fileExists(path) {
+            if let path = queue[i].track.localFilePath,
+               existingLocalFilePaths?.contains(path) ?? fileExists(path) {
                 continue
             }
             if queue[i].streamingQuality != quality {
