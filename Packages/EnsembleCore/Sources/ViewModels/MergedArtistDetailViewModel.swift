@@ -222,7 +222,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     private func albums(for artist: Artist) async throws -> [Album] {
         if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
             let cached = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            let localAlbums = Self.sortedAlbumsForArtistDetail(cached.map { Album(from: $0) })
+            let localAlbums = ArtistDetailAlbumCollections.sorted(cached.map { Album(from: $0) })
             if !cached.isEmpty {
                 if syncCoordinator.isOffline {
                     return localAlbums
@@ -230,16 +230,16 @@ public final class MergedArtistDetailViewModel: ObservableObject {
 
                 do {
                     let remoteAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-                    return Self.mergedAlbums(local: localAlbums, remote: remoteAlbums)
+                    return ArtistDetailAlbumCollections.merged(local: localAlbums, remote: remoteAlbums)
                 } catch {
                     EnsembleLogger.debug("MergedArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
                     return localAlbums
                 }
             }
-            return Self.sortedAlbumsForArtistDetail(try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey))
+            return ArtistDetailAlbumCollections.sorted(try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey))
         }
 
-        return Self.sortedAlbumsForArtistDetail(try await libraryRepository.fetchAlbums(forArtist: artist.id).map { Album(from: $0) })
+        return ArtistDetailAlbumCollections.sorted(try await libraryRepository.fetchAlbums(forArtist: artist.id).map { Album(from: $0) })
     }
 
     private func tracks(for artist: Artist) async throws -> [Track] {
@@ -259,29 +259,5 @@ public final class MergedArtistDetailViewModel: ObservableObject {
             return ("Unknown Library", "Unknown Source")
         }
         return (context.libraryTitle, "\(context.serverName) · \(context.accountName)")
-    }
-
-    private static func mergedAlbums(local: [Album], remote: [Album]) -> [Album] {
-        guard !remote.isEmpty else { return sortedAlbumsForArtistDetail(local) }
-        var albumsByID = Dictionary(uniqueKeysWithValues: local.map { ($0.sourceScopedID, $0) })
-        for album in remote where album.releaseFormat != nil || albumsByID[album.sourceScopedID] == nil {
-            albumsByID[album.sourceScopedID] = album
-        }
-        return sortedAlbumsForArtistDetail(Array(albumsByID.values))
-    }
-
-    private static func sortedAlbumsForArtistDetail(_ albums: [Album]) -> [Album] {
-        albums.sorted { left, right in
-            let leftYear = left.year ?? Int.min
-            let rightYear = right.year ?? Int.min
-            if leftYear != rightYear {
-                return leftYear > rightYear
-            }
-            let titleComparison = left.title.localizedStandardCompare(right.title)
-            if titleComparison != .orderedSame {
-                return titleComparison == .orderedAscending
-            }
-            return left.sourceScopedID < right.sourceScopedID
-        }
     }
 }

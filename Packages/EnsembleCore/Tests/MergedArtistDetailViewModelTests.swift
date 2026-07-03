@@ -267,6 +267,32 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(snapshot.trackCount, 1)
     }
 
+    func testArtistDetailAlbumCollectionsMergeReleaseMetadataAndSortDeterministically() {
+        let sourceA = "plex:account:server:1"
+        let sourceB = "plex:account:server:2"
+        let local = [
+            Album(id: "1", key: "/library/metadata/1", title: "Beta", year: 2021, sourceCompositeKey: sourceA),
+            Album(id: "2", key: "/library/metadata/2", title: "Alpha", year: 2021, sourceCompositeKey: sourceA),
+            Album(id: "1", key: "/library/metadata/1", title: "Beta", year: 2021, sourceCompositeKey: sourceB)
+        ]
+        let remote = [
+            Album(id: "1", key: "/library/metadata/1", title: "Beta", year: 2021, sourceCompositeKey: sourceA, releaseFormat: .album),
+            Album(id: "2", key: "/library/metadata/2", title: "Alpha", year: 2021, sourceCompositeKey: sourceA),
+            Album(id: "3", key: "/library/metadata/3", title: "Gamma", year: 2023, sourceCompositeKey: sourceA)
+        ]
+
+        let merged = ArtistDetailAlbumCollections.merged(local: local, remote: remote)
+
+        XCTAssertEqual(merged.map(\.sourceScopedID), [
+            "\(sourceA)||3",
+            "\(sourceA)||2",
+            "\(sourceA)||1",
+            "\(sourceB)||1"
+        ])
+        XCTAssertEqual(merged.first { $0.sourceScopedID == "\(sourceA)||1" }?.releaseFormat, .album)
+        XCTAssertNil(merged.first { $0.sourceScopedID == "\(sourceA)||2" }?.releaseFormat)
+    }
+
     private func makeAlbum(ratingKey: String, title: String, sourceCompositeKey: String) -> CDAlbum {
         let album = CDAlbum(context: context)
         album.ratingKey = ratingKey

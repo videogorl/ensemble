@@ -117,14 +117,14 @@ public final class ArtistDetailViewModel: ObservableObject {
                 cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
             }
             if !cachedAlbums.isEmpty {
-                albums = Self.sortedAlbumsForArtistDetail(cachedAlbums.map { Album(from: $0) })
+                albums = ArtistDetailAlbumCollections.sorted(cachedAlbums.map { Album(from: $0) })
             }
 
             if let sourceKey = artist.sourceCompositeKey, !syncCoordinator.isOffline {
                 EnsembleLogger.debug("ArtistDetailViewModel: Refreshing artist albums from API for source: \(sourceKey)")
                 do {
                     let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-                    let mergedAlbums = Self.mergedAlbums(local: albums, remote: apiAlbums)
+                    let mergedAlbums = ArtistDetailAlbumCollections.merged(local: albums, remote: apiAlbums)
                     if mergedAlbums != albums {
                         albums = mergedAlbums
                     }
@@ -265,30 +265,6 @@ public final class ArtistDetailViewModel: ObservableObject {
         let next = ArtistDetailDisplaySnapshot(albums: albums, tracks: tracks, filterOptions: filterOptions)
         if displaySnapshot != next {
             displaySnapshot = next
-        }
-    }
-
-    private static func mergedAlbums(local: [Album], remote: [Album]) -> [Album] {
-        guard !remote.isEmpty else { return sortedAlbumsForArtistDetail(local) }
-        var albumsByID = Dictionary(uniqueKeysWithValues: local.map { ($0.sourceScopedID, $0) })
-        for album in remote where album.releaseFormat != nil || albumsByID[album.sourceScopedID] == nil {
-            albumsByID[album.sourceScopedID] = album
-        }
-        return sortedAlbumsForArtistDetail(Array(albumsByID.values))
-    }
-
-    private static func sortedAlbumsForArtistDetail(_ albums: [Album]) -> [Album] {
-        albums.sorted { left, right in
-            let leftYear = left.year ?? Int.min
-            let rightYear = right.year ?? Int.min
-            if leftYear != rightYear {
-                return leftYear > rightYear
-            }
-            let titleComparison = left.title.localizedStandardCompare(right.title)
-            if titleComparison != .orderedSame {
-                return titleComparison == .orderedAscending
-            }
-            return left.sourceScopedID < right.sourceScopedID
         }
     }
 }
