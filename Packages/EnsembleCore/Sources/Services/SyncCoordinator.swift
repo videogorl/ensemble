@@ -365,8 +365,8 @@ public final class SyncCoordinator: ObservableObject {
     private func playlistMutationController() -> PlaylistMutationController {
         PlaylistMutationController(
             dependencies: .init(
-                validateServerSourceKey: { [weak self] serverSourceKey in
-                    self?.parseServerSourceKey(serverSourceKey) != nil
+                validateServerSourceKey: { serverSourceKey in
+                    MediaSourceIdentity.parse(serverSourceKey) != nil
                 },
                 fetchPlaylists: { [weak self] sourceKey in
                     guard let self else { return [] }
@@ -489,8 +489,7 @@ public final class SyncCoordinator: ObservableObject {
         trackIDs: [String],
         serverSourceKey: String
     ) async throws {
-        guard let server = parseServerSourceKey(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+        guard let (server, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
             throw PlaylistMutationError.invalidSource
         }
 
@@ -532,8 +531,7 @@ public final class SyncCoordinator: ObservableObject {
         serverSourceKey: String,
         isEmptyCreate: Bool
     ) async -> Playlist? {
-        guard let server = parseServerSourceKey(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
             return nil
         }
 
@@ -585,8 +583,7 @@ public final class SyncCoordinator: ObservableObject {
         trackIDs: [String],
         serverSourceKey: String
     ) async throws {
-        guard let server = parseServerSourceKey(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+        guard let (server, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
             throw PlaylistMutationError.invalidSource
         }
 
@@ -602,8 +599,7 @@ public final class SyncCoordinator: ObservableObject {
         newTitle: String,
         serverSourceKey: String
     ) async throws {
-        guard let server = parseServerSourceKey(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
             throw PlaylistMutationError.invalidSource
         }
 
@@ -614,8 +610,7 @@ public final class SyncCoordinator: ObservableObject {
         playlistId: String,
         serverSourceKey: String
     ) async throws {
-        guard let server = parseServerSourceKey(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
             throw PlaylistMutationError.invalidSource
         }
 
@@ -631,8 +626,7 @@ public final class SyncCoordinator: ObservableObject {
         trackIDs: [String],
         serverSourceKey: String
     ) async throws {
-        guard let server = parseServerSourceKey(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+        guard let (server, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
             throw PlaylistMutationError.invalidSource
         }
 
@@ -1210,7 +1204,7 @@ public final class SyncCoordinator: ObservableObject {
         do {
             // Playlists use a server-level key (plex:account:server), not the
             // library-level compositeKey (plex:account:server:library)
-            let serverKey = serverSourceKey(from: sourceId.compositeKey) ?? sourceId.compositeKey
+            let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceId.compositeKey) ?? sourceId.compositeKey
             let playlists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: serverKey)
             var cached = 0
             let now = nowProviderForTesting()
@@ -1263,22 +1257,6 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    private struct ParsedServerSource {
-        let accountId: String
-        let serverId: String
-    }
-
-    /// Convert a library-level source key (`plex:account:server:library`) into server-level key (`plex:account:server`).
-    private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
-    }
-
-    private func parseServerSourceKey(_ key: String) -> ParsedServerSource? {
-        let components = key.split(separator: ":")
-        guard components.count >= 3 else { return nil }
-        return ParsedServerSource(accountId: String(components[1]), serverId: String(components[2]))
-    }
-
     /// Keep only tracks that belong to target server, then dedupe by track id preserving order.
     /// Uses local lookup when the in-memory track source key is temporarily missing.
     private func filteredTrackIDsForServer(tracks: [Track], serverSourceKey targetServerSourceKey: String) async -> [String] {
@@ -1301,12 +1279,12 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     private func resolvedServerSourceKey(for track: Track) async -> String? {
-        if let parsed = serverSourceKey(from: track.sourceCompositeKey) {
+        if let parsed = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) {
             return parsed
         }
 
         if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
-           let parsed = serverSourceKey(from: cachedTrack.sourceCompositeKey) {
+           let parsed = MediaSourceIdentity.serverSourceKey(from: cachedTrack.sourceCompositeKey) {
             return parsed
         }
 
@@ -1366,22 +1344,30 @@ public final class SyncCoordinator: ObservableObject {
     private func hasSingleServerMatching(_ serverSourceKey: String) -> Bool {
         let uniqueServerSources = Set(
             syncProviders.keys.compactMap { key in
-                self.serverSourceKey(from: key)
+                MediaSourceIdentity.serverSourceKey(from: key)
             }
         )
         return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
     }
 
+    private func apiClient(forServerSourceKey serverSourceKey: String) -> (MediaSourceIdentity, PlexAPIClient)? {
+        guard let server = MediaSourceIdentity.parse(serverSourceKey),
+              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
+            return nil
+        }
+        return (server, apiClient)
+    }
+
     private func seedTrackIDForServer(
         serverSourceKey: String,
-        parsedServer: ParsedServerSource,
+        parsedServer: MediaSourceIdentity,
         apiClient: PlexAPIClient
     ) async -> String? {
         // Fast path: try local cache first.
         if let allTracks = try? await libraryRepository.fetchTracks(),
            let cachedTrackID = allTracks.first(where: { track in
             guard let trackSourceCompositeKey = track.sourceCompositeKey,
-                  let trackServerSourceKey = self.serverSourceKey(from: trackSourceCompositeKey) else {
+                  let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: trackSourceCompositeKey) else {
                 return false
             }
             return trackServerSourceKey == serverSourceKey
@@ -1743,13 +1729,13 @@ public final class SyncCoordinator: ObservableObject {
     /// Called by PlaybackService when a playback failure indicates the server may be unreachable.
     /// Updates serverStates and source connection states so TrackAvailabilityResolver reacts.
     public func triggerServerHealthCheck(sourceKey: String) async {
-        guard let (accountId, serverId) = parseServerIds(from: sourceKey) else { return }
+        guard let server = MediaSourceIdentity.parse(sourceKey) else { return }
 
-        EnsembleLogger.debug("🏥 SyncCoordinator: Targeted health check for server \(accountId):\(serverId)")
+        EnsembleLogger.debug("🏥 SyncCoordinator: Targeted health check for server \(server.accountId):\(server.serverId)")
 
         let state = await serverHealthChecker.checkServer(
-            accountId: accountId,
-            serverId: serverId
+            accountId: server.accountId,
+            serverId: server.serverId
         )
         updateSourceConnectionStates()
 
@@ -1759,10 +1745,10 @@ public final class SyncCoordinator: ObservableObject {
     /// Check whether a server is known to be available based on cached health state.
     /// Returns false if the server is offline, degraded-offline, or has no cached state.
     public func isServerAvailable(sourceKey: String?) -> Bool {
-        guard let sourceKey, let (accountId, serverId) = parseServerIds(from: sourceKey) else {
+        guard let server = MediaSourceIdentity.parse(sourceKey) else {
             return true // Assume available if we can't determine the server
         }
-        let serverKey = "\(accountId):\(serverId)"
+        let serverKey = "\(server.accountId):\(server.serverId)"
         guard let state = serverHealthChecker.serverStates[serverKey] else {
             return true // No cached state means we haven't checked — assume available
         }
@@ -1774,10 +1760,10 @@ public final class SyncCoordinator: ObservableObject {
     /// (.unknown/.connecting). This avoids premature local-file fallback during startup
     /// when health checks are still in flight. Nuke handles network failures gracefully.
     public func isServerPossiblyAvailable(sourceKey: String?) -> Bool {
-        guard let sourceKey, let (accountId, serverId) = parseServerIds(from: sourceKey) else {
+        guard let server = MediaSourceIdentity.parse(sourceKey) else {
             return true
         }
-        let serverKey = "\(accountId):\(serverId)"
+        let serverKey = "\(server.accountId):\(server.serverId)"
         guard let state = serverHealthChecker.serverStates[serverKey] else {
             return true
         }
@@ -1787,14 +1773,6 @@ public final class SyncCoordinator: ObservableObject {
         case .offline:
             return false
         }
-    }
-
-    /// Parse accountId and serverId from a sourceCompositeKey.
-    /// Format: "plex:accountId:serverId:libraryId"
-    private func parseServerIds(from sourceKey: String) -> (accountId: String, serverId: String)? {
-        let parts = sourceKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-        return (String(parts[1]), String(parts[2]))
     }
 
     internal func handleObservedNetworkStateForTesting(_ state: NetworkState) async {

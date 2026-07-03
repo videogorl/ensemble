@@ -73,7 +73,7 @@ final class PlaylistRefreshController {
         trigger: Trigger,
         allowFullFallback: Bool
     ) async throws -> RefreshResult? {
-        guard let parsed = parseServerSourceKey(serverSourceKey) else {
+        guard let parsed = MediaSourceIdentity.parse(serverSourceKey) else {
             return nil
         }
 
@@ -127,10 +127,4 @@ final class PlaylistRefreshController {
         return nil
     }
 
-    private func parseServerSourceKey(_ serverSourceKey: String) -> (accountId: String, serverId: String)? {
-        let parts = serverSourceKey.split(separator: ":")
-        guard parts.count >= 3 else { return nil }
-
-        return (accountId: String(parts[1]), serverId: String(parts[2]))
-    }
 }
