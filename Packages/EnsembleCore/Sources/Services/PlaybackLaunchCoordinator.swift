@@ -7,6 +7,20 @@ final class PlaybackLaunchCoordinator {
     struct VisualizerPlan: Equatable {
         let priority: TaskPriority
         let throttled: Bool
+        let startDelayNanoseconds: UInt64
+
+        init(priority: TaskPriority, throttled: Bool, startDelayNanoseconds: UInt64 = 0) {
+            self.priority = priority
+            self.throttled = throttled
+            self.startDelayNanoseconds = startDelayNanoseconds
+        }
+    }
+
+    enum VisualizerLoadContext {
+        case activePlayback
+        case scheduledPrefetch
+        case restoredPrebuffer
+        case userVisibleToggle
     }
 
     struct Dependencies {
@@ -28,7 +42,8 @@ final class PlaybackLaunchCoordinator {
     static func visualizerPlan(
         isVisualizerEnabled: Bool,
         isInstrumentalModeActive: Bool,
-        processorCount: Int
+        processorCount: Int,
+        context: VisualizerLoadContext = .activePlayback
     ) -> VisualizerPlan? {
         guard isVisualizerEnabled else { return nil }
 
@@ -38,12 +53,30 @@ final class PlaybackLaunchCoordinator {
         if isInstrumentalModeActive {
             priority = .background
         } else if isLowCoreDevice {
-            priority = .utility
+            switch context {
+            case .activePlayback, .userVisibleToggle:
+                priority = .utility
+            case .scheduledPrefetch, .restoredPrebuffer:
+                priority = .background
+            }
         } else {
-            priority = .userInitiated
+            switch context {
+            case .activePlayback, .userVisibleToggle:
+                priority = .userInitiated
+            case .scheduledPrefetch, .restoredPrebuffer:
+                priority = .utility
+            }
         }
 
-        return VisualizerPlan(priority: priority, throttled: throttled)
+        let startDelayNanoseconds: UInt64 = context == .scheduledPrefetch && throttled
+            ? 10_000_000_000
+            : 0
+
+        return VisualizerPlan(
+            priority: priority,
+            throttled: throttled,
+            startDelayNanoseconds: startDelayNanoseconds
+        )
     }
 
     func completeLaunch(

@@ -1226,15 +1226,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             isInstrumentalModeActive: { [weak self] in self?.isInstrumentalModeActive ?? false },
             enqueueVisualizerLoad: { [weak self] track, fileURL, plan in
                 guard let self else { return }
-                EnsembleLogger.debug("[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)")
-                Task.detached { [audioAnalyzer = self.audioAnalyzer] in
-                    await audioAnalyzer.loadTimeline(
-                        for: track.playbackIdentity,
-                        fileURL: fileURL,
-                        priority: plan.priority,
-                        throttled: plan.throttled
-                    )
-                }
+                self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             },
             loadAndPlay: { [weak self] source, track in
                 await self?.loadAndPlaySource(source, track: track)
@@ -1247,6 +1239,43 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         )
     )
+
+    private func visualizerPlan(
+        for context: PlaybackLaunchCoordinator.VisualizerLoadContext
+    ) -> PlaybackLaunchCoordinator.VisualizerPlan? {
+        PlaybackLaunchCoordinator.visualizerPlan(
+            isVisualizerEnabled: isVisualizerEnabled,
+            isInstrumentalModeActive: isInstrumentalModeActive,
+            processorCount: processorCount,
+            context: context
+        )
+    }
+
+    private func enqueueVisualizerTimelineLoad(
+        track: Track,
+        fileURL: URL,
+        plan: PlaybackLaunchCoordinator.VisualizerPlan
+    ) {
+        let analyzer = audioAnalyzer
+        let trackIdentity = track.playbackIdentity
+        let startDelayNanoseconds = plan.startDelayNanoseconds
+
+        EnsembleLogger.debug(
+            "[Visualizer] Dispatching loadTimeline for '\(track.title)', url=\(fileURL.lastPathComponent), isFile=\(fileURL.isFileURL)"
+        )
+        Task.detached {
+            if startDelayNanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: startDelayNanoseconds)
+                guard !Task.isCancelled else { return }
+            }
+            await analyzer.loadTimeline(
+                for: trackIdentity,
+                fileURL: fileURL,
+                priority: plan.priority,
+                throttled: plan.throttled
+            )
+        }
+    }
 
     public var historyPublisher: AnyPublisher<[QueueItem], Never> {
         $playbackHistory.eraseToAnyPublisher()
@@ -5111,22 +5140,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 try engine.scheduleNext(fileURL: fileURL, trackId: trackIdentity)
             }
 
-            let shouldAnalyzeVisualizer = await MainActor.run { isVisualizerEnabled }
-            // Pre-compute frequency timeline so the visualizer is ready on gapless advance.
-            // When instrumental mode or low-core device, defer to avoid CPU contention
-            // during the critical post-schedule period when the user is likely interacting.
-            if shouldAnalyzeVisualizer {
-                let analyzer = audioAnalyzer
-                let isLowCoreDevice = self.processorCount <= 2
-                let throttle = isInstrumentalModeActive || isLowCoreDevice
-                let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
-                Task.detached {
-                    if throttle {
-                        try? await Task.sleep(nanoseconds: 10_000_000_000) // 10s delay
-                        guard !Task.isCancelled else { return }
-                    }
-                    await analyzer.loadTimeline(for: trackIdentity, fileURL: fileURL, priority: priority, throttled: throttle)
-                }
+            if let plan = await MainActor.run(body: { [weak self] in
+                self?.visualizerPlan(for: .scheduledPrefetch)
+            }) {
+                self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             }
         } catch {
             EnsembleLogger.debug("[prefetch] Failed for '\(track.title)': \(error)")
@@ -5397,16 +5414,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 updatePlaybackTimes(rawTime: restoredTime)
             }
 
-            // Pre-load frequency timeline (throttle during instrumental mode or on low-core devices)
-            if isVisualizerEnabled {
-                let isLowCoreDevice = processorCount <= 2
-                let throttle = isInstrumentalModeActive || isLowCoreDevice
-                let priority: TaskPriority = (isInstrumentalModeActive || isLowCoreDevice) ? .background : .utility
-                Task.detached { [audioAnalyzer] in
-                    await audioAnalyzer.loadTimeline(
-                        for: track.playbackIdentity, fileURL: fileURL, priority: priority, throttled: throttle
-                    )
-                }
+            if let plan = visualizerPlan(for: .restoredPrebuffer) {
+                enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             }
             audioAnalyzer.activateTimeline(for: track.playbackIdentity)
 
@@ -5660,25 +5669,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   let track = self.currentTrack,
                   let fileURL = self.getCachedFileURL(for: track.playbackIdentity) else { return }
 
-            let analyzer = self.audioAnalyzer
-            let trackId = track.playbackIdentity
-            let isLowCoreDevice = self.processorCount <= 2
-            let throttle = self.isInstrumentalModeActive || isLowCoreDevice
-            let priority: TaskPriority
-            if self.isInstrumentalModeActive {
-                priority = .background
-            } else if isLowCoreDevice {
-                priority = .utility
-            } else {
-                priority = .userInitiated
-            }
-
             EnsembleLogger.debug("[Visualizer] Setting toggled ON mid-song — loading timeline for '\(track.title)'")
-            Task.detached {
-                await analyzer.loadTimeline(for: trackId, fileURL: fileURL, priority: priority, throttled: throttle)
+            if let plan = self.visualizerPlan(for: .userVisibleToggle) {
+                self.enqueueVisualizerTimelineLoad(track: track, fileURL: fileURL, plan: plan)
             }
-            analyzer.activateTimeline(for: trackId)
-            analyzer.resumeUpdates()
+            self.audioAnalyzer.activateTimeline(for: track.playbackIdentity)
+            self.audioAnalyzer.resumeUpdates()
         }
     }
 

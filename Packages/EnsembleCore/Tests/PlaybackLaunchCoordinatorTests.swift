@@ -44,6 +44,53 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
         XCTAssertEqual(plan, .init(priority: .utility, throttled: true))
     }
 
+    func testVisualizerPlanUsesUtilityForScheduledPrefetch() {
+        let plan = PlaybackLaunchCoordinator.visualizerPlan(
+            isVisualizerEnabled: true,
+            isInstrumentalModeActive: false,
+            processorCount: 8,
+            context: .scheduledPrefetch
+        )
+
+        XCTAssertEqual(plan, .init(priority: .utility, throttled: false))
+    }
+
+    func testVisualizerPlanDelaysThrottledScheduledPrefetch() {
+        let plan = PlaybackLaunchCoordinator.visualizerPlan(
+            isVisualizerEnabled: true,
+            isInstrumentalModeActive: false,
+            processorCount: 2,
+            context: .scheduledPrefetch
+        )
+
+        XCTAssertEqual(
+            plan,
+            .init(priority: .background, throttled: true, startDelayNanoseconds: 10_000_000_000)
+        )
+    }
+
+    func testVisualizerPlanUsesBackgroundForRestoredPrebufferOnLowCoreDevices() {
+        let plan = PlaybackLaunchCoordinator.visualizerPlan(
+            isVisualizerEnabled: true,
+            isInstrumentalModeActive: false,
+            processorCount: 2,
+            context: .restoredPrebuffer
+        )
+
+        XCTAssertEqual(plan, .init(priority: .background, throttled: true))
+    }
+
+    func testVisualizerPlanKeepsToggleImmediateOnLowCoreDevices() {
+        let plan = PlaybackLaunchCoordinator.visualizerPlan(
+            isVisualizerEnabled: true,
+            isInstrumentalModeActive: false,
+            processorCount: 2,
+            context: .userVisibleToggle
+        )
+
+        XCTAssertEqual(plan, .init(priority: .utility, throttled: true))
+    }
+
     func testCompleteLaunchLoadsTrackSeeksAndPrefetches() async {
         let track = Track(id: "1", key: "/library/metadata/1", title: "Test", duration: 200)
         let url = URL(fileURLWithPath: "/tmp/test.mp3")
