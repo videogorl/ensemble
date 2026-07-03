@@ -102,20 +102,12 @@ public protocol SiriMediaUserContextManagerProtocol: Sendable {
 
 @MainActor
 public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProtocol {
-    private let libraryRepository: LibraryRepositoryProtocol
-    private let playlistRepository: PlaylistRepositoryProtocol
-    private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
-    
     public init(
-        libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol,
-        notificationCenter: NotificationCenter = .default,
-        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
-    ) {
-        self.libraryRepository = libraryRepository
-        self.playlistRepository = playlistRepository
-        self.enabledSourceKeysProvider = enabledSourceKeysProvider
-    }
+        libraryRepository _: LibraryRepositoryProtocol,
+        playlistRepository _: PlaylistRepositoryProtocol,
+        notificationCenter _: NotificationCenter = .default,
+        enabledSourceKeysProvider _: SystemMediaEnabledSourceKeysProvider? = nil
+    ) {}
     
     public func updateMediaUserContext() async {
         // No-op on macOS
