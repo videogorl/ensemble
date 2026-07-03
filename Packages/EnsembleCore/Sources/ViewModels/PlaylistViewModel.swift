@@ -728,39 +728,35 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     private func observeDownloadChanges() {
-        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observe(
+            OfflineDownloadService.downloadsDidChange,
+            debounce: .milliseconds(500),
+            storingIn: &cancellables
+        ) { [weak self] in
+            await self?.loadTracks()
+        }
     }
 
     /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
     private func observePlaylistRefresh() {
-        NotificationCenter.default.publisher(for: SyncCoordinator.playlistsDidRefresh)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
-
+        ViewModelNotificationObserver.observe(
+            SyncCoordinator.playlistsDidRefresh,
+            debounce: .milliseconds(500),
+            storingIn: &cancellables
+        ) { [weak self] in
+            EnsembleLogger.debug("📋 PlaylistDetailViewModel: playlistsDidRefresh — reloading tracks")
+            await self?.loadTracks()
+        }
     }
 
     private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadTracks()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observe(
+            MetadataMutationService.metadataDidChange,
+            debounce: .milliseconds(300),
+            storingIn: &cancellables
+        ) { [weak self] in
+            await self?.loadTracks()
+        }
     }
 
     public func loadTracks() async {

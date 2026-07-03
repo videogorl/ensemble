@@ -302,24 +302,23 @@ public final class SearchViewModel: ObservableObject {
     }
 
     private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmedQuery.isEmpty {
-                        await self.search(
-                            query: trimmedQuery,
-                            startedAt: Date(),
-                            requireCurrentQuery: true
-                        )
-                    } else if self.hasLoadedExploreContent {
-                        await self.loadExploreContent()
-                    }
-                }
+        ViewModelNotificationObserver.observe(
+            MetadataMutationService.metadataDidChange,
+            debounce: .milliseconds(300),
+            storingIn: &cancellables
+        ) { [weak self] in
+            guard let self else { return }
+            let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedQuery.isEmpty {
+                await self.search(
+                    query: trimmedQuery,
+                    startedAt: Date(),
+                    requireCurrentQuery: true
+                )
+            } else if self.hasLoadedExploreContent {
+                await self.loadExploreContent()
             }
-            .store(in: &cancellables)
+        }
     }
 
     private func commitSearchToHistory(query: String) {

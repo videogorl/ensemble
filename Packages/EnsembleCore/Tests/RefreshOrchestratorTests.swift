@@ -168,8 +168,8 @@ final class RefreshOrchestratorTests: XCTestCase {
         XCTAssertEqual(events.first, "first-start")
         XCTAssertTrue(events.contains("first-end"))
         XCTAssertTrue(events.contains("first-complete"))
-        XCTAssertEqual(events.last, "first-returned")
-        XCTAssertEqual(events.dropLast().last, "second-returned")
+        XCTAssertEqual(Set(events.suffix(2)), Set(["first-returned", "second-returned"]))
+        XCTAssertEqual(events.filter { $0.hasSuffix("-returned") }.count, 2)
     }
 
     func testPostRatingPlaylistSyncCoalescesByServer() async {

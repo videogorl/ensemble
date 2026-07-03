@@ -517,25 +517,23 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func observeDownloadChanges() {
-        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
-            .debounce(for: .milliseconds(500), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadLibrary()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observe(
+            OfflineDownloadService.downloadsDidChange,
+            debounce: .milliseconds(500),
+            storingIn: &cancellables
+        ) { [weak self] in
+            await self?.loadLibrary()
+        }
     }
 
     private func observeMetadataChanges() {
-        NotificationCenter.default.publisher(for: MetadataMutationService.metadataDidChange)
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    await self?.loadLibrary()
-                }
-            }
-            .store(in: &cancellables)
+        ViewModelNotificationObserver.observe(
+            MetadataMutationService.metadataDidChange,
+            debounce: .milliseconds(300),
+            storingIn: &cancellables
+        ) { [weak self] in
+            await self?.loadLibrary()
+        }
     }
 
     private func setupVisibilityObservation() {
