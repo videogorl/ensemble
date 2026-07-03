@@ -12,4 +12,15 @@ extension Array where Element: Identifiable, Element.ID == String {
             }
             .map(\.0)
     }
+
+    func sortedByComparableKey<Value: Comparable>(_ key: (Element) -> Value, ascending: Bool) -> [Element] {
+        sorted {
+            let left = key($0)
+            let right = key($1)
+            if left == right {
+                return $0.id < $1.id
+            }
+            return ascending ? left < right : left > right
+        }
+    }
 }

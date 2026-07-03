@@ -149,15 +149,15 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
                 compareOptionalDates(a.lastRatedAt ?? a.dateAdded, b.lastRatedAt ?? b.dateAdded, ascending: ascending)
             }
         case .duration:
-            return tracks.sorted { ascending ? $0.duration < $1.duration : $0.duration > $1.duration }
+            return tracks.sortedByComparableKey(\.duration, ascending: ascending)
         case .lastPlayed:
             return tracks.sorted { a, b in
                 compareOptionalDates(a.lastPlayed, b.lastPlayed, ascending: ascending)
             }
         case .rating:
-            return tracks.sorted { ascending ? $0.rating < $1.rating : $0.rating > $1.rating }
+            return tracks.sortedByComparableKey(\.rating, ascending: ascending)
         case .playCount:
-            return tracks.sorted { ascending ? $0.playCount < $1.playCount : $0.playCount > $1.playCount }
+            return tracks.sortedByComparableKey(\.playCount, ascending: ascending)
         }
     }
 

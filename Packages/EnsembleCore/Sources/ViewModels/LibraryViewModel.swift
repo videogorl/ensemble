@@ -1059,7 +1059,7 @@ public final class LibraryViewModel: ObservableObject {
         case .album:
             return tracks.sortedByCachedStringKey({ ($0.albumName ?? "").sortingKey }, ascending: asc)
         case .duration:
-            return tracks.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
+            return tracks.sortedByComparableKey(\.duration, ascending: asc)
         case .dateAdded:
             return tracks.sorted { asc
                 ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
@@ -1076,9 +1076,9 @@ public final class LibraryViewModel: ObservableObject {
                 : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
             }
         case .rating:
-            return tracks.sorted { asc ? $0.rating < $1.rating : $0.rating > $1.rating }
+            return tracks.sortedByComparableKey(\.rating, ascending: asc)
         case .playCount:
-            return tracks.sorted { asc ? $0.playCount < $1.playCount : $0.playCount > $1.playCount }
+            return tracks.sortedByComparableKey(\.playCount, ascending: asc)
         }
     }
 
@@ -1110,7 +1110,7 @@ public final class LibraryViewModel: ObservableObject {
         case .albumArtist:
             return albums.sortedByCachedStringKey({ ($0.albumArtist ?? "").sortingKey }, ascending: asc)
         case .year:
-            return albums.sorted { asc ? ($0.year ?? 0) < ($1.year ?? 0) : ($0.year ?? 0) > ($1.year ?? 0) }
+            return albums.sortedByComparableKey({ $0.year ?? 0 }, ascending: asc)
         case .dateAdded:
             return albums.sorted { asc
                 ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
@@ -1122,7 +1122,7 @@ public final class LibraryViewModel: ObservableObject {
                 : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
             }
         case .rating:
-            return albums.sorted { asc ? $0.rating < $1.rating : $0.rating > $1.rating }
+            return albums.sortedByComparableKey(\.rating, ascending: asc)
         }
     }
 

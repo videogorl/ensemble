@@ -235,9 +235,9 @@ public final class PlaylistViewModel: ObservableObject {
         case .title:
             return playlists.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: asc)
         case .trackCount:
-            return playlists.sorted { asc ? $0.trackCount < $1.trackCount : $0.trackCount > $1.trackCount }
+            return playlists.sortedByComparableKey(\.trackCount, ascending: asc)
         case .duration:
-            return playlists.sorted { asc ? $0.duration < $1.duration : $0.duration > $1.duration }
+            return playlists.sortedByComparableKey(\.duration, ascending: asc)
         case .dateAdded:
             return playlists.sorted { asc
                 ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
