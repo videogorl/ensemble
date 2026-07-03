@@ -958,6 +958,24 @@ final class EnsembleUITests: XCTestCase {
         ])
     }
 
+    func testMediaTrackListIdentityOrderUsesSourceScopedTrackID() {
+        let subscriberTrack = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            sourceCompositeKey: "plex:subscriber:server:music"
+        )
+        let freeAccountTrack = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            sourceCompositeKey: "plex:free:server:music"
+        )
+
+        XCTAssertTrue(trackIdentityOrderMatches([subscriberTrack], [subscriberTrack]))
+        XCTAssertFalse(trackIdentityOrderMatches([subscriberTrack], [freeAccountTrack]))
+    }
+
     func testMediaMenuCatalogTrackLibraryContextIncludesBaseAndEditingActions() {
         let sections = MediaMenuCatalog.sections(
             for: .track,

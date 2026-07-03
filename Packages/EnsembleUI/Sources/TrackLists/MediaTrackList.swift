@@ -2,6 +2,10 @@ import EnsembleCore
 import SwiftUI
 import Nuke
 
+func trackIdentityOrderMatches(_ lhs: [Track], _ rhs: [Track]) -> Bool {
+    lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
+}
+
 #if canImport(UIKit)
 import UIKit
 
@@ -824,8 +828,7 @@ public struct MediaTrackList: UIViewRepresentable {
         
         // Check if track list structure changed (additions/removals/reordering)
         let newGroupSignature = newGroupedTracks.map(\.signature)
-        let dataChanged = context.coordinator.tracks.count != tracks.count ||
-            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.id == $1.id } ||
+        let dataChanged = !trackIdentityOrderMatches(context.coordinator.tracks, tracks) ||
             context.coordinator.groupSignature != newGroupSignature
 
         // Check if any track's download state changed (localFilePath set or cleared)
