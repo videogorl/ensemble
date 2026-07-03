@@ -69,8 +69,12 @@ final class DownloadRetryPolicy {
         }
 
         if context.isRetryableTransfer {
-            let retries = (transferRetryCount[context.trackRatingKey] ?? 0) + 1
-            transferRetryCount[context.trackRatingKey] = retries
+            let retryKey = directFallbackKey(
+                trackRatingKey: context.trackRatingKey,
+                sourceCompositeKey: context.sourceCompositeKey
+            )
+            let retries = (transferRetryCount[retryKey] ?? 0) + 1
+            transferRetryCount[retryKey] = retries
 
             if retries <= Self.maxTransferRetries {
                 if context.attemptedDirectFallback {
@@ -83,7 +87,7 @@ final class DownloadRetryPolicy {
                 )
             }
 
-            transferRetryCount.removeValue(forKey: context.trackRatingKey)
+            transferRetryCount.removeValue(forKey: retryKey)
             if context.attemptedDirectFallback {
                 blockDirectFallback(trackRatingKey: context.trackRatingKey, sourceCompositeKey: context.sourceCompositeKey)
             }
@@ -103,7 +107,9 @@ final class DownloadRetryPolicy {
     }
 
     func recordSuccess(trackRatingKey: String, sourceCompositeKey: String, attemptedDirectFallback: Bool) {
-        transferRetryCount.removeValue(forKey: trackRatingKey)
+        transferRetryCount.removeValue(
+            forKey: directFallbackKey(trackRatingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
+        )
         if attemptedDirectFallback {
             blockedDirectFallbackKeys.remove(
                 directFallbackKey(trackRatingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)

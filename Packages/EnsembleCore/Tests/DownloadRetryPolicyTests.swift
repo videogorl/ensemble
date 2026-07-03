@@ -126,6 +126,43 @@ final class DownloadRetryPolicyTests: XCTestCase {
         )
     }
 
+    func testRetryableTransferRetriesAreSourceScoped() {
+        let policy = DownloadRetryPolicy()
+
+        for _ in 0..<DownloadRetryPolicy.maxTransferRetries {
+            _ = policy.resolveFailure(
+                .init(
+                    trackRatingKey: "shared-rating-key",
+                    sourceCompositeKey: "source-a",
+                    attemptedDirectFallback: false,
+                    updatedQuality: "medium",
+                    isCancellation: false,
+                    isNetworkLoss: false,
+                    isRetryableTransfer: true,
+                    errorDescription: "short read"
+                )
+            )
+        }
+
+        let otherSourceFirstFailure = policy.resolveFailure(
+            .init(
+                trackRatingKey: "shared-rating-key",
+                sourceCompositeKey: "source-b",
+                attemptedDirectFallback: false,
+                updatedQuality: "medium",
+                isCancellation: false,
+                isNetworkLoss: false,
+                isRetryableTransfer: true,
+                errorDescription: "short read"
+            )
+        )
+
+        XCTAssertEqual(
+            otherSourceFirstFailure,
+            .retryPending(attempt: 1, maxAttempts: 3, blockDirectFallback: false)
+        )
+    }
+
     func testCancellationAndNetworkLossReturnSpecialResolutions() {
         let policy = DownloadRetryPolicy()
 
