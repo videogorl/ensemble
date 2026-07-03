@@ -465,8 +465,7 @@ public struct InfoCard: View {
     /// Resolve whether current playback is from a downloaded local file or streaming.
     private func resolvePlaybackSource() -> String {
         guard let track = currentTrack else { return "—" }
-        guard let localFilePath = track.localFilePath else { return "Streaming" }
-        return FileManager.default.fileExists(atPath: localFilePath) ? "Downloaded" : "Streaming"
+        return track.isDownloaded ? "Downloaded" : "Streaming"
     }
 
     /// Resolve playback quality with source-aware context.
@@ -475,9 +474,7 @@ public struct InfoCard: View {
     /// falling back to the current setting for backwards compatibility.
     private func resolvePlaybackQuality() -> String {
         guard let track = currentTrack else { return "—" }
-        guard let localFilePath = track.localFilePath,
-              FileManager.default.fileExists(atPath: localFilePath)
-        else {
+        guard let localFilePath = track.localFilePath else {
             // Prefer the quality stamped on the queue item at queue time
             let quality = queueProjection.currentQueueItem?.streamingQuality ?? streamingQuality
             return "\(formatQuality(quality)) (Streaming)"
