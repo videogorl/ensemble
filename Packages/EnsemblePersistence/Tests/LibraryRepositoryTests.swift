@@ -161,33 +161,31 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
     }
 
-    func testArtistUpsertRecordsArtworkInvalidationWhenMetadataDateChanges() async throws {
+    func testBatchArtistUpsertRecordsArtworkInvalidationWhenMetadataDateChanges() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
         let sourceKey = "plex/account/server/library"
 
-        _ = try await repository.upsertArtist(
-            ratingKey: "artist-1",
-            key: "/library/metadata/artist-1",
-            name: "Artist One",
-            summary: nil,
-            thumbPath: "/library/metadata/artist-1/thumb",
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: Date(timeIntervalSince1970: 1_000),
+        try await repository.batchUpsertArtists(
+            [
+                makeArtistInput(
+                    ratingKey: "artist-1",
+                    thumbPath: "/library/metadata/artist-1/thumb",
+                    dateModified: Date(timeIntervalSince1970: 1_000)
+                )
+            ],
             sourceCompositeKey: sourceKey
         )
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
 
-        _ = try await repository.upsertArtist(
-            ratingKey: "artist-1",
-            key: "/library/metadata/artist-1",
-            name: "Artist One",
-            summary: nil,
-            thumbPath: "/library/metadata/artist-1/thumb",
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: Date(timeIntervalSince1970: 1_001),
+        try await repository.batchUpsertArtists(
+            [
+                makeArtistInput(
+                    ratingKey: "artist-1",
+                    thumbPath: "/library/metadata/artist-1/thumb",
+                    dateModified: Date(timeIntervalSince1970: 1_001)
+                )
+            ],
             sourceCompositeKey: sourceKey
         )
 
@@ -203,7 +201,7 @@ final class LibraryRepositoryTests: XCTestCase {
         )
     }
 
-    func testAlbumAndArtistUpsertsDoNotRecordDateOnlyInvalidationWithoutArtworkPath() async throws {
+    func testBatchAlbumAndArtistUpsertsDoNotRecordDateOnlyInvalidationWithoutArtworkPath() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
         let sourceKey = "plex/account/server/library"
@@ -232,28 +230,26 @@ final class LibraryRepositoryTests: XCTestCase {
         )
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
 
-        _ = try await repository.upsertArtist(
-            ratingKey: "artist-no-art",
-            key: "/library/metadata/artist-no-art",
-            name: "Artist No Art",
-            summary: nil,
-            thumbPath: nil,
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: Date(timeIntervalSince1970: 1_000),
+        try await repository.batchUpsertArtists(
+            [
+                makeArtistInput(
+                    ratingKey: "artist-no-art",
+                    thumbPath: nil,
+                    dateModified: Date(timeIntervalSince1970: 1_000)
+                )
+            ],
             sourceCompositeKey: sourceKey
         )
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
 
-        _ = try await repository.upsertArtist(
-            ratingKey: "artist-no-art",
-            key: "/library/metadata/artist-no-art",
-            name: "Artist No Art",
-            summary: nil,
-            thumbPath: nil,
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: Date(timeIntervalSince1970: 1_001),
+        try await repository.batchUpsertArtists(
+            [
+                makeArtistInput(
+                    ratingKey: "artist-no-art",
+                    thumbPath: nil,
+                    dateModified: Date(timeIntervalSince1970: 1_001)
+                )
+            ],
             sourceCompositeKey: sourceKey
         )
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
@@ -560,6 +556,23 @@ final class LibraryRepositoryTests: XCTestCase {
             dateAdded: nil,
             dateModified: dateModified,
             rating: nil
+        )
+    }
+
+    private func makeArtistInput(
+        ratingKey: String,
+        thumbPath: String?,
+        dateModified: Date?
+    ) -> ArtistUpsertInput {
+        ArtistUpsertInput(
+            ratingKey: ratingKey,
+            key: "/library/metadata/\(ratingKey)",
+            name: "Artist \(ratingKey)",
+            summary: nil,
+            thumbPath: thumbPath,
+            artPath: nil,
+            dateAdded: nil,
+            dateModified: dateModified
         )
     }
 }

@@ -186,27 +186,29 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             )
         }
 
-        for index in 0..<10 {
-            let genreNames = index == 0 ? "Genre 0" : nil
-            _ = try await libraryRepository.upsertAlbum(
-                ratingKey: "album-\(index)",
-                key: "/library/metadata/album-\(index)",
-                title: "Album \(index)",
-                artistName: "Artist",
-                albumArtist: "Artist",
-                artistRatingKey: "artist-1",
-                summary: nil,
-                thumbPath: nil,
-                artPath: nil,
-                year: 2024,
-                trackCount: 5,
-                dateAdded: Date(),
-                dateModified: Date(),
-                rating: 0,
-                genreNames: genreNames,
-                sourceCompositeKey: sourceKey
-            )
-        }
+        let albumDate = Date()
+        try await libraryRepository.batchUpsertAlbums(
+            (0..<10).map { index in
+                AlbumUpsertInput(
+                    ratingKey: "album-\(index)",
+                    key: "/library/metadata/album-\(index)",
+                    title: "Album \(index)",
+                    artistName: "Artist",
+                    albumArtist: "Artist",
+                    artistRatingKey: "artist-1",
+                    summary: nil,
+                    thumbPath: nil,
+                    artPath: nil,
+                    year: 2024,
+                    trackCount: 5,
+                    dateAdded: albumDate,
+                    dateModified: albumDate,
+                    rating: 0,
+                    genreNames: index == 0 ? "Genre 0" : nil
+                )
+            },
+            sourceCompositeKey: sourceKey
+        )
 
         for index in 0..<50 {
             let albumIndex = index / 5

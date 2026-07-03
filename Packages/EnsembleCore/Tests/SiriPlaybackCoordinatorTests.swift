@@ -300,33 +300,41 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
             accountName: "Test Account"
         )
 
-        _ = try await libraryRepository.upsertArtist(
-            ratingKey: "artist-1",
-            key: "/library/metadata/artist-1",
-            name: "Artist One",
-            summary: nil,
-            thumbPath: nil,
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: nil,
+        try await libraryRepository.batchUpsertArtists(
+            [
+                ArtistUpsertInput(
+                    ratingKey: "artist-1",
+                    key: "/library/metadata/artist-1",
+                    name: "Artist One",
+                    summary: nil,
+                    thumbPath: nil,
+                    artPath: nil,
+                    dateAdded: nil,
+                    dateModified: nil
+                )
+            ],
             sourceCompositeKey: librarySourceKey
         )
 
-        _ = try await libraryRepository.upsertAlbum(
-            ratingKey: "album-1",
-            key: "/library/metadata/album-1",
-            title: "Album One",
-            artistName: "Artist One",
-            albumArtist: "Artist One",
-            artistRatingKey: "artist-1",
-            summary: nil,
-            thumbPath: nil,
-            artPath: nil,
-            year: 2024,
-            trackCount: 2,
-            dateAdded: nil,
-            dateModified: nil,
-            rating: nil,
+        try await libraryRepository.batchUpsertAlbums(
+            [
+                AlbumUpsertInput(
+                    ratingKey: "album-1",
+                    key: "/library/metadata/album-1",
+                    title: "Album One",
+                    artistName: "Artist One",
+                    albumArtist: "Artist One",
+                    artistRatingKey: "artist-1",
+                    summary: nil,
+                    thumbPath: nil,
+                    artPath: nil,
+                    year: 2024,
+                    trackCount: 2,
+                    dateAdded: nil,
+                    dateModified: nil,
+                    rating: nil
+                )
+            ],
             sourceCompositeKey: librarySourceKey
         )
 

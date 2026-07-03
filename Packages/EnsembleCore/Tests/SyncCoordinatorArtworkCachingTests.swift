@@ -136,33 +136,40 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
 
         let modified = Date(timeIntervalSince1970: 1_000)
-        _ = try await libraryRepository.upsertArtist(
-            ratingKey: "artist-1",
-            key: "/library/metadata/artist-1",
-            name: "Artist",
-            summary: nil,
-            thumbPath: "/library/metadata/artist-1/thumb",
-            artPath: nil,
-            dateAdded: nil,
-            dateModified: modified,
+        try await libraryRepository.batchUpsertArtists(
+            [
+                ArtistUpsertInput(
+                    ratingKey: "artist-1",
+                    key: "/library/metadata/artist-1",
+                    name: "Artist",
+                    summary: nil,
+                    thumbPath: "/library/metadata/artist-1/thumb",
+                    artPath: nil,
+                    dateAdded: nil,
+                    dateModified: modified
+                )
+            ],
             sourceCompositeKey: source.compositeKey
         )
-        _ = try await libraryRepository.upsertAlbum(
-            ratingKey: "album-1",
-            key: "/library/metadata/album-1",
-            title: "Album",
-            artistName: "Artist",
-            albumArtist: "Artist",
-            artistRatingKey: "artist-1",
-            summary: nil,
-            thumbPath: "/library/metadata/album-1/thumb",
-            artPath: nil,
-            year: nil,
-            trackCount: nil,
-            dateAdded: nil,
-            dateModified: modified,
-            rating: nil,
-            genreNames: nil,
+        try await libraryRepository.batchUpsertAlbums(
+            [
+                AlbumUpsertInput(
+                    ratingKey: "album-1",
+                    key: "/library/metadata/album-1",
+                    title: "Album",
+                    artistName: "Artist",
+                    albumArtist: "Artist",
+                    artistRatingKey: "artist-1",
+                    summary: nil,
+                    thumbPath: "/library/metadata/album-1/thumb",
+                    artPath: nil,
+                    year: nil,
+                    trackCount: nil,
+                    dateAdded: nil,
+                    dateModified: modified,
+                    rating: nil
+                )
+            ],
             sourceCompositeKey: source.compositeKey
         )
         _ = try await playlistRepository.upsertPlaylist(

@@ -202,24 +202,32 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
 
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
-        let album = try await repository.upsertAlbum(
-            ratingKey: "album-1",
-            key: "/library/metadata/album-1",
-            title: "Album",
-            artistName: "Artist",
-            albumArtist: "Artist",
-            artistRatingKey: "artist-1",
-            summary: nil,
-            thumbPath: "/library/metadata/album-1/thumb/2000",
-            artPath: nil,
-            year: nil,
-            trackCount: nil,
-            dateAdded: nil,
-            dateModified: nil,
-            rating: nil,
-            genreNames: nil,
+        try await repository.batchUpsertAlbums(
+            [
+                AlbumUpsertInput(
+                    ratingKey: "album-1",
+                    key: "/library/metadata/album-1",
+                    title: "Album",
+                    artistName: "Artist",
+                    albumArtist: "Artist",
+                    artistRatingKey: "artist-1",
+                    summary: nil,
+                    thumbPath: "/library/metadata/album-1/thumb/2000",
+                    artPath: nil,
+                    year: nil,
+                    trackCount: nil,
+                    dateAdded: nil,
+                    dateModified: nil,
+                    rating: nil
+                )
+            ],
             sourceCompositeKey: "plex:account-1:server-1:1"
         )
+        let fetchedAlbum = try await repository.fetchAlbum(
+            ratingKey: "album-1",
+            sourceCompositeKey: "plex:account-1:server-1:1"
+        )
+        let album = try XCTUnwrap(fetchedAlbum)
         let artworkManager = RecordingArtworkDownloadManager(
             strictPath: localURL.path,
             stalePath: nil
