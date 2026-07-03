@@ -30,7 +30,7 @@ Dependency flow is one-way:
 
 | Package | Canonical ownership |
 |---|---|
-| `EnsembleSupport` | Pure Foundation shared utilities with no app behavior ownership, currently including privacy-safe log redaction. |
+| `EnsembleSupport` | Pure Foundation shared utilities with no app behavior ownership, currently including privacy-safe log redaction and audio payload validation. |
 | `EnsembleAPI` | Plex auth, request building, API models, transport, connection policy, WebSocket transport, endpoint grouping. |
 | `EnsemblePersistence` | CoreData model/stack, repositories, download/artwork persistence, SwiftPM compiled model bundle. |
 | `EnsembleSiriShared` | Pure Siri/system-media identity, index models, payload codecs, phrase normalization/scoring, query variants, resolver logic, App Group constants. |

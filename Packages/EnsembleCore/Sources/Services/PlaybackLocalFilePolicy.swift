@@ -1,3 +1,4 @@
+import EnsembleSupport
 import Foundation
 
 /// Local audio-file policy shared by transport, playback launch, and prefetch
@@ -62,15 +63,10 @@ enum PlaybackLocalFilePolicy {
             return true
         }
 
-        let leadingText = String(decoding: header, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if leadingText.hasPrefix("<html")
-            || leadingText.hasPrefix("<!doctype html")
-            || leadingText.hasPrefix("<?xml")
-            || leadingText.contains("<h1>400 bad request</h1>")
-            || leadingText.contains("<h1>404 not found</h1>")
-            || leadingText.contains("<h1>503 ") {
+        if EnsembleAudioPayloadValidator.isClearlyInvalidLeadingText(
+            header,
+            rejectingServiceUnavailable: true
+        ) {
             return true
         }
 

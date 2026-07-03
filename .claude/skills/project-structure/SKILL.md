@@ -44,7 +44,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 
 | Package | Owns | Do not do |
 |---|---|---|
-| `Packages/EnsembleSupport` | Low-level shared Foundation utilities used across packages and app targets, including privacy-safe log redaction. | Do not put app behavior, UI, persistence, network clients, or platform service orchestration here. |
+| `Packages/EnsembleSupport` | Low-level shared Foundation utilities used across packages and app targets, including privacy-safe log redaction and audio payload validation. | Do not put app behavior, UI, persistence, network clients, or platform service orchestration here. |
 | `Packages/EnsembleAPI` | Plex HTTP/auth clients, request builders, API models, connection policy, WebSocket transport. | Do not import UI, CoreData, or app target code. |
 | `Packages/EnsemblePersistence` | CoreData stack, managed objects, repositories, downloads/artwork persistence. | Do not put UI or network orchestration here. |
 | `Packages/EnsembleSiriShared` | Pure Siri/system-media identity, index models, payload codecs, resolver/ranking logic, phrase normalization/scoring, and App Group constants. | Do not import CoreData, Intents UI, SwiftUI, Spotlight, or playback services. |

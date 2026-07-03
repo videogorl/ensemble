@@ -1,4 +1,5 @@
 import CoreData
+import EnsembleSupport
 import Foundation
 
 public enum DownloadError: Error, LocalizedError {
@@ -875,15 +876,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             return true
         }
 
-        let leadingText = String(decoding: header, as: UTF8.self)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-
-        return leadingText.hasPrefix("<html")
-            || leadingText.hasPrefix("<!doctype html")
-            || leadingText.hasPrefix("<?xml")
-            || leadingText.contains("<h1>400 bad request</h1>")
-            || leadingText.contains("<h1>404 not found</h1>")
+        return EnsembleAudioPayloadValidator.isClearlyInvalidLeadingText(header)
     }
 
     private static func normalizedQuality(_ quality: String) -> String {
