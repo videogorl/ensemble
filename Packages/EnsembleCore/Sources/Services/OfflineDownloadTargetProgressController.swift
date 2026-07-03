@@ -268,10 +268,10 @@ final class OfflineDownloadTargetProgressController {
         let pending = try await dependencies.downloadManager.fetchPendingDownloads()
         return Set(pending.compactMap { download -> String? in
             guard let track = download.track else { return nil }
-            guard let sourceCompositeKey = track.sourceCompositeKey, !sourceCompositeKey.isEmpty else {
-                return track.ratingKey
-            }
-            return "\(sourceCompositeKey)||\(track.ratingKey)"
+            return sourceScopedIdentity(
+                ratingKey: track.ratingKey,
+                sourceCompositeKey: track.sourceCompositeKey
+            )
         })
     }
 

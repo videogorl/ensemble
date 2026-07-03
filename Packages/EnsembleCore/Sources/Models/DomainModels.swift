@@ -20,7 +20,7 @@ import Foundation
 //
 // All models conform to Sendable for safe async/concurrent usage
 
-private func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?) -> String {
+func sourceScopedIdentity(ratingKey: String, sourceCompositeKey: String?) -> String {
     guard let sourceCompositeKey, !sourceCompositeKey.isEmpty else {
         return ratingKey
     }
