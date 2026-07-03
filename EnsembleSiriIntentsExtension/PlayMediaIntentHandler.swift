@@ -4,9 +4,6 @@ import Intents
 import OSLog
 
 public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
-    private static let activityType = "com.videogorl.ensemble.siri.playmedia"
-    private static let payloadUserInfoKey = "siriPlaybackPayload"
-    private static let currentPayloadSchemaVersion = 1
     private static let pendingFilename = "siri-pending-playback.json"
     private static let darwinNotificationName = "com.videogorl.ensemble.siri.pendingPlayback"
     private static let disambiguationThreshold = 0.1
@@ -32,19 +29,19 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // If we already have a valid payload identifier, keep it stable and avoid loops.
         if let selected = intent.mediaItems?.first,
            let identifier = selected.identifier,
-           var payload = decodePayloadIdentifier(identifier),
-           payload.schemaVersion == Self.currentPayloadSchemaVersion {
+           let payload = decodePayloadIdentifier(identifier),
+           payload.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
             logger.debug("resolveMediaItems: using preselected media item to avoid re-disambiguation")
             if let playShuffled = intent.playShuffled, payload.shuffle != playShuffled {
-                payload.shuffle = playShuffled
-                completion([.success(with: makeMediaItem(from: payload, fallback: selected))])
+                completion([.success(with: makeMediaItem(from: payload.updatingShuffle(playShuffled), fallback: selected))])
             } else {
                 completion([.success(with: selected)])
             }
             return
         }
 
-        guard let query = queryText(from: intent), !query.isEmpty else {
+        let fields = intent.ensembleSiriPlaybackFields
+        guard let query = fields.queryText else {
             logger.info(
                 "resolveMediaItems: missing query; requesting value from Siri mediaType=\((intent.mediaSearch?.mediaType ?? .unknown).rawValue, privacy: .public) shuffle=\((intent.playShuffled ?? false), privacy: .public)"
             )
@@ -65,7 +62,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
             "resolveMediaItems: queryLength=\(normalizedQuery.count, privacy: .public), mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\((requestedShuffle ?? false), privacy: .public)"
         )
 
-        let artistHint = intent.mediaSearch?.artistName
+        let artistHint = fields.artistHint
 
         guard let index = loadIndex(), !index.items.isEmpty else {
             logger.debug("resolveMediaItems: index unavailable or empty; returning fallback media item")
@@ -133,9 +130,12 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     // which returns .handleInApp — the signal iOS needs to set up AirPlay.
 
     public func handle(intent: INPlayMediaIntent, completion: @escaping (INPlayMediaIntentResponse) -> Void) {
-        let requestedMediaType = resolvedMediaType(from: intent, query: queryText(from: intent) ?? "")
+        let requestedMediaType = resolvedMediaType(
+            from: intent,
+            query: intent.ensembleSiriPlaybackFields.queryText ?? ""
+        )
 
-        guard var payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
+        guard let payload = payloadIdentifier(from: intent, mediaType: requestedMediaType) else {
             logger.error("handle: missing identifier and query; returning failureUnknownMediaType")
             SiriExtensionLogger.info("SIRI_EXT: handle returning failureUnknownMediaType")
             completion(INPlayMediaIntentResponse(code: .failureUnknownMediaType, userActivity: nil))
@@ -150,15 +150,18 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
         logger.debug("handle: mediaType=\(requestedMediaType.rawValue, privacy: .public) shuffle=\(shuffleRequested, privacy: .public)")
 
+        let playbackPayload: SiriPayloadIdentifier
         if shuffleRequested {
-            payload.shuffle = true
+            playbackPayload = payload.updatingShuffle(true)
+        } else {
+            playbackPayload = payload
         }
 
         // Do not fail in the extension based on index trackCount metadata.
         // Index data can be stale or partial, so playback viability must be
         // validated in-app by SiriPlaybackCoordinator against live CoreData.
 
-        guard let activity = playbackUserActivity(for: payload) else {
+        guard let activity = playbackUserActivity(for: playbackPayload) else {
             logger.error("handle: failed to construct playback user activity")
             SiriExtensionLogger.info("SIRI_EXT: handle returning failure (no activity)")
             completion(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
@@ -169,7 +172,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         // The app's Darwin notification handler will pick this up if onContinueUserActivity
         // doesn't fire within a few seconds.
         _ = SiriPendingIntentBridge.writePayload(
-            payload,
+            playbackPayload,
             filename: Self.pendingFilename,
             logger: logger,
             context: "playback"
@@ -182,8 +185,8 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
         // Return .handleInApp — this is the signal iOS needs to establish AirPlay
         // routing from the requesting HomePod before delivering the user activity.
-        logger.debug("handle: returning handleInApp for payload kind=\(payload.kind.rawValue, privacy: .public)")
-        SiriExtensionLogger.info("SIRI_EXT: handle returning handleInApp kind=\(payload.kind.rawValue)")
+        logger.debug("handle: returning handleInApp for payload kind=\(playbackPayload.kind.rawValue, privacy: .public)")
+        SiriExtensionLogger.info("SIRI_EXT: handle returning handleInApp kind=\(playbackPayload.kind.rawValue)")
         completion(INPlayMediaIntentResponse(code: .handleInApp, userActivity: activity))
     }
 
@@ -191,21 +194,22 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         from intent: INPlayMediaIntent,
         mediaType: INMediaItemType
     ) -> SiriPayloadIdentifier? {
-        let rawIdentifier = normalizedIntentIdentifier(from: intent)
+        let fields = intent.ensembleSiriPlaybackFields
+        let rawIdentifier = fields.normalizedIdentifier
 
         if let identifier = rawIdentifier,
            let decodedPayload = decodePayloadIdentifier(identifier),
-           decodedPayload.schemaVersion == Self.currentPayloadSchemaVersion {
+           decodedPayload.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
             logger.debug("payloadIdentifier: using decoded payload identifier")
             return decodedPayload
         }
 
         let requestedShuffle = effectivePlayShuffled(from: intent, mediaType: mediaType)
 
-        if let query = queryText(from: intent), !query.isEmpty {
+        if let query = fields.queryText {
             let fallbackQuery = bestQueryVariant(from: query) ?? query
 
-            let artistHintForPayload = intent.mediaSearch?.artistName
+            let artistHintForPayload = fields.artistHint
             if let index = loadIndex(),
                let top = rankCandidates(
                     for: fallbackQuery,
@@ -216,7 +220,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                top.score >= Self.payloadResolutionThreshold {
                 logger.debug("payloadIdentifier: resolved fallback payload from index top candidate")
                 return SiriPayloadIdentifier(
-                    schemaVersion: Self.currentPayloadSchemaVersion,
                     kind: top.item.kind,
                     entityID: top.item.id,
                     sourceCompositeKey: top.item.sourceCompositeKey,
@@ -228,7 +231,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
             logger.debug("payloadIdentifier: building fallback payload from queryLength=\(fallbackQuery.count, privacy: .public)")
             return SiriPayloadIdentifier(
-                schemaVersion: Self.currentPayloadSchemaVersion,
                 kind: primaryKindFor(mediaType: mediaType, query: fallbackQuery),
                 entityID: fallbackQuery,
                 sourceCompositeKey: nil,
@@ -245,12 +247,11 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
                 ?? intent.mediaContainer?.title
                 ?? rawIdentifier
             return SiriPayloadIdentifier(
-                schemaVersion: Self.currentPayloadSchemaVersion,
                 kind: fallbackKind,
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
                 displayName: fallbackDisplayName,
-                artistHint: intent.mediaSearch?.artistName,
+                artistHint: fields.artistHint,
                 shuffle: requestedShuffle
             )
         }
@@ -259,48 +260,18 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func playbackUserActivity(for payload: SiriPayloadIdentifier) -> NSUserActivity? {
-        guard let payloadData = try? JSONEncoder().encode(payload) else {
+        guard let userInfo = try? SiriPlaybackActivityCodec.makeUserInfo(payload) else {
             return nil
         }
 
-        let activity = NSUserActivity(activityType: Self.activityType)
+        let activity = NSUserActivity(activityType: SiriPlaybackActivityCodec.activityType)
         activity.title = "Play in Ensemble"
-        activity.userInfo = [Self.payloadUserInfoKey: payloadData]
+        activity.userInfo = userInfo
         // HomePod requests may need cross-device handoff semantics to wake the iPhone host app.
         activity.isEligibleForHandoff = true
         activity.isEligibleForSearch = false
         activity.isEligibleForPrediction = false
         return activity
-    }
-
-    private func queryText(from intent: INPlayMediaIntent) -> String? {
-        if let explicit = intent.mediaItems?.first?.title, !explicit.isEmpty {
-            return explicit
-        }
-        if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
-            return containerTitle
-        }
-        if let mediaSearch = intent.mediaSearch {
-            if let searched = mediaSearch.mediaName, !searched.isEmpty {
-                return searched
-            }
-            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
-                return artistName
-            }
-            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
-                return albumName
-            }
-            if let genreName = mediaSearch.genreNames?.first, !genreName.isEmpty {
-                return genreName
-            }
-            if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
-                return moodName
-            }
-            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
-                return mediaIdentifier
-            }
-        }
-        return nil
     }
 
     private func rankCandidates(
@@ -338,7 +309,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         shuffle: Bool? = nil
     ) -> INMediaItem {
         let payload = SiriPayloadIdentifier(
-            schemaVersion: Self.currentPayloadSchemaVersion,
             kind: ranked.item.kind,
             entityID: ranked.item.id,
             sourceCompositeKey: ranked.item.sourceCompositeKey,
@@ -348,7 +318,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
 
         let identifier: String
-        if let data = try? JSONEncoder().encode(payload) {
+        if let data = try? SiriPlaybackActivityCodec.encode(payload) {
             identifier = data.base64EncodedString()
         } else {
             identifier = ""
@@ -364,7 +334,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     private func makeMediaItem(from payload: SiriPayloadIdentifier, fallback: INMediaItem) -> INMediaItem {
         let identifier: String
-        if let data = try? JSONEncoder().encode(payload) {
+        if let data = try? SiriPlaybackActivityCodec.encode(payload) {
             identifier = data.base64EncodedString()
         } else {
             identifier = fallback.identifier ?? ""
@@ -387,7 +357,6 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     ) -> INMediaItem {
         let fallbackKind = primaryKindFor(mediaType: mediaType, query: query)
         let payload = SiriPayloadIdentifier(
-            schemaVersion: Self.currentPayloadSchemaVersion,
             kind: fallbackKind,
             entityID: query,
             sourceCompositeKey: nil,
@@ -397,7 +366,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
         )
 
         let identifier: String
-        if let data = try? JSONEncoder().encode(payload) {
+        if let data = try? SiriPlaybackActivityCodec.encode(payload) {
             identifier = data.base64EncodedString()
         } else {
             identifier = ""
@@ -413,14 +382,7 @@ public final class PlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
 
     private func decodePayloadIdentifier(_ identifier: String) -> SiriPayloadIdentifier? {
         guard let data = Data(base64Encoded: identifier) else { return nil }
-        return try? JSONDecoder().decode(SiriPayloadIdentifier.self, from: data)
-    }
-
-    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
-        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
-        guard let identifier else { return nil }
-        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        return try? SiriPlaybackActivityCodec.decode(from: data)
     }
 
     private func mediaTypeFor(kind: SiriMediaKind) -> INMediaItemType {

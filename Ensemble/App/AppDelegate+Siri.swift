@@ -5,6 +5,45 @@ import UIKit
 import EnsembleCore
 import EnsembleSiriShared
 
+extension INPlayMediaIntent {
+    var ensembleSiriPlaybackFields: SiriPlaybackIntentFields {
+        let search = mediaSearch
+        return SiriPlaybackIntentFields(
+            mediaItemTitle: mediaItems?.first?.title,
+            mediaItemIdentifier: mediaItems?.first?.identifier,
+            mediaItemKind: mediaItems?.first?.type.ensembleSiriKindHint ?? .unknown,
+            mediaContainerTitle: mediaContainer?.title,
+            mediaContainerIdentifier: mediaContainer?.identifier,
+            mediaContainerKind: mediaContainer?.type.ensembleSiriKindHint ?? .unknown,
+            searchMediaName: search?.mediaName,
+            searchArtistName: search?.artistName,
+            searchAlbumName: search?.albumName,
+            searchGenreName: search?.genreNames?.first,
+            searchMoodName: search?.moodNames?.first,
+            searchMediaIdentifier: search?.mediaIdentifier,
+            searchKind: search?.mediaType.ensembleSiriKindHint ?? .unknown,
+            playShuffled: playShuffled
+        )
+    }
+}
+
+extension INMediaItemType {
+    var ensembleSiriKindHint: SiriPlaybackIntentKindHint {
+        switch self {
+        case .song:
+            return .track
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        default:
+            return .unknown
+        }
+    }
+}
+
 extension AppDelegate {
     func registerForSiriPendingPlaybackNotification() {
         let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
@@ -170,28 +209,7 @@ extension AppDelegate {
             // Clear the file immediately to prevent duplicate execution
             try FileManager.default.removeItem(at: pendingFile)
 
-            // Decode the payload (extension uses SiriPayloadIdentifier, we need to convert)
-            let decoder = JSONDecoder()
-            let extensionPayload = try decoder.decode(ExtensionSiriPayloadIdentifier.self, from: data)
-
-            // Convert to app payload format
-            let kind: SiriMediaKind
-            switch extensionPayload.kind {
-            case "track": kind = .track
-            case "album": kind = .album
-            case "artist": kind = .artist
-            case "playlist": kind = .playlist
-            default: kind = .track
-            }
-
-            return SiriPlaybackRequestPayload(
-                kind: kind,
-                entityID: extensionPayload.entityID,
-                sourceCompositeKey: extensionPayload.sourceCompositeKey,
-                displayName: extensionPayload.displayName,
-                artistHint: extensionPayload.artistHint,
-                shuffle: extensionPayload.shuffle
-            )
+            return try SiriPlaybackActivityCodec.decode(from: data)
         } catch {
             AppLogger.error("SIRI_APP: Failed to read pending payload: \(error.localizedDescription)")
             return nil
@@ -301,31 +319,25 @@ extension AppDelegate {
     }
 
     private func payload(fromForwardedPlayMediaIntent intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        let rawIdentifier = normalizedIntentIdentifier(from: intent)
-        let shuffle = intent.playShuffled
+        let fields = intent.ensembleSiriPlaybackFields
+        let rawIdentifier = fields.normalizedIdentifier
+        let shuffle = fields.playShuffled
 
         if let identifier = rawIdentifier,
            var decoded = decodePayloadIdentifier(identifier),
            decoded.schemaVersion == SiriPlaybackRequestPayload.currentSchemaVersion {
             // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
             if let shuffle, decoded.shuffle != shuffle {
-                decoded = SiriPlaybackRequestPayload(
-                    kind: decoded.kind,
-                    entityID: decoded.entityID,
-                    sourceCompositeKey: decoded.sourceCompositeKey,
-                    displayName: decoded.displayName,
-                    artistHint: decoded.artistHint,
-                    shuffle: shuffle
-                )
+                decoded = decoded.updatingShuffle(shuffle)
             }
             return decoded
         }
 
         // Fallback to query if identifier is missing or failed to decode.
-        if let query = siriQueryText(from: intent), !query.isEmpty {
-            let sanitizedQuery = normalizedSiriQuery(query)
+        if let query = fields.queryText {
+            let sanitizedQuery = SiriPhraseNormalizer.normalized(query)
 
-            let kind = siriMediaKind(from: intent)
+            let kind = fields.primaryKind(fallbackQuery: query)
             AppLogger.debug("AppDelegate: Siri fallback payload queryLength=\(sanitizedQuery.count) kind=\(kind.rawValue)")
 
             return SiriPlaybackRequestPayload(
@@ -333,20 +345,20 @@ extension AppDelegate {
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
                 displayName: sanitizedQuery,
-                artistHint: intent.mediaSearch?.artistName,
+                artistHint: fields.artistHint,
                 shuffle: shuffle
             )
         }
 
         if let rawIdentifier {
-            let kind = siriMediaKind(from: intent)
+            let kind = fields.primaryKind()
             AppLogger.debug("AppDelegate: Siri fallback payload using raw identifier kind=\(kind.rawValue)")
             return SiriPlaybackRequestPayload(
                 kind: kind,
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
-                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
-                artistHint: intent.mediaSearch?.artistName,
+                displayName: fields.queryText ?? rawIdentifier,
+                artistHint: fields.artistHint,
                 shuffle: shuffle
             )
         }
@@ -360,92 +372,6 @@ extension AppDelegate {
         }
         return try? SiriPlaybackActivityCodec.decode(from: data)
     }
-
-    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
-        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
-        guard let identifier else { return nil }
-        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func siriQueryText(from intent: INPlayMediaIntent) -> String? {
-        if let explicit = intent.mediaItems?.first?.title, !explicit.isEmpty {
-            return explicit
-        }
-        if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
-            return containerTitle
-        }
-        if let mediaSearch = intent.mediaSearch {
-            if let searched = mediaSearch.mediaName, !searched.isEmpty {
-                return searched
-            }
-            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
-                return artistName
-            }
-            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
-                return albumName
-            }
-            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
-                return mediaIdentifier
-            }
-        }
-        return nil
-    }
-
-    private func siriMediaKind(from intent: INPlayMediaIntent) -> SiriMediaKind {
-        let mediaType = intent.mediaSearch?.mediaType
-            ?? intent.mediaContainer?.type
-            ?? intent.mediaItems?.first?.type
-            ?? .unknown
-
-        switch mediaType {
-        case .song:
-            return .track
-        case .album:
-            return .album
-        case .artist:
-            return .artist
-        case .playlist:
-            return .playlist
-        default:
-            let hasMediaName = intent.mediaSearch?.mediaName.map { !$0.isEmpty } ?? false
-            // Only infer .artist/.album when mediaName is absent.
-            // "Play [song] by [artist]" has both → default to .track.
-            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty, !hasMediaName {
-                return .artist
-            }
-            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty, !hasMediaName {
-                return .album
-            }
-            if intent.mediaContainer?.type == .playlist {
-                return .playlist
-            }
-            if let inferred = inferredSiriMediaKind(from: siriQueryText(from: intent)) {
-                return inferred
-            }
-            return .track
-        }
-    }
-
-    private func normalizedSiriQuery(_ value: String) -> String {
-        SiriPhraseNormalizer.normalized(value)
-    }
-
-    private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
-        guard let query else { return nil }
-        return SiriMediaIndexResolver.kindInferred(from: query)
-    }
-}
-
-/// Mirrors the extension's SiriPayloadIdentifier for decoding from App Group
-private struct ExtensionSiriPayloadIdentifier: Codable {
-    let schemaVersion: Int
-    let kind: String
-    let entityID: String
-    let sourceCompositeKey: String?
-    let displayName: String?
-    let artistHint: String?
-    let shuffle: Bool?
 }
 
 func executeSiriPlaybackInBackground(
@@ -705,125 +631,52 @@ final class InAppPlayMediaIntentHandler: NSObject, INPlayMediaIntentHandling {
     }
 
     private func payload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        let rawIdentifier = normalizedIntentIdentifier(from: intent)
-        let shuffle = intent.playShuffled
+        let fields = intent.ensembleSiriPlaybackFields
+        let rawIdentifier = fields.normalizedIdentifier
+        let shuffle = fields.playShuffled
 
         if let identifier = rawIdentifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
             // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
             if let shuffle, payload.shuffle != shuffle {
-                payload = SiriPlaybackRequestPayload(
-                    kind: payload.kind,
-                    entityID: payload.entityID,
-                    sourceCompositeKey: payload.sourceCompositeKey,
-                    displayName: payload.displayName,
-                    artistHint: payload.artistHint,
-                    shuffle: shuffle
-                )
+                payload = payload.updatingShuffle(shuffle)
             }
             return payload
         }
 
-        if let query = queryText(from: intent), !query.isEmpty {
-            let sanitizedQuery = normalizedSiriQuery(query)
+        if let query = fields.queryText {
+            let sanitizedQuery = SiriPhraseNormalizer.normalized(query)
             guard !sanitizedQuery.isEmpty else {
                 return nil
             }
 
             AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler - using fallback queryLength=\(sanitizedQuery.count)")
-            let kind = mediaKindFrom(intent: intent, fallbackQuery: query)
+            let kind = fields.primaryKind(fallbackQuery: query)
             return SiriPlaybackRequestPayload(
                 kind: kind,
                 entityID: sanitizedQuery,
                 sourceCompositeKey: nil,
                 displayName: sanitizedQuery,
-                artistHint: intent.mediaSearch?.artistName,
+                artistHint: fields.artistHint,
                 shuffle: shuffle
             )
         }
 
         if let rawIdentifier {
             AppLogger.info("SIRI_APP: InAppPlayMediaIntentHandler - using raw identifier fallback")
-            let kind = mediaKindFrom(intent: intent, fallbackQuery: nil)
+            let kind = fields.primaryKind()
             return SiriPlaybackRequestPayload(
                 kind: kind,
                 entityID: rawIdentifier,
                 sourceCompositeKey: nil,
-                displayName: intent.mediaItems?.first?.title ?? intent.mediaContainer?.title ?? rawIdentifier,
-                artistHint: intent.mediaSearch?.artistName,
+                displayName: fields.queryText ?? rawIdentifier,
+                artistHint: fields.artistHint,
                 shuffle: shuffle
             )
         }
 
         return nil
-    }
-
-    private func normalizedIntentIdentifier(from intent: INPlayMediaIntent) -> String? {
-        let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier
-        guard let identifier else { return nil }
-        let trimmed = identifier.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func queryText(from intent: INPlayMediaIntent) -> String? {
-        if let explicit = intent.mediaItems?.first?.title, !explicit.isEmpty {
-            return explicit
-        }
-        if let containerTitle = intent.mediaContainer?.title, !containerTitle.isEmpty {
-            return containerTitle
-        }
-        if let mediaSearch = intent.mediaSearch {
-            if let searched = mediaSearch.mediaName, !searched.isEmpty {
-                return searched
-            }
-            if let artistName = mediaSearch.artistName, !artistName.isEmpty {
-                return artistName
-            }
-            if let albumName = mediaSearch.albumName, !albumName.isEmpty {
-                return albumName
-            }
-            if let genreName = mediaSearch.genreNames?.first, !genreName.isEmpty {
-                return genreName
-            }
-            if let moodName = mediaSearch.moodNames?.first, !moodName.isEmpty {
-                return moodName
-            }
-            if let mediaIdentifier = mediaSearch.mediaIdentifier, !mediaIdentifier.isEmpty {
-                return mediaIdentifier
-            }
-        }
-        return nil
-    }
-
-    private func mediaKindFrom(intent: INPlayMediaIntent, fallbackQuery: String?) -> SiriMediaKind {
-        let mediaType = intent.mediaSearch?.mediaType
-            ?? intent.mediaContainer?.type
-            ?? intent.mediaItems?.first?.type
-            ?? .unknown
-
-        switch mediaType {
-        case .song: return .track
-        case .album: return .album
-        case .artist: return .artist
-        case .playlist: return .playlist
-        default:
-            let hasMediaName = intent.mediaSearch?.mediaName.map { !$0.isEmpty } ?? false
-            if let artistName = intent.mediaSearch?.artistName, !artistName.isEmpty, !hasMediaName { return .artist }
-            if let albumName = intent.mediaSearch?.albumName, !albumName.isEmpty, !hasMediaName { return .album }
-            if intent.mediaContainer?.type == .playlist { return .playlist }
-            if let inferred = inferredSiriMediaKind(from: fallbackQuery) { return inferred }
-            return .track
-        }
-    }
-
-    private func normalizedSiriQuery(_ value: String) -> String {
-        SiriPhraseNormalizer.normalized(value)
-    }
-
-    private func inferredSiriMediaKind(from query: String?) -> SiriMediaKind? {
-        guard let query else { return nil }
-        return SiriMediaIndexResolver.kindInferred(from: query)
     }
 }
 #endif

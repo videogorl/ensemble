@@ -4,15 +4,45 @@ import Intents
 import OSLog
 
 typealias RankedItem = SiriMediaIndexResolver.RankedItem
+typealias SiriPayloadIdentifier = SiriPlaybackRequestPayload
 
-struct SiriPayloadIdentifier: Codable {
-    let schemaVersion: Int
-    let kind: SiriMediaKind
-    let entityID: String
-    let sourceCompositeKey: String?
-    let displayName: String?
-    let artistHint: String?
-    var shuffle: Bool? = nil
+extension INPlayMediaIntent {
+    var ensembleSiriPlaybackFields: SiriPlaybackIntentFields {
+        let search = mediaSearch
+        return SiriPlaybackIntentFields(
+            mediaItemTitle: mediaItems?.first?.title,
+            mediaItemIdentifier: mediaItems?.first?.identifier,
+            mediaItemKind: mediaItems?.first?.type.ensembleSiriKindHint ?? .unknown,
+            mediaContainerTitle: mediaContainer?.title,
+            mediaContainerIdentifier: mediaContainer?.identifier,
+            mediaContainerKind: mediaContainer?.type.ensembleSiriKindHint ?? .unknown,
+            searchMediaName: search?.mediaName,
+            searchArtistName: search?.artistName,
+            searchAlbumName: search?.albumName,
+            searchGenreName: search?.genreNames?.first,
+            searchMoodName: search?.moodNames?.first,
+            searchMediaIdentifier: search?.mediaIdentifier,
+            searchKind: search?.mediaType.ensembleSiriKindHint ?? .unknown,
+            playShuffled: playShuffled
+        )
+    }
+}
+
+extension INMediaItemType {
+    var ensembleSiriKindHint: SiriPlaybackIntentKindHint {
+        switch self {
+        case .song:
+            return .track
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        default:
+            return .unknown
+        }
+    }
 }
 
 struct SiriPendingPlayMediaContext: Codable {

@@ -413,50 +413,37 @@ struct EnsembleApp: App {
 
     #if os(iOS)
     private func extractPayload(from intent: INPlayMediaIntent) -> SiriPlaybackRequestPayload? {
-        let shuffle = intent.playShuffled
+        let fields = intent.ensembleSiriPlaybackFields
+        let shuffle = fields.playShuffled
 
         // Try to decode from identifier first
-        if let identifier = intent.mediaItems?.first?.identifier ?? intent.mediaContainer?.identifier,
+        if let identifier = fields.normalizedIdentifier,
            let data = Data(base64Encoded: identifier),
            var payload = try? SiriPlaybackActivityCodec.decode(from: data) {
             // Prefer the live forwarded intent when iOS preserves an explicit shuffle value.
             if let shuffle, payload.shuffle != shuffle {
-                payload = SiriPlaybackRequestPayload(
-                    kind: payload.kind,
-                    entityID: payload.entityID,
-                    sourceCompositeKey: payload.sourceCompositeKey,
-                    displayName: payload.displayName,
-                    artistHint: payload.artistHint,
-                    shuffle: shuffle
-                )
+                payload = payload.updatingShuffle(shuffle)
             }
             return payload
         }
 
         // Fallback to query
-        guard let query = intent.mediaItems?.first?.title
-                ?? intent.mediaContainer?.title
-                ?? intent.mediaSearch?.mediaName
-                ?? intent.mediaSearch?.mediaIdentifier,
-              !query.isEmpty else {
+        guard let query = fields.queryText else {
             return nil
         }
 
-        let mediaType = intent.mediaSearch?.mediaType
-            ?? intent.mediaContainer?.type
-            ?? intent.mediaItems?.first?.type
-            ?? .unknown
-
-        let kind: SiriMediaKind
-        switch mediaType {
-        case .song: kind = .track
-        case .album: kind = .album
-        case .artist: kind = .artist
-        case .playlist: kind = .playlist
-        default: kind = SiriMediaIndexResolver.kindInferred(from: query) ?? .track
+        let sanitizedQuery = SiriPhraseNormalizer.normalized(query)
+        guard !sanitizedQuery.isEmpty else {
+            return nil
         }
 
-        return SiriPlaybackRequestPayload(kind: kind, entityID: query, displayName: query, shuffle: shuffle)
+        return SiriPlaybackRequestPayload(
+            kind: fields.primaryKind(fallbackQuery: query),
+            entityID: sanitizedQuery,
+            displayName: sanitizedQuery,
+            artistHint: fields.artistHint,
+            shuffle: shuffle
+        )
     }
     #endif
 

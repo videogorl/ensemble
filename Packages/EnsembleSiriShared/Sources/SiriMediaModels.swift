@@ -247,6 +247,151 @@ public struct SiriPlaybackRequestPayload: Codable, Sendable, Equatable {
         self.artistHint = artistHint
         self.shuffle = shuffle
     }
+
+    public func updatingShuffle(_ shuffle: Bool?) -> SiriPlaybackRequestPayload {
+        SiriPlaybackRequestPayload(
+            schemaVersion: schemaVersion,
+            kind: kind,
+            entityID: entityID,
+            sourceCompositeKey: sourceCompositeKey,
+            displayName: displayName,
+            artistHint: artistHint,
+            shuffle: shuffle
+        )
+    }
+}
+
+/// Framework-neutral media type hints extracted from Siri/App Intent requests.
+public enum SiriPlaybackIntentKindHint: Sendable, Equatable {
+    case track
+    case album
+    case artist
+    case playlist
+    case unknown
+
+    public var mediaKind: SiriMediaKind? {
+        switch self {
+        case .track:
+            return .track
+        case .album:
+            return .album
+        case .artist:
+            return .artist
+        case .playlist:
+            return .playlist
+        case .unknown:
+            return nil
+        }
+    }
+
+    public var requestedKinds: Set<SiriMediaKind>? {
+        mediaKind.map { [$0] }
+    }
+}
+
+/// Pure Siri playback fields shared by the app target and Siri extension.
+public struct SiriPlaybackIntentFields: Sendable, Equatable {
+    public let mediaItemTitle: String?
+    public let mediaItemIdentifier: String?
+    public let mediaItemKind: SiriPlaybackIntentKindHint
+    public let mediaContainerTitle: String?
+    public let mediaContainerIdentifier: String?
+    public let mediaContainerKind: SiriPlaybackIntentKindHint
+    public let searchMediaName: String?
+    public let searchArtistName: String?
+    public let searchAlbumName: String?
+    public let searchGenreName: String?
+    public let searchMoodName: String?
+    public let searchMediaIdentifier: String?
+    public let searchKind: SiriPlaybackIntentKindHint
+    public let playShuffled: Bool?
+
+    public init(
+        mediaItemTitle: String? = nil,
+        mediaItemIdentifier: String? = nil,
+        mediaItemKind: SiriPlaybackIntentKindHint = .unknown,
+        mediaContainerTitle: String? = nil,
+        mediaContainerIdentifier: String? = nil,
+        mediaContainerKind: SiriPlaybackIntentKindHint = .unknown,
+        searchMediaName: String? = nil,
+        searchArtistName: String? = nil,
+        searchAlbumName: String? = nil,
+        searchGenreName: String? = nil,
+        searchMoodName: String? = nil,
+        searchMediaIdentifier: String? = nil,
+        searchKind: SiriPlaybackIntentKindHint = .unknown,
+        playShuffled: Bool? = nil
+    ) {
+        self.mediaItemTitle = mediaItemTitle
+        self.mediaItemIdentifier = mediaItemIdentifier
+        self.mediaItemKind = mediaItemKind
+        self.mediaContainerTitle = mediaContainerTitle
+        self.mediaContainerIdentifier = mediaContainerIdentifier
+        self.mediaContainerKind = mediaContainerKind
+        self.searchMediaName = searchMediaName
+        self.searchArtistName = searchArtistName
+        self.searchAlbumName = searchAlbumName
+        self.searchGenreName = searchGenreName
+        self.searchMoodName = searchMoodName
+        self.searchMediaIdentifier = searchMediaIdentifier
+        self.searchKind = searchKind
+        self.playShuffled = playShuffled
+    }
+
+    public var normalizedIdentifier: String? {
+        Self.firstNonEmpty(mediaItemIdentifier, mediaContainerIdentifier)
+    }
+
+    public var queryText: String? {
+        Self.firstNonEmpty(
+            mediaItemTitle,
+            mediaContainerTitle,
+            searchMediaName,
+            searchArtistName,
+            searchAlbumName,
+            searchGenreName,
+            searchMoodName,
+            searchMediaIdentifier
+        )
+    }
+
+    public var artistHint: String? {
+        Self.firstNonEmpty(searchArtistName)
+    }
+
+    public func primaryKind(fallbackQuery: String? = nil) -> SiriMediaKind {
+        if let kind = searchKind.mediaKind
+            ?? mediaContainerKind.mediaKind
+            ?? mediaItemKind.mediaKind {
+            return kind
+        }
+
+        let hasMediaName = Self.firstNonEmpty(searchMediaName) != nil
+        if artistHint != nil, !hasMediaName {
+            return .artist
+        }
+        if Self.firstNonEmpty(searchAlbumName) != nil, !hasMediaName {
+            return .album
+        }
+
+        if let query = Self.firstNonEmpty(fallbackQuery, queryText),
+           let inferred = SiriMediaIndexResolver.kindInferred(from: query) {
+            return inferred
+        }
+
+        return .track
+    }
+
+    private static func firstNonEmpty(_ values: String?...) -> String? {
+        for value in values {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                continue
+            }
+            return trimmed
+        }
+        return nil
+    }
 }
 
 /// Shared encoding/decoding helpers for `NSUserActivity` playback handoff.
