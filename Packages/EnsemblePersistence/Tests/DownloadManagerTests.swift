@@ -1,3 +1,4 @@
+import CoreData
 import XCTest
 @testable import EnsemblePersistence
 
@@ -284,6 +285,84 @@ final class DownloadManagerTests: XCTestCase {
         let fetchedTrack = try await libraryRepository.fetchTrack(ratingKey: "300")
         let track = try XCTUnwrap(fetchedTrack)
         XCTAssertNil(track.localFilePath)
+    }
+
+    func testFetchDownloadsHealsMetadataFromDirectorySnapshot() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let suffix = UUID().uuidString
+        let validFilename = "heal-valid-\(suffix).mp3"
+        let missingFilename = "heal-missing-\(suffix).mp3"
+        let validURL = DownloadManager.downloadsDirectory.appendingPathComponent(validFilename)
+        defer { try? FileManager.default.removeItem(at: validURL) }
+
+        try Data([0xFF, 0xFB, 0x90, 0x00]).write(to: validURL)
+        try await seedTrack(ratingKey: "400", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "401", sourceCompositeKey: sourceA, repository: libraryRepository)
+        let validDownload = try await downloadManager.createDownload(
+            forTrackRatingKey: "400",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        let missingDownload = try await downloadManager.createDownload(
+            forTrackRatingKey: "401",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+
+        try await downloadManager.completeDownload(
+            validDownload.objectID,
+            filePath: validURL.path,
+            fileSize: 0,
+            quality: "high"
+        )
+        try await downloadManager.completeDownload(
+            missingDownload.objectID,
+            filePath: missingFilename,
+            fileSize: 1,
+            quality: "high"
+        )
+        try await updateDownloads(in: stack) { context in
+            let valid = try XCTUnwrap(context.existingObject(with: validDownload.objectID) as? CDDownload)
+            valid.filePath = validURL.path
+            valid.fileSize = 0
+            valid.track?.localFilePath = nil
+        }
+
+        _ = try await downloadManager.fetchDownloads()
+        let fetchedValid = try await downloadManager.fetchDownload(forTrackRatingKey: "400", sourceCompositeKey: sourceA)
+        let fetchedMissing = try await downloadManager.fetchDownload(forTrackRatingKey: "401", sourceCompositeKey: sourceA)
+        let healedValid = try XCTUnwrap(fetchedValid)
+        let healedMissing = try XCTUnwrap(fetchedMissing)
+
+        XCTAssertEqual(healedValid.downloadStatus, .completed)
+        XCTAssertEqual(healedValid.filePath, validFilename)
+        XCTAssertEqual(healedValid.fileSize, 4)
+        XCTAssertEqual(healedValid.track?.localFilePath, validFilename)
+        XCTAssertEqual(healedMissing.downloadStatus, .failed)
+        XCTAssertEqual(healedMissing.progress, 0)
+        XCTAssertNil(healedMissing.track?.localFilePath)
+    }
+
+    private func updateDownloads(
+        in stack: CoreDataStack,
+        _ update: @escaping (NSManagedObjectContext) throws -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = stack.viewContext
+            context.perform {
+                do {
+                    try update(context)
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private func seedTrack(

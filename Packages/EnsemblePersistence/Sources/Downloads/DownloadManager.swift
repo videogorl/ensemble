@@ -119,6 +119,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     var missingFileCount = 0
                     var invalidFileCount = 0
                     var recoveredFailedCount = 0
+                    let existingDownloadFilenames = Self.existingDownloadFilenames()
 
                     for download in downloads {
                         guard let storedPath = download.filePath, !storedPath.isEmpty else {
@@ -133,7 +134,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         }
 
                         let absolutePath = Self.absolutePath(forFilename: filename)
-                        let fileExists = FileManager.default.fileExists(atPath: absolutePath)
+                        let fileExists = existingDownloadFilenames.contains(filename)
                         let isCompleted = download.downloadStatus == .completed
                         let isFailed = download.downloadStatus == .failed
 
@@ -856,6 +857,15 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         for url in contents {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    private static func existingDownloadFilenames() -> Set<String> {
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: downloadsDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )) ?? []
+        return Set(contents.map(\.lastPathComponent))
     }
 
     private static func isClearlyInvalidDownloadedPayload(atPath path: String) -> Bool {
