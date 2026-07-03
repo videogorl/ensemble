@@ -347,10 +347,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             nil
         }
 
-        func upsertArtist(ratingKey _: String, key _: String, name _: String, summary _: String?, thumbPath _: String?, artPath _: String?, dateAdded _: Date?, dateModified _: Date?, sourceCompositeKey _: String?) async throws -> CDArtist {
-            throw MockError.unimplemented
-        }
-
         func fetchAlbums() async throws -> [CDAlbum] {
             []
         }
@@ -361,10 +357,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func fetchAlbums(forArtist _: String) async throws -> [CDAlbum] {
             []
-        }
-
-        func upsertAlbum(ratingKey _: String, key _: String, title _: String, artistName _: String?, albumArtist _: String?, artistRatingKey _: String?, summary _: String?, thumbPath _: String?, artPath _: String?, year _: Int?, trackCount _: Int?, dateAdded _: Date?, dateModified _: Date?, rating _: Int?, genreNames _: String?, sourceCompositeKey _: String?) async throws -> CDAlbum {
-            throw MockError.unimplemented
         }
 
         func fetchTracks() async throws -> [CDTrack] {

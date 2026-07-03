@@ -14,11 +14,9 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         func refreshContext() async {}
         func fetchArtists() async throws -> [CDArtist] { [] }
         func fetchArtist(ratingKey: String) async throws -> CDArtist? { nil }
-        func upsertArtist(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?, sourceCompositeKey: String?) async throws -> CDArtist { fatalError() }
         func fetchAlbums() async throws -> [CDAlbum] { [] }
         func fetchAlbum(ratingKey: String) async throws -> CDAlbum? { nil }
         func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum] { [] }
-        func upsertAlbum(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String?, sourceCompositeKey: String?) async throws -> CDAlbum { fatalError() }
         func fetchTracks() async throws -> [CDTrack] { [] }
         func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack] { tracksBySource[sourceCompositeKey] ?? [] }
         func fetchSiriEligibleTracks() async throws -> [CDTrack] { [] }

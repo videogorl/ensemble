@@ -173,17 +173,6 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist?
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
-    func upsertArtist(
-        ratingKey: String,
-        key: String,
-        name: String,
-        summary: String?,
-        thumbPath: String?,
-        artPath: String?,
-        dateAdded: Date?,
-        dateModified: Date?,
-        sourceCompositeKey: String?
-    ) async throws -> CDArtist
 
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
@@ -193,24 +182,6 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws
     func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum]
     func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum]
-    func upsertAlbum(
-        ratingKey: String,
-        key: String,
-        title: String,
-        artistName: String?,
-        albumArtist: String?,
-        artistRatingKey: String?,
-        summary: String?,
-        thumbPath: String?,
-        artPath: String?,
-        year: Int?,
-        trackCount: Int?,
-        dateAdded: Date?,
-        dateModified: Date?,
-        rating: Int?,
-        genreNames: String?,
-        sourceCompositeKey: String?
-    ) async throws -> CDAlbum
 
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
