@@ -83,66 +83,15 @@ extension PlexAPIClient {
         )
 
         try await callTranscodeDecision(queryItems: queryItems)
-
-        let url = try buildTranscodeURL(
-            path: "/music/:/transcode/universal/start.mp3",
-            queryItems: queryItems
+        return try await downloadUniversalStreamFile(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: resolvedSessionId,
+            queryItems: queryItems,
+            logOriginalContentType: true,
+            unknownContentTypeContext: "original quality stream",
+            successLogPrefix: "Downloaded universal stream to file:"
         )
-
-        EnsembleLogger.debug("🔗 Downloading universal stream for ratingKey \(ratingKey) [session: \(resolvedSessionId.prefix(8))]")
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        addPlexHeaders(to: &request, token: serverConnection.token)
-        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
-
-        let (tempURL, response) = try await session.download(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            EnsembleLogger.debug("⚠️ Universal stream download returned \(statusCode)")
-            throw PlexAPIError.httpError(statusCode: statusCode)
-        }
-
-        let cacheDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
-        try FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-
-        let fileExtension: String
-        if quality != .original {
-            fileExtension = "mp3"
-        } else {
-            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
-            switch contentType.lowercased() {
-            case let ct where ct.contains("flac"):
-                fileExtension = "flac"
-            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
-                fileExtension = "m4a"
-            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
-                fileExtension = "mp3"
-            case let ct where ct.contains("wav"):
-                fileExtension = "wav"
-            case let ct where ct.contains("aac"):
-                fileExtension = "aac"
-            default:
-                fileExtension = "audio"
-                EnsembleLogger.debug("⚠️ Unknown Content-Type for original quality stream: '\(contentType)'")
-            }
-            EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
-        }
-        let destURL = cacheDir.appendingPathComponent("\(ratingKey)_\(resolvedSessionId).\(fileExtension)")
-
-        if FileManager.default.fileExists(atPath: destURL.path) {
-            try? FileManager.default.removeItem(at: destURL)
-        }
-        try FileManager.default.moveItem(at: tempURL, to: destURL)
-
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
-        EnsembleLogger.debug("Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
-
-        return destURL
     }
 
     /// Download universal stream with a pre-warmed session.
@@ -152,6 +101,26 @@ extension PlexAPIClient {
         sessionId: String,
         queryItems: [URLQueryItem],
         metadataDurationSeconds: Double?
+    ) async throws -> URL {
+        try await downloadUniversalStreamFile(
+            ratingKey: ratingKey,
+            quality: quality,
+            sessionId: sessionId,
+            queryItems: queryItems,
+            logOriginalContentType: false,
+            unknownContentTypeContext: "stream",
+            successLogPrefix: "✅ Downloaded universal stream to file:"
+        )
+    }
+
+    private func downloadUniversalStreamFile(
+        ratingKey: String,
+        quality: StreamingQuality,
+        sessionId: String,
+        queryItems: [URLQueryItem],
+        logOriginalContentType: Bool,
+        unknownContentTypeContext: String,
+        successLogPrefix: String
     ) async throws -> URL {
         let url = try buildTranscodeURL(
             path: "/music/:/transcode/universal/start.mp3",
@@ -184,20 +153,15 @@ extension PlexAPIClient {
             fileExtension = "mp3"
         } else {
             let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
-            switch contentType.lowercased() {
-            case let ct where ct.contains("flac"):
-                fileExtension = "flac"
-            case let ct where ct.contains("mp4"), let ct where ct.contains("m4a"):
-                fileExtension = "m4a"
-            case let ct where ct.contains("mpeg"), let ct where ct.contains("mp3"):
-                fileExtension = "mp3"
-            case let ct where ct.contains("wav"):
-                fileExtension = "wav"
-            case let ct where ct.contains("aac"):
-                fileExtension = "aac"
-            default:
-                fileExtension = "audio"
-                EnsembleLogger.debug("⚠️ Unknown Content-Type for stream: '\(contentType)'")
+            fileExtension = Self.universalStreamFileExtension(
+                quality: quality,
+                contentType: contentType
+            )
+            if fileExtension == "audio" {
+                EnsembleLogger.debug("⚠️ Unknown Content-Type for \(unknownContentTypeContext): '\(contentType)'")
+            }
+            if logOriginalContentType {
+                EnsembleLogger.debug("📦 Original quality Content-Type: '\(contentType)' → .\(fileExtension)")
             }
         }
 
@@ -208,9 +172,29 @@ extension PlexAPIClient {
         try FileManager.default.moveItem(at: tempURL, to: destURL)
 
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: destURL.path)[.size] as? Int) ?? 0
-        EnsembleLogger.debug("✅ Downloaded universal stream to file: \(destURL.lastPathComponent) (\(fileSize) bytes)")
+        EnsembleLogger.debug("\(successLogPrefix) \(destURL.lastPathComponent) (\(fileSize) bytes)")
 
         return destURL
+    }
+
+    static func universalStreamFileExtension(quality: StreamingQuality, contentType: String) -> String {
+        guard quality == .original else { return "mp3" }
+
+        let normalizedContentType = contentType.lowercased()
+        switch normalizedContentType {
+        case let contentType where contentType.contains("flac"):
+            return "flac"
+        case let contentType where contentType.contains("mp4") || contentType.contains("m4a"):
+            return "m4a"
+        case let contentType where contentType.contains("mpeg") || contentType.contains("mp3"):
+            return "mp3"
+        case let contentType where contentType.contains("wav"):
+            return "wav"
+        case let contentType where contentType.contains("aac"):
+            return "aac"
+        default:
+            return "audio"
+        }
     }
 
     /// Build a universal download URL for offline use, skipping the decision endpoint.

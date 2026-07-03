@@ -62,6 +62,40 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(queryItems.first(where: { $0.name == "offset" })?.value, "184")
     }
 
+    func testUniversalStreamFileExtensionUsesContentTypeForOriginalQuality() {
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/flac"),
+            "flac"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/mp4"),
+            "m4a"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/mpeg"),
+            "mp3"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/wav"),
+            "wav"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "audio/aac"),
+            "aac"
+        )
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .original, contentType: "application/octet-stream"),
+            "audio"
+        )
+    }
+
+    func testUniversalStreamFileExtensionUsesMP3ForTranscodedQuality() {
+        XCTAssertEqual(
+            PlexAPIClient.universalStreamFileExtension(quality: .low, contentType: "audio/flac"),
+            "mp3"
+        )
+    }
+
     func testPlexModelsDecoding() throws {
         // Test PlexTrack decoding
         let trackJSON = """
