@@ -113,12 +113,10 @@ public struct SongsView: View {
         .if(!isStageFlowActive) { view in
             view.toolbarMaterialBackground()
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
             updateNativeTrackSections(from: snapshot.sections)
             guard isStageFlowActive else { return }

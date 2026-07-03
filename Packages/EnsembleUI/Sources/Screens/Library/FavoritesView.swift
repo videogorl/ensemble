@@ -81,12 +81,10 @@ public struct FavoritesView: View {
         .onReceive(DependencyContainer.shared.accountManager.$isAwaitingCloudSources) { awaiting in
             if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
         }
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-            if gen != availabilityGeneration { availabilityGeneration = gen }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
         .onReceive(viewModel.$isLoading) { isLoading in
             if !isLoading && !hasCompletedInitialLoad {
                 hasCompletedInitialLoad = true

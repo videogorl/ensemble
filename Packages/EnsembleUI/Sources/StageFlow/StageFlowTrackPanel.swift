@@ -128,28 +128,15 @@ struct StageFlowTrackPanel: View {
         .padding(.leading, EnsembleDesign.Spacing.md)
         .padding(.trailing, EnsembleDesign.Spacing.md)
         .padding(.vertical, EnsembleDesign.Spacing.sm)
-        .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-            if keys != activeDownloadTrackIdentities {
-                activeDownloadTrackIdentities = keys
-            }
-        }
-        .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { generation in
-            if generation != availabilityGeneration {
-                availabilityGeneration = generation
-            }
-        }
-        .onReceive(nowPlayingVM.$currentTrack) { track in
-            let trackID = track?.playbackIdentity
-            if trackID != currentTrackId {
-                currentTrackId = trackID
-            }
-        }
-        .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-            let updatedTitle = target?.title
-            if updatedTitle != recentPlaylistTitle {
-                recentPlaylistTitle = updatedTitle
-            }
-        }
+        .trackListRuntimeObservation(
+            activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+            availabilityGeneration: $availabilityGeneration
+        )
+        .nowPlayingTrackListObservation(
+            nowPlayingVM: nowPlayingVM,
+            currentTrackId: $currentTrackId,
+            recentPlaylistTitle: $recentPlaylistTitle
+        )
         .task(id: contentType) {
             await loadTracks()
         }

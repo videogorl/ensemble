@@ -85,20 +85,15 @@ public struct MoodTracksView: View {
             .task {
                 await loadTracks()
             }
-            .onReceive(DependencyContainer.shared.offlineDownloadService.$activeDownloadTrackIdentities) { keys in
-                if keys != activeDownloadTrackIdentities { activeDownloadTrackIdentities = keys }
-            }
-            .onReceive(DependencyContainer.shared.trackAvailabilityResolver.$availabilityGeneration) { gen in
-                if gen != availabilityGeneration { availabilityGeneration = gen }
-            }
-            .onReceive(nowPlayingVM.$currentTrack) { track in
-                let id = track?.playbackIdentity
-                if id != currentTrackId { currentTrackId = id }
-            }
-            .onReceive(nowPlayingVM.$lastPlaylistTarget) { target in
-                let title = target?.title
-                if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
-            }
+            .trackListRuntimeObservation(
+                activeDownloadTrackIdentities: $activeDownloadTrackIdentities,
+                availabilityGeneration: $availabilityGeneration
+            )
+            .nowPlayingTrackListObservation(
+                nowPlayingVM: nowPlayingVM,
+                currentTrackId: $currentTrackId,
+                recentPlaylistTitle: $nvmRecentPlaylistTitle
+            )
             .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
             .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
     }
