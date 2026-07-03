@@ -975,7 +975,6 @@ extension Scene {
 
 #if os(iOS)
 /// Perform background refresh - lightweight hub sync
-@available(iOS 13.0, *)
 private func performBackgroundRefresh() async {
     AppLogger.debug("🔄 Background refresh triggered")
 

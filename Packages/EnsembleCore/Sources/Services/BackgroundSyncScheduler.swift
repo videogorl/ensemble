@@ -6,7 +6,6 @@ import UIKit
 
 #if os(iOS)
 /// Manages iOS background app refresh for syncing
-@available(iOS 13.0, *)
 public final class BackgroundSyncScheduler {
     public static let shared = BackgroundSyncScheduler()
     
