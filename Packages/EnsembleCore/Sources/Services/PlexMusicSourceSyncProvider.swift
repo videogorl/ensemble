@@ -67,21 +67,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
 
-        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
-        var artistMap: [String: PlexArtist] = [:]
-        for a in newArtists { artistMap[a.ratingKey] = a }
-        for a in updatedArtists { artistMap[a.ratingKey] = a }
-        let artistsToSync = artistMap.values.filter { artist in
-            guard let serverUpdated = artist.updatedAt else {
-                // Server has nil updatedAt — only sync if item doesn't exist locally
-                return existingArtistTimestamps[artist.ratingKey] == nil
-            }
-            guard let localDate = existingArtistTimestamps[artist.ratingKey] else { return true }
-            // Compare as integer seconds to avoid sub-second precision mismatches
-            return serverUpdated != Int(localDate.timeIntervalSince1970)
-        }
+        let artistChanges = Self.deduplicatedChangedItems(
+            added: newArtists,
+            updated: updatedArtists,
+            existingTimestamps: existingArtistTimestamps,
+            ratingKey: { $0.ratingKey },
+            updatedAt: { $0.updatedAt }
+        )
+        let artistsToSync = artistChanges.changedItems
 
-        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistMap.count) from server, \(artistsToSync.count) actually changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistChanges.uniqueCount) from server, \(artistsToSync.count) actually changed")
         phaseStart = CFAbsoluteTimeGetCurrent()
         for artist in artistsToSync {
             _ = try await repository.upsertArtist(
@@ -106,21 +101,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
 
-        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
-        var albumMap: [String: PlexAlbum] = [:]
-        for a in newAlbums { albumMap[a.ratingKey] = a }
-        for a in updatedAlbums { albumMap[a.ratingKey] = a }
-        let albumsToSync = albumMap.values.filter { album in
-            guard let serverUpdated = album.updatedAt else {
-                // Server has nil updatedAt — only sync if item doesn't exist locally
-                return existingAlbumTimestamps[album.ratingKey] == nil
-            }
-            guard let localDate = existingAlbumTimestamps[album.ratingKey] else { return true }
-            // Compare as integer seconds to avoid sub-second precision mismatches
-            return serverUpdated != Int(localDate.timeIntervalSince1970)
-        }
+        let albumChanges = Self.deduplicatedChangedItems(
+            added: newAlbums,
+            updated: updatedAlbums,
+            existingTimestamps: existingAlbumTimestamps,
+            ratingKey: { $0.ratingKey },
+            updatedAt: { $0.updatedAt }
+        )
+        let albumsToSync = albumChanges.changedItems
 
-        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumMap.count) from server, \(albumsToSync.count) actually changed")
+        EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumChanges.uniqueCount) from server, \(albumsToSync.count) actually changed")
         phaseStart = CFAbsoluteTimeGetCurrent()
         // Build album genre lookup for incremental track upserts
         var incrementalAlbumGenres: [String: String] = [:]
@@ -164,25 +154,21 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // other clients are caught by the next full sync (app launch or 1h periodic).
         // On-device rating changes go through MutationCoordinator immediately.
 
-        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
-        var trackMap: [String: PlexTrack] = [:]
-        for t in newTracks { trackMap[t.ratingKey] = t }
-        for t in updatedTracks { trackMap[t.ratingKey] = t }
-        let tracksToSync = trackMap.values.filter { track in
-            // Check if rating changed (Plex updates lastRatedAt, not updatedAt, for rating changes)
-            let serverRating = Int16(track.userRating.map { Int($0) } ?? 0)
-            if let localRating = existingTrackRatings[track.ratingKey], localRating != serverRating {
-                return true
+        let trackChanges = Self.deduplicatedChangedItems(
+            added: newTracks,
+            updated: updatedTracks,
+            existingTimestamps: existingTrackTimestamps,
+            ratingKey: { $0.ratingKey },
+            updatedAt: { $0.updatedAt },
+            hasAdditionalChange: { track in
+                let serverRating = Int16(track.userRating.map { Int($0) } ?? 0)
+                guard let localRating = existingTrackRatings[track.ratingKey] else {
+                    return false
+                }
+                return localRating != serverRating
             }
-
-            guard let serverUpdated = track.updatedAt else {
-                // Server has nil updatedAt — only sync if item doesn't exist locally
-                return existingTrackTimestamps[track.ratingKey] == nil
-            }
-            guard let localDate = existingTrackTimestamps[track.ratingKey] else { return true }
-            // Compare as integer seconds to avoid sub-second precision mismatches
-            return serverUpdated != Int(localDate.timeIntervalSince1970)
-        }
+        )
+        let tracksToSync = trackChanges.changedItems
 
         // Diagnostic: break down WHY items in tracksToSync were flagged
         let tracksNew = tracksToSync.filter { existingTrackTimestamps[$0.ratingKey] == nil }.count
@@ -191,7 +177,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             return localRating != Int16(track.userRating.map { Int($0) } ?? 0)
         }.count
         let tracksTimestampChanged = tracksToSync.count - tracksNew - tracksRatingChanged
-        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackMap.count) from server, \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
+        EnsembleLogger.debug("⏱️ Incremental sync: tracks fetch \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(trackChanges.uniqueCount) from server, \(tracksToSync.count) to sync (new=\(tracksNew), ratingChanged=\(tracksRatingChanged), timestampChanged=\(tracksTimestampChanged))")
         phaseStart = CFAbsoluteTimeGetCurrent()
         let trackInputs = tracksToSync.map { track in
             let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
@@ -296,6 +282,50 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Existing item queries use addedAt>= and updatedAt>=, so only skip when the
         // whole section is older than that exact query window.
         return sectionUpdatedAt < Int(queryTimestamp)
+    }
+
+    struct IncrementalChangeSet<Item> {
+        let uniqueItems: [Item]
+        let changedItems: [Item]
+
+        var uniqueCount: Int {
+            uniqueItems.count
+        }
+    }
+
+    static func deduplicatedChangedItems<Item>(
+        added: [Item],
+        updated: [Item],
+        existingTimestamps: [String: Date],
+        ratingKey: (Item) -> String,
+        updatedAt: (Item) -> Int?,
+        hasAdditionalChange: (Item) -> Bool = { _ in false }
+    ) -> IncrementalChangeSet<Item> {
+        var itemsByRatingKey: [String: Item] = [:]
+        for item in added {
+            itemsByRatingKey[ratingKey(item)] = item
+        }
+        for item in updated {
+            itemsByRatingKey[ratingKey(item)] = item
+        }
+
+        let uniqueItems = Array(itemsByRatingKey.values)
+        let changedItems = uniqueItems.filter { item in
+            if hasAdditionalChange(item) {
+                return true
+            }
+
+            let key = ratingKey(item)
+            guard let serverUpdated = updatedAt(item) else {
+                return existingTimestamps[key] == nil
+            }
+            guard let localDate = existingTimestamps[key] else {
+                return true
+            }
+            return serverUpdated != Int(localDate.timeIntervalSince1970)
+        }
+
+        return IncrementalChangeSet(uniqueItems: uniqueItems, changedItems: changedItems)
     }
     
     public func syncLibrary(
@@ -548,21 +578,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
         let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
 
-        // Deduplicate by ratingKey, then filter to items actually changed vs local copy
-        var playlistMap: [String: PlexPlaylist] = [:]
-        for playlist in newPlaylists { playlistMap[playlist.ratingKey] = playlist }
-        for playlist in updatedPlaylists { playlistMap[playlist.ratingKey] = playlist }
-        let changedPlaylists = playlistMap.values.filter { playlist in
-            guard let serverUpdated = playlist.updatedAt else {
-                // Server has nil updatedAt — only sync if item doesn't exist locally
-                return existingTimestamps[playlist.ratingKey] == nil
-            }
-            guard let localDate = existingTimestamps[playlist.ratingKey] else { return true }
-            // Compare as integer seconds to avoid sub-second precision mismatches
-            return serverUpdated != Int(localDate.timeIntervalSince1970)
-        }
+        let playlistChanges = Self.deduplicatedChangedItems(
+            added: newPlaylists,
+            updated: updatedPlaylists,
+            existingTimestamps: existingTimestamps,
+            ratingKey: { $0.ratingKey },
+            updatedAt: { $0.updatedAt }
+        )
+        let changedPlaylists = playlistChanges.changedItems
 
-        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(playlistMap.count) from server, \(changedPlaylists.count) actually changed")
+        EnsembleLogger.debug("⏱️ Incremental playlist fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(playlistChanges.uniqueCount) from server, \(changedPlaylists.count) actually changed")
 
         // Sync only changed playlists (only fetch tracks for changed ones)
         phaseStart = CFAbsoluteTimeGetCurrent()
