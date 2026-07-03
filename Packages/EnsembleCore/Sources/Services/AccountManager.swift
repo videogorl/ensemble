@@ -701,10 +701,6 @@ public final class AccountManager: ObservableObject {
         )
     }
 
-    public func sourceDisplaySubtitle(for sourceCompositeKey: String?) -> String? {
-        sourceLibraryContext(for: sourceCompositeKey)?.displaySubtitle
-    }
-
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
     /// Returns the server's friendly name, or nil if not found.
     public func serverName(for sourceCompositeKey: String) -> String? {
