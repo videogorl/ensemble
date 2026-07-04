@@ -183,7 +183,7 @@ public final class OfflineDownloadService: ObservableObject {
         dependencies: .init(
             fetchPendingDownloadCount: { [weak self] in
                 guard let self else { return 0 }
-                return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
+                return (try? await self.downloadManager.countPendingDownloads()) ?? 0
             },
             refreshActiveDownloadTrackIdentities: { [weak self] in
                 await self?.refreshActiveDownloadTrackIdentities()
@@ -263,7 +263,7 @@ public final class OfflineDownloadService: ObservableObject {
             refreshQueueStatus: { [weak self] in self?.refreshQueueStatusReason() },
             fetchPendingCount: { [weak self] in
                 guard let self else { return 0 }
-                return (try? await self.downloadManager.fetchPendingDownloads().count) ?? 0
+                return (try? await self.downloadManager.countPendingDownloads()) ?? 0
             },
             currentWorkMode: { [weak self] in self?.currentDownloadWorkMode ?? .foregroundIdle },
             queueWorkerCount: { [weak self] pendingCount, workMode in
@@ -623,7 +623,7 @@ public final class OfflineDownloadService: ObservableObject {
                 await refreshAllTargetProgresses()
                 startQueueIfNeeded()
 
-                let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+                let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
                 backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
                 notificationBridge.notifyDownloadsChangedImmediately()
             } else {
@@ -675,7 +675,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshAllTargetProgresses()
             startQueueIfNeeded()
 
-            let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+            let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
         } catch {
             EnsembleLogger.debug(
@@ -705,7 +705,7 @@ public final class OfflineDownloadService: ObservableObject {
             await refreshTargetSnapshots()
             startQueueIfNeeded()
 
-            let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+            let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
 
             notificationBridge.notifyDownloadsChangedImmediately()
@@ -893,7 +893,7 @@ public final class OfflineDownloadService: ObservableObject {
     public func handleAppDidEnterBackground() async {
         isAppInBackground = true
         allowsBackgroundContinuation = true
-        let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? 0
+        let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? 0
         let activeOrPendingCount = max(
             pendingCount,
             activeDownloadTrackIdentities.count,
@@ -971,7 +971,7 @@ public final class OfflineDownloadService: ObservableObject {
 
                 // Claim a single pending download (atomic, sets status to .downloading)
                 guard let nextDownload = try await downloadManager.fetchNextPendingDownload() else {
-                    let pendingCount = (try? await downloadManager.fetchPendingDownloads().count) ?? -1
+                    let pendingCount = (try? await downloadManager.countPendingDownloads()) ?? -1
                     EnsembleLogger.debug("📥 Worker exit: no pending download (pendingCount=\(pendingCount), didProcess=\(didProcess))")
                     return didProcess
                 }

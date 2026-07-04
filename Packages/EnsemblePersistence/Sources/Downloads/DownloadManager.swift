@@ -25,6 +25,7 @@ public enum DownloadError: Error, LocalizedError {
 public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloads() async throws -> [CDDownload]
     func fetchPendingDownloads() async throws -> [CDDownload]
+    func countPendingDownloads() async throws -> Int
     /// Atomically claim the next pending download by setting its status to `.downloading`.
     /// Returns nil when no pending downloads remain.
     func fetchNextPendingDownload() async throws -> CDDownload?
@@ -71,8 +72,12 @@ public protocol DownloadManagerProtocol: Sendable {
     func deleteAllDownloads() async throws
 }
 
-// Default quality=nil for callers that only update status
+// Convenience defaults for lightweight protocol conformers.
 public extension DownloadManagerProtocol {
+    func countPendingDownloads() async throws -> Int {
+        try await fetchPendingDownloads().count
+    }
+
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
         try await updateDownloadStatus(downloadId, status: status, quality: nil)
     }
@@ -212,6 +217,25 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 do {
                     let downloads = try context.fetch(request)
                     continuation.resume(returning: downloads)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countPendingDownloads() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "status == %@ OR status == %@",
+                    CDDownload.Status.pending.rawValue,
+                    CDDownload.Status.downloading.rawValue
+                )
+                do {
+                    continuation.resume(returning: try context.count(for: request))
                 } catch {
                     continuation.resume(throwing: error)
                 }

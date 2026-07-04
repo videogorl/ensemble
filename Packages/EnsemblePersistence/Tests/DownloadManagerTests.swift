@@ -186,6 +186,49 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(requeued.track?.localFilePath, "old-file.mp3")
     }
 
+    func testCountPendingDownloadsUsesActiveQueueStatuses() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+
+        for ratingKey in ["pending", "downloading", "completed", "failed"] {
+            try await seedTrack(ratingKey: ratingKey, sourceCompositeKey: sourceA, repository: libraryRepository)
+            _ = try await downloadManager.createDownload(
+                forTrackRatingKey: ratingKey,
+                sourceCompositeKey: sourceA,
+                quality: "high"
+            )
+        }
+
+        let fetchedDownloading = try await downloadManager.fetchDownload(
+            forTrackRatingKey: "downloading",
+            sourceCompositeKey: sourceA
+        )
+        let fetchedCompleted = try await downloadManager.fetchDownload(
+            forTrackRatingKey: "completed",
+            sourceCompositeKey: sourceA
+        )
+        let fetchedFailed = try await downloadManager.fetchDownload(
+            forTrackRatingKey: "failed",
+            sourceCompositeKey: sourceA
+        )
+        let downloading = try XCTUnwrap(fetchedDownloading)
+        let completed = try XCTUnwrap(fetchedCompleted)
+        let failed = try XCTUnwrap(fetchedFailed)
+
+        try await downloadManager.updateDownloadStatus(downloading.objectID, status: .downloading)
+        try await downloadManager.completeDownload(
+            completed.objectID,
+            filePath: "completed.mp3",
+            fileSize: 1,
+            quality: "high"
+        )
+        try await downloadManager.failDownload(failed.objectID, error: "nope")
+
+        let pendingCount = try await downloadManager.countPendingDownloads()
+        XCTAssertEqual(pendingCount, 2)
+    }
+
     func testCompleteDownloadRemovesReplacedFileAfterNewFileIsReady() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
