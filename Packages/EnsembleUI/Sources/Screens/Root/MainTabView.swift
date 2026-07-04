@@ -587,7 +587,6 @@ public struct SidebarView: View {
     @StateObject private var playlistsVM: PlaylistViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
-    private let pinManager = DependencyContainer.shared.pinManager
     private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     @Environment(\.dependencies) private var deps
     @Environment(\.isViewportNowPlayingPresented) private var isViewportNowPlayingPresented
