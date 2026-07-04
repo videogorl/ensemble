@@ -443,10 +443,10 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Determine which path and ratingKey to use.
         let actualPath: String?
         let actualRatingKey: String?
-        if path != nil && !path!.isEmpty {
+        if let path, !path.isEmpty {
             actualPath = path
             actualRatingKey = ratingKey
-        } else if fallbackPath != nil && !fallbackPath!.isEmpty {
+        } else if let fallbackPath, !fallbackPath.isEmpty {
             actualPath = fallbackPath
             actualRatingKey = fallbackRatingKey
         } else {
