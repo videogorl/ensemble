@@ -131,7 +131,7 @@ public final class PinnedViewModel: ObservableObject {
             .compactMap { $0.pin }
 
         // When merge is enabled, group adjacent playlist pins with the same title
-        let isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
+        let isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         if isMergeEnabled {
             resolved = mergePlaylistPins(resolved)
         }

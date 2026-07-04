@@ -32,7 +32,7 @@ public final class PlaylistViewModel: ObservableObject {
     /// Whether cross-server playlist merging is enabled (persisted via SettingsManager)
     @Published public var isMergeEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(isMergeEnabled, forKey: "playlistMergeEnabled")
+            UserDefaults.standard.set(isMergeEnabled, forKey: SettingsManager.playlistMergeEnabledKey)
         }
     }
     /// Merge-aware playlist list for the UI — groups same-named playlists when merge is on
@@ -68,7 +68,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
         self.accountManager = accountManager
-        self.isMergeEnabled = UserDefaults.standard.bool(forKey: "playlistMergeEnabled")
+        self.isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 

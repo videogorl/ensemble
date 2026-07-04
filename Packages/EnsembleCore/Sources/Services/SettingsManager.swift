@@ -250,6 +250,16 @@ public enum DemoModeRedaction {
 
 @MainActor
 public final class SettingsManager: ObservableObject {
+    public static let playlistMergeEnabledKey = "playlistMergeEnabled"
+    public static let defaultPlaylistMergeEnabled = true
+
+    public static func storedPlaylistMergeEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: playlistMergeEnabledKey) != nil else {
+            return defaultPlaylistMergeEnabled
+        }
+        return defaults.bool(forKey: playlistMergeEnabledKey)
+    }
+
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
@@ -257,7 +267,7 @@ public final class SettingsManager: ObservableObject {
     @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
     @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
-    @AppStorage("playlistMergeEnabled") public var playlistMergeEnabled: Bool = true
+    @AppStorage(playlistMergeEnabledKey) public var playlistMergeEnabled: Bool = defaultPlaylistMergeEnabled
     #if DEBUG
     @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
     #else
@@ -273,7 +283,7 @@ public final class SettingsManager: ObservableObject {
         UserDefaults.standard.register(defaults: [
             "auroraVisualizationEnabled": true,
             "scrobblingEnabled": true,
-            "playlistMergeEnabled": true,
+            Self.playlistMergeEnabledKey: Self.defaultPlaylistMergeEnabled,
             "demoModeEnabled": false
         ])
         if enabledTabsData.isEmpty {
