@@ -43,7 +43,7 @@ public final class BackgroundRefreshCoordinator {
         homeHubLoader: HomeHubLoaderProtocol,
         siriMediaIndexStore: SiriMediaIndexStore,
         siriMediaUserContextManager: SiriMediaUserContextManager,
-        systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol? = nil,
+        systemMediaIntegrationService: SystemMediaIntegrationService? = nil,
         scheduleNextAppRefresh: ScheduleStep? = nil
     ) {
         self.init(

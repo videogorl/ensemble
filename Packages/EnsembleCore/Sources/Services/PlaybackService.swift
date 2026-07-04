@@ -1152,7 +1152,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let settingsObserver: PlaybackSettingsObserver
     private let reportingController: PlaybackReportingController
     private let processorCount = ProcessInfo.processInfo.processorCount
-    private var systemMediaIntegrationService: SystemMediaIntegrationServiceProtocol?
+    private var systemMediaIntegrationService: SystemMediaIntegrationService?
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private(set) var startupRestoreStatus: PlaybackStartupRestoreStatus = .notAttempted
 
@@ -1432,7 +1432,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         reportingController.setMutationCoordinator(coordinator)
     }
 
-    public func setSystemMediaIntegrationService(_ service: SystemMediaIntegrationServiceProtocol) {
+    public func setSystemMediaIntegrationService(_ service: SystemMediaIntegrationService) {
         systemMediaIntegrationService = service
     }
 

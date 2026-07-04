@@ -102,18 +102,6 @@ public struct PlaybackStartContext: Sendable, Equatable {
     }
 }
 
-@MainActor
-public protocol SystemMediaIntegrationServiceProtocol: AnyObject {
-    func donatePlaybackStart(
-        reference: SystemMediaReference,
-        shuffle: Bool,
-        origin: PlaybackStartOrigin
-    ) async
-    func refreshSpotlightIndex() async
-    func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async
-    func updateMediaUserContext() async
-}
-
 protocol SystemSpotlightIndexing: AnyObject {
     var isIndexingAvailable: Bool { get }
     func indexSearchableItems(_ items: [CSSearchableItem]) async throws
@@ -300,7 +288,7 @@ final class LiveSystemMediaVocabularyRegistrar: SystemMediaVocabularyRegistering
 #endif
 
 @MainActor
-public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceProtocol {
+public final class SystemMediaIntegrationService {
     private static let spotlightChunkSize = 200
     private static let siriVocabularyLimit = 750
     nonisolated static let systemSuggestionArtworkSize = 500
