@@ -74,7 +74,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered in
                 self?.filteredTracks = filtered
-                self?.totalDuration = Self.computeTotalDuration(filtered)
+                self?.totalDuration = MediaFormatters.trackCollectionDuration(filtered)
             }
             .store(in: &cancellables)
     }
@@ -173,17 +173,6 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         }
     }
 
-    private static func computeTotalDuration(_ tracks: [Track]) -> String {
-        let total = tracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(total) / 60
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let mins = minutes % 60
-            return "\(hours) hr \(mins) min"
-        }
-        return "\(minutes) min"
-    }
-
     private func seedFromLastGoodSnapshotIfAvailable() {
         let snapshot = Self.lastGoodTracksSnapshot
         guard !snapshot.isEmpty else { return }
@@ -218,7 +207,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         if filteredTracks != filtered {
             filteredTracks = filtered
         }
-        let duration = Self.computeTotalDuration(filtered)
+        let duration = MediaFormatters.trackCollectionDuration(filtered)
         if totalDuration != duration {
             totalDuration = duration
         }

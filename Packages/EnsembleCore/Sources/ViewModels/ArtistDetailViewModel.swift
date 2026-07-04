@@ -240,14 +240,7 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     public var totalDuration: String {
-        let totalSeconds = displaySnapshot.filteredTracks.reduce(0) { $0 + $1.duration }
-        let hours = Int(totalSeconds) / 3600
-        let minutes = (Int(totalSeconds) % 3600) / 60
-
-        if hours > 0 {
-            return "\(hours) hr \(minutes) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
     }
 
     public var trackCount: Int {

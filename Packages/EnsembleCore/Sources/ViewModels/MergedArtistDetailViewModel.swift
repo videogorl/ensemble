@@ -164,12 +164,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     public var totalDuration: String {
-        let totalSeconds = displaySnapshot.filteredTracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(totalSeconds) / 60
-        if minutes >= 60 {
-            return "\(minutes / 60) hr \(minutes % 60) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.trackCollectionDuration(displaySnapshot.filteredTracks)
     }
 
     public func filteredTracks(for section: MergedArtistSourceSection) -> [Track] {

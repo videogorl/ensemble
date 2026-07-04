@@ -192,14 +192,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     }
 
     public var totalDuration: String {
-        let total = filteredTracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(total) / 60
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let mins = minutes % 60
-            return "\(hours) hr \(mins) min"
-        }
-        return "\(minutes) min"
+        MediaFormatters.trackCollectionDuration(filteredTracks)
     }
     
     // MARK: - Filter Application

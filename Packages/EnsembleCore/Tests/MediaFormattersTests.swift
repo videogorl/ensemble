@@ -17,6 +17,16 @@ final class MediaFormattersTests: XCTestCase {
         XCTAssertEqual(MediaFormatters.collectionDuration(3661), "1 hr 1 min")
     }
 
+    func testTrackCollectionDurationFormatsSummedTrackDurations() {
+        let tracks = [
+            Track(id: "track-1", key: "/tracks/1", title: "One", duration: 120),
+            Track(id: "track-2", key: "/tracks/2", title: "Two", duration: 3480),
+            Track(id: "track-3", key: "/tracks/3", title: "Three", duration: 61)
+        ]
+
+        XCTAssertEqual(MediaFormatters.trackCollectionDuration(tracks), "1 hr 1 min")
+    }
+
     func testDomainModelsDelegateFormattedDurationsToSharedFormatter() {
         let track = Track(id: "track-1", key: "/tracks/1", title: "Track", duration: 185)
         let playlist = Playlist(id: "playlist-1", key: "/playlists/1", title: "Playlist", duration: 3661)

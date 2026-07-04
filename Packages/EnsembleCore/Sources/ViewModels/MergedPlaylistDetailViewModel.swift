@@ -210,21 +210,10 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             availableGenres = nextAvailableGenres
         }
 
-        let nextTotalDuration = Self.formattedDuration(for: nextFilteredTracks)
+        let nextTotalDuration = MediaFormatters.trackCollectionDuration(nextFilteredTracks)
         if totalDuration != nextTotalDuration {
             totalDuration = nextTotalDuration
         }
-    }
-
-    private static func formattedDuration(for tracks: [Track]) -> String {
-        let total = tracks.reduce(0) { $0 + $1.duration }
-        let minutes = Int(total) / 60
-        if minutes >= 60 {
-            let hours = minutes / 60
-            let mins = minutes % 60
-            return "\(hours) hr \(mins) min"
-        }
-        return "\(minutes) min"
     }
 
     private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {

@@ -23,6 +23,10 @@ public enum MediaFormatters {
         return "\(minutes) min"
     }
 
+    public static func trackCollectionDuration(_ tracks: [Track]) -> String {
+        collectionDuration(tracks.reduce(0) { $0 + $1.duration })
+    }
+
     public static func bytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useMB, .useGB]
