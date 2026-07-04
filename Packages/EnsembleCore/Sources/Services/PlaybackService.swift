@@ -256,17 +256,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let isInterfaceSwitch: Bool
     }
 
-    typealias PlaybackBufferingProfile = PlaybackRecoveryPolicy.BufferingProfile
-    typealias AdaptiveBufferingState = PlaybackRecoveryPolicy.AdaptiveState
-
-    static let stallEscalationThreshold = PlaybackRecoveryPolicy.stallEscalationThreshold
-    static let stallEscalationWindow: TimeInterval = PlaybackRecoveryPolicy.stallEscalationWindow
-    static let conservativeModeDuration: TimeInterval = PlaybackRecoveryPolicy.conservativeModeDuration
-    static let recoveryCooldown: TimeInterval = PlaybackRecoveryPolicy.recoveryCooldown
     static let bufferedSeekGateDuration: TimeInterval = 3
     static let previousRestartThreshold: TimeInterval = 3
-    static let prefetchThrottleDuration: TimeInterval = PlaybackRecoveryPolicy.prefetchThrottleDuration
-    static let minUnexpectedPauseInterval: TimeInterval = PlaybackRecoveryPolicy.minUnexpectedPauseInterval
     private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
 
     static func previousNavigationTarget(

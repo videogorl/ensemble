@@ -33,19 +33,8 @@ enum PlaybackRecoveryPolicy {
         )
     }
 
-    struct AdaptiveState {
-        var stallTimestamps: [Date] = []
-        var conservativeModeUntil: Date?
-        var lastRecoveryAttemptAt: Date?
-        var conservativeWaitCycles: Int = 0
-    }
-
     static let stallEscalationThreshold = 2
     static let stallEscalationWindow: TimeInterval = 30
-    static let conservativeModeDuration: TimeInterval = 120
-    static let recoveryCooldown: TimeInterval = 6
-    static let prefetchThrottleDuration: TimeInterval = 90
-    static let minUnexpectedPauseInterval: TimeInterval = 0.8
 
     static func baseBufferingProfile(for networkState: NetworkState) -> BufferingProfile {
         switch networkState {
