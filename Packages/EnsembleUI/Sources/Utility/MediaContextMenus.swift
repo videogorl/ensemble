@@ -146,7 +146,7 @@ struct AlbumActionsContextMenu: View {
 
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    private let pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
@@ -341,7 +341,7 @@ struct ArtistActionsContextMenu: View {
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    private let pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
@@ -461,7 +461,7 @@ struct PlaylistActionsContextMenu: View {
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
-    @ObservedObject private var pinManager = DependencyContainer.shared.pinManager
+    private let pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
