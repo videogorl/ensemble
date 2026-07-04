@@ -1312,9 +1312,8 @@ public struct ArtistDetailView: View {
 
     /// Whether there's any content to show in the About section
     private var hasAboutContent: Bool {
-        let hasDetail = viewModel.artistDetail != nil
-        let hasFacts = hasDetail && hasQuickFacts(viewModel.artistDetail!)
-        let hasBio = viewModel.artist.summary != nil && !viewModel.artist.summary!.isEmpty
+        let hasFacts = viewModel.artistDetail.map(hasQuickFacts) ?? false
+        let hasBio = !(viewModel.artist.summary?.isEmpty ?? true)
         return hasFacts || hasBio
     }
 
