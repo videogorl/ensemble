@@ -9,10 +9,6 @@ import SwiftUI
 public struct CompactArtistRow: View {
     let displayArtist: DisplayArtist
 
-    public init(artist: Artist) {
-        self.displayArtist = .single(artist)
-    }
-
     public init(displayArtist: DisplayArtist) {
         self.displayArtist = displayArtist
     }

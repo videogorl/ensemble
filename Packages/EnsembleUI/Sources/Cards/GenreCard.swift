@@ -4,11 +4,9 @@ import SwiftUI
 /// A card component for displaying a music genre in a grid layout
 public struct GenreCard: View {
     let genre: Genre
-    let onTap: (() -> Void)?
 
-    public init(genre: Genre, onTap: (() -> Void)? = nil) {
+    public init(genre: Genre) {
         self.genre = genre
-        self.onTap = onTap
     }
 
     public var body: some View {
@@ -44,11 +42,6 @@ public struct GenreCard: View {
         }
         .frame(maxWidth: ArtworkSize.thumbnail.cgSize.width, maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
-        .if(onTap != nil) { view in
-            view.onTapGesture {
-                onTap?()
-            }
-        }
     }
     
     /// Generate a deterministic color based on genre name
