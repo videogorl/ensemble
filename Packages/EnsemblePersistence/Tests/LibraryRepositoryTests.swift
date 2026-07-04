@@ -536,6 +536,61 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(remainingOfflineTargets, 0)
     }
 
+    func testOrphanRemovalKeepsValidAndOtherSourceLibraryItems() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "keep-artist", thumbPath: nil, dateModified: nil),
+            makeArtistInput(ratingKey: "drop-artist", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "drop-artist", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "keep-album", thumbPath: nil, dateModified: nil),
+            makeAlbumInput(ratingKey: "drop-album", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "drop-album", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "keep-track"),
+            makeTrackInput(ratingKey: "drop-track")
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "drop-track")
+        ], sourceCompositeKey: sourceB)
+
+        let removedArtists = try await repository.removeOrphanedArtists(notIn: ["keep-artist"], forSource: sourceA)
+        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: ["keep-album"], forSource: sourceA)
+        let removedTracks = try await repository.removeOrphanedTracks(notIn: ["keep-track"], forSource: sourceA)
+
+        let artists = try await repository.fetchArtists()
+        let albums = try await repository.fetchAlbums()
+        let keepTrack = try await repository.fetchTrack(ratingKey: "keep-track", sourceCompositeKey: sourceA)
+        let otherSourceTrack = try await repository.fetchTrack(ratingKey: "drop-track", sourceCompositeKey: sourceB)
+        let removedTrack = try await repository.fetchTrack(ratingKey: "drop-track", sourceCompositeKey: sourceA)
+
+        XCTAssertEqual(removedArtists, 1)
+        XCTAssertEqual(removedAlbums, 1)
+        XCTAssertEqual(removedTracks, 1)
+        XCTAssertEqual(Set(artists.map { "\($0.sourceCompositeKey ?? "")|\($0.ratingKey)" }), [
+            "\(sourceA)|keep-artist",
+            "\(sourceB)|drop-artist"
+        ])
+        XCTAssertEqual(Set(albums.map { "\($0.sourceCompositeKey ?? "")|\($0.ratingKey)" }), [
+            "\(sourceA)|keep-album",
+            "\(sourceB)|drop-album"
+        ])
+        XCTAssertNotNil(keepTrack)
+        XCTAssertNotNil(otherSourceTrack)
+        XCTAssertNil(removedTrack)
+    }
+
     private func makeAlbumInput(
         ratingKey: String,
         thumbPath: String?,
@@ -573,6 +628,29 @@ final class LibraryRepositoryTests: XCTestCase {
             artPath: nil,
             dateAdded: nil,
             dateModified: dateModified
+        )
+    }
+
+    private func makeTrackInput(ratingKey: String) -> TrackUpsertInput {
+        TrackUpsertInput(
+            ratingKey: ratingKey,
+            key: "/library/metadata/\(ratingKey)",
+            title: "Track \(ratingKey)",
+            artistName: "Artist",
+            albumName: "Album",
+            albumRatingKey: nil,
+            trackNumber: 1,
+            discNumber: 1,
+            duration: 180_000,
+            thumbPath: nil,
+            streamKey: nil,
+            streamId: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: nil,
+            genreNames: nil
         )
     }
 }

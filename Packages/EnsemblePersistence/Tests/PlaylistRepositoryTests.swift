@@ -176,6 +176,53 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
     }
 
+    func testOrphanRemovalKeepsValidAndOtherSourcePlaylists() async throws {
+        let repository = PlaylistRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server-a"
+        let sourceB = "plex/account/server-b"
+
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "keep",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "drop",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "drop",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceB
+        )
+
+        let removedFromSourceA = try await repository.removeOrphanedPlaylists(notIn: ["keep"], forSource: sourceA)
+        let sourceAKeep = try await repository.fetchPlaylist(ratingKey: "keep", sourceCompositeKey: sourceA)
+        let sourceBDrop = try await repository.fetchPlaylist(ratingKey: "drop", sourceCompositeKey: sourceB)
+        let sourceADrop = try await repository.fetchPlaylist(ratingKey: "drop", sourceCompositeKey: sourceA)
+
+        XCTAssertEqual(removedFromSourceA, 1)
+        XCTAssertNotNil(sourceAKeep)
+        XCTAssertNotNil(sourceBDrop)
+        XCTAssertNil(sourceADrop)
+
+        let removedFromSourceB = try await repository.removeOrphanedPlaylists(notIn: [], forSource: sourceB)
+        let sourceBDropAfterEmptySetCleanup = try await repository.fetchPlaylist(
+            ratingKey: "drop",
+            sourceCompositeKey: sourceB
+        )
+
+        XCTAssertEqual(removedFromSourceB, 1)
+        XCTAssertNil(sourceBDropAfterEmptySetCleanup)
+    }
+
     @discardableResult
     private func upsertPlaylist(
         in repository: PlaylistRepository,

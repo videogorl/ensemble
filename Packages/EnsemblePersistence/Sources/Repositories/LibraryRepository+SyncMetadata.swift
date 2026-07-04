@@ -232,7 +232,10 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = Self.orphanPredicate(
+                        sourceKey: sourceKey,
+                        validRatingKeys: validRatingKeys
+                    )
                     let localArtists = try context.fetch(request)
 
                     var removedCount = 0
@@ -259,7 +262,10 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = Self.orphanPredicate(
+                        sourceKey: sourceKey,
+                        validRatingKeys: validRatingKeys
+                    )
                     let localAlbums = try context.fetch(request)
 
                     var removedCount = 0
@@ -286,7 +292,10 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = Self.orphanPredicate(
+                        sourceKey: sourceKey,
+                        validRatingKeys: validRatingKeys
+                    )
                     let localTracks = try context.fetch(request)
 
                     var removedCount = 0
@@ -399,6 +408,15 @@ extension LibraryRepository {
                 }
             }
         }
+    }
+
+    private static func orphanPredicate(sourceKey: String, validRatingKeys: Set<String>) -> NSPredicate {
+        let sourcePredicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+        guard !validRatingKeys.isEmpty else { return sourcePredicate }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [
+            sourcePredicate,
+            NSPredicate(format: "NOT (ratingKey IN %@)", Array(validRatingKeys))
+        ])
     }
 
     // MARK: - Batch Upserts

@@ -478,7 +478,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDPlaylist> = CDPlaylist.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                    request.predicate = Self.orphanPredicate(
+                        sourceKey: sourceKey,
+                        validRatingKeys: validRatingKeys
+                    )
                     let localPlaylists = try context.fetch(request)
 
                     var removedCount = 0
@@ -498,6 +501,15 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 }
             }
         }
+    }
+
+    private static func orphanPredicate(sourceKey: String, validRatingKeys: Set<String>) -> NSPredicate {
+        let sourcePredicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+        guard !validRatingKeys.isEmpty else { return sourcePredicate }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [
+            sourcePredicate,
+            NSPredicate(format: "NOT (ratingKey IN %@)", Array(validRatingKeys))
+        ])
     }
 
     // MARK: - Bulk Timestamp Lookup
