@@ -21,6 +21,37 @@ extension LibraryRepository {
         }
     }
 
+    public func countMusicSources() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDMusicSource.fetchRequest()
+                do {
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countLibraryMetadataItems() async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    var total = 0
+                    for entityName in ["CDArtist", "CDAlbum", "CDTrack", "CDGenre"] {
+                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                        total += try context.count(for: request)
+                    }
+                    continuation.resume(returning: total)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func upsertMusicSource(
         compositeKey: String,
         type: String,

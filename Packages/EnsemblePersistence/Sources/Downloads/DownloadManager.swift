@@ -31,6 +31,7 @@ public protocol DownloadManagerProtocol: Sendable {
     /// Returns nil when no pending downloads remain.
     func fetchNextPendingDownload() async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
+    func countCompletedDownloads() async throws -> Int
     func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload?
     /// Batch fetch downloads for multiple tracks in a single CoreData query.
     /// Returns a dictionary keyed by "sourceCompositeKey|ratingKey" for O(1) lookup.
@@ -82,6 +83,10 @@ public extension DownloadManagerProtocol {
 
     func countPendingDownloads() async throws -> Int {
         try await fetchPendingDownloads().count
+    }
+
+    func countCompletedDownloads() async throws -> Int {
+        try await fetchCompletedDownloads().count
     }
 
     func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int {
@@ -305,6 +310,21 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 do {
                     let downloads = try context.fetch(request)
                     continuation.resume(returning: downloads)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countCompletedDownloads() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(format: "status == %@", CDDownload.Status.completed.rawValue)
+                do {
+                    continuation.resume(returning: try context.count(for: request))
                 } catch {
                     continuation.resume(throwing: error)
                 }

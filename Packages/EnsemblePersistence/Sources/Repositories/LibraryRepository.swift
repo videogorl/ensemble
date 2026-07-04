@@ -240,6 +240,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Source management
     func fetchMusicSources() async throws -> [CDMusicSource]
+    func countMusicSources() async throws -> Int
+    func countLibraryMetadataItems() async throws -> Int
 
     func upsertMusicSource(
         compositeKey: String,
@@ -300,6 +302,22 @@ public extension LibraryRepositoryProtocol {
 public extension LibraryRepositoryProtocol {
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int {
         try await fetchTracks(forSource: sourceCompositeKey).count
+    }
+
+    func countMusicSources() async throws -> Int {
+        try await fetchMusicSources().count
+    }
+
+    func countLibraryMetadataItems() async throws -> Int {
+        async let artists = fetchArtists()
+        async let albums = fetchAlbums()
+        async let tracks = fetchTracks()
+        async let genres = fetchGenres()
+        let artistCount = try await artists.count
+        let albumCount = try await albums.count
+        let trackCount = try await tracks.count
+        let genreCount = try await genres.count
+        return artistCount + albumCount + trackCount + genreCount
     }
 
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws {}

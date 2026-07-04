@@ -100,7 +100,7 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotEqual(downloadA?.objectID, downloadB?.objectID)
     }
 
-    func testCountDownloadsSupportsAllAndSourceScopedCounts() async throws {
+    func testCountDownloadsSupportsAllSourceScopedAndCompletedCounts() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let downloadManager = DownloadManager(coreDataStack: stack)
@@ -119,19 +119,27 @@ final class DownloadManagerTests: XCTestCase {
             sourceCompositeKey: sourceA,
             quality: "high"
         )
-        _ = try await downloadManager.createDownload(
+        let completedDownload = try await downloadManager.createDownload(
             forTrackRatingKey: "100",
             sourceCompositeKey: sourceB,
+            quality: "high"
+        )
+        try await downloadManager.completeDownload(
+            completedDownload.objectID,
+            filePath: "completed-count.mp3",
+            fileSize: 1,
             quality: "high"
         )
 
         let allCount = try await downloadManager.countDownloads()
         let sourceACount = try await downloadManager.countDownloads(forSourceCompositeKey: sourceA)
         let sourceBCount = try await downloadManager.countDownloads(forSourceCompositeKey: sourceB)
+        let completedCount = try await downloadManager.countCompletedDownloads()
 
         XCTAssertEqual(allCount, 3)
         XCTAssertEqual(sourceACount, 2)
         XCTAssertEqual(sourceBCount, 1)
+        XCTAssertEqual(completedCount, 1)
     }
 
     func testDeletingCompletedDuplicateSourcePreservesOtherDownloadAndLocalPath() async throws {

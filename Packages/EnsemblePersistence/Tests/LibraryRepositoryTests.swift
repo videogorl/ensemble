@@ -674,6 +674,42 @@ final class LibraryRepositoryTests: XCTestCase {
         ])
     }
 
+    func testCacheSummaryCountsUseMetadataAndSourceScopes() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "plex/account/server/library"
+
+        _ = try await repository.upsertMusicSource(
+            compositeKey: sourceKey,
+            type: "plex",
+            accountId: "account",
+            serverId: "server",
+            libraryId: "library",
+            displayName: "Library",
+            accountName: "Account"
+        )
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track")
+        ], sourceCompositeKey: sourceKey)
+        _ = try await repository.upsertGenre(
+            ratingKey: "genre",
+            key: "/library/sections/1/genre/genre",
+            title: "Genre",
+            sourceCompositeKey: sourceKey
+        )
+
+        let metadataItemCount = try await repository.countLibraryMetadataItems()
+        let sourceCount = try await repository.countMusicSources()
+
+        XCTAssertEqual(metadataItemCount, 4)
+        XCTAssertEqual(sourceCount, 1)
+    }
+
     func testBatchUpsertsLinkSubsetRelationships() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         let sourceKey = "plex/account/server/library"

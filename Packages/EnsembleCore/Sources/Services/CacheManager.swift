@@ -115,11 +115,11 @@ public final class CacheManager: ObservableObject {
         // Downloaded tracks
         do {
             let downloadSize = try getDownloadDirectorySize()
-            let downloads = try await downloadManager.fetchCompletedDownloads()
+            let downloadCount = try await downloadManager.countCompletedDownloads()
             infos[.downloadedTracks] = CacheInfo(
                 type: .downloadedTracks,
                 size: downloadSize,
-                itemCount: downloads.count
+                itemCount: downloadCount
             )
         } catch {
             EnsembleLogger.debug("Failed to get download size: \(error)")
@@ -205,8 +205,8 @@ public final class CacheManager: ObservableObject {
     public func cleanupSnapshot() async throws -> CacheCleanupSnapshot {
         async let libraryCount = getLibraryItemCount()
         async let sourceCount = getMusicSourceCount()
-        async let allDownloads = downloadManager.fetchDownloads()
-        async let completedDownloads = downloadManager.fetchCompletedDownloads()
+        async let allDownloadCount = downloadManager.countDownloads()
+        async let completedDownloadCount = downloadManager.countCompletedDownloads()
         let downloadDirectoryStats = try getDownloadDirectoryStats()
         async let artworkSize = artworkDownloadManager.getArtworkCacheSize()
         async let nukeSize = getNukeImageCacheSize()
@@ -214,8 +214,8 @@ public final class CacheManager: ObservableObject {
         return try await CacheCleanupSnapshot(
             libraryItemCount: libraryCount,
             sourceCount: sourceCount,
-            downloadRecordCount: allDownloads.count,
-            completedDownloadCount: completedDownloads.count,
+            downloadRecordCount: allDownloadCount,
+            completedDownloadCount: completedDownloadCount,
             downloadFileCount: downloadDirectoryStats.fileCount,
             downloadSize: downloadDirectoryStats.size,
             artworkSize: artworkSize,
@@ -239,11 +239,7 @@ public final class CacheManager: ObservableObject {
     }
     
     private func getLibraryItemCount() async throws -> Int {
-        let artists = try await libraryRepository.fetchArtists()
-        let albums = try await libraryRepository.fetchAlbums()
-        let tracks = try await libraryRepository.fetchTracks()
-        let genres = try await libraryRepository.fetchGenres()
-        return artists.count + albums.count + tracks.count + genres.count
+        try await libraryRepository.countLibraryMetadataItems()
     }
 
     private func getDownloadDirectorySize() throws -> Int64 {
@@ -274,7 +270,7 @@ public final class CacheManager: ObservableObject {
     }
 
     private func getMusicSourceCount() async throws -> Int {
-        try await libraryRepository.fetchMusicSources().count
+        try await libraryRepository.countMusicSources()
     }
     
     private func getNukeImageCacheSize() async throws -> Int64 {
