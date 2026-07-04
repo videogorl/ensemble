@@ -20,7 +20,8 @@ struct MusicSourceAccountRow: View {
 // MARK: - Audio Quality Settings
 
 struct AudioQualitySettingsView: View {
-    @AppStorage("streamingQuality") private var streamingQuality = "high"
+    @AppStorage(PlaybackSettingsPreference.streamingQualityKey)
+    private var streamingQuality = PlaybackSettingsPreference.defaultStreamingQuality
     @AppStorage("downloadQuality") private var downloadQuality = "high"
 
     var body: some View {
