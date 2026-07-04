@@ -254,7 +254,7 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
     @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
-    @AppStorage("allowInsecureConnectionsPolicy") private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
+    @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
     @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
     @AppStorage("playlistMergeEnabled") public var playlistMergeEnabled: Bool = true

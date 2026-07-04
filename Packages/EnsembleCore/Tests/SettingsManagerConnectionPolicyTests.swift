@@ -7,7 +7,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
     private let accentColorKey = "accentColor"
     private let auroraVisualizationKey = "auroraVisualizationEnabled"
     private let demoModeKey = "demoModeEnabled"
-    private let defaultsKey = "allowInsecureConnectionsPolicy"
+    private let defaultsKey = AllowInsecureConnectionsPolicy.defaultsKey
     private let enabledTabsKey = "enabledTabs"
     private let songsTableColumnsKey = "songsTableColumns"
     private let trackSwipeLayoutKey = "trackSwipeLayout"

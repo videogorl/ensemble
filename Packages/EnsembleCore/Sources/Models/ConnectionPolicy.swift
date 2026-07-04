@@ -8,6 +8,12 @@ public typealias AllowInsecureConnectionsPolicy = EnsembleAPI.AllowInsecureConne
 
 public extension AllowInsecureConnectionsPolicy {
     static let `defaultForEnsemble`: Self = .sameNetwork
+    static let defaultsKey = "allowInsecureConnectionsPolicy"
+
+    static func storedPreference(in defaults: UserDefaults = .standard) -> Self {
+        let raw = defaults.string(forKey: defaultsKey)
+        return Self(rawValue: raw ?? "") ?? .defaultForEnsemble
+    }
 
     var title: String {
         switch self {

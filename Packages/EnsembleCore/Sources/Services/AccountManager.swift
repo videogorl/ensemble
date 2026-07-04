@@ -705,8 +705,7 @@ public final class AccountManager: ObservableObject {
     }
 
     private func currentAllowInsecureConnectionsPolicy() -> AllowInsecureConnectionsPolicy {
-        let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
-        return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+        AllowInsecureConnectionsPolicy.storedPreference()
     }
 
     private func policyFilteredConnections(

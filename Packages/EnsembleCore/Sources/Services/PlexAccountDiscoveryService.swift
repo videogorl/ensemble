@@ -190,8 +190,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
     public init(
         client: any PlexAccountDiscoveryClientProtocol,
         allowInsecurePolicyProvider: @escaping @Sendable () -> AllowInsecureConnectionsPolicy = {
-            let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
-            return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+            AllowInsecureConnectionsPolicy.storedPreference()
         }
     ) {
         self.client = client
@@ -201,8 +200,7 @@ public final class PlexAccountDiscoveryService: @unchecked Sendable {
     public convenience init(
         keychain: KeychainServiceProtocol,
         allowInsecurePolicyProvider: @escaping @Sendable () -> AllowInsecureConnectionsPolicy = {
-            let raw = UserDefaults.standard.string(forKey: "allowInsecureConnectionsPolicy")
-            return AllowInsecureConnectionsPolicy(rawValue: raw ?? "") ?? .defaultForEnsemble
+            AllowInsecureConnectionsPolicy.storedPreference()
         }
     ) {
         self.init(
