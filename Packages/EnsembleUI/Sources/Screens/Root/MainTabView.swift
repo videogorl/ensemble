@@ -1536,7 +1536,7 @@ public struct SidebarView: View {
         )
     }
 
-    /// Sidebar section content with navigation destinations registered for path-based push
+    /// Sidebar section content; `detailView` owns path-based destination registration.
     @ViewBuilder
     private func sidebarContentView(for tab: TabItem) -> some View {
         Group {
@@ -1551,11 +1551,6 @@ public struct SidebarView: View {
                     searchVM: searchVM,
                     pinnedVM: pinnedVM
                 )
-            }
-        }
-        .navigationDestination(for: NavigationCoordinator.Destination.self) { destination in
-            detailChromeRegistrationHost {
-                destinationView(for: destination)
             }
         }
     }
