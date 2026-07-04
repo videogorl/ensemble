@@ -607,69 +607,31 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
     }
 
     public func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-                    download.progress = progress
-                    download.status = CDDownload.Status.downloading.rawValue
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await updateDownload(downloadId) { download in
+            download.progress = progress
+            download.status = CDDownload.Status.downloading.rawValue
         }
     }
 
     public func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String? = nil) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-                    download.status = status.rawValue
-                    // Update quality when provided (e.g., cancelled download re-queued
-                    // at new quality after a quality setting change)
-                    if let quality {
-                        download.quality = Self.normalizedQuality(quality)
-                    }
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await updateDownload(downloadId) { download in
+            download.status = status.rawValue
+            // Update quality when provided (e.g., cancelled download re-queued
+            // at new quality after a quality setting change)
+            if let quality {
+                download.quality = Self.normalizedQuality(quality)
             }
         }
     }
 
     public func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-
-                    download.status = CDDownload.Status.pending.rawValue
-                    download.quality = Self.normalizedQuality(quality)
-                    download.progress = 0
-                    download.error = nil
-                    download.completedAt = nil
-                    download.startedAt = Date()
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await updateDownload(downloadId) { download in
+            download.status = CDDownload.Status.pending.rawValue
+            download.quality = Self.normalizedQuality(quality)
+            download.progress = 0
+            download.error = nil
+            download.completedAt = nil
+            download.startedAt = Date()
         }
     }
 
@@ -703,64 +665,37 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         fileSize: Int64,
         quality: String? = nil
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
+        try await updateDownload(downloadId) { download in
+            // Normalize to filename-only for storage (sandbox-stable).
+            let filename = Self.extractFilename(from: filePath)
 
-                    // Normalize to filename-only for storage (sandbox-stable).
-                    let filename = Self.extractFilename(from: filePath)
-
-                    // If the previous download had a different file (e.g. quality re-queue),
-                    // clean up the old file now that the new one is ready.
-                    if let oldStored = download.filePath, !oldStored.isEmpty {
-                        let oldFilename = Self.extractFilename(from: oldStored)
-                        if oldFilename != filename {
-                            let oldAbsolute = Self.absolutePath(forFilename: oldFilename)
-                            try? FileManager.default.removeItem(atPath: oldAbsolute)
-                        }
-                    }
-
-                    download.status = CDDownload.Status.completed.rawValue
-                    download.progress = 1.0
-                    download.filePath = filename
-                    download.fileSize = fileSize
-                    download.completedAt = Date()
-                    if let quality, !quality.isEmpty {
-                        download.quality = Self.normalizedQuality(quality)
-                    }
-
-                    // Update track local path for offline playback routing (filename only).
-                    download.track?.localFilePath = filename
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+            // If the previous download had a different file (e.g. quality re-queue),
+            // clean up the old file now that the new one is ready.
+            if let oldStored = download.filePath, !oldStored.isEmpty {
+                let oldFilename = Self.extractFilename(from: oldStored)
+                if oldFilename != filename {
+                    Self.removeStoredDownloadFileAndSidecar(oldStored)
                 }
             }
+
+            download.status = CDDownload.Status.completed.rawValue
+            download.progress = 1.0
+            download.filePath = filename
+            download.fileSize = fileSize
+            download.completedAt = Date()
+            if let quality, !quality.isEmpty {
+                download.quality = Self.normalizedQuality(quality)
+            }
+
+            // Update track local path for offline playback routing (filename only).
+            download.track?.localFilePath = filename
         }
     }
 
     public func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
-                        continuation.resume()
-                        return
-                    }
-                    download.status = CDDownload.Status.failed.rawValue
-                    download.error = error
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await updateDownload(downloadId) { download in
+            download.status = CDDownload.Status.failed.rawValue
+            download.error = error
         }
     }
 
@@ -779,14 +714,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                 do {
                     if let download = try context.fetch(request).first {
-                        // Resolve filename to current absolute path for file deletion.
-                        if let storedPath = download.filePath, !storedPath.isEmpty {
-                            let filename = Self.extractFilename(from: storedPath)
-                            let absolutePath = Self.absolutePath(forFilename: filename)
-                            try? FileManager.default.removeItem(atPath: absolutePath)
-                            // Delete frequency analysis sidecar
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                        }
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
 
                         download.track?.localFilePath = nil
                         context.delete(download)
@@ -873,13 +801,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let downloads = try context.fetch(request)
 
                     for download in downloads {
-                        // Remove file and frequency sidecar from disk
-                        if let storedPath = download.filePath, !storedPath.isEmpty {
-                            let filename = Self.extractFilename(from: storedPath)
-                            let absolutePath = Self.absolutePath(forFilename: filename)
-                            try? FileManager.default.removeItem(atPath: absolutePath)
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                        }
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
                         download.track?.localFilePath = nil
                         context.delete(download)
                     }
@@ -904,12 +826,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     // Remove downloaded files and sidecars from disk
                     for download in downloads {
-                        if let storedPath = download.filePath, !storedPath.isEmpty {
-                            let filename = Self.extractFilename(from: storedPath)
-                            let absolutePath = Self.absolutePath(forFilename: filename)
-                            try? FileManager.default.removeItem(atPath: absolutePath)
-                            try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
-                        }
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
                         // Clear the track's local file path so it's no longer treated as offline
                         download.track?.localFilePath = nil
                         context.delete(download)
@@ -944,6 +861,39 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         for url in contents {
             try? FileManager.default.removeItem(at: url)
         }
+    }
+
+    private func updateDownload(
+        _ downloadId: NSManagedObjectID,
+        mutate: @escaping (CDDownload) throws -> Void
+    ) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    guard let download = try context.existingObject(with: downloadId) as? CDDownload else {
+                        continuation.resume()
+                        return
+                    }
+
+                    try mutate(download)
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func removeStoredDownloadFileAndSidecar(_ storedPath: String?) {
+        guard let storedPath, !storedPath.isEmpty else { return }
+
+        let filename = extractFilename(from: storedPath)
+        let absolutePath = absolutePath(forFilename: filename)
+        try? FileManager.default.removeItem(atPath: absolutePath)
+        try? FileManager.default.removeItem(atPath: absolutePath + ".freq")
     }
 
     private static func existingDownloadFilenames() -> Set<String> {

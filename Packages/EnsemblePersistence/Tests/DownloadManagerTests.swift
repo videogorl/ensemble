@@ -279,13 +279,16 @@ final class DownloadManagerTests: XCTestCase {
         let oldFilename = "old-\(suffix).mp3"
         let newFilename = "new-\(suffix).mp3"
         let oldURL = DownloadManager.downloadsDirectory.appendingPathComponent(oldFilename)
+        let oldFreqURL = DownloadManager.downloadsDirectory.appendingPathComponent(oldFilename + ".freq")
         let newURL = DownloadManager.downloadsDirectory.appendingPathComponent(newFilename)
         defer {
             try? FileManager.default.removeItem(at: oldURL)
+            try? FileManager.default.removeItem(at: oldFreqURL)
             try? FileManager.default.removeItem(at: newURL)
         }
 
         try Data([0x01]).write(to: oldURL)
+        try Data([0x03]).write(to: oldFreqURL)
         try Data([0x02]).write(to: newURL)
         try await seedTrack(ratingKey: "201", sourceCompositeKey: sourceA, repository: libraryRepository)
         let download = try await downloadManager.createDownload(
@@ -313,6 +316,7 @@ final class DownloadManagerTests: XCTestCase {
         let fetched = try await downloadManager.fetchDownload(forTrackRatingKey: "201", sourceCompositeKey: sourceA)
         let completed = try XCTUnwrap(fetched)
         XCTAssertFalse(FileManager.default.fileExists(atPath: oldURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: oldFreqURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: newURL.path))
         XCTAssertEqual(completed.filePath, newFilename)
         XCTAssertEqual(completed.track?.localFilePath, newFilename)
