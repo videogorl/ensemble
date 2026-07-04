@@ -1151,7 +1151,7 @@ public struct EnsembleStateActionLabel: View {
 /// Shared empty-state decision tree for library browse screens that depend on
 /// configured music sources, enabled libraries, and sync/cloud-restore state.
 public struct EnsembleLibraryEmptyStateScaffold: View {
-    public enum Recovery {
+    public enum Recovery: Equatable {
         case restoringCloudSources
         case noSources
         case syncing
@@ -1171,6 +1171,26 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
             case .empty(let message):
                 return message
             }
+        }
+    }
+
+    public static func recovery(
+        isRestoringCloudSources: Bool,
+        hasAnySources: Bool,
+        isSyncing: Bool,
+        hasEnabledLibraries: Bool,
+        emptyMessage: String
+    ) -> Recovery {
+        if isRestoringCloudSources {
+            return .restoringCloudSources
+        } else if !hasAnySources {
+            return .noSources
+        } else if isSyncing {
+            return .syncing
+        } else if !hasEnabledLibraries {
+            return .noEnabledLibraries
+        } else {
+            return .empty(message: emptyMessage)
         }
     }
 

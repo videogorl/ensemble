@@ -128,24 +128,16 @@ public struct AlbumsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Albums",
             iconSystemName: EnsembleDesign.Icon.album,
-            recovery: libraryEmptyRecovery(emptyMessage: "No albums found in enabled libraries"),
+            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
+                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
+                hasAnySources: libraryVM.hasAnySources,
+                isSyncing: libraryVM.isSyncing,
+                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
+                emptyMessage: "No albums found in enabled libraries"
+            ),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var isSortIndexed: Bool {

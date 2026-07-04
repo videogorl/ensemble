@@ -275,24 +275,16 @@ public struct ArtistsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Artists",
             iconSystemName: EnsembleDesign.Icon.artists,
-            recovery: libraryEmptyRecovery(emptyMessage: "No artists found in enabled libraries"),
+            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
+                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
+                hasAnySources: libraryVM.hasAnySources,
+                isSyncing: libraryVM.isSyncing,
+                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
+                emptyMessage: "No artists found in enabled libraries"
+            ),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var artistListView: some View {

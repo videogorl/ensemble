@@ -424,24 +424,16 @@ public struct PlaylistsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Playlists",
             iconSystemName: EnsembleDesign.Icon.playlist,
-            recovery: playlistEmptyRecovery(emptyMessage: "Create playlists in Plex to see them here"),
+            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
+                isRestoringCloudSources: isRestoringCloudSources,
+                hasAnySources: accountManager.hasAnySources,
+                isSyncing: syncCoordinator.isSyncing,
+                hasEnabledLibraries: hasEnabledLibraries,
+                emptyMessage: "Create playlists in Plex to see them here"
+            ),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func playlistEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !accountManager.hasAnySources {
-            return .noSources
-        } else if syncCoordinator.isSyncing {
-            return .syncing
-        } else if !hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     @ViewBuilder

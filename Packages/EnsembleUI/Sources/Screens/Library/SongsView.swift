@@ -178,24 +178,16 @@ public struct SongsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Songs",
             iconSystemName: EnsembleDesign.Icon.musicNote,
-            recovery: libraryEmptyRecovery(emptyMessage: "No songs found in enabled libraries"),
+            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
+                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
+                hasAnySources: libraryVM.hasAnySources,
+                isSyncing: libraryVM.isSyncing,
+                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
+                emptyMessage: "No songs found in enabled libraries"
+            ),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
-    }
-
-    private func libraryEmptyRecovery(emptyMessage: String) -> EnsembleLibraryEmptyStateScaffold.Recovery {
-        if libraryVM.isRestoringCloudSources {
-            return .restoringCloudSources
-        } else if !libraryVM.hasAnySources {
-            return .noSources
-        } else if libraryVM.isSyncing {
-            return .syncing
-        } else if !libraryVM.hasEnabledLibraries {
-            return .noEnabledLibraries
-        } else {
-            return .empty(message: emptyMessage)
-        }
     }
 
     private var trackListView: some View {
