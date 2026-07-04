@@ -50,10 +50,16 @@ struct OfflineDownloadHealingSummary: Equatable, Sendable {
 
     var diagnosticsDescription: String {
         guard let ranAt else { return "not-run" }
-        let timestamp = ISO8601DateFormatter().string(from: ranAt)
+        let timestamp = Self.diagnosticsDateFormatter.string(from: ranAt)
         let errorText = errorDescription ?? "none"
         return "removed=\(orphanedCompletedDownloadsRemoved),error=\(errorText),at=\(timestamp)"
     }
+
+    private static let diagnosticsDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }
 
 private struct TruncationScanCandidate: @unchecked Sendable {
