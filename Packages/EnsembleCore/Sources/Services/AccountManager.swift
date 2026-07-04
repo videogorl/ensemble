@@ -289,27 +289,8 @@ public final class AccountManager: ObservableObject {
                         )
                     }
                     var updatedServers = plexAccounts[i].servers
-                    updatedServers[j] = PlexServerConfig(
-                        id: server.id,
-                        name: server.name,
-                        url: server.url,
-                        connections: server.connections,
-                        token: server.token,
-                        owned: server.owned,
-                        platform: server.platform,
-                        capabilities: server.capabilities,
-                        libraries: updatedLibraries
-                    )
-                    plexAccounts[i] = PlexAccountConfig(
-                        id: plexAccounts[i].id,
-                        email: plexAccounts[i].email,
-                        plexUsername: plexAccounts[i].plexUsername,
-                        displayTitle: plexAccounts[i].displayTitle,
-                        authToken: plexAccounts[i].authToken,
-                        authTokenMetadata: plexAccounts[i].authTokenMetadata,
-                        subscription: plexAccounts[i].subscription,
-                        servers: updatedServers
-                    )
+                    updatedServers[j] = server.replacing(libraries: updatedLibraries)
+                    plexAccounts[i] = plexAccounts[i].replacing(servers: updatedServers)
                     didChange = true
                 }
             }
@@ -351,29 +332,10 @@ public final class AccountManager: ObservableObject {
                     trackCount: library.trackCount
                 )
             }
-            return PlexServerConfig(
-                id: server.id,
-                name: server.name,
-                url: server.url,
-                connections: server.connections,
-                token: server.token,
-                owned: server.owned,
-                platform: server.platform,
-                capabilities: server.capabilities,
-                libraries: updatedLibraries
-            )
+            return server.replacing(libraries: updatedLibraries)
         }
 
-        return PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        return account.replacing(servers: updatedServers)
     }
 
     /// Apply the library selection embedded in synced source credentials.
@@ -411,29 +373,10 @@ public final class AccountManager: ObservableObject {
                     trackCount: library.trackCount
                 )
             }
-            return PlexServerConfig(
-                id: server.id,
-                name: server.name,
-                url: server.url,
-                connections: server.connections,
-                token: server.token,
-                owned: server.owned,
-                platform: server.platform,
-                capabilities: server.capabilities,
-                libraries: updatedLibraries
-            )
+            return server.replacing(libraries: updatedLibraries)
         }
 
-        return PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        return account.replacing(servers: updatedServers)
     }
 
     // MARK: - Account Management
@@ -494,31 +437,9 @@ public final class AccountManager: ObservableObject {
             libraryKey: updatedLibraries[libraryIndex].key
         )
 
-        // Create new server with updated libraries
         var updatedServers = account.servers
-        updatedServers[serverIndex] = PlexServerConfig(
-            id: server.id,
-            name: server.name,
-            url: server.url,
-            connections: server.connections,
-            token: server.token,
-            owned: server.owned,
-            platform: server.platform,
-            capabilities: server.capabilities,
-            libraries: updatedLibraries
-        )
-
-        // Create new account with updated servers
-        plexAccounts[accountIndex] = PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        updatedServers[serverIndex] = server.replacing(libraries: updatedLibraries)
+        plexAccounts[accountIndex] = account.replacing(servers: updatedServers)
 
         saveAccounts()
     }
@@ -561,28 +482,8 @@ public final class AccountManager: ObservableObject {
         )
 
         var updatedServers = account.servers
-        updatedServers[serverIndex] = PlexServerConfig(
-            id: server.id,
-            name: server.name,
-            url: server.url,
-            connections: server.connections,
-            token: server.token,
-            owned: server.owned,
-            platform: server.platform,
-            capabilities: server.capabilities,
-            libraries: updatedLibraries
-        )
-
-        plexAccounts[accountIndex] = PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        updatedServers[serverIndex] = server.replacing(libraries: updatedLibraries)
+        plexAccounts[accountIndex] = account.replacing(servers: updatedServers)
 
         let sourceId = MusicSourceIdentifier(
             type: .plex,
@@ -961,30 +862,11 @@ public final class AccountManager: ObservableObject {
             }
 
             guard updatedLibraries != server.libraries else { return server }
-            return PlexServerConfig(
-                id: server.id,
-                name: server.name,
-                url: server.url,
-                connections: server.connections,
-                token: server.token,
-                owned: server.owned,
-                platform: server.platform,
-                capabilities: server.capabilities,
-                libraries: updatedLibraries
-            )
+            return server.replacing(libraries: updatedLibraries)
         }
 
         guard didChange else { return account }
-        return PlexAccountConfig(
-            id: account.id,
-            email: account.email,
-            plexUsername: account.plexUsername,
-            displayTitle: account.displayTitle,
-            authToken: account.authToken,
-            authTokenMetadata: account.authTokenMetadata,
-            subscription: account.subscription,
-            servers: updatedServers
-        )
+        return account.replacing(servers: updatedServers)
     }
 
     private func localLibrariesByFlagKey(for accountId: String) -> [String: PlexLibraryConfig] {

@@ -46,6 +46,19 @@ public struct PlexAccountConfig: Codable, Sendable, Identifiable, Equatable {
         self.subscription = subscription
         self.servers = servers
     }
+
+    public func replacing(servers: [PlexServerConfig]) -> PlexAccountConfig {
+        PlexAccountConfig(
+            id: id,
+            email: email,
+            plexUsername: plexUsername,
+            displayTitle: displayTitle,
+            authToken: authToken,
+            authTokenMetadata: authTokenMetadata,
+            subscription: subscription,
+            servers: servers
+        )
+    }
 }
 
 public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
@@ -79,6 +92,24 @@ public struct PlexServerConfig: Codable, Sendable, Identifiable, Equatable {
         self.platform = platform
         self.capabilities = capabilities
         self.libraries = libraries
+    }
+
+    public func replacing(
+        url: String? = nil,
+        connections: [PlexConnectionConfig]? = nil,
+        libraries: [PlexLibraryConfig]? = nil
+    ) -> PlexServerConfig {
+        PlexServerConfig(
+            id: id,
+            name: name,
+            url: url ?? self.url,
+            connections: connections ?? self.connections,
+            token: token,
+            owned: owned,
+            platform: platform,
+            capabilities: capabilities,
+            libraries: libraries ?? self.libraries
+        )
     }
 
     // Custom Codable implementation to handle backward compatibility

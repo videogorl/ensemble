@@ -526,31 +526,15 @@ public final class ServerHealthChecker: ObservableObject {
             guard !refreshedConnections.isEmpty else { return nil }
 
             let refreshedURL = matchedDevice.bestConnection?.uri ?? refreshedConnections.first?.uri ?? existingServer.url
-            let refreshedServer = PlexServerConfig(
-                id: existingServer.id,
-                name: existingServer.name,
+            let refreshedServer = existingServer.replacing(
                 url: refreshedURL,
-                connections: refreshedConnections,
-                token: existingServer.token,
-                owned: existingServer.owned,
-                platform: existingServer.platform,
-                capabilities: existingServer.capabilities,
-                libraries: existingServer.libraries
+                connections: refreshedConnections
             )
 
             let updatedServers = account.servers.map { server in
                 server.id == serverId ? refreshedServer : server
             }
-            let updatedAccount = PlexAccountConfig(
-                id: account.id,
-                email: account.email,
-                plexUsername: account.plexUsername,
-                displayTitle: account.displayTitle,
-                authToken: account.authToken,
-                authTokenMetadata: account.authTokenMetadata,
-                subscription: account.subscription,
-                servers: updatedServers
-            )
+            let updatedAccount = account.replacing(servers: updatedServers)
             accountManager.updatePlexAccount(updatedAccount)
 
             let relayCount = refreshedConnections.filter { $0.relay ?? false }.count
