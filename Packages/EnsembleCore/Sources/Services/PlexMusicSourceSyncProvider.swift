@@ -156,27 +156,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let trackInputs = tracksToSync.map { track in
             let trackGenreNames = track.parentRatingKey.flatMap { incrementalAlbumGenres[$0] }
-            return TrackUpsertInput(
-                ratingKey: track.ratingKey,
-                key: track.key,
-                title: track.title,
-                artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
-                albumName: track.parentTitle,
-                albumRatingKey: track.parentRatingKey,
-                trackNumber: track.index,
-                discNumber: track.parentIndex,
-                duration: track.duration,
-                thumbPath: track.thumb ?? track.parentThumb,
-                streamKey: track.streamURL,
-                streamId: track.audioStreamId,
-                dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: track.userRating.map { Int($0) } ?? 0,
-                playCount: track.viewCount ?? 0,
-                genreNames: trackGenreNames,
-            )
+            return Self.trackUpsertInput(from: track, genreNames: trackGenreNames)
         }
         try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
@@ -335,6 +315,30 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             genreNames: album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
         )
     }
+
+    static func trackUpsertInput(from track: PlexTrack, genreNames: String?) -> TrackUpsertInput {
+        TrackUpsertInput(
+            ratingKey: track.ratingKey,
+            key: track.key,
+            title: track.title,
+            artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
+            albumName: track.parentTitle,
+            albumRatingKey: track.parentRatingKey,
+            trackNumber: track.index,
+            discNumber: track.parentIndex,
+            duration: track.duration,
+            thumbPath: track.thumb ?? track.parentThumb,
+            streamKey: track.streamURL,
+            streamId: track.audioStreamId,
+            dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            rating: track.userRating.map { Int($0) } ?? 0,
+            playCount: track.viewCount ?? 0,
+            genreNames: genreNames
+        )
+    }
     
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
@@ -391,27 +395,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let trackInputs = tracks.map { track in
             // Copy genre from parent album (Plex doesn't return genres on tracks)
             let trackGenreNames = track.parentRatingKey.flatMap { albumGenresByKey[$0] }
-            return TrackUpsertInput(
-                ratingKey: track.ratingKey,
-                key: track.key,
-                title: track.title,
-                artistName: track.originalTitle ?? track.grandparentTitle,  // Prefer track artist over album artist
-                albumName: track.parentTitle,
-                albumRatingKey: track.parentRatingKey,
-                trackNumber: track.index,
-                discNumber: track.parentIndex,
-                duration: track.duration,
-                thumbPath: track.thumb ?? track.parentThumb,
-                streamKey: track.streamURL,
-                streamId: track.audioStreamId,
-                dateAdded: track.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastPlayed: track.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastRatedAt: track.lastRatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                rating: track.userRating.map { Int($0) } ?? 0,
-                playCount: track.viewCount ?? 0,
-                genreNames: trackGenreNames
-            )
+            return Self.trackUpsertInput(from: track, genreNames: trackGenreNames)
         }
         try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 

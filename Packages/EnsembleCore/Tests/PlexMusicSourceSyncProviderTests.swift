@@ -1,3 +1,4 @@
+import EnsembleAPI
 import XCTest
 @testable import EnsembleCore
 
@@ -112,6 +113,68 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(changes.changedItems, [ratingOnly])
+    }
+
+    func testTrackUpsertInputPreservesPlexTrackMetadata() throws {
+        let data = Data("""
+        {
+            "ratingKey": "track-1",
+            "key": "/library/metadata/track-1",
+            "parentRatingKey": "album-1",
+            "grandparentRatingKey": "artist-1",
+            "title": "Track One",
+            "parentTitle": "Album One",
+            "grandparentTitle": "Album Artist",
+            "originalTitle": "Track Artist",
+            "index": 3,
+            "parentIndex": 2,
+            "duration": 181000,
+            "parentThumb": "/library/metadata/album-1/thumb",
+            "addedAt": 100,
+            "updatedAt": 200,
+            "lastViewedAt": 300,
+            "lastRatedAt": 400,
+            "userRating": 8,
+            "viewCount": 5,
+            "Media": [
+                {
+                    "id": 10,
+                    "Part": [
+                        {
+                            "id": 20,
+                            "key": "/library/parts/20/file.flac",
+                            "Stream": [
+                                { "id": 30, "streamType": 2, "codec": "flac" }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+        """.utf8)
+        let track = try JSONDecoder().decode(PlexTrack.self, from: data)
+
+        let input = PlexMusicSourceSyncProvider.trackUpsertInput(from: track, genreNames: "Rock, Pop")
+
+        XCTAssertEqual(input.ratingKey, "track-1")
+        XCTAssertEqual(input.key, "/library/metadata/track-1")
+        XCTAssertEqual(input.title, "Track One")
+        XCTAssertEqual(input.artistName, "Track Artist")
+        XCTAssertEqual(input.albumName, "Album One")
+        XCTAssertEqual(input.albumRatingKey, "album-1")
+        XCTAssertEqual(input.trackNumber, 3)
+        XCTAssertEqual(input.discNumber, 2)
+        XCTAssertEqual(input.duration, 181_000)
+        XCTAssertEqual(input.thumbPath, "/library/metadata/album-1/thumb")
+        XCTAssertEqual(input.streamKey, "/library/parts/20/file.flac")
+        XCTAssertEqual(input.streamId, 30)
+        XCTAssertEqual(input.dateAdded, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(input.dateModified, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(input.lastPlayed, Date(timeIntervalSince1970: 300))
+        XCTAssertEqual(input.lastRatedAt, Date(timeIntervalSince1970: 400))
+        XCTAssertEqual(input.rating, 8)
+        XCTAssertEqual(input.playCount, 5)
+        XCTAssertEqual(input.genreNames, "Rock, Pop")
     }
 
     func testPlaylistOrphanCheckRunsWhenPlaylistsChanged() {
