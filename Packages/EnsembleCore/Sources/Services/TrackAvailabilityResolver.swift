@@ -124,7 +124,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
         // Download state changes — use deferred bump (5s) since download completions
         // don't affect playability of other tracks, only download icons/offline availability.
         // This prevents 8+ separate re-render cascades during bulk download sessions.
-        NotificationCenter.default.publisher(for: Notification.Name("OfflineDownloadsDidChange"))
+        NotificationCenter.default.publisher(for: OfflineDownloadService.downloadsDidChange)
             .sink { [weak self] _ in
                 self?.bumpGenerationDeferred()
             }
