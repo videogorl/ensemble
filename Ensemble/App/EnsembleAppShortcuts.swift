@@ -429,7 +429,6 @@ struct PlayEnsembleAlbumIntent: AppIntent {
 struct PlayEnsemblePlaylistIntent: AppIntent {
     static var title: LocalizedStringResource = "Play Playlist in Ensemble"
     static var description = IntentDescription("Plays a specific playlist from your Ensemble library.")
-    static var isDiscoverable: Bool = false
     static var openAppWhenRun: Bool = true
 
     @Parameter(title: "Playlist")
@@ -513,6 +512,17 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Play Artist",
             systemImageName: "music.mic"
+        )
+
+        AppShortcut(
+            intent: PlayEnsemblePlaylistIntent(),
+            phrases: [
+                "Play playlist \(\.$playlist) on \(.applicationName)",
+                "Play the playlist \(\.$playlist) on \(.applicationName)",
+                "In \(.applicationName), play playlist \(\.$playlist)"
+            ],
+            shortTitle: "Play Playlist",
+            systemImageName: "music.note.list"
         )
 
     }
