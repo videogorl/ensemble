@@ -45,12 +45,7 @@ extension PlexAPIClient {
 
     /// Get library sections
     public func getLibrarySections() async throws -> [PlexLibrarySection] {
-        let data = try await serverRequest(path: "/library/sections")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexLibrarySection>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await mediaContainerItems(path: "/library/sections")
     }
 
     /// Get music library section - uses selected library if available, otherwise first music library
@@ -80,40 +75,25 @@ extension PlexAPIClient {
             query["X-Plex-Container-Start"] = "0"
             query["X-Plex-Container-Size"] = String(limit)
         }
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: query)
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexArtist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        return try await mediaContainerItems(path: "/library/sections/\(sectionKey)/all", query: query)
     }
 
     /// Get artists added or updated after a specific timestamp (incremental sync)
     public func getArtists(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexArtist] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: ["type": "8", "addedAt>=": String(unixTime)]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexArtist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get artists updated after a specific timestamp (incremental sync)
     public func getArtists(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexArtist] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: ["type": "8", "updatedAt>=": String(unixTime)]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexArtist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get all albums in a library section
@@ -128,50 +108,30 @@ extension PlexAPIClient {
             query["X-Plex-Container-Start"] = "0"
             query["X-Plex-Container-Size"] = String(limit)
         }
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/all", query: query)
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexAlbum>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        return try await mediaContainerItems(path: "/library/sections/\(sectionKey)/all", query: query)
     }
 
     /// Get albums added or updated after a specific timestamp (incremental sync)
     public func getAlbums(sectionKey: String, addedAfter timestamp: TimeInterval) async throws -> [PlexAlbum] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: ["type": "9", "addedAt>=": String(unixTime)]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexAlbum>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get albums updated after a specific timestamp (incremental sync)
     public func getAlbums(sectionKey: String, updatedAfter timestamp: TimeInterval) async throws -> [PlexAlbum] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: ["type": "9", "updatedAt>=": String(unixTime)]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexAlbum>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get albums by an artist
     public func getArtistAlbums(artistKey: String) async throws -> [PlexAlbum] {
-        let data = try await serverRequest(path: "/library/metadata/\(artistKey)/children")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexAlbum>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await mediaContainerItems(path: "/library/metadata/\(artistKey)/children")
     }
 
     /// Get all albums credited to an artist within a library section.
@@ -191,15 +151,10 @@ extension PlexAPIClient {
 
     /// Get album format filter values exposed by a music library, e.g. Album, EP, Single.
     public func getAlbumFormatFilters(sectionKey: String) async throws -> [PlexLibraryFilterValue] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/format",
             query: ["type": "9"]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexLibraryFilterValue>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get albums credited to an artist and constrained to a specific Plex album format.
@@ -287,44 +242,29 @@ extension PlexAPIClient {
 
     /// Get tracks in an album
     public func getAlbumTracks(albumKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/metadata/\(albumKey)/children",
             query: [
                 "includeMedia": "1",
                 "includeElements": "Media"
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get all tracks by an artist
     public func getArtistTracks(artistKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(path: "/library/metadata/\(artistKey)/allLeaves")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await mediaContainerItems(path: "/library/metadata/\(artistKey)/allLeaves")
     }
 
     /// Get genres in a library section
     public func getGenres(sectionKey: String) async throws -> [PlexGenre] {
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/genre")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexGenre>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await mediaContainerItems(path: "/library/sections/\(sectionKey)/genre")
     }
 
     /// Get all artist ratingKeys in a library section (minimal response)
     /// Uses includeFields=ratingKey to reduce response size significantly
     public func getArtistInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: [
                 "type": "8",
@@ -332,16 +272,11 @@ extension PlexAPIClient {
                 "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexInventoryItem>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get all album ratingKeys in a library section (minimal response)
     public func getAlbumInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: [
                 "type": "9",
@@ -349,11 +284,6 @@ extension PlexAPIClient {
                 "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexInventoryItem>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get all track ratingKeys in a library section (minimal response)
@@ -370,38 +300,23 @@ extension PlexAPIClient {
 
     /// Get moods in a library section
     public func getMoods(sectionKey: String) async throws -> [PlexMood] {
-        let data = try await serverRequest(path: "/library/sections/\(sectionKey)/mood")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexMood>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await mediaContainerItems(path: "/library/sections/\(sectionKey)/mood")
     }
 
     /// Get tracks by genre
     public func getTracksByGenre(sectionKey: String, genreKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: ["type": "10", "genre": genreKey]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get tracks by mood
     public func getTracksByMood(sectionKey: String, moodKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
             query: ["type": "10", "mood": moodKey]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get all hubs for a library section (Recently Added, Recently Played, etc.)
@@ -452,25 +367,15 @@ extension PlexAPIClient {
 
     /// Get items for a specific hub
     public func getHubItems(hubKey: String) async throws -> [PlexHubMetadata] {
-        let data = try await serverRequest(path: hubKey)
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexHubMetadata>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        try await mediaContainerItems(path: hubKey)
     }
 
     /// Search library
     public func search(query: String, sectionKey: String) async throws -> [PlexTrack] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/search",
             query: ["type": "10", "query": query]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Rate a track (0 = no rating, 2 = 1 star, 4 = 2 stars, ..., 10 = 5 stars)

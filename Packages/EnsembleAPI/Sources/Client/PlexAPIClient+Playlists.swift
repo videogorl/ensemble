@@ -13,17 +13,12 @@ extension PlexAPIClient {
             query["X-Plex-Container-Start"] = "0"
             query["X-Plex-Container-Size"] = String(limit)
         }
-        let data = try await serverRequest(path: "/playlists", query: query)
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexPlaylist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
+        return try await mediaContainerItems(path: "/playlists", query: query)
     }
 
     /// Get playlist inventory (just ratingKeys) for orphan detection
     public func getPlaylistInventory() async throws -> [PlexInventoryItem] {
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/playlists",
             query: [
                 "playlistType": "audio",
@@ -31,39 +26,24 @@ extension PlexAPIClient {
                 "excludeElements": "Media"
             ]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexInventoryItem>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get playlists added after a specific timestamp (incremental sync)
     public func getPlaylists(addedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/playlists",
             query: ["playlistType": "audio", "addedAt>=": String(unixTime)]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexPlaylist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get playlists updated after a specific timestamp (incremental sync)
     public func getPlaylists(updatedAfter timestamp: TimeInterval) async throws -> [PlexPlaylist] {
         let unixTime = Int(timestamp)
-        let data = try await serverRequest(
+        return try await mediaContainerItems(
             path: "/playlists",
             query: ["playlistType": "audio", "updatedAt>=": String(unixTime)]
         )
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexPlaylist>.self,
-            from: data
-        )
-        return container.mediaContainer.items
     }
 
     /// Get playlist tracks
