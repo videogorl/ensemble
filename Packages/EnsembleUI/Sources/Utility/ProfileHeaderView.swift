@@ -83,7 +83,9 @@ public struct ProfileHeaderView: View {
             LocalProfileImage(
                 url: imageURL,
                 reloadToken: profileStore.profile.lastModified
-            )
+            ) {
+                EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.ProfileHeader.imageLoadingOpacity)
+            }
                 .frame(
                     width: EnsembleScaffold.ProfileHeader.imageDimension,
                     height: EnsembleScaffold.ProfileHeader.imageDimension
@@ -116,47 +118,6 @@ public struct ProfileHeaderView: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-    }
-}
-
-// MARK: - Local Profile Image Loader
-
-/// Loads a profile image from a local file URL using platform-native APIs
-private struct LocalProfileImage: View {
-    let url: URL
-    let reloadToken: Date
-    @State private var image: Image?
-
-    var body: some View {
-        Group {
-            if let image = image {
-                image
-                    .renderingMode(.original)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                EnsembleDesign.Color.secondaryText.opacity(EnsembleScaffold.ProfileHeader.imageLoadingOpacity)
-            }
-        }
-        .onAppear { loadImage() }
-        .onChange(of: url) { _ in loadImage() }
-        .onChange(of: reloadToken) { _ in loadImage() }
-    }
-
-    private func loadImage() {
-        #if canImport(UIKit)
-        if let uiImage = UIImage(contentsOfFile: url.path) {
-            image = Image(uiImage: uiImage)
-        } else {
-            image = nil
-        }
-        #elseif canImport(AppKit)
-        if let nsImage = NSImage(contentsOf: url) {
-            image = Image(nsImage: nsImage)
-        } else {
-            image = nil
-        }
-        #endif
     }
 }
 

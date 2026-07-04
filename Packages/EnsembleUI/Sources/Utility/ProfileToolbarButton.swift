@@ -27,58 +27,24 @@ public struct ProfileToolbarButton: View {
     @ViewBuilder
     private var profileImage: some View {
         if let imageURL = profileStore.profileImageURL {
-            LocalToolbarProfileImage(
+            LocalProfileImage(
                 url: imageURL,
                 reloadToken: profileStore.profile.lastModified
-            )
+            ) {
+                toolbarPlaceholder
+            }
                 .frame(
                     width: EnsembleScaffold.ProfileToolbar.imageDimension,
                     height: EnsembleScaffold.ProfileToolbar.imageDimension
                 )
                 .clipShape(Circle())
         } else {
-            Image(systemName: EnsembleDesign.Icon.profilePlaceholder)
-                .font(EnsembleDesign.Typography.detailSubtitle)
+            toolbarPlaceholder
         }
     }
-}
 
-/// Loads a small profile image for toolbar display using platform-native APIs
-private struct LocalToolbarProfileImage: View {
-    let url: URL
-    let reloadToken: Date
-    @State private var image: Image?
-
-    var body: some View {
-        Group {
-            if let image = image {
-                image
-                    .renderingMode(.original)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Image(systemName: EnsembleDesign.Icon.profilePlaceholder)
-                    .font(EnsembleDesign.Typography.detailSubtitle)
-            }
-        }
-        .onAppear { loadImage() }
-        .onChange(of: url) { _ in loadImage() }
-        .onChange(of: reloadToken) { _ in loadImage() }
-    }
-
-    private func loadImage() {
-        #if canImport(UIKit)
-        if let uiImage = UIImage(contentsOfFile: url.path) {
-            image = Image(uiImage: uiImage)
-        } else {
-            image = nil
-        }
-        #elseif canImport(AppKit)
-        if let nsImage = NSImage(contentsOf: url) {
-            image = Image(nsImage: nsImage)
-        } else {
-            image = nil
-        }
-        #endif
+    private var toolbarPlaceholder: some View {
+        Image(systemName: EnsembleDesign.Icon.profilePlaceholder)
+            .font(EnsembleDesign.Typography.detailSubtitle)
     }
 }
