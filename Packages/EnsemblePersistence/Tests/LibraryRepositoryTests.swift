@@ -591,6 +591,40 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(removedTrack)
     }
 
+    func testSyncMetadataLookupsUseDirectSourceScope() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+        let dateA = Date(timeIntervalSince1970: 1_000)
+        let dateB = Date(timeIntervalSince1970: 2_000)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: dateA)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: dateB)
+        ], sourceCompositeKey: sourceB)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: dateA)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", dateModified: dateA, rating: 5)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", dateModified: dateB, rating: 1)
+        ], sourceCompositeKey: sourceB)
+
+        let artistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceA)
+        let albumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceA)
+        let trackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceA)
+        let trackRatings = try await repository.fetchTrackRatings(forSource: sourceA)
+
+        XCTAssertEqual(artistTimestamps, ["artist": dateA])
+        XCTAssertEqual(albumTimestamps, ["album": dateA])
+        XCTAssertEqual(trackTimestamps, ["track": dateA])
+        XCTAssertEqual(trackRatings, ["track": 5])
+    }
+
     private func makeAlbumInput(
         ratingKey: String,
         thumbPath: String?,
@@ -631,7 +665,11 @@ final class LibraryRepositoryTests: XCTestCase {
         )
     }
 
-    private func makeTrackInput(ratingKey: String) -> TrackUpsertInput {
+    private func makeTrackInput(
+        ratingKey: String,
+        dateModified: Date? = nil,
+        rating: Int? = nil
+    ) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: ratingKey,
             key: "/library/metadata/\(ratingKey)",
@@ -646,9 +684,9 @@ final class LibraryRepositoryTests: XCTestCase {
             streamKey: nil,
             streamId: nil,
             dateAdded: nil,
-            dateModified: nil,
+            dateModified: dateModified,
             lastPlayed: nil,
-            rating: nil,
+            rating: rating,
             playCount: nil,
             genreNames: nil
         )

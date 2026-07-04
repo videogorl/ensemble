@@ -325,7 +325,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     request.propertiesToFetch = ["ratingKey", "dateModified"]
                     let artists = try context.fetch(request)
                     var result: [String: Date] = [:]
@@ -348,7 +348,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     request.propertiesToFetch = ["ratingKey", "dateModified"]
                     let albums = try context.fetch(request)
                     var result: [String: Date] = [:]
@@ -371,7 +371,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     request.propertiesToFetch = ["ratingKey", "dateModified"]
                     let tracks = try context.fetch(request)
                     var result: [String: Date] = [:]
@@ -394,7 +394,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     request.propertiesToFetch = ["ratingKey", "rating"]
                     let tracks = try context.fetch(request)
                     var result: [String: Int16] = [:]
