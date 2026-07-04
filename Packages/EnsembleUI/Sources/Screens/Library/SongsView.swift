@@ -178,13 +178,7 @@ public struct SongsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Songs",
             iconSystemName: EnsembleDesign.Icon.musicNote,
-            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
-                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
-                hasAnySources: libraryVM.hasAnySources,
-                isSyncing: libraryVM.isSyncing,
-                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
-                emptyMessage: "No songs found in enabled libraries"
-            ),
+            recovery: libraryVM.emptyStateRecovery(message: "No songs found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )

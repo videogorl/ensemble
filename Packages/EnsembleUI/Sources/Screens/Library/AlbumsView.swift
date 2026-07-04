@@ -128,13 +128,7 @@ public struct AlbumsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Albums",
             iconSystemName: EnsembleDesign.Icon.album,
-            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
-                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
-                hasAnySources: libraryVM.hasAnySources,
-                isSyncing: libraryVM.isSyncing,
-                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
-                emptyMessage: "No albums found in enabled libraries"
-            ),
+            recovery: libraryVM.emptyStateRecovery(message: "No albums found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )

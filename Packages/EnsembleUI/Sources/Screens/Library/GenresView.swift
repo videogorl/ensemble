@@ -125,13 +125,7 @@ public struct GenresView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Genres",
             iconSystemName: EnsembleDesign.Icon.genreEmpty,
-            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
-                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
-                hasAnySources: libraryVM.hasAnySources,
-                isSyncing: libraryVM.isSyncing,
-                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
-                emptyMessage: "No genres found in enabled libraries"
-            ),
+            recovery: libraryVM.emptyStateRecovery(message: "No genres found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )

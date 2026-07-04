@@ -275,13 +275,7 @@ public struct ArtistsView: View {
         EnsembleLibraryEmptyStateScaffold(
             title: "No Artists",
             iconSystemName: EnsembleDesign.Icon.artists,
-            recovery: EnsembleLibraryEmptyStateScaffold.recovery(
-                isRestoringCloudSources: libraryVM.isRestoringCloudSources,
-                hasAnySources: libraryVM.hasAnySources,
-                isSyncing: libraryVM.isSyncing,
-                hasEnabledLibraries: libraryVM.hasEnabledLibraries,
-                emptyMessage: "No artists found in enabled libraries"
-            ),
+            recovery: libraryVM.emptyStateRecovery(message: "No artists found in enabled libraries"),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
         )
