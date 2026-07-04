@@ -14,8 +14,8 @@ public struct InfoCard: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(PlaybackSettingsPreference.streamingQualityKey)
-    private var streamingQuality: String = PlaybackSettingsPreference.defaultStreamingQuality
+    @AppStorage(AudioQualityPreference.streamingQualityKey)
+    private var streamingQuality: String = AudioQualityPreference.defaultStreamingQuality
 
     // Metadata fetched asynchronously when the card becomes renderable.
     @State private var fetchedAlbum: Album?

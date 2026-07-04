@@ -108,7 +108,7 @@ final class PlaybackTransportCoordinator {
     }
 
     private func resolvePlaybackSourceImpl(for track: Track, startTime: TimeInterval) async throws -> PlaybackSource {
-        let qualityString = PlaybackSettingsPreference.storedStreamingQuality()
+        let qualityString = AudioQualityPreference.storedStreamingQuality()
         let quality = StreamingQuality(rawValue: qualityString) ?? .high
         let normalizedStartTime = normalizedStartTime(startTime)
 

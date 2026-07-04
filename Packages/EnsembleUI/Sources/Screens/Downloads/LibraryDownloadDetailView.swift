@@ -7,7 +7,8 @@ import SwiftUI
 struct LibraryDownloadDetailView: View {
     @StateObject private var viewModel: LibraryDownloadDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
 
     init(
         sourceCompositeKey: String,

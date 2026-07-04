@@ -4,7 +4,8 @@ import SwiftUI
 public struct DownloadManagerSettingsView: View {
     @StateObject private var viewModel: DownloadManagerSettingsViewModel
     @Environment(\.dependencies) private var deps
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
     @AppStorage("allowCellularDownloads") private var allowCellularDownloads = false
     @State private var showRemoveAllConfirmation = false
 

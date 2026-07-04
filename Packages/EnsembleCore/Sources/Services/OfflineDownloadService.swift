@@ -1759,7 +1759,7 @@ public final class OfflineDownloadService: ObservableObject {
     // MARK: - Helpers
 
     private func currentDownloadQuality() -> String {
-        let raw = UserDefaults.standard.string(forKey: "downloadQuality") ?? "high"
+        let raw = AudioQualityPreference.storedDownloadQuality()
         switch raw {
         case "original", "high", "medium", "low":
             return raw

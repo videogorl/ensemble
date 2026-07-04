@@ -15,8 +15,8 @@ final class PlaybackSettingsObserverTests: XCTestCase {
         let defaults = makeDefaults()
         defaults.set(false, forKey: "auroraVisualizationEnabled")
         defaults.set(
-            PlaybackSettingsPreference.defaultStreamingQuality,
-            forKey: PlaybackSettingsPreference.streamingQualityKey
+            AudioQualityPreference.defaultStreamingQuality,
+            forKey: AudioQualityPreference.streamingQualityKey
         )
 
         let observer = PlaybackSettingsObserver(defaults: defaults)
@@ -27,15 +27,15 @@ final class PlaybackSettingsObserverTests: XCTestCase {
     func testPollChangesReportsOnlyChangedSettings() {
         let defaults = makeDefaults()
         defaults.set(
-            PlaybackSettingsPreference.defaultStreamingQuality,
-            forKey: PlaybackSettingsPreference.streamingQualityKey
+            AudioQualityPreference.defaultStreamingQuality,
+            forKey: AudioQualityPreference.streamingQualityKey
         )
         let observer = PlaybackSettingsObserver(defaults: defaults)
 
         defaults.set(false, forKey: "auroraVisualizationEnabled")
         XCTAssertEqual(observer.pollChanges(), PlaybackSettingsChange(visualizerEnabled: false, streamingQuality: nil))
 
-        defaults.set("low", forKey: PlaybackSettingsPreference.streamingQualityKey)
+        defaults.set("low", forKey: AudioQualityPreference.streamingQualityKey)
         XCTAssertEqual(observer.pollChanges(), PlaybackSettingsChange(visualizerEnabled: nil, streamingQuality: "low"))
     }
 
@@ -43,8 +43,17 @@ final class PlaybackSettingsObserverTests: XCTestCase {
         let defaults = makeDefaults()
 
         XCTAssertEqual(
-            PlaybackSettingsPreference.storedStreamingQuality(in: defaults),
-            PlaybackSettingsPreference.defaultStreamingQuality
+            AudioQualityPreference.storedStreamingQuality(in: defaults),
+            AudioQualityPreference.defaultStreamingQuality
+        )
+    }
+
+    func testStoredDownloadQualityDefaultsToHighWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertEqual(
+            AudioQualityPreference.storedDownloadQuality(in: defaults),
+            AudioQualityPreference.defaultDownloadQuality
         )
     }
 

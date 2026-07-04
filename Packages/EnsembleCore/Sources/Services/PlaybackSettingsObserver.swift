@@ -1,14 +1,5 @@
 import Foundation
 
-public enum PlaybackSettingsPreference {
-    public static let streamingQualityKey = "streamingQuality"
-    public static let defaultStreamingQuality = "high"
-
-    public static func storedStreamingQuality(in defaults: UserDefaults = .standard) -> String {
-        defaults.string(forKey: streamingQualityKey) ?? defaultStreamingQuality
-    }
-}
-
 struct PlaybackSettingsChange: Equatable {
     let visualizerEnabled: Bool?
     let streamingQuality: String?
@@ -33,7 +24,7 @@ final class PlaybackSettingsObserver {
         self.defaults = defaults
         self.notificationCenter = notificationCenter
         self.lastKnownVisualizerEnabled = Self.visualizerEnabled(in: defaults)
-        self.lastObservedStreamingQuality = PlaybackSettingsPreference.storedStreamingQuality(in: defaults)
+        self.lastObservedStreamingQuality = AudioQualityPreference.storedStreamingQuality(in: defaults)
     }
 
     deinit {
@@ -78,7 +69,7 @@ final class PlaybackSettingsObserver {
             changedVisualizerEnabled = nil
         }
 
-        let streamingQuality = PlaybackSettingsPreference.storedStreamingQuality(in: defaults)
+        let streamingQuality = AudioQualityPreference.storedStreamingQuality(in: defaults)
         let changedStreamingQuality: String?
         if streamingQuality != lastObservedStreamingQuality {
             lastObservedStreamingQuality = streamingQuality

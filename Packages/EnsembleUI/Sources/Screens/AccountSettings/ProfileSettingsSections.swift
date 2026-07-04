@@ -20,9 +20,10 @@ struct MusicSourceAccountRow: View {
 // MARK: - Audio Quality Settings
 
 struct AudioQualitySettingsView: View {
-    @AppStorage(PlaybackSettingsPreference.streamingQualityKey)
-    private var streamingQuality = PlaybackSettingsPreference.defaultStreamingQuality
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @AppStorage(AudioQualityPreference.streamingQualityKey)
+    private var streamingQuality = AudioQualityPreference.defaultStreamingQuality
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Audio Quality") {

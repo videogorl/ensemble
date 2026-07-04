@@ -14,7 +14,8 @@ public struct DownloadTargetDetailView: View {
     @State private var isRedownloading = false
     @State private var isRemovingDownload = false
     @State private var isShowingRemoveDownloadConfirmation = false
-    @AppStorage("downloadQuality") private var downloadQuality = "high"
+    @AppStorage(AudioQualityPreference.downloadQualityKey)
+    private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
 
     public init(summary: DownloadedItemSummary, nowPlayingVM: NowPlayingViewModel) {
         _viewModel = StateObject(

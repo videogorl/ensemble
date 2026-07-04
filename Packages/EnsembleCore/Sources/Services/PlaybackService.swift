@@ -2524,7 +2524,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
             return nil
         }
-        return PlaybackSettingsPreference.storedStreamingQuality()
+        return AudioQualityPreference.storedStreamingQuality()
     }
 
     /// Creates a QueueItem stamped with the current streaming quality
@@ -5592,7 +5592,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let result = await queueController.refreshDownloadState(
             queue: &queue,
             currentQueueIndex: currentQueueIndex,
-            fallbackStreamingQuality: PlaybackSettingsPreference.storedStreamingQuality(),
+            fallbackStreamingQuality: AudioQualityPreference.storedStreamingQuality(),
             localFilePathForTrack: { [downloadManager] track in
                 try? await downloadManager.getLocalFilePath(
                     forTrackRatingKey: track.id,
