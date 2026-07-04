@@ -60,42 +60,75 @@ private final class OfflineDownloadBackgroundEventStore {
     }
 }
 
+@MainActor
+class OfflineBackgroundExecutionCoordinatorBase: OfflineDownloadBackgroundCoordinating {
+    var onExecutionRequested: (() -> Void)? {
+        get { eventStore.onExecutionRequested }
+        set { eventStore.onExecutionRequested = newValue }
+    }
+
+    var onExpiration: (() -> Void)? {
+        get { eventStore.onExpiration }
+        set { eventStore.onExpiration = newValue }
+    }
+
+    var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
+        get { eventStore.onBackgroundURLSessionEvents }
+        set { eventStore.onBackgroundURLSessionEvents = newValue }
+    }
+
+    var onSystemWillSleep: (() -> Void)? {
+        get { eventStore.onSystemWillSleep }
+        set { eventStore.onSystemWillSleep = newValue }
+    }
+
+    var onSystemDidWake: (() -> Void)? {
+        get { eventStore.onSystemDidWake }
+        set { eventStore.onSystemDidWake = newValue }
+    }
+
+    fileprivate let eventStore = OfflineDownloadBackgroundEventStore()
+
+    init() {}
+
+    func register() {}
+    func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
+    func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
+    func finishCurrentTask(success: Bool) {}
+
+    func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
+        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
+    }
+
+    func completeBackgroundURLSessionEvents(identifier: String) {
+        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
+    }
+
+    func handleSystemWillSleep() {
+        eventStore.handleSystemWillSleep()
+    }
+
+    func handleSystemDidWake() {
+        eventStore.handleSystemDidWake()
+    }
+}
+
 #if os(iOS) && canImport(BackgroundTasks)
 import BackgroundTasks
 import UIKit
 
 @MainActor
-public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
-    public var onExecutionRequested: (() -> Void)? {
-        get { eventStore.onExecutionRequested }
-        set { eventStore.onExecutionRequested = newValue }
-    }
-    public var onExpiration: (() -> Void)? {
-        get { eventStore.onExpiration }
-        set { eventStore.onExpiration = newValue }
-    }
-    public var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
-        get { eventStore.onBackgroundURLSessionEvents }
-        set { eventStore.onBackgroundURLSessionEvents = newValue }
-    }
-    public var onSystemWillSleep: (() -> Void)? {
-        get { eventStore.onSystemWillSleep }
-        set { eventStore.onSystemWillSleep = newValue }
-    }
-    public var onSystemDidWake: (() -> Void)? {
-        get { eventStore.onSystemDidWake }
-        set { eventStore.onSystemDidWake = newValue }
-    }
-
+final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinatorBase {
     private static let continuedTaskIdentifier = "com.videogorl.ensemble.offline.continued"
-    private let eventStore = OfflineDownloadBackgroundEventStore()
     private var currentTask: AnyObject?
     private var applicationBackgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var didRegister = false
 
-    public init() {}
+    override init() {
+        super.init()
+    }
 
-    public func register() {
+    override func register() {
         guard #available(iOS 26.0, *) else { return }
         guard !didRegister else { return }
 
@@ -135,7 +168,7 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         EnsembleLogger.debug("📦 Offline BG registration \(registered ? "succeeded" : "failed")")
     }
 
-    public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
+    override func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {
         guard pendingTrackCount > 0 else { return }
         beginApplicationBackgroundTaskIfNeeded()
 
@@ -164,7 +197,7 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         }
     }
 
-    public func setProgress(completedUnitCount: Int, totalUnitCount: Int) {
+    override func setProgress(completedUnitCount: Int, totalUnitCount: Int) {
         guard #available(iOS 26.0, *) else { return }
         guard let currentTask = currentTask as? BGContinuedProcessingTask else { return }
 
@@ -177,28 +210,12 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         )
     }
 
-    public func finishCurrentTask(success: Bool) {
+    override func finishCurrentTask(success: Bool) {
         if #available(iOS 26.0, *) {
             (currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: success)
             currentTask = nil
         }
         endApplicationBackgroundTaskIfNeeded()
-    }
-
-    public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
-        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
-    }
-
-    public func completeBackgroundURLSessionEvents(identifier: String) {
-        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
-    }
-
-    public func handleSystemWillSleep() {
-        eventStore.handleSystemWillSleep()
-    }
-
-    public func handleSystemDidWake() {
-        eventStore.handleSystemDidWake()
     }
 
     private func beginApplicationBackgroundTaskIfNeeded() {
@@ -225,33 +242,13 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
 import AppKit
 
 @MainActor
-public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
-    public var onExecutionRequested: (() -> Void)? {
-        get { eventStore.onExecutionRequested }
-        set { eventStore.onExecutionRequested = newValue }
-    }
-    public var onExpiration: (() -> Void)? {
-        get { eventStore.onExpiration }
-        set { eventStore.onExpiration = newValue }
-    }
-    public var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
-        get { eventStore.onBackgroundURLSessionEvents }
-        set { eventStore.onBackgroundURLSessionEvents = newValue }
-    }
-    public var onSystemWillSleep: (() -> Void)? {
-        get { eventStore.onSystemWillSleep }
-        set { eventStore.onSystemWillSleep = newValue }
-    }
-    public var onSystemDidWake: (() -> Void)? {
-        get { eventStore.onSystemDidWake }
-        set { eventStore.onSystemDidWake = newValue }
-    }
-
-    private let eventStore = OfflineDownloadBackgroundEventStore()
+final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinatorBase {
     private var didRegister = false
     private var workspaceObservers: [NSObjectProtocol] = []
 
-    public init() {}
+    override init() {
+        super.init()
+    }
 
     deinit {
         let observers = workspaceObservers
@@ -262,7 +259,7 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         }
     }
 
-    public func register() {
+    override func register() {
         guard !didRegister else { return }
         didRegister = true
 
@@ -289,75 +286,11 @@ public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgro
         ]
         EnsembleLogger.debug("📦 Offline download macOS sleep/wake recovery registered")
     }
-
-    public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
-    public func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
-    public func finishCurrentTask(success: Bool) {}
-    public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
-        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
-    }
-
-    public func completeBackgroundURLSessionEvents(identifier: String) {
-        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
-    }
-
-    public func handleSystemWillSleep() {
-        eventStore.handleSystemWillSleep()
-    }
-
-    public func handleSystemDidWake() {
-        eventStore.handleSystemDidWake()
-    }
 }
 
 #else
 
 @MainActor
-public final class OfflineBackgroundExecutionCoordinator: OfflineDownloadBackgroundCoordinating {
-    public var onExecutionRequested: (() -> Void)? {
-        get { eventStore.onExecutionRequested }
-        set { eventStore.onExecutionRequested = newValue }
-    }
-    public var onExpiration: (() -> Void)? {
-        get { eventStore.onExpiration }
-        set { eventStore.onExpiration = newValue }
-    }
-    public var onBackgroundURLSessionEvents: ((_ identifier: String, _ completion: @escaping () -> Void) -> Void)? {
-        get { eventStore.onBackgroundURLSessionEvents }
-        set { eventStore.onBackgroundURLSessionEvents = newValue }
-    }
-    public var onSystemWillSleep: (() -> Void)? {
-        get { eventStore.onSystemWillSleep }
-        set { eventStore.onSystemWillSleep = newValue }
-    }
-    public var onSystemDidWake: (() -> Void)? {
-        get { eventStore.onSystemDidWake }
-        set { eventStore.onSystemDidWake = newValue }
-    }
-
-    private let eventStore = OfflineDownloadBackgroundEventStore()
-
-    public init() {}
-
-    public func register() {}
-    public func requestContinuedProcessingIfAvailable(pendingTrackCount: Int) {}
-    public func setProgress(completedUnitCount: Int, totalUnitCount: Int) {}
-    public func finishCurrentTask(success: Bool) {}
-    public func handleBackgroundURLSessionEvents(identifier: String, completionHandler: @escaping () -> Void) {
-        eventStore.handleBackgroundURLSessionEvents(identifier: identifier, completionHandler: completionHandler)
-    }
-
-    public func completeBackgroundURLSessionEvents(identifier: String) {
-        eventStore.completeBackgroundURLSessionEvents(identifier: identifier)
-    }
-
-    public func handleSystemWillSleep() {
-        eventStore.handleSystemWillSleep()
-    }
-
-    public func handleSystemDidWake() {
-        eventStore.handleSystemDidWake()
-    }
-}
+final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoordinatorBase {}
 
 #endif
