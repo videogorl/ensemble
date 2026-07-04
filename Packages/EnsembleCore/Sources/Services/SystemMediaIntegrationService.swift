@@ -114,23 +114,6 @@ public protocol SystemMediaIntegrationServiceProtocol: AnyObject {
     func updateMediaUserContext() async
 }
 
-@MainActor
-public final class NoOpSystemMediaIntegrationService: SystemMediaIntegrationServiceProtocol {
-    public init() {}
-
-    public func donatePlaybackStart(
-        reference: SystemMediaReference,
-        shuffle: Bool,
-        origin: PlaybackStartOrigin
-    ) async {}
-
-    public func refreshSpotlightIndex() async {}
-
-    public func deleteUnavailableSystemMedia(_ references: [SystemMediaReference]) async {}
-
-    public func updateMediaUserContext() async {}
-}
-
 protocol SystemSpotlightIndexing: AnyObject {
     var isIndexingAvailable: Bool { get }
     func indexSearchableItems(_ items: [CSSearchableItem]) async throws
