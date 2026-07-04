@@ -51,10 +51,10 @@ protocol PlaybackRemoteCommandCenter: AnyObject {
     var dislikeCommand: PlaybackFeedbackCommand { get }
 }
 
-private final class LivePlaybackRemoteCommand: PlaybackRemoteCommand {
-    private let command: MPRemoteCommand
+private class LivePlaybackRemoteCommandAdapter<Command: MPRemoteCommand>: PlaybackRemoteCommand {
+    let command: Command
 
-    init(_ command: MPRemoteCommand) {
+    init(_ command: Command) {
         self.command = command
     }
 
@@ -73,84 +73,30 @@ private final class LivePlaybackRemoteCommand: PlaybackRemoteCommand {
     }
 }
 
-private final class LivePlaybackFeedbackCommand: PlaybackFeedbackCommand {
-    private let command: MPFeedbackCommand
-
-    init(_ command: MPFeedbackCommand) {
-        self.command = command
-    }
-
-    var isEnabled: Bool {
-        get { command.isEnabled }
-        set { command.isEnabled = newValue }
-    }
-
+private final class LivePlaybackFeedbackCommand: LivePlaybackRemoteCommandAdapter<MPFeedbackCommand>, PlaybackFeedbackCommand {
     var isActive: Bool {
         get { command.isActive }
         set { command.isActive = newValue }
     }
-
-    @discardableResult
-    func addTarget(handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) -> Any {
-        command.addTarget(handler: handler)
-    }
-
-    func removeTarget(_ target: Any) {
-        command.removeTarget(target)
-    }
 }
 
-private final class LivePlaybackChangeShuffleModeCommand: PlaybackChangeShuffleModeCommand {
-    private let command: MPChangeShuffleModeCommand
-
-    init(_ command: MPChangeShuffleModeCommand) {
-        self.command = command
-    }
-
-    var isEnabled: Bool {
-        get { command.isEnabled }
-        set { command.isEnabled = newValue }
-    }
-
+private final class LivePlaybackChangeShuffleModeCommand:
+    LivePlaybackRemoteCommandAdapter<MPChangeShuffleModeCommand>,
+    PlaybackChangeShuffleModeCommand
+{
     var currentShuffleType: MPShuffleType {
         get { command.currentShuffleType }
         set { command.currentShuffleType = newValue }
     }
-
-    @discardableResult
-    func addTarget(handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) -> Any {
-        command.addTarget(handler: handler)
-    }
-
-    func removeTarget(_ target: Any) {
-        command.removeTarget(target)
-    }
 }
 
-private final class LivePlaybackChangeRepeatModeCommand: PlaybackChangeRepeatModeCommand {
-    private let command: MPChangeRepeatModeCommand
-
-    init(_ command: MPChangeRepeatModeCommand) {
-        self.command = command
-    }
-
-    var isEnabled: Bool {
-        get { command.isEnabled }
-        set { command.isEnabled = newValue }
-    }
-
+private final class LivePlaybackChangeRepeatModeCommand:
+    LivePlaybackRemoteCommandAdapter<MPChangeRepeatModeCommand>,
+    PlaybackChangeRepeatModeCommand
+{
     var currentRepeatType: MPRepeatType {
         get { command.currentRepeatType }
         set { command.currentRepeatType = newValue }
-    }
-
-    @discardableResult
-    func addTarget(handler: @escaping (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) -> Any {
-        command.addTarget(handler: handler)
-    }
-
-    func removeTarget(_ target: Any) {
-        command.removeTarget(target)
     }
 }
 
@@ -169,12 +115,12 @@ private final class LivePlaybackRemoteCommandCenter: PlaybackRemoteCommandCenter
 
     init(center: MPRemoteCommandCenter = .shared()) {
         self.center = center
-        self.playCommand = LivePlaybackRemoteCommand(center.playCommand)
-        self.pauseCommand = LivePlaybackRemoteCommand(center.pauseCommand)
-        self.togglePlayPauseCommand = LivePlaybackRemoteCommand(center.togglePlayPauseCommand)
-        self.nextTrackCommand = LivePlaybackRemoteCommand(center.nextTrackCommand)
-        self.previousTrackCommand = LivePlaybackRemoteCommand(center.previousTrackCommand)
-        self.changePlaybackPositionCommand = LivePlaybackRemoteCommand(center.changePlaybackPositionCommand)
+        self.playCommand = LivePlaybackRemoteCommandAdapter(center.playCommand)
+        self.pauseCommand = LivePlaybackRemoteCommandAdapter(center.pauseCommand)
+        self.togglePlayPauseCommand = LivePlaybackRemoteCommandAdapter(center.togglePlayPauseCommand)
+        self.nextTrackCommand = LivePlaybackRemoteCommandAdapter(center.nextTrackCommand)
+        self.previousTrackCommand = LivePlaybackRemoteCommandAdapter(center.previousTrackCommand)
+        self.changePlaybackPositionCommand = LivePlaybackRemoteCommandAdapter(center.changePlaybackPositionCommand)
         self.changeRepeatModeCommand = LivePlaybackChangeRepeatModeCommand(center.changeRepeatModeCommand)
         self.changeShuffleModeCommand = LivePlaybackChangeShuffleModeCommand(center.changeShuffleModeCommand)
         self.likeCommand = LivePlaybackFeedbackCommand(center.likeCommand)
