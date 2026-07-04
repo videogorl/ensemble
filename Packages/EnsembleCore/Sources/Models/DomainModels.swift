@@ -148,6 +148,14 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         MediaFormatters.trackClock(duration)
     }
 
+    public func withRating(_ rating: Int) -> Track {
+        copy(rating: rating)
+    }
+
+    public func withLocalFilePath(_ localFilePath: String?) -> Track {
+        copy(localFilePath: localFilePath, useLocalFilePathOverride: true)
+    }
+
     /// Stable UI identity that distinguishes the same Plex rating key across sources.
     public var sourceScopedID: String {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
@@ -195,6 +203,40 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         }
 
         return URL(fileURLWithPath: rawPath).deletingPathExtension().lastPathComponent.nonEmpty
+    }
+
+    private func copy(
+        rating: Int? = nil,
+        localFilePath: String? = nil,
+        useLocalFilePathOverride: Bool = false
+    ) -> Track {
+        Track(
+            id: id,
+            key: key,
+            title: title,
+            artistName: artistName,
+            albumArtistName: albumArtistName,
+            albumName: albumName,
+            albumRatingKey: albumRatingKey,
+            artistRatingKey: artistRatingKey,
+            trackNumber: trackNumber,
+            discNumber: discNumber,
+            duration: duration,
+            thumbPath: thumbPath,
+            fallbackThumbPath: fallbackThumbPath,
+            fallbackRatingKey: fallbackRatingKey,
+            streamKey: streamKey,
+            streamId: streamId,
+            localFilePath: useLocalFilePathOverride ? localFilePath : self.localFilePath,
+            dateAdded: dateAdded,
+            dateModified: dateModified,
+            lastPlayed: lastPlayed,
+            lastRatedAt: lastRatedAt,
+            rating: rating ?? self.rating,
+            playCount: playCount,
+            genres: genres,
+            sourceCompositeKey: sourceCompositeKey
+        )
     }
 }
 

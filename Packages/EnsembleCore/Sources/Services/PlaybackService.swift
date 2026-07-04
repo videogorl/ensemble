@@ -2480,13 +2480,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func applyTrackRatingLocally(track: Track, rating: Int) {
         let identity = track.sourceScopedID
         if let currentTrack, currentTrack.sourceScopedID == identity {
-            self.currentTrack = trackWithRating(currentTrack, rating: rating)
+            self.currentTrack = currentTrack.withRating(rating)
         }
         queue = queue.map { item in
             guard item.track.sourceScopedID == identity else { return item }
             return QueueItem(
                 id: item.id,
-                track: trackWithRating(item.track, rating: rating),
+                track: item.track.withRating(rating),
                 source: item.source,
                 streamingQuality: item.streamingQuality
             )
@@ -2495,7 +2495,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard item.track.sourceScopedID == identity else { return item }
             return QueueItem(
                 id: item.id,
-                track: trackWithRating(item.track, rating: rating),
+                track: item.track.withRating(rating),
                 source: item.source,
                 streamingQuality: item.streamingQuality
             )
@@ -2504,14 +2504,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard item.track.sourceScopedID == identity else { return item }
             return QueueItem(
                 id: item.id,
-                track: trackWithRating(item.track, rating: rating),
+                track: item.track.withRating(rating),
                 source: item.source,
                 streamingQuality: item.streamingQuality
             )
         }
         autoplayTracks = autoplayTracks.map { track in
             guard track.sourceScopedID == identity else { return track }
-            return trackWithRating(track, rating: rating)
+            return track.withRating(rating)
         }
     }
 
@@ -2918,7 +2918,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 if persistedPath == track.localFilePath {
                     return track
                 }
-                return trackWithLocalFilePath(track, localFilePath: persistedPath)
+                return track.withLocalFilePath(persistedPath)
             }
         } catch {
             EnsembleLogger.debug(
@@ -5972,47 +5972,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    private func trackWithRating(_ track: Track, rating: Int) -> Track {
-        trackWith(track, rating: rating)
-    }
-
-    private func trackWithLocalFilePath(_ track: Track, localFilePath: String?) -> Track {
-        trackWith(track, localFilePath: localFilePath, useLocalFilePathOverride: true)
-    }
-
-    private func trackWith(
-        _ track: Track,
-        rating: Int? = nil,
-        localFilePath: String? = nil,
-        useLocalFilePathOverride: Bool = false
-    ) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumName: track.albumName,
-            albumRatingKey: track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: track.thumbPath,
-            fallbackThumbPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: useLocalFilePathOverride ? localFilePath : track.localFilePath,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: rating ?? track.rating,
-            playCount: track.playCount,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
-    }
-
     // MARK: - State Restoration
 
     /// Save playback state to UserDefaults.
@@ -6166,7 +6125,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         return track
                     }
 
-                    let resolvedTrack = trackWithLocalFilePath(track, localFilePath: persistedPath)
+                    let resolvedTrack = track.withLocalFilePath(persistedPath)
                     applyTrackRefresh(resolvedTrack, replacing: track)
 
                     EnsembleLogger.debug(
@@ -6188,7 +6147,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         guard track.localFilePath != nil else { return track }
 
-        let clearedTrack = trackWithLocalFilePath(track, localFilePath: nil)
+        let clearedTrack = track.withLocalFilePath(nil)
         applyTrackRefresh(clearedTrack, replacing: track)
         return clearedTrack
     }

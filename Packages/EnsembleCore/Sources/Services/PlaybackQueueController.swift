@@ -110,7 +110,7 @@ final class PlaybackQueueController {
 
             queue[i] = QueueItem(
                 id: queue[i].id,
-                track: trackByUpdatingLocalFilePath(track, localFilePath: currentPath),
+                track: track.withLocalFilePath(currentPath),
                 source: queue[i].source,
                 streamingQuality: currentPath == nil ? fallbackStreamingQuality : nil
             )
@@ -143,35 +143,5 @@ final class PlaybackQueueController {
 
     func loadSnapshot() -> PlaybackQueueSnapshot? {
         queueStore.load()
-    }
-
-    private func trackByUpdatingLocalFilePath(_ track: Track, localFilePath: String?) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumArtistName: track.albumArtistName,
-            albumName: track.albumName,
-            albumRatingKey: track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: track.thumbPath,
-            fallbackThumbPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: localFilePath,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: track.rating,
-            playCount: track.playCount,
-            genres: track.genres,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
     }
 }

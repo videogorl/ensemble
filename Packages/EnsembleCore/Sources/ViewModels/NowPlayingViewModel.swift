@@ -1758,7 +1758,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     private func applyCurrentTrackRatingIfNeeded(track: Track, rating: Int) {
         guard let currentTrack, currentTrack.sourceScopedID == track.sourceScopedID else { return }
-        self.currentTrack = trackWithRating(currentTrack, rating: rating)
+        self.currentTrack = currentTrack.withRating(rating)
         currentRating = TrackRating.from(rating: rating)
     }
 
@@ -1775,7 +1775,7 @@ public final class NowPlayingViewModel: ObservableObject {
     private func trackWithDisplayRating(_ track: Track) -> Track {
         let displayRating = trackDisplayRating(for: track)
         guard displayRating != track.rating else { return track }
-        return trackWithRating(track, rating: displayRating)
+        return track.withRating(displayRating)
     }
 
     private func tracksWithDisplayRatings(_ tracks: [Track]) -> [Track] {
@@ -1805,31 +1805,4 @@ public final class NowPlayingViewModel: ObservableObject {
         MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
-    private func trackWithRating(_ track: Track, rating: Int) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumName: track.albumName,
-            albumRatingKey: track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: track.thumbPath,
-            fallbackThumbPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: track.localFilePath,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: rating,
-            playCount: track.playCount,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
-    }
 }
