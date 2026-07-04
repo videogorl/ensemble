@@ -100,6 +100,40 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotEqual(downloadA?.objectID, downloadB?.objectID)
     }
 
+    func testCountDownloadsSupportsAllAndSourceScopedCounts() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+
+        try await seedTrack(ratingKey: "100", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "101", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "100", sourceCompositeKey: sourceB, repository: libraryRepository)
+
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "100",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "101",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "100",
+            sourceCompositeKey: sourceB,
+            quality: "high"
+        )
+
+        let allCount = try await downloadManager.countDownloads()
+        let sourceACount = try await downloadManager.countDownloads(forSourceCompositeKey: sourceA)
+        let sourceBCount = try await downloadManager.countDownloads(forSourceCompositeKey: sourceB)
+
+        XCTAssertEqual(allCount, 3)
+        XCTAssertEqual(sourceACount, 2)
+        XCTAssertEqual(sourceBCount, 1)
+    }
+
     func testDeletingCompletedDuplicateSourcePreservesOtherDownloadAndLocalPath() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)

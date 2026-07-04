@@ -117,7 +117,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     private func cleanupAll(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
         let startedAt = Date()
         async let libraryItemCount = countAllLibraryItems()
-        async let downloadRecordCount = downloadManager.fetchDownloads().count
+        async let downloadRecordCount = downloadManager.countDownloads()
         async let targetCount = countAllTargets()
         async let artworkItemCount = countArtworkItems()
         let counts = try await (
@@ -162,7 +162,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         for sourceKey in sourceKeys {
             async let sourceArtworkKeys = fetchArtworkRatingKeys(sourceKey)
             async let sourceLibraryItems = countLibraryItemsForSource(sourceKey)
-            async let sourceDownloads = downloadManager.fetchDownloads(forSourceCompositeKey: sourceKey).count
+            async let sourceDownloads = downloadManager.countDownloads(forSourceCompositeKey: sourceKey)
             async let sourceTargets = countTargetsForSource(sourceKey)
 
             let sourceCounts = try await (

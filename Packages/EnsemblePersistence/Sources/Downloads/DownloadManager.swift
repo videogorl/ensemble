@@ -24,6 +24,7 @@ public enum DownloadError: Error, LocalizedError {
 
 public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloads() async throws -> [CDDownload]
+    func countDownloads() async throws -> Int
     func fetchPendingDownloads() async throws -> [CDDownload]
     func countPendingDownloads() async throws -> Int
     /// Atomically claim the next pending download by setting its status to `.downloading`.
@@ -36,6 +37,7 @@ public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload]
     /// Fetch all downloads whose track belongs to the given library (by sourceCompositeKey)
     func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload]
+    func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int
 
     func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload
     func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload
@@ -74,8 +76,16 @@ public protocol DownloadManagerProtocol: Sendable {
 
 // Convenience defaults for lightweight protocol conformers.
 public extension DownloadManagerProtocol {
+    func countDownloads() async throws -> Int {
+        try await fetchDownloads().count
+    }
+
     func countPendingDownloads() async throws -> Int {
         try await fetchPendingDownloads().count
+    }
+
+    func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int {
+        try await fetchDownloads(forSourceCompositeKey: sourceCompositeKey).count
     }
 
     func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status) async throws {
@@ -195,6 +205,20 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     }
 
                     continuation.resume(returning: downloads)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countDownloads() async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                do {
+                    continuation.resume(returning: try context.count(for: request))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -351,6 +375,24 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 do {
                     let downloads = try context.fetch(request)
                     continuation.resume(returning: downloads)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDDownload.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "track.sourceCompositeKey == %@",
+                    sourceCompositeKey
+                )
+                do {
+                    continuation.resume(returning: try context.count(for: request))
                 } catch {
                     continuation.resume(throwing: error)
                 }
