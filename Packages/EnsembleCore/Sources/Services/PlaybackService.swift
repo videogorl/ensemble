@@ -1144,7 +1144,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let queueStore: PlaybackQueueStore
     private let queueController: PlaybackQueueController
     private let prefetchController: PlaybackPrefetchController
-    private let smartMixAnalysisService: SmartMixAnalysisProviding
+    private let smartMixAnalysisService: SmartMixAnalysisService
     private let nowPlayingBridge: PlaybackNowPlayingBridge
     private let audioSessionCoordinator: PlaybackAudioSessionCoordinator
     private let startupCoordinator: PlaybackStartupCoordinator

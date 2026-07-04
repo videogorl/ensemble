@@ -42,7 +42,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let cacheManager: CacheManager
     public let sourceCacheCleanupService: SourceCacheCleaning
     public let homeHubLoader: HomeHubLoaderProtocol
-    public let backgroundRefreshCoordinator: BackgroundRefreshCoordinating
+    public let backgroundRefreshCoordinator: BackgroundRefreshCoordinator
     public let navigationCoordinator: NavigationCoordinator
     public let appReadinessCoordinator: AppReadinessCoordinator
     public let foregroundWorkScheduler: ForegroundWorkScheduler

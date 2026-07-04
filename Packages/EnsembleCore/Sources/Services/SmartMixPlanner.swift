@@ -459,17 +459,13 @@ public enum SmartMixTempoEstimator {
     }
 }
 
-public protocol SmartMixAnalysisProviding: AnyObject {
-    func analysis(for trackId: String, fileURL: URL) async -> SmartMixAnalysis
-}
-
 private actor SmartMixSerialAnalyzer {
     func analysis(fileURL: URL) -> SmartMixAnalysis {
         SmartMixAnalysisService.analyze(fileURL: fileURL)
     }
 }
 
-public final class SmartMixAnalysisService: SmartMixAnalysisProviding {
+public final class SmartMixAnalysisService {
     private static let serialAnalyzer = SmartMixSerialAnalyzer()
 
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?

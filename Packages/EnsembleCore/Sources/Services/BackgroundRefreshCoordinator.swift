@@ -19,13 +19,8 @@ public struct BackgroundRefreshResult: Sendable, Equatable {
     public var succeeded: Bool { errorDescriptions.isEmpty }
 }
 
-public protocol BackgroundRefreshCoordinating: AnyObject {
-    @MainActor @discardableResult func performAppRefresh() async -> BackgroundRefreshResult
-    @MainActor @discardableResult func performForegroundFreshnessRefresh() async -> BackgroundRefreshResult
-}
-
 /// Runs the app's lightweight freshness path from both background tasks and foreground launch.
-public final class BackgroundRefreshCoordinator: BackgroundRefreshCoordinating {
+public final class BackgroundRefreshCoordinator {
     public typealias AsyncStep = @MainActor @Sendable () async throws -> Void
     public typealias FeedStep = @MainActor @Sendable () async throws -> Bool
     public typealias SiriIndexStep = @MainActor @Sendable () async throws -> Bool
