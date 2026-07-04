@@ -6,7 +6,7 @@ import SwiftUI
 /// with swipe-to-delete, and navigation to view individual log contents.
 public struct LogsSettingsView: View {
     @ObservedObject private var logService = DependencyContainer.shared.persistentLogService
-    @State private var isLoggingEnabled: Bool = UserDefaults.standard.bool(forKey: "persistentLoggingEnabled")
+    @State private var isLoggingEnabled: Bool = DependencyContainer.shared.persistentLogService.isEnabled
 
     public init() {}
 

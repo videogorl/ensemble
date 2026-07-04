@@ -6,7 +6,8 @@ import XCTest
 final class PersistentLogServiceTests: XCTestCase {
     func testReEnablingLoggingStartsANewSession() {
         let defaults = UserDefaults.standard
-        let originalValue = defaults.object(forKey: "persistentLoggingEnabled")
+        let key = PersistentLogService.enabledDefaultsKey
+        let originalValue = defaults.object(forKey: key)
         let service = PersistentLogService()
         service.loadSessions()
         let existingFiles = Set(service.sessions.map(\.fileURL))
@@ -26,9 +27,9 @@ final class PersistentLogServiceTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         if let originalValue {
-            defaults.set(originalValue, forKey: "persistentLoggingEnabled")
+            defaults.set(originalValue, forKey: key)
         } else {
-            defaults.removeObject(forKey: "persistentLoggingEnabled")
+            defaults.removeObject(forKey: key)
         }
     }
 }
