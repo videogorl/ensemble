@@ -218,6 +218,15 @@ public struct PlexConnectionConfig: Codable, Sendable, Equatable {
         self.port = port
         self.protocol = `protocol`
     }
+
+    public var endpointDescriptor: PlexEndpointDescriptor {
+        PlexEndpointDescriptor(
+            url: uri,
+            local: local,
+            relay: relay ?? false,
+            secure: `protocol` == "https" || uri.lowercased().hasPrefix("https://")
+        )
+    }
 }
 
 public struct PlexLibraryConfig: Codable, Sendable, Identifiable, Equatable {

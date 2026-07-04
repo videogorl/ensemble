@@ -318,14 +318,7 @@ public final class ServerHealthChecker: ObservableObject {
         }
 
         let allowInsecurePolicy = currentAllowInsecureConnectionsPolicy()
-        let endpoints = server.orderedConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
+        let endpoints = server.orderedConnections.map(\.endpointDescriptor)
         let connectionURLs = endpoints.map(\.url)
 
         guard !connectionURLs.isEmpty else {
@@ -370,14 +363,7 @@ public final class ServerHealthChecker: ObservableObject {
                 serverId: serverId,
                 serverKey: serverKey
             ) {
-                let refreshedEndpoints = refreshedServer.orderedConnections.map { connection in
-                    PlexEndpointDescriptor(
-                        url: connection.uri,
-                        local: connection.local,
-                        relay: connection.relay ?? false,
-                        secure: connection.protocol == "https"
-                    )
-                }
+                let refreshedEndpoints = refreshedServer.orderedConnections.map(\.endpointDescriptor)
                 EnsembleLogger.debug(
                     "🔄 ServerHealthChecker: Retrying with refreshed resources (\(refreshedEndpoints.count) URLs)"
                 )
@@ -425,14 +411,7 @@ public final class ServerHealthChecker: ObservableObject {
     }
 
     private func classifyFailureReason(for server: PlexServerConfig) async -> ServerConnectionFailureReason {
-        let endpoints = server.orderedConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
+        let endpoints = server.orderedConnections.map(\.endpointDescriptor)
         let localEndpoints = endpoints.filter { $0.local && !$0.relay }
         let remoteEndpoints = endpoints.filter { !$0.local && !$0.relay }
         let relayEndpoints = endpoints.filter(\.relay)

@@ -643,14 +643,7 @@ public final class AccountManager: ObservableObject {
             "makeAPIClient: creating client serverId=\(server.id) endpoints=\(orderedConnections.count)"
         )
 
-        let endpointDescriptors = orderedConnections.map { connection in
-            PlexEndpointDescriptor(
-                url: connection.uri,
-                local: connection.local,
-                relay: connection.relay ?? false,
-                secure: connection.protocol == "https"
-            )
-        }
+        let endpointDescriptors = orderedConnections.map(\.endpointDescriptor)
 
         let primaryURL = endpointDescriptors.first?.url ?? server.url
         let alternativeURLs = endpointDescriptors
