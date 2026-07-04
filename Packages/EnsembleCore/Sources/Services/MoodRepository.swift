@@ -1,15 +1,8 @@
 import EnsemblePersistence
 import Foundation
 
-/// Protocol for mood repository operations
-public protocol MoodRepositoryProtocol: Sendable {
-    func fetchMoods() async throws -> [Mood]
-    func saveMoods(_ moods: [Mood]) async throws
-    func deleteAllMoods() async throws
-}
-
 /// Repository for managing cached mood data
-public final class MoodRepository: MoodRepositoryProtocol, @unchecked Sendable {
+public final class MoodRepository: @unchecked Sendable {
     private let coreDataStack: CoreDataStack
 
     public init(coreDataStack: CoreDataStack) {

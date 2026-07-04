@@ -60,7 +60,7 @@ public final class SearchViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let hubRepository: HubRepositoryProtocol
-    private let moodRepository: MoodRepositoryProtocol
+    private let moodRepository: MoodRepository
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private var searchTask: Task<Void, Never>?
@@ -84,7 +84,7 @@ public final class SearchViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         hubRepository: HubRepositoryProtocol,
-        moodRepository: MoodRepositoryProtocol,
+        moodRepository: MoodRepository,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil
     ) {

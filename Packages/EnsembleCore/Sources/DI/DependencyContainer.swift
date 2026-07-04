@@ -26,7 +26,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let libraryRepository: LibraryRepositoryProtocol
     public let playlistRepository: PlaylistRepositoryProtocol
     public let hubRepository: HubRepositoryProtocol
-    public let moodRepository: MoodRepositoryProtocol
+    public let moodRepository: MoodRepository
     public let downloadManager: DownloadManagerProtocol
     public let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
     public let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -118,7 +118,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let libraryRepository: LibraryRepositoryProtocol
         let playlistRepository: PlaylistRepositoryProtocol
         let hubRepository: HubRepositoryProtocol
-        let moodRepository: MoodRepositoryProtocol
+        let moodRepository: MoodRepository
         let downloadManager: DownloadManagerProtocol
         let offlineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol
         let artworkDownloadManager: ArtworkDownloadManagerProtocol
