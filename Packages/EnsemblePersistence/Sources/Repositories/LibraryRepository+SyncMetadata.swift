@@ -261,80 +261,54 @@ extension LibraryRepository {
     // MARK: - Orphan Removal
 
     public func removeOrphanedArtists(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    request.predicate = Self.orphanPredicate(
-                        sourceKey: sourceKey,
-                        validRatingKeys: validRatingKeys
-                    )
-                    let localArtists = try context.fetch(request)
-
-                    var removedCount = 0
-                    for artist in localArtists {
-                        if !validRatingKeys.contains(artist.ratingKey) {
-                            context.delete(artist)
-                            removedCount += 1
-                        }
-                    }
-
-                    if removedCount > 0 {
-                        try context.save()
-                    }
-                    continuation.resume(returning: removedCount)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+        return try await removeOrphanedItems(
+            request: request,
+            validRatingKeys: validRatingKeys,
+            sourceKey: sourceKey,
+            ratingKey: { $0.ratingKey }
+        )
     }
 
     public func removeOrphanedAlbums(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    request.predicate = Self.orphanPredicate(
-                        sourceKey: sourceKey,
-                        validRatingKeys: validRatingKeys
-                    )
-                    let localAlbums = try context.fetch(request)
-
-                    var removedCount = 0
-                    for album in localAlbums {
-                        if !validRatingKeys.contains(album.ratingKey) {
-                            context.delete(album)
-                            removedCount += 1
-                        }
-                    }
-
-                    if removedCount > 0 {
-                        try context.save()
-                    }
-                    continuation.resume(returning: removedCount)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
+        let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+        return try await removeOrphanedItems(
+            request: request,
+            validRatingKeys: validRatingKeys,
+            sourceKey: sourceKey,
+            ratingKey: { $0.ratingKey }
+        )
     }
 
     public func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int {
+        let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+        return try await removeOrphanedItems(
+            request: request,
+            validRatingKeys: validRatingKeys,
+            sourceKey: sourceKey,
+            ratingKey: { $0.ratingKey }
+        )
+    }
+
+    private func removeOrphanedItems<Item: NSManagedObject>(
+        request: NSFetchRequest<Item>,
+        validRatingKeys: Set<String>,
+        sourceKey: String,
+        ratingKey: @escaping (Item) -> String
+    ) async throws -> Int {
         try await withCheckedThrowingContinuation { continuation in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
                     request.predicate = Self.orphanPredicate(
                         sourceKey: sourceKey,
                         validRatingKeys: validRatingKeys
                     )
-                    let localTracks = try context.fetch(request)
+                    let localItems = try context.fetch(request)
 
                     var removedCount = 0
-                    for track in localTracks {
-                        if !validRatingKeys.contains(track.ratingKey) {
-                            context.delete(track)
+                    for item in localItems {
+                        if !validRatingKeys.contains(ratingKey(item)) {
+                            context.delete(item)
                             removedCount += 1
                         }
                     }
