@@ -4,18 +4,14 @@ import Foundation
 extension LibraryRepository {
     // MARK: - Tracks
 
-    public func fetchTracks() async throws -> [CDTrack] {
+    private func fetchTracks(configure: @escaping (NSFetchRequest<CDTrack>) -> Void) async throws -> [CDTrack] {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDTrack.fetchRequest()
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
-                ]
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+                configure(request)
                 do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
+                    continuation.resume(returning: try context.fetch(request))
                 } catch {
                     continuation.resume(throwing: error)
                 }
@@ -23,27 +19,30 @@ extension LibraryRepository {
         }
     }
 
+    private func fetchFirstTrack(configure: @escaping (NSFetchRequest<CDTrack>) -> Void) async throws -> CDTrack? {
+        try await fetchTracks(configure: configure).first
+    }
+
+    public func fetchTracks() async throws -> [CDTrack] {
+        try await fetchTracks { request in
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
+            ]
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+        }
+    }
+
     public func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                    NSSortDescriptor(key: "albumName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                    NSSortDescriptor(key: "discNumber", ascending: true),
-                    NSSortDescriptor(key: "trackNumber", ascending: true)
-                ]
-                request.fetchBatchSize = 50
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+                NSSortDescriptor(key: "albumName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+                NSSortDescriptor(key: "discNumber", ascending: true),
+                NSSortDescriptor(key: "trackNumber", ascending: true)
+            ]
+            request.fetchBatchSize = 50
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
 
@@ -63,147 +62,86 @@ extension LibraryRepository {
     }
 
     public func fetchSiriEligibleTracks() async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                // Favorite tracks (rating >= 8) OR any tracks with play count/last played.
-                request.predicate = NSPredicate(format: "rating >= 8 OR playCount > 0 OR lastPlayed != nil")
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "lastPlayed", ascending: false),
-                    NSSortDescriptor(key: "playCount", ascending: false),
-                    NSSortDescriptor(key: "rating", ascending: false)
-                ]
-                request.fetchLimit = 2000
-                request.relationshipKeyPathsForPrefetching = ["album"]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            // Favorite tracks (rating >= 8) OR any tracks with play count/last played.
+            request.predicate = NSPredicate(format: "rating >= 8 OR playCount > 0 OR lastPlayed != nil")
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "lastPlayed", ascending: false),
+                NSSortDescriptor(key: "playCount", ascending: false),
+                NSSortDescriptor(key: "rating", ascending: false)
+            ]
+            request.fetchLimit = 2000
+            request.relationshipKeyPathsForPrefetching = ["album"]
         }
     }
 
     public func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(format: "album.ratingKey == %@", albumRatingKey)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "discNumber", ascending: true),
-                    NSSortDescriptor(key: "trackNumber", ascending: true)
-                ]
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            request.predicate = NSPredicate(format: "album.ratingKey == %@", albumRatingKey)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "discNumber", ascending: true),
+                NSSortDescriptor(key: "trackNumber", ascending: true)
+            ]
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
 
     public func fetchTracks(forAlbum albumRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(
-                    format: "album.ratingKey == %@ AND sourceCompositeKey == %@",
-                    albumRatingKey,
-                    sourceCompositeKey
-                )
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "discNumber", ascending: true),
-                    NSSortDescriptor(key: "trackNumber", ascending: true)
-                ]
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            request.predicate = NSPredicate(
+                format: "album.ratingKey == %@ AND sourceCompositeKey == %@",
+                albumRatingKey,
+                sourceCompositeKey
+            )
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "discNumber", ascending: true),
+                NSSortDescriptor(key: "trackNumber", ascending: true)
+            ]
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
 
     public func fetchTracks(forArtist artistRatingKey: String) async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(format: "album.artist.ratingKey == %@", artistRatingKey)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "album.year", ascending: false),
-                    NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                    NSSortDescriptor(key: "discNumber", ascending: true),
-                    NSSortDescriptor(key: "trackNumber", ascending: true)
-                ]
-                request.fetchBatchSize = 50
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            request.predicate = NSPredicate(format: "album.artist.ratingKey == %@", artistRatingKey)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "album.year", ascending: false),
+                NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+                NSSortDescriptor(key: "discNumber", ascending: true),
+                NSSortDescriptor(key: "trackNumber", ascending: true)
+            ]
+            request.fetchBatchSize = 50
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
 
     public func fetchTracks(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                request.predicate = NSPredicate(
-                    format: "album.artist.ratingKey == %@ AND sourceCompositeKey == %@",
-                    artistRatingKey,
-                    sourceCompositeKey
-                )
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "album.year", ascending: false),
-                    NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
-                    NSSortDescriptor(key: "discNumber", ascending: true),
-                    NSSortDescriptor(key: "trackNumber", ascending: true)
-                ]
-                request.fetchBatchSize = 50
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            request.predicate = NSPredicate(
+                format: "album.artist.ratingKey == %@ AND sourceCompositeKey == %@",
+                artistRatingKey,
+                sourceCompositeKey
+            )
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "album.year", ascending: false),
+                NSSortDescriptor(key: "album.title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
+                NSSortDescriptor(key: "discNumber", ascending: true),
+                NSSortDescriptor(key: "trackNumber", ascending: true)
+            ]
+            request.fetchBatchSize = 50
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
 
     public func fetchFavoriteTracks() async throws -> [CDTrack] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                // Rating 8+ is 4+ stars
-                request.predicate = NSPredicate(format: "rating >= 8")
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
-                ]
-                do {
-                    let tracks = try context.fetch(request)
-                    continuation.resume(returning: tracks)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await fetchTracks { request in
+            // Rating 8+ is 4+ stars
+            request.predicate = NSPredicate(format: "rating >= 8")
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
+            ]
         }
     }
-
     public func fetchFavoriteTracksSnapshot() throws -> [CDTrack] {
         let context = coreDataStack.viewContext
         var result: Result<[CDTrack], Error>!
@@ -227,26 +165,16 @@ extension LibraryRepository {
     }
 
     public func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                if let sourceCompositeKey {
-                    request.predicate = NSPredicate(
-                        format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                        ratingKey,
-                        sourceCompositeKey
-                    )
-                } else {
-                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                    request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
-                }
-                do {
-                    let track = try context.fetch(request).first
-                    continuation.resume(returning: track)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await fetchFirstTrack { request in
+            if let sourceCompositeKey {
+                request.predicate = NSPredicate(
+                    format: "ratingKey == %@ AND sourceCompositeKey == %@",
+                    ratingKey,
+                    sourceCompositeKey
+                )
+            } else {
+                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
             }
         }
     }
@@ -258,47 +186,36 @@ extension LibraryRepository {
         excludingRatingKey: String,
         excludingSourceCompositeKey: String?
     ) async throws -> CDTrack? {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDTrack.fetchRequest()
-                var predicates: [NSPredicate] = [
-                    NSPredicate(format: "title ==[c] %@", title),
-                    NSPredicate(format: "thumbPath != nil OR album.thumbPath != nil")
-                ]
+        try await fetchFirstTrack { request in
+            var predicates: [NSPredicate] = [
+                NSPredicate(format: "title ==[c] %@", title),
+                NSPredicate(format: "thumbPath != nil OR album.thumbPath != nil")
+            ]
 
-                if let albumName, !albumName.isEmpty {
-                    predicates.append(NSPredicate(format: "albumName ==[c] %@", albumName))
-                }
-
-                if let artistName, !artistName.isEmpty {
-                    predicates.append(NSPredicate(format: "artistName ==[c] %@", artistName))
-                }
-
-                if let excludingSourceCompositeKey {
-                    predicates.append(NSPredicate(
-                        format: "NOT (ratingKey == %@ AND sourceCompositeKey == %@)",
-                        excludingRatingKey,
-                        excludingSourceCompositeKey
-                    ))
-                } else {
-                    predicates.append(NSPredicate(format: "ratingKey != %@", excludingRatingKey))
-                }
-
-                request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
-                request.sortDescriptors = [
-                    NSSortDescriptor(key: "updatedAt", ascending: false)
-                ]
-                request.fetchLimit = 20
-                request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
-
-                do {
-                    let track = try context.fetch(request).first
-                    continuation.resume(returning: track)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            if let albumName, !albumName.isEmpty {
+                predicates.append(NSPredicate(format: "albumName ==[c] %@", albumName))
             }
+
+            if let artistName, !artistName.isEmpty {
+                predicates.append(NSPredicate(format: "artistName ==[c] %@", artistName))
+            }
+
+            if let excludingSourceCompositeKey {
+                predicates.append(NSPredicate(
+                    format: "NOT (ratingKey == %@ AND sourceCompositeKey == %@)",
+                    excludingRatingKey,
+                    excludingSourceCompositeKey
+                ))
+            } else {
+                predicates.append(NSPredicate(format: "ratingKey != %@", excludingRatingKey))
+            }
+
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "updatedAt", ascending: false)
+            ]
+            request.fetchLimit = 20
+            request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
         }
     }
 
