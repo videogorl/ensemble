@@ -405,27 +405,27 @@ private extension PlexConnection {
 
     var looksLikePrivatePlexDirectHost: Bool {
         guard let host = URLComponents(string: uri)?.host?.lowercased() else { return false }
+        return WatchPlexConnectionPolicy.looksLikePrivatePlexDirectHost(host)
+    }
+}
+
+enum WatchPlexConnectionPolicy {
+    static func looksLikePrivatePlexDirectHost(_ host: String) -> Bool {
+        let host = host.lowercased()
         return host.hasPrefix("192-168-")
             || host.hasPrefix("10-")
-            || host.hasPrefix("172-16-")
-            || host.hasPrefix("172-17-")
-            || host.hasPrefix("172-18-")
-            || host.hasPrefix("172-19-")
-            || host.hasPrefix("172-20-")
-            || host.hasPrefix("172-21-")
-            || host.hasPrefix("172-22-")
-            || host.hasPrefix("172-23-")
-            || host.hasPrefix("172-24-")
-            || host.hasPrefix("172-25-")
-            || host.hasPrefix("172-26-")
-            || host.hasPrefix("172-27-")
-            || host.hasPrefix("172-28-")
-            || host.hasPrefix("172-29-")
-            || host.hasPrefix("172-30-")
-            || host.hasPrefix("172-31-")
+            || isPrivate172PlexDirectHost(host)
             || host.hasPrefix("fd")
             || host.hasPrefix("fe80-")
             || host.hasPrefix("2601-")
+    }
+
+    private static func isPrivate172PlexDirectHost(_ host: String) -> Bool {
+        guard host.hasPrefix("172-") else { return false }
+        let remainder = host.dropFirst("172-".count)
+        let secondOctet = remainder.prefix { $0 != "-" }
+        guard let value = Int(secondOctet) else { return false }
+        return (16...31).contains(value)
     }
 }
 
