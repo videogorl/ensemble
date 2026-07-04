@@ -8,7 +8,9 @@ import Foundation
 /// triggered the download.
 @MainActor
 public final class LibraryDownloadDetailViewModel: ObservableObject {
-    @Published public private(set) var tracks: [TrackDownloadRow] = []
+    @Published public private(set) var tracks: [TrackDownloadRow] = [] {
+        didSet { trackStats = TrackDownloadRowStats(rows: tracks) }
+    }
     @Published public private(set) var playableTracks: [Track] = []
     @Published public private(set) var isLoading = false
     /// Why the download queue is currently paused
@@ -21,6 +23,7 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    private var trackStats = TrackDownloadRowStats()
 
     public init(
         sourceCompositeKey: String,
@@ -83,34 +86,29 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
     }
 
     public var failedCount: Int {
-        tracks.filter { $0.status == .failed }.count
+        trackStats.failedCount
     }
 
     // MARK: - Live Stats
 
     public var liveCompletedCount: Int {
-        tracks.filter { $0.status == .completed }.count
+        trackStats.completedCount
     }
 
     public var liveTotalCount: Int {
-        tracks.count
+        trackStats.totalCount
     }
 
     public var liveProgress: Float {
-        guard !tracks.isEmpty else { return 0 }
-        return Float(liveCompletedCount) / Float(liveTotalCount)
+        trackStats.progress
     }
 
     public var liveDownloadedBytes: Int64 {
-        tracks.filter { $0.status == .completed }.reduce(0) { $0 + $1.fileSize }
+        trackStats.downloadedBytes
     }
 
     public var liveStatus: CDOfflineDownloadTarget.Status {
-        if tracks.contains(where: { $0.status == .failed }) { return .failed }
-        if liveCompletedCount >= liveTotalCount && liveTotalCount > 0 { return .completed }
-        if tracks.contains(where: { $0.status == .downloading }) { return .downloading }
-        if tracks.contains(where: { $0.status == .paused }) { return .paused }
-        return .pending
+        trackStats.status
     }
 
     // MARK: - Private

@@ -31,10 +31,74 @@ public struct TrackDownloadRow: Identifiable {
     public let index: Int
 }
 
+struct TrackDownloadRowStats {
+    let failedCount: Int
+    let completedCount: Int
+    let totalCount: Int
+    let downloadedBytes: Int64
+    let status: CDOfflineDownloadTarget.Status
+
+    var progress: Float {
+        guard totalCount > 0 else { return 0 }
+        return Float(completedCount) / Float(totalCount)
+    }
+
+    init() {
+        failedCount = 0
+        completedCount = 0
+        totalCount = 0
+        downloadedBytes = 0
+        status = .pending
+    }
+
+    init(rows: [TrackDownloadRow]) {
+        var failedCount = 0
+        var completedCount = 0
+        var downloadedBytes: Int64 = 0
+        var hasDownloading = false
+        var hasPaused = false
+
+        for row in rows {
+            switch row.status {
+            case .failed:
+                failedCount += 1
+            case .completed:
+                completedCount += 1
+                downloadedBytes += row.fileSize
+            case .downloading:
+                hasDownloading = true
+            case .paused:
+                hasPaused = true
+            case .pending:
+                break
+            }
+        }
+
+        self.failedCount = failedCount
+        self.completedCount = completedCount
+        self.totalCount = rows.count
+        self.downloadedBytes = downloadedBytes
+
+        if failedCount > 0 {
+            status = .failed
+        } else if completedCount >= rows.count && !rows.isEmpty {
+            status = .completed
+        } else if hasDownloading {
+            status = .downloading
+        } else if hasPaused {
+            status = .paused
+        } else {
+            status = .pending
+        }
+    }
+}
+
 /// ViewModel for the per-track download detail view of a single offline target
 @MainActor
 public final class DownloadTargetDetailViewModel: ObservableObject {
-    @Published public private(set) var tracks: [TrackDownloadRow] = []
+    @Published public private(set) var tracks: [TrackDownloadRow] = [] {
+        didSet { trackStats = TrackDownloadRowStats(rows: tracks) }
+    }
     @Published public private(set) var playableTracks: [Track] = []
     @Published public private(set) var isLoading = false
     /// Resolved thumb path for the target entity (album/artist/playlist artwork)
@@ -50,6 +114,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     private let playlistRepository: PlaylistRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
+    private var trackStats = TrackDownloadRowStats()
 
     public init(
         summary: DownloadedItemSummary,
@@ -115,39 +180,34 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     }
 
     public var failedCount: Int {
-        tracks.filter { $0.status == .failed }.count
+        trackStats.failedCount
     }
 
     // MARK: - Live Target Stats (derived from tracks, updated reactively)
 
     /// Live completed track count computed from current track rows
     public var liveCompletedCount: Int {
-        tracks.filter { $0.status == .completed }.count
+        trackStats.completedCount
     }
 
     /// Live total track count from current track rows
     public var liveTotalCount: Int {
-        tracks.count
+        trackStats.totalCount
     }
 
     /// Live overall progress (0.0–1.0) computed from track rows
     public var liveProgress: Float {
-        guard !tracks.isEmpty else { return 0 }
-        return Float(liveCompletedCount) / Float(liveTotalCount)
+        trackStats.progress
     }
 
     /// Live downloaded bytes total from completed tracks
     public var liveDownloadedBytes: Int64 {
-        tracks.filter { $0.status == .completed }.reduce(0) { $0 + $1.fileSize }
+        trackStats.downloadedBytes
     }
 
     /// Live target-level status derived from individual track statuses
     public var liveStatus: CDOfflineDownloadTarget.Status {
-        if tracks.contains(where: { $0.status == .failed }) { return .failed }
-        if liveCompletedCount >= liveTotalCount && liveTotalCount > 0 { return .completed }
-        if tracks.contains(where: { $0.status == .downloading }) { return .downloading }
-        if tracks.contains(where: { $0.status == .paused }) { return .paused }
-        return .pending
+        trackStats.status
     }
 
     /// Explicitly redownload completed tracks whose quality differs from the current setting.
