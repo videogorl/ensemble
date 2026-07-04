@@ -1005,44 +1005,28 @@ public final class LibraryViewModel: ObservableObject {
         _ tracks: [Track],
         hiddenSourceCompositeKeys: Set<String>
     ) -> [Track] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return tracks }
-        return tracks.filter { track in
-            guard let sourceKey = track.sourceCompositeKey else { return true }
-            return !hiddenSourceCompositeKeys.contains(sourceKey)
-        }
+        LibraryVisibilityFiltering.visibleItems(tracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
     }
 
     internal static func filterArtistsForVisibility(
         _ artists: [Artist],
         hiddenSourceCompositeKeys: Set<String>
     ) -> [Artist] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return artists }
-        return artists.filter { artist in
-            guard let sourceKey = artist.sourceCompositeKey else { return true }
-            return !hiddenSourceCompositeKeys.contains(sourceKey)
-        }
+        LibraryVisibilityFiltering.visibleItems(artists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
     }
 
     internal static func filterAlbumsForVisibility(
         _ albums: [Album],
         hiddenSourceCompositeKeys: Set<String>
     ) -> [Album] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return albums }
-        return albums.filter { album in
-            guard let sourceKey = album.sourceCompositeKey else { return true }
-            return !hiddenSourceCompositeKeys.contains(sourceKey)
-        }
+        LibraryVisibilityFiltering.visibleItems(albums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
     }
 
     internal static func filterGenresForVisibility(
         _ genres: [Genre],
         hiddenSourceCompositeKeys: Set<String>
     ) -> [Genre] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return genres }
-        return genres.filter { genre in
-            guard let sourceKey = genre.sourceCompositeKey else { return true }
-            return !hiddenSourceCompositeKeys.contains(sourceKey)
-        }
+        LibraryVisibilityFiltering.visibleItems(genres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
     }
 
     // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
