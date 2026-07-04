@@ -226,9 +226,9 @@ public actor ConnectionFailoverManager {
             for await optionalProbe in group {
                 // nil = grace period deadline expired
                 guard let probe = optionalProbe else {
-                    if bestSoFar != nil {
+                    if let bestSoFar {
                         EnsembleLogger.debug(
-                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar!.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
+                            "⚡️ ConnectionFailover: Grace period expired — using class-\(bestSoFar.endpoint.endpointClass.rawValue) endpoint, cancelling remaining probe(s)"
                         )
                         group.cancelAll()
                         break
