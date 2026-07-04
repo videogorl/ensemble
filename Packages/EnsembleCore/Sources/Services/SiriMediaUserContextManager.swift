@@ -1,16 +1,11 @@
 import Foundation
 import EnsemblePersistence
 
-public protocol SiriMediaUserContextManagerProtocol: Sendable {
-    /// Updates Siri's media user context with current library statistics
-    func updateMediaUserContext() async
-}
-
 #if !os(macOS)
 import Intents
 
 @MainActor
-public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProtocol {
+public final class SiriMediaUserContextManager {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let notificationCenter: NotificationCenter
@@ -97,7 +92,7 @@ public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProto
 
 // Stub implementation for macOS (Intents not available)
 @MainActor
-public final class SiriMediaUserContextManager: SiriMediaUserContextManagerProtocol {
+public final class SiriMediaUserContextManager {
     public init(
         libraryRepository _: LibraryRepositoryProtocol,
         playlistRepository _: PlaylistRepositoryProtocol,

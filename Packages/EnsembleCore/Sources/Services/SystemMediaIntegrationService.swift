@@ -307,7 +307,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
 
     private let siriMediaIndexStore: SiriMediaIndexStore
-    private let mediaUserContextManager: SiriMediaUserContextManagerProtocol
+    private let mediaUserContextManager: SiriMediaUserContextManager
     private let spotlightIndex: SystemSpotlightIndexing
     private let notificationCenter: NotificationCenter
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
@@ -322,7 +322,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
 
     public convenience init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        mediaUserContextManager: SiriMediaUserContextManager,
         artworkLoader: ArtworkLoaderProtocol? = nil,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
     ) {
@@ -350,7 +350,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     #if os(macOS)
     init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        mediaUserContextManager: SiriMediaUserContextManager,
         spotlightIndex: SystemSpotlightIndexing,
         notificationCenter: NotificationCenter = .default,
         foregroundWorkScheduler: ForegroundWorkScheduling? = nil
@@ -365,7 +365,7 @@ public final class SystemMediaIntegrationService: SystemMediaIntegrationServiceP
     #else
     init(
         siriMediaIndexStore: SiriMediaIndexStore,
-        mediaUserContextManager: SiriMediaUserContextManagerProtocol,
+        mediaUserContextManager: SiriMediaUserContextManager,
         spotlightIndex: SystemSpotlightIndexing,
         intentDonor: SystemMediaIntentDonating,
         artworkProvider: SystemMediaArtworkProviding,
