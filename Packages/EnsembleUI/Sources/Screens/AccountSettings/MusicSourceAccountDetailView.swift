@@ -393,16 +393,10 @@ private struct LibrarySyncStatusRow: View {
 
     private var notSyncedText: String {
         if let expectedTrackCount = row.expectedTrackCount {
-            return "\(Self.trackCountFormatter.string(from: NSNumber(value: expectedTrackCount)) ?? "\(expectedTrackCount)") tracks not synced"
+            return "\(MusicSourceAccountFormatters.trackCount(expectedTrackCount)) tracks not synced"
         }
         return "Not synced"
     }
-
-    private static let trackCountFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        return formatter
-    }()
 }
 
 private struct EnabledLibraryStatusView: View {
@@ -470,11 +464,11 @@ private struct EnabledLibraryStatusView: View {
 
     private var trackCountText: String? {
         guard let syncedTrackCount else { return nil }
-        let synced = Self.trackCountFormatter.string(from: NSNumber(value: syncedTrackCount)) ?? "\(syncedTrackCount)"
+        let synced = MusicSourceAccountFormatters.trackCount(syncedTrackCount)
         guard let expectedTrackCount, expectedTrackCount > syncedTrackCount else {
             return "\(synced) tracks synced"
         }
-        let expected = Self.trackCountFormatter.string(from: NSNumber(value: expectedTrackCount)) ?? "\(expectedTrackCount)"
+        let expected = MusicSourceAccountFormatters.trackCount(expectedTrackCount)
         return "\(synced) of \(expected) tracks synced"
     }
 
@@ -533,6 +527,13 @@ private struct EnabledLibraryStatusView: View {
             let days = Int(interval / 86400)
             return "\(days)d ago"
         }
+    }
+
+}
+
+private enum MusicSourceAccountFormatters {
+    static func trackCount(_ count: Int) -> String {
+        trackCountFormatter.string(from: NSNumber(value: count)) ?? "\(count)"
     }
 
     private static let trackCountFormatter: NumberFormatter = {
