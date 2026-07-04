@@ -13,7 +13,7 @@ final class PlaybackSettingsObserverTests: XCTestCase {
 
     func testPollChangesIgnoresUnchangedSettings() {
         let defaults = makeDefaults()
-        defaults.set(false, forKey: "auroraVisualizationEnabled")
+        defaults.set(false, forKey: AuroraVisualizationPreference.enabledKey)
         defaults.set(
             AudioQualityPreference.defaultStreamingQuality,
             forKey: AudioQualityPreference.streamingQualityKey
@@ -32,7 +32,7 @@ final class PlaybackSettingsObserverTests: XCTestCase {
         )
         let observer = PlaybackSettingsObserver(defaults: defaults)
 
-        defaults.set(false, forKey: "auroraVisualizationEnabled")
+        defaults.set(false, forKey: AuroraVisualizationPreference.enabledKey)
         XCTAssertEqual(observer.pollChanges(), PlaybackSettingsChange(visualizerEnabled: false, streamingQuality: nil))
 
         defaults.set("low", forKey: AudioQualityPreference.streamingQualityKey)
@@ -54,6 +54,15 @@ final class PlaybackSettingsObserverTests: XCTestCase {
         XCTAssertEqual(
             AudioQualityPreference.storedDownloadQuality(in: defaults),
             AudioQualityPreference.defaultDownloadQuality
+        )
+    }
+
+    func testAuroraVisualizationDefaultsToEnabledWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertEqual(
+            AuroraVisualizationPreference.storedEnabled(in: defaults),
+            AuroraVisualizationPreference.defaultEnabled
         )
     }
 

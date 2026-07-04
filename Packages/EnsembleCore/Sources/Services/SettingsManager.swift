@@ -265,7 +265,7 @@ public final class SettingsManager: ObservableObject {
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
     @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
     @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
-    @AppStorage("auroraVisualizationEnabled") public var auroraVisualizationEnabled: Bool = true
+    @AppStorage(AuroraVisualizationPreference.enabledKey) public var auroraVisualizationEnabled: Bool = AuroraVisualizationPreference.defaultEnabled
     @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
     @AppStorage(playlistMergeEnabledKey) public var playlistMergeEnabled: Bool = defaultPlaylistMergeEnabled
     #if DEBUG
@@ -281,7 +281,7 @@ public final class SettingsManager: ObservableObject {
         // Register defaults so UserDefaults.standard.bool(forKey:) returns true
         // before the setting has ever been toggled (PlaybackService reads directly).
         UserDefaults.standard.register(defaults: [
-            "auroraVisualizationEnabled": true,
+            AuroraVisualizationPreference.enabledKey: AuroraVisualizationPreference.defaultEnabled,
             "scrobblingEnabled": true,
             Self.playlistMergeEnabledKey: Self.defaultPlaylistMergeEnabled,
             "demoModeEnabled": false

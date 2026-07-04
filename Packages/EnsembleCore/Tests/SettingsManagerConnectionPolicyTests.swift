@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class SettingsManagerConnectionPolicyTests: XCTestCase {
     private let accentColorKey = "accentColor"
-    private let auroraVisualizationKey = "auroraVisualizationEnabled"
+    private let auroraVisualizationKey = AuroraVisualizationPreference.enabledKey
     private let demoModeKey = "demoModeEnabled"
     private let defaultsKey = AllowInsecureConnectionsPolicy.defaultsKey
     private let enabledTabsKey = "enabledTabs"

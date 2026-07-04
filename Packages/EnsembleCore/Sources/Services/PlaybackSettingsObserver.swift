@@ -85,12 +85,6 @@ final class PlaybackSettingsObserver {
     }
 
     static func visualizerEnabled(in defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: visualizerEnabledKey) != nil else {
-            return defaultVisualizerEnabled
-        }
-        return defaults.bool(forKey: visualizerEnabledKey)
+        AuroraVisualizationPreference.storedEnabled(in: defaults)
     }
-
-    private static let visualizerEnabledKey = "auroraVisualizationEnabled"
-    private static let defaultVisualizerEnabled = true
 }
