@@ -201,16 +201,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(filterOptions: $viewModel.filterOptions)
         }
-        .sheet(item: $metadataEditorRequest) { request in
-            TextInputView(
-                title: request.kind.title,
-                message: "Changes are sent directly to Plex and then refreshed locally.",
-                placeholder: request.kind.fieldLabel,
-                initialText: request.currentTitle,
-                actionTitle: "Save",
-                onSubmit: request.onSave
-            )
-        }
+        .metadataEditorSheet(request: $metadataEditorRequest)
         .confirmationDialog(
             "Delete Track?",
             isPresented: $isConfirmingTrackDelete,

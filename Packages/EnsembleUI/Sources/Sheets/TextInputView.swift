@@ -149,3 +149,18 @@ struct TextInputView: View {
         }
     }
 }
+
+extension View {
+    func metadataEditorSheet(request: Binding<ContextMenuMetadataEditorRequest?>) -> some View {
+        sheet(item: request) { request in
+            TextInputView(
+                title: request.kind.title,
+                message: "Changes are sent directly to Plex and then refreshed locally.",
+                placeholder: request.kind.fieldLabel,
+                initialText: request.currentTitle,
+                actionTitle: "Save",
+                onSubmit: request.onSave
+            )
+        }
+    }
+}
