@@ -1874,7 +1874,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Create a radio provider for a specific music source
     /// Returns nil if the source doesn't support radio or isn't configured
     /// - Parameter sourceKey: The music source composite key
-    public func makeRadioProvider(for sourceKey: String) -> RadioProviderProtocol? {
+    public func makeRadioProvider(for sourceKey: String) -> PlexRadioProvider? {
         EnsembleLogger.debug("🔄 SyncCoordinator.makeRadioProvider() called")
         EnsembleLogger.debug("  - Source key: \(sourceKey)")
         

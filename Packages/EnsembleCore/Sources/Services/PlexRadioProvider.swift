@@ -4,7 +4,7 @@ import Foundation
 
 /// Radio provider for Plex music sources
 /// Implements radio features using Plex's sonic analysis and recommendation APIs
-public final class PlexRadioProvider: RadioProviderProtocol {
+public final class PlexRadioProvider {
     public let sourceKey: String
     private let apiClient: PlexAPIClient
     private let libraryRepository: LibraryRepositoryProtocol
@@ -21,8 +21,6 @@ public final class PlexRadioProvider: RadioProviderProtocol {
         self.libraryRepository = libraryRepository
         self.sectionKey = sectionKey
     }
-
-    // MARK: - RadioProviderProtocol
 
     public func getRecommendedTracks(
         basedOn track: Track,
