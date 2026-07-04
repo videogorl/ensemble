@@ -474,20 +474,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 existingModifiedAt: existingTimestamps[playlist.ratingKey]
             )
 
-            _ = try await repository.upsertPlaylist(
-                ratingKey: playlist.ratingKey,
-                key: playlist.key,
-                title: playlist.title,
-                summary: playlist.summary,
-                compositePath: playlist.composite,
-                isSmart: playlist.smart ?? false,
-                duration: playlist.duration,
-                trackCount: playlist.leafCount,
-                dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: serverSourceKey
-            )
+            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
 
             guard shouldFetchTracks else {
                 skippedTrackLists += 1
@@ -560,20 +547,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let playlistProgress = 0.1 + (0.5 * Double(index) / Double(max(changedPlaylists.count, 1)))
             progressHandler(playlistProgress)
 
-            _ = try await repository.upsertPlaylist(
-                ratingKey: playlist.ratingKey,
-                key: playlist.key,
-                title: playlist.title,
-                summary: playlist.summary,
-                compositePath: playlist.composite,
-                isSmart: playlist.smart ?? false,
-                duration: playlist.duration,
-                trackCount: playlist.leafCount,
-                dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: serverSourceKey
-            )
+            try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
 
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
@@ -643,6 +617,28 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         guard changedPlaylistCount == 0 else { return true }
         guard lastCheckedAt > 0 else { return true }
         return now.timeIntervalSince1970 - lastCheckedAt >= interval
+    }
+
+    @discardableResult
+    private static func upsertPlaylist(
+        _ playlist: PlexPlaylist,
+        to repository: PlaylistRepositoryProtocol,
+        sourceCompositeKey: String
+    ) async throws -> CDPlaylist {
+        try await repository.upsertPlaylist(
+            ratingKey: playlist.ratingKey,
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            compositePath: playlist.composite,
+            isSmart: playlist.smart ?? false,
+            duration: playlist.duration,
+            trackCount: playlist.leafCount,
+            dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            sourceCompositeKey: sourceCompositeKey
+        )
     }
 
     private static func playlistOrphanCheckKey(for serverSourceKey: String) -> String {
