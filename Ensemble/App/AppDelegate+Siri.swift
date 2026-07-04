@@ -5,45 +5,6 @@ import UIKit
 import EnsembleCore
 import EnsembleSiriShared
 
-extension INPlayMediaIntent {
-    var ensembleSiriPlaybackFields: SiriPlaybackIntentFields {
-        let search = mediaSearch
-        return SiriPlaybackIntentFields(
-            mediaItemTitle: mediaItems?.first?.title,
-            mediaItemIdentifier: mediaItems?.first?.identifier,
-            mediaItemKind: mediaItems?.first?.type.ensembleSiriKindHint ?? .unknown,
-            mediaContainerTitle: mediaContainer?.title,
-            mediaContainerIdentifier: mediaContainer?.identifier,
-            mediaContainerKind: mediaContainer?.type.ensembleSiriKindHint ?? .unknown,
-            searchMediaName: search?.mediaName,
-            searchArtistName: search?.artistName,
-            searchAlbumName: search?.albumName,
-            searchGenreName: search?.genreNames?.first,
-            searchMoodName: search?.moodNames?.first,
-            searchMediaIdentifier: search?.mediaIdentifier,
-            searchKind: search?.mediaType.ensembleSiriKindHint ?? .unknown,
-            playShuffled: playShuffled
-        )
-    }
-}
-
-extension INMediaItemType {
-    var ensembleSiriKindHint: SiriPlaybackIntentKindHint {
-        switch self {
-        case .song:
-            return .track
-        case .album:
-            return .album
-        case .artist:
-            return .artist
-        case .playlist:
-            return .playlist
-        default:
-            return .unknown
-        }
-    }
-}
-
 extension AppDelegate {
     func registerForSiriPendingPlaybackNotification() {
         let notifyCenter = CFNotificationCenterGetDarwinNotifyCenter()
