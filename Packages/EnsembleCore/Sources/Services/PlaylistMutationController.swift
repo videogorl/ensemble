@@ -67,13 +67,7 @@ final class PlaylistMutationController {
 
     /// Add tracks to an existing playlist and queue a server refresh.
     func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
+        let serverSourceKey = try mutableServerSourceKey(for: playlist)
 
         let filteredTrackIds = await dependencies.filteredTrackIDsForServer(tracks, serverSourceKey)
         guard !filteredTrackIds.isEmpty else {
@@ -93,13 +87,7 @@ final class PlaylistMutationController {
 
     /// Rename a playlist and synchronously refresh its server cache.
     func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
+        let serverSourceKey = try mutableServerSourceKey(for: playlist)
 
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let existingPlaylists = try await dependencies.fetchPlaylists(serverSourceKey)
@@ -113,13 +101,7 @@ final class PlaylistMutationController {
 
     /// Delete a playlist, clear persisted targeting if needed, and refresh its server cache.
     func deletePlaylist(_ playlist: Playlist) async throws {
-        guard !playlist.isSmart else {
-            throw PlaylistMutationError.smartPlaylistReadOnly
-        }
-        guard let serverSourceKey = playlist.sourceCompositeKey,
-              dependencies.validateServerSourceKey(serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
+        let serverSourceKey = try mutableServerSourceKey(for: playlist)
 
         try await dependencies.deleteRemotePlaylist(playlist.id, serverSourceKey)
         dependencies.clearLastPlaylistTargetIfNeeded(playlist)
@@ -128,6 +110,14 @@ final class PlaylistMutationController {
 
     /// Replace a playlist's contents in the supplied order and refresh its cache.
     func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
+        let serverSourceKey = try mutableServerSourceKey(for: playlist)
+
+        let filteredTrackIds = await dependencies.filteredTrackIDsForServer(orderedTracks, serverSourceKey)
+        try await dependencies.replaceRemotePlaylistContents(playlist.id, filteredTrackIds, serverSourceKey)
+        await dependencies.refreshServerPlaylists(serverSourceKey)
+    }
+
+    private func mutableServerSourceKey(for playlist: Playlist) throws -> String {
         guard !playlist.isSmart else {
             throw PlaylistMutationError.smartPlaylistReadOnly
         }
@@ -135,9 +125,6 @@ final class PlaylistMutationController {
               dependencies.validateServerSourceKey(serverSourceKey) else {
             throw PlaylistMutationError.invalidSource
         }
-
-        let filteredTrackIds = await dependencies.filteredTrackIDsForServer(orderedTracks, serverSourceKey)
-        try await dependencies.replaceRemotePlaylistContents(playlist.id, filteredTrackIds, serverSourceKey)
-        await dependencies.refreshServerPlaylists(serverSourceKey)
+        return serverSourceKey
     }
 }
