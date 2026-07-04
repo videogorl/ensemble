@@ -612,6 +612,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let removedItemCount: Int
     }
 
+    private enum PlaybackPreferenceKey {
+        static let shuffleEnabled = "isShuffleEnabled"
+        static let repeatMode = "repeatMode"
+        static let autoplayEnabled = "isAutoplayEnabled"
+        static let smartMixEnabled = "isSmartMixEnabled"
+    }
+
     private struct AutoplayVisibleTrackIdentity: Hashable {
         let normalizedTitle: String
         let normalizedArtist: String
@@ -907,8 +914,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var bufferedProgress: Double = 0
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
-    @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(forKey: "isShuffleEnabled")
-    @Published public private(set) var repeatMode: RepeatMode = .init(rawValue: UserDefaults.standard.integer(forKey: "repeatMode")) ?? .off
+    @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(
+        forKey: PlaybackPreferenceKey.shuffleEnabled
+    )
+    @Published public private(set) var repeatMode: RepeatMode = .init(
+        rawValue: UserDefaults.standard.integer(forKey: PlaybackPreferenceKey.repeatMode)
+    ) ?? .off
     @Published public private(set) var waveformHeights: [Double] = []
     /// Decoupled from @Published to avoid firing objectWillChange at 30Hz.
     /// Views that need frequency data subscribe via frequencyBandsPublisher instead.
@@ -919,8 +930,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @Published public private(set) var isExternalPlaybackActive: Bool = false
-    @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(forKey: "isAutoplayEnabled")
-    @Published public private(set) var isSmartMixEnabled: Bool = UserDefaults.standard.bool(forKey: "isSmartMixEnabled")
+    @Published public private(set) var isAutoplayEnabled: Bool = UserDefaults.standard.bool(
+        forKey: PlaybackPreferenceKey.autoplayEnabled
+    )
+    @Published public private(set) var isSmartMixEnabled: Bool = UserDefaults.standard.bool(
+        forKey: PlaybackPreferenceKey.smartMixEnabled
+    )
     @Published public private(set) var autoplayTracks: [Track] = []
     @Published public private(set) var isAutoplayActive: Bool = false
     @Published public private(set) var radioMode: RadioMode = .off
@@ -2611,7 +2626,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Disable shuffle on regular play
         if isShuffleEnabled {
             isShuffleEnabled = false
-            UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
+            UserDefaults.standard.set(false, forKey: PlaybackPreferenceKey.shuffleEnabled)
         }
 
         if playableQueue.skippedCount > 0 {
@@ -2745,7 +2760,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Enable shuffle
         if !isShuffleEnabled {
             isShuffleEnabled = true
-            UserDefaults.standard.set(true, forKey: "isShuffleEnabled")
+            UserDefaults.standard.set(true, forKey: PlaybackPreferenceKey.shuffleEnabled)
         }
 
         if playableQueue.skippedCount > 0 {
@@ -3912,7 +3927,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func toggleShuffle() {
         isShuffleEnabled.toggle()
-        UserDefaults.standard.set(isShuffleEnabled, forKey: "isShuffleEnabled")
+        UserDefaults.standard.set(isShuffleEnabled, forKey: PlaybackPreferenceKey.shuffleEnabled)
 
         if isShuffleEnabled {
             // Save original queue for restore
@@ -3985,7 +4000,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private func setRepeatMode(_ mode: RepeatMode) {
         repeatMode = mode
-        UserDefaults.standard.set(repeatMode.rawValue, forKey: "repeatMode")
+        UserDefaults.standard.set(repeatMode.rawValue, forKey: PlaybackPreferenceKey.repeatMode)
         audioEngine?.cancelSmartMixTransition(continueIncoming: audioEngine?.hasPromotedSmartMixTransition == true)
         updateNowPlayingInfo()
     }
@@ -3994,7 +4009,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func toggleAutoplay() {
         isAutoplayEnabled.toggle()
-        UserDefaults.standard.set(isAutoplayEnabled, forKey: "isAutoplayEnabled")
+        UserDefaults.standard.set(isAutoplayEnabled, forKey: PlaybackPreferenceKey.autoplayEnabled)
 
         if isAutoplayEnabled {
             // Immediately fetch autoplay tracks when enabled
@@ -4016,7 +4031,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public func toggleSmartMix() {
         isSmartMixEnabled.toggle()
-        UserDefaults.standard.set(isSmartMixEnabled, forKey: "isSmartMixEnabled")
+        UserDefaults.standard.set(isSmartMixEnabled, forKey: PlaybackPreferenceKey.smartMixEnabled)
 
         if isSmartMixEnabled {
             Task { await prefetchNextItem() }
@@ -4284,7 +4299,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         EnsembleLogger.debug("🔄 Enabling radio mode (autoplay with sonically similar)")
         isAutoplayEnabled = true
         radioMode = .trackRadio // Will use sonically similar tracks
-        UserDefaults.standard.set(true, forKey: "isAutoplayEnabled")
+        UserDefaults.standard.set(true, forKey: PlaybackPreferenceKey.autoplayEnabled)
 
         // Start playing first track
         EnsembleLogger.debug("🔄 Starting playback...")
@@ -6064,7 +6079,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await MainActor.run {
             if decision.shouldDisableShuffle {
                 isShuffleEnabled = false
-                UserDefaults.standard.set(false, forKey: "isShuffleEnabled")
+                UserDefaults.standard.set(false, forKey: PlaybackPreferenceKey.shuffleEnabled)
             }
 
             queue = decision.queue
