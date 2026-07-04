@@ -10,8 +10,6 @@ struct PlaylistDetailLoader: View {
     @State private var initialArtworkImage: PlatformImage?
     @State private var isLoading = true
     @State private var error: Error?
-    @State private var hasStartedLoading = false
-    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
 
@@ -42,15 +40,8 @@ struct PlaylistDetailLoader: View {
                 EnsembleStateScaffold(kind: .empty, title: "Playlist not found")
             }
         }
-        .onAppear {
-            guard !hasStartedLoading else { return }
-            hasStartedLoading = true
-            loadTask = Task {
-                await loadPlaylist()
-            }
-        }
-        .onDisappear {
-            loadTask?.cancel()
+        .task {
+            await loadPlaylist()
         }
     }
     

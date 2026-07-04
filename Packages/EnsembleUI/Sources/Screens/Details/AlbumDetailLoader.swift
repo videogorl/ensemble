@@ -9,8 +9,6 @@ struct AlbumDetailLoader: View {
     @State private var initialTracks: [Track]?
     @State private var isLoading = true
     @State private var error: Error?
-    @State private var hasStartedLoading = false
-    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
 
@@ -36,15 +34,8 @@ struct AlbumDetailLoader: View {
                 EnsembleStateScaffold(kind: .empty, title: "Album not found")
             }
         }
-        .onAppear {
-            guard !hasStartedLoading else { return }
-            hasStartedLoading = true
-            loadTask = Task {
-                await loadAlbum()
-            }
-        }
-        .onDisappear {
-            loadTask?.cancel()
+        .task {
+            await loadAlbum()
         }
     }
     

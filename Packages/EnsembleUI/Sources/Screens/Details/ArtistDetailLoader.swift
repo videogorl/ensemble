@@ -8,8 +8,6 @@ struct ArtistDetailLoader: View {
     @State private var artist: Artist?
     @State private var isLoading = true
     @State private var error: Error?
-    @State private var hasStartedLoading = false
-    @State private var loadTask: Task<Void, Never>?
     
     @Environment(\.dependencies) private var deps
 
@@ -35,15 +33,8 @@ struct ArtistDetailLoader: View {
                 EnsembleStateScaffold(kind: .empty, title: "Artist not found")
             }
         }
-        .onAppear {
-            guard !hasStartedLoading else { return }
-            hasStartedLoading = true
-            loadTask = Task {
-                await loadArtist()
-            }
-        }
-        .onDisappear {
-            loadTask?.cancel()
+        .task {
+            await loadArtist()
         }
     }
     
