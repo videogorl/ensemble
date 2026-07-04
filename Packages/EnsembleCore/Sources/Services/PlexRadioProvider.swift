@@ -7,18 +7,15 @@ import Foundation
 public final class PlexRadioProvider {
     public let sourceKey: String
     private let apiClient: PlexAPIClient
-    private let libraryRepository: LibraryRepositoryProtocol
     private let sectionKey: String
 
     public init(
         sourceKey: String,
         apiClient: PlexAPIClient,
-        libraryRepository: LibraryRepositoryProtocol,
         sectionKey: String
     ) {
         self.sourceKey = sourceKey
         self.apiClient = apiClient
-        self.libraryRepository = libraryRepository
         self.sectionKey = sectionKey
     }
 

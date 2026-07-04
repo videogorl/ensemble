@@ -1911,7 +1911,6 @@ public final class SyncCoordinator: ObservableObject {
         let radioProvider = PlexRadioProvider(
             sourceKey: sourceKey,
             apiClient: apiClient,
-            libraryRepository: libraryRepository,
             sectionKey: libraryId
         )
 
