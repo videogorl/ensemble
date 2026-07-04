@@ -17,6 +17,24 @@ public final class HubOrderManager {
     private func defaultOrderKey(for sourceKey: String) -> String {
         "hub_default_order_\(sourceKey)"
     }
+
+    func hubs(for sourceKey: String, in hubs: [Hub]) -> [Hub] {
+        hubs.filter { Self.sourceKey(forHubID: $0.id) == sourceKey }
+    }
+
+    func replacingHubs(for sourceKey: String, in hubs: [Hub], with orderedServerHubs: [Hub]) -> [Hub] {
+        var iterator = orderedServerHubs.makeIterator()
+        return hubs.map { hub in
+            if Self.sourceKey(forHubID: hub.id) == sourceKey {
+                return iterator.next() ?? hub
+            }
+            return hub
+        }
+    }
+
+    private static func sourceKey(forHubID hubID: String) -> String? {
+        MediaSourceIdentity.serverSourceKey(from: hubID)
+    }
     
     /// Save the current hub order for a specific source
     public func saveOrder(_ hubIds: [String], for sourceKey: String) {

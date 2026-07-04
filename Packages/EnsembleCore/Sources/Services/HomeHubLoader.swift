@@ -450,37 +450,23 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         guard !hubs.isEmpty else { return [] }
 
         if let sourceKey = sourceContext.sourceKey, persistDefaultOrder {
-            let defaultHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+            let defaultHubs = hubOrderManager.hubs(for: sourceKey, in: hubs)
             hubOrderManager.saveDefaultOrder(defaultHubs.map(\.id), for: sourceKey)
             migrateHubOrderIfNeeded(for: sourceKey, currentHubs: defaultHubs)
         }
 
         guard let sourceKey = sourceContext.sourceKey else { return hubs }
 
-        let serverHubs = hubsForServer(sourceKey: sourceKey, in: hubs)
+        let serverHubs = hubOrderManager.hubs(for: sourceKey, in: hubs)
         let orderedServerHubs = applySavedOrder
             ? hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
             : hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
 
-        return mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: hubs)
-    }
-
-    private func serverKey(from hubId: String) -> String? {
-        MediaSourceIdentity.serverSourceKey(from: hubId)
-    }
-
-    private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
-        hubs.filter { serverKey(from: $0.id) == sourceKey }
-    }
-
-    private func mergeOrderedServerHubs(_ orderedServerHubs: [Hub], sourceKey: String, into hubs: [Hub]) -> [Hub] {
-        var iterator = orderedServerHubs.makeIterator()
-        return hubs.map { hub in
-            if serverKey(from: hub.id) == sourceKey {
-                return iterator.next() ?? hub
-            }
-            return hub
-        }
+        return hubOrderManager.replacingHubs(
+            for: sourceKey,
+            in: hubs,
+            with: orderedServerHubs
+        )
     }
 
     private static func filterHubsToEnabledSources(

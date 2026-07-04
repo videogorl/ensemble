@@ -694,26 +694,6 @@ public final class HomeViewModel: ObservableObject {
 
     // MARK: - Edit Mode
 
-    /// Extract the server key from a hub ID.
-    /// Hub IDs are "plex:{acct}:{srv}:{lib}:{hubId}" — server key is the first 3 components.
-    private func serverKey(from hubId: String) -> String? {
-        MediaSourceIdentity.serverSourceKey(from: hubId)
-    }
-    
-    private func hubsForServer(sourceKey: String, in hubs: [Hub]) -> [Hub] {
-        hubs.filter { serverKey(from: $0.id) == sourceKey }
-    }
-    
-    private func mergeOrderedServerHubs(_ orderedServerHubs: [Hub], sourceKey: String, into hubs: [Hub]) -> [Hub] {
-        var iterator = orderedServerHubs.makeIterator()
-        return hubs.map { hub in
-            if serverKey(from: hub.id) == sourceKey {
-                return iterator.next() ?? hub
-            }
-            return hub
-        }
-    }
-    
     /// Determine the primary source key (first enabled server) and its display name.
     /// Source key format matches the first 3 components of hub IDs: "plex:{acct}:{srv}"
     private func updateCurrentSource() {
@@ -835,7 +815,7 @@ public final class HomeViewModel: ObservableObject {
         updateCurrentSource()
         guard let sourceKey = currentSourceKey else { return }
         
-        let hubIds = hubsForServer(sourceKey: sourceKey, in: orderedHubs).map { $0.id }
+        let hubIds = hubOrderManager.hubs(for: sourceKey, in: orderedHubs).map { $0.id }
         hubOrderManager.saveOrder(hubIds, for: sourceKey)
     }
     
@@ -848,10 +828,14 @@ public final class HomeViewModel: ObservableObject {
         hubOrderManager.resetOrder(for: sourceKey)
 
         // Apply cached default order immediately
-        let serverHubs = hubsForServer(sourceKey: sourceKey, in: unfilteredHubs)
+        let serverHubs = hubOrderManager.hubs(for: sourceKey, in: unfilteredHubs)
         EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
         let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
-        let orderedSnapshot = mergeOrderedServerHubs(orderedServerHubs, sourceKey: sourceKey, into: unfilteredHubs)
+        let orderedSnapshot = hubOrderManager.replacingHubs(
+            for: sourceKey,
+            in: unfilteredHubs,
+            with: orderedServerHubs
+        )
         Task { @MainActor [weak self] in
             await self?.applyHubSnapshot(orderedSnapshot, source: "resetOrder")
         }
