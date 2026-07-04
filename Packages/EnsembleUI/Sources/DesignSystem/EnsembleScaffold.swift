@@ -500,17 +500,6 @@ public enum EnsembleScaffold {
             public static let infoBottomOpaqueLocation = 0.85
         }
 
-        public enum Shadow {
-            public static let controlColor = EnsembleDesign.Effect.shadowColor
-            public static let controlRadius = EnsembleDesign.Effect.shadowRadius
-            public static let controlX = EnsembleDesign.Effect.shadowX
-            public static let controlY = EnsembleDesign.Effect.shadowY
-            public static let artworkColor = EnsembleDesign.Effect.shadowColor
-            public static let emptyArtworkColor = EnsembleDesign.Effect.shadowColor
-            public static let artworkRadius = EnsembleDesign.Effect.shadowRadius
-            public static let artworkY = EnsembleDesign.Effect.shadowY
-        }
-
         public enum PageIndicator {
             public static let itemSize: CGFloat = 20
             public static let activeDotSize = EnsembleDesign.Spacing.sm
@@ -532,14 +521,6 @@ public enum EnsembleScaffold {
         public static let compactTrailingPadding: CGFloat = 1
         public static let regularTrailingPadding: CGFloat = 1
         public static let regularBottomPadding = EnsembleDesign.Spacing.lg
-    }
-
-    public enum TrackSwipe {
-        public static let actionWidth: CGFloat = 72
-        public static let actionCornerRadius = EnsembleDesign.Radius.card
-        public static let actionLabelSpacing: CGFloat = 5
-        public static let actionIconFont: Font = .system(size: 16, weight: .semibold)
-        public static let actionTextFont = EnsembleDesign.Typography.cardMetadata
     }
 
     public enum MiniPlayer {
