@@ -87,7 +87,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             if !cachedTracks.isEmpty {
                 let mapped = cachedTracks.map { Track(from: $0) }
                 // Diagnostic: detect "Unknown Track" entries to trace empty-title source
-                let unknownCount = mapped.filter { $0.title == "Unknown Track" }.count
+                let unknownCount = mapped.lazy.filter { $0.title == "Unknown Track" }.count
                 if unknownCount > 0 {
                     EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
                 }

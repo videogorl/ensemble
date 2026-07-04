@@ -146,8 +146,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let tracksToSync = trackChanges.changedItems
 
         // Diagnostic: break down WHY items in tracksToSync were flagged
-        let tracksNew = tracksToSync.filter { existingTrackTimestamps[$0.ratingKey] == nil }.count
-        let tracksRatingChanged = tracksToSync.filter { track in
+        let tracksNew = tracksToSync.lazy.filter { existingTrackTimestamps[$0.ratingKey] == nil }.count
+        let tracksRatingChanged = tracksToSync.lazy.filter { track in
             guard let localRating = existingTrackRatings[track.ratingKey] else { return false }
             return localRating != Int16(track.userRating.map { Int($0) } ?? 0)
         }.count

@@ -515,7 +515,7 @@ public final class ServerHealthChecker: ObservableObject {
             let updatedAccount = account.replacing(servers: updatedServers)
             accountManager.updatePlexAccount(updatedAccount)
 
-            let relayCount = refreshedConnections.filter { $0.relay ?? false }.count
+            let relayCount = refreshedConnections.lazy.filter { $0.relay ?? false }.count
             EnsembleLogger.debug(
                 "🔄 ServerHealthChecker: Refreshed resources for \(serverKey): urls=\(refreshedConnections.count), relay=\(relayCount)"
             )

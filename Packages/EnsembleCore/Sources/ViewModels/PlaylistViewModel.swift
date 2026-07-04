@@ -391,11 +391,12 @@ public final class PlaylistViewModel: ObservableObject {
             // Never replace populated playlists with empty or degraded results.
             // CoreData can return empty mid-sync while records are being rebuilt,
             // or return partial records with empty titles before the full sync commits.
-            let hasDegradedData = merged.contains { $0.title.isEmpty }
+            let emptyTitleCount = merged.lazy.filter { $0.title.isEmpty }.count
+            let hasDegradedData = emptyTitleCount > 0
             if merged.isEmpty && shouldTreatEmptyPlaylistCacheAsAuthoritative {
                 clearLocalPlaylistCache(resetLastGoodSnapshot: true)
             } else if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
-                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(merged.filter { $0.title.isEmpty }.count) empty titles, preserving \(self.playlists.count) existing)")
+                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(emptyTitleCount) empty titles, preserving \(self.playlists.count) existing)")
             } else {
                 publishPlaylistsIfChanged(merged)
                 nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)
