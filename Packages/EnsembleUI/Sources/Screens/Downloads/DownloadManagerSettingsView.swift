@@ -6,7 +6,8 @@ public struct DownloadManagerSettingsView: View {
     @Environment(\.dependencies) private var deps
     @AppStorage(AudioQualityPreference.downloadQualityKey)
     private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
-    @AppStorage("allowCellularDownloads") private var allowCellularDownloads = false
+    @AppStorage(DownloadSettingsPreference.allowCellularDownloadsKey)
+    private var allowCellularDownloads = DownloadSettingsPreference.defaultAllowCellularDownloads
     @State private var showRemoveAllConfirmation = false
 
     public init() {

@@ -1282,7 +1282,7 @@ public final class OfflineDownloadService: ObservableObject {
         case .online(.wifi), .online(.wired):
             return true
         case .online(.cellular):
-            return UserDefaults.standard.bool(forKey: "allowCellularDownloads")
+            return DownloadSettingsPreference.storedAllowCellularDownloads()
         case .online(.other), .offline, .limited, .unknown:
             return false
         }
@@ -1316,7 +1316,7 @@ public final class OfflineDownloadService: ObservableObject {
         case .offline:
             return .offline
         case .online(.cellular):
-            if UserDefaults.standard.bool(forKey: "allowCellularDownloads") {
+            if DownloadSettingsPreference.storedAllowCellularDownloads() {
                 return .idle
             }
             return .waitingForWiFi
