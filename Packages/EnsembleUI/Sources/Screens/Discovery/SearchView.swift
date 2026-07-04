@@ -265,16 +265,7 @@ public struct SearchView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                AlbumActionsContextMenu(
-                                    album: album,
-                                    nowPlayingVM: nowPlayingVM,
-                                    presentPlaylistPicker: { tracks, title in
-                                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                                    },
-                                    onGetInfo: {
-                                        libraryItemInfoRequest = .album(album)
-                                    }
-                                )
+                                albumContextMenu(for: album)
                             }
                         }
                     }
@@ -416,16 +407,7 @@ public struct SearchView: View {
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    AlbumActionsContextMenu(
-                        album: album,
-                        nowPlayingVM: nowPlayingVM,
-                        presentPlaylistPicker: { tracks, title in
-                            playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                        },
-                        onGetInfo: {
-                            libraryItemInfoRequest = .album(album)
-                        }
-                    )
+                    albumContextMenu(for: album)
                 }
             } else if let artist = item.artist {
                 navigationCoordinator.routeLink(
@@ -754,16 +736,7 @@ public struct SearchView: View {
                         handleSearchResultNavigation()
                     })
                     .contextMenu {
-                        AlbumActionsContextMenu(
-                            album: album,
-                            nowPlayingVM: nowPlayingVM,
-                            presentPlaylistPicker: { tracks, title in
-                                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
-                            },
-                            onGetInfo: {
-                                libraryItemInfoRequest = .album(album)
-                            }
-                        )
+                        albumContextMenu(for: album)
                     }
                 }
             }
@@ -874,6 +847,19 @@ public struct SearchView: View {
 
     private func presentPlaylistPicker(with tracks: [Track]) {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
+    }
+
+    private func albumContextMenu(for album: Album) -> some View {
+        AlbumActionsContextMenu(
+            album: album,
+            nowPlayingVM: nowPlayingVM,
+            presentPlaylistPicker: { tracks, title in
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+            },
+            onGetInfo: {
+                libraryItemInfoRequest = .album(album)
+            }
+        )
     }
 
     private func compactSection<T: Identifiable, Content: View>(
