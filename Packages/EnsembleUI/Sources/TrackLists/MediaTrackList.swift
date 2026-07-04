@@ -1,6 +1,5 @@
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 func trackIdentityOrderMatches(_ lhs: [Track], _ rhs: [Track]) -> Bool {
     lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
@@ -354,44 +353,17 @@ public class TrackTableViewCell: UITableViewCell {
                 artworkLoadTask?.cancel()
                 
                 artworkLoadTask = Task { @MainActor in
-                guard let url = await artworkLoader.artworkURLAsync(
-                    for: track.thumbPath,
-                    sourceKey: track.sourceCompositeKey,
-                    ratingKey: track.id,
-                    fallbackPath: track.fallbackThumbPath,
-                    fallbackRatingKey: track.fallbackRatingKey,
-                    size: ArtworkSize.thumbnail.rawValue
-                ) else {
-                    // No artwork available - clear any stale image from cell reuse
-                    if self.currentTrackID == playbackIdentity {
-                        self.artworkImageView.image = nil
+                    let image = await TrackArtworkThumbnailLoader.image(
+                        for: track,
+                        artworkLoader: artworkLoader
+                    ) {
+                        self.currentTrackID == playbackIdentity
                     }
-                    return
-                }
-                
-                let request = ArtworkImageRequest.resized(
-                    url: url,
-                    size: ArtworkSize.thumbnail.rawValue,
-                    priority: .high
-                )
-                
-                // Check cache first for instant display
-                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    // Only update if still showing same track
-                    if self.currentTrackID == playbackIdentity {
-                        self.artworkImageView.image = cachedImage.image
-                    }
-                    return
-                }
-                
-                // Load asynchronously if not cached
-                if let image = try? await ImagePipeline.shared.image(for: request) {
-                    // Only update if still showing same track
+
                     if self.currentTrackID == playbackIdentity {
                         self.artworkImageView.image = image
                     }
                 }
-            }
             } else {
                 // Same track - just update playing state without reloading artwork
             }

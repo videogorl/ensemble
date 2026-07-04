@@ -1,6 +1,5 @@
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 #if canImport(UIKit)
 import UIKit
@@ -169,44 +168,15 @@ public class QueueItemCell: UITableViewCell {
             artworkLoadTask?.cancel()
 
             artworkLoadTask = Task { @MainActor in
-                // Guard: bail if cell was reconfigured since this task started
-                guard self.configureGeneration == expectedGeneration else { return }
-
-                guard let url = await artworkLoader.artworkURLAsync(
-                    for: track.thumbPath,
-                    sourceKey: track.sourceCompositeKey,
-                    ratingKey: track.id,
-                    fallbackPath: track.fallbackThumbPath,
-                    fallbackRatingKey: track.fallbackRatingKey,
-                    size: ArtworkSize.thumbnail.rawValue
-                ) else {
-                    if self.configureGeneration == expectedGeneration {
-                        self.artworkImageView.image = nil
-                    }
-                    return
+                let image = await TrackArtworkThumbnailLoader.image(
+                    for: track,
+                    artworkLoader: artworkLoader
+                ) {
+                    self.configureGeneration == expectedGeneration
                 }
 
-                guard self.configureGeneration == expectedGeneration else { return }
-
-                let request = ArtworkImageRequest.resized(
-                    url: url,
-                    size: ArtworkSize.thumbnail.rawValue,
-                    priority: .high
-                )
-
-                // Check cache first
-                if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                    if self.configureGeneration == expectedGeneration {
-                        self.artworkImageView.image = cachedImage.image
-                    }
-                    return
-                }
-
-                // Load asynchronously
-                if let image = try? await ImagePipeline.shared.image(for: request) {
-                    if self.configureGeneration == expectedGeneration {
-                        self.artworkImageView.image = image
-                    }
+                if self.configureGeneration == expectedGeneration {
+                    self.artworkImageView.image = image
                 }
             }
         }

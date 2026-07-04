@@ -1,6 +1,5 @@
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 #if os(macOS)
 import AppKit
@@ -916,34 +915,14 @@ private final class MacNativeTrackTableCell: NSTableCellView {
     private func loadArtwork(for track: Track, artworkLoader: ArtworkLoaderProtocol) {
         artworkLoadTask?.cancel()
         artworkLoadTask = Task { @MainActor in
-            guard let url = await artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: ArtworkSize.thumbnail.rawValue
-            ) else {
-                if currentTrackID == track.playbackIdentity {
-                    artworkImageView.image = nil
-                }
-                return
+            let image = await TrackArtworkThumbnailLoader.image(
+                for: track,
+                artworkLoader: artworkLoader
+            ) {
+                currentTrackID == track.playbackIdentity
             }
 
-            let request = ArtworkImageRequest.resized(
-                url: url,
-                size: ArtworkSize.thumbnail.rawValue,
-                priority: .high
-            )
-            if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-                if currentTrackID == track.playbackIdentity {
-                    artworkImageView.image = cachedImage.image
-                }
-                return
-            }
-
-            if let image = try? await ImagePipeline.shared.image(for: request),
-               currentTrackID == track.playbackIdentity {
+            if currentTrackID == track.playbackIdentity {
                 artworkImageView.image = image
             }
         }
