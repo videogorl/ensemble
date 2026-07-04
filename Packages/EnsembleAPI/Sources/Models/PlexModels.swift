@@ -39,13 +39,17 @@ public struct PlexPIN: Codable, Sendable {
         authToken = try container.decodeIfPresent(String.self, forKey: .authToken)
 
         if let expiresString = try container.decodeIfPresent(String.self, forKey: .expiresAt) {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            expiresAt = formatter.date(from: expiresString)
+            expiresAt = Self.expiresAtFormatter.date(from: expiresString)
         } else {
             expiresAt = nil
         }
     }
+
+    private static let expiresAtFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 }
 
 // MARK: - Resources (Servers)
