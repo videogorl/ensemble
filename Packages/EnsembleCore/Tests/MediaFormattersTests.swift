@@ -53,4 +53,14 @@ final class MediaFormattersTests: XCTestCase {
         XCTAssertFalse(MediaFormatters.fileBytes(512).isEmpty)
         XCTAssertTrue(MediaFormatters.logBytes(1_024).localizedCaseInsensitiveContains("KB"))
     }
+
+    func testAudioMetadataFormattersMatchDisplayStyle() {
+        XCTAssertEqual(MediaFormatters.sampleRate(44_100), "44.1 kHz")
+        XCTAssertEqual(MediaFormatters.sampleRate(96_000), "96 kHz")
+
+        XCTAssertEqual(MediaFormatters.codecName("flac"), "FLAC")
+        XCTAssertEqual(MediaFormatters.codecName("PCM"), "WAV")
+        XCTAssertEqual(MediaFormatters.codecName("opus"), "Opus")
+        XCTAssertEqual(MediaFormatters.codecName("custom"), "CUSTOM")
+    }
 }

@@ -228,7 +228,7 @@ public struct InfoCard: View {
 
                 // Sample rate
                 if let sampleRate = info.sampleRate {
-                    infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
+                    infoRow(label: "Sample Rate", value: MediaFormatters.sampleRate(sampleRate))
                 }
 
                 // Bit depth (nil for lossy codecs like MP3)
@@ -322,7 +322,7 @@ public struct InfoCard: View {
         let info = viewModel.currentPlaybackFileInfo()
         if let codec = info.codec {
             let sizeText = info.fileSize.map { " · \(MediaFormatters.fileBytes($0))" } ?? ""
-            infoRow(label: "Playing", value: "\(formatCodecName(codec))\(sizeText)")
+            infoRow(label: "Playing", value: "\(MediaFormatters.codecName(codec))\(sizeText)")
         }
     }
 
@@ -331,7 +331,7 @@ public struct InfoCard: View {
     private var sourceFileInfoRow: some View {
         if let info = audioFileInfo, let codec = info.codec {
             let sizeText = info.fileSize.map { " · \(MediaFormatters.fileBytes(Int64($0)))" } ?? ""
-            infoRow(label: "Original", value: "\(formatCodecName(codec))\(sizeText)")
+            infoRow(label: "Original", value: "\(MediaFormatters.codecName(codec))\(sizeText)")
         }
     }
 
@@ -409,28 +409,6 @@ public struct InfoCard: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter.string(from: date)
-    }
-
-    /// Format sample rate for display (e.g. 44100 → "44.1 kHz", 96000 → "96 kHz")
-    private func formatSampleRate(_ rate: Int) -> String {
-        if rate % 1000 == 0 {
-            return "\(rate / 1000) kHz"
-        }
-        return String(format: "%.1f kHz", Double(rate) / 1000.0)
-    }
-
-    /// Format codec name for display
-    private func formatCodecName(_ codec: String) -> String {
-        switch codec.lowercased() {
-        case "flac": return "FLAC"
-        case "mp3": return "MP3"
-        case "aac": return "AAC"
-        case "alac": return "ALAC"
-        case "wav", "pcm": return "WAV"
-        case "opus": return "Opus"
-        case "vorbis": return "Vorbis"
-        default: return codec.uppercased()
-        }
     }
 
     /// Format streaming quality setting for display

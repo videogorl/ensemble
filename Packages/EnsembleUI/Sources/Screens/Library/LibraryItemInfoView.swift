@@ -143,13 +143,13 @@ public struct LibraryItemInfoView: View {
             if let info = viewModel.originalFileInfo {
                 infoSection(title: "File") {
                     if let codec = info.codec {
-                        infoRow(label: "Format", value: formatCodecName(codec))
+                        infoRow(label: "Format", value: MediaFormatters.codecName(codec))
                     }
                     if let bitrate = info.bitrate {
                         infoRow(label: "Bitrate", value: "\(bitrate) kbps")
                     }
                     if let sampleRate = info.sampleRate {
-                        infoRow(label: "Sample Rate", value: formatSampleRate(sampleRate))
+                        infoRow(label: "Sample Rate", value: MediaFormatters.sampleRate(sampleRate))
                     }
                     if let bitDepth = info.bitDepth {
                         infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
@@ -267,26 +267,6 @@ public struct LibraryItemInfoView: View {
     private func formatDuration(_ duration: TimeInterval?) -> String? {
         guard let duration, duration > 0 else { return nil }
         return MediaFormatters.collectionDuration(duration)
-    }
-
-    private func formatSampleRate(_ rate: Int) -> String {
-        if rate % 1000 == 0 {
-            return "\(rate / 1000) kHz"
-        }
-        return String(format: "%.1f kHz", Double(rate) / 1000.0)
-    }
-
-    private func formatCodecName(_ codec: String) -> String {
-        switch codec.lowercased() {
-        case "flac": return "FLAC"
-        case "mp3": return "MP3"
-        case "aac": return "AAC"
-        case "alac": return "ALAC"
-        case "wav", "pcm": return "WAV"
-        case "opus": return "Opus"
-        case "vorbis": return "Vorbis"
-        default: return codec.uppercased()
-        }
     }
 
     private func displayServerName(_ serverName: String?) -> String? {

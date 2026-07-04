@@ -38,6 +38,26 @@ public enum MediaFormatters {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
+    public static func sampleRate(_ rate: Int) -> String {
+        if rate % 1000 == 0 {
+            return "\(rate / 1000) kHz"
+        }
+        return String(format: "%.1f kHz", Double(rate) / 1000.0)
+    }
+
+    public static func codecName(_ codec: String) -> String {
+        switch codec.lowercased() {
+        case "flac": return "FLAC"
+        case "mp3": return "MP3"
+        case "aac": return "AAC"
+        case "alac": return "ALAC"
+        case "wav", "pcm": return "WAV"
+        case "opus": return "Opus"
+        case "vorbis": return "Vorbis"
+        default: return codec.uppercased()
+        }
+    }
+
     public static func logBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useKB, .useMB]
