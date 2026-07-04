@@ -3,6 +3,42 @@ import Foundation
 
 @MainActor
 enum ViewModelNotificationObserver {
+    static func observeDownloadChanges(
+        storingIn cancellables: inout Set<AnyCancellable>,
+        action: @escaping @MainActor () async -> Void
+    ) {
+        observe(
+            OfflineDownloadService.downloadsDidChange,
+            debounce: .milliseconds(500),
+            storingIn: &cancellables,
+            action: action
+        )
+    }
+
+    static func observeMetadataChanges(
+        storingIn cancellables: inout Set<AnyCancellable>,
+        action: @escaping @MainActor () async -> Void
+    ) {
+        observe(
+            MetadataMutationService.metadataDidChange,
+            debounce: .milliseconds(300),
+            storingIn: &cancellables,
+            action: action
+        )
+    }
+
+    static func observePlaylistRefresh(
+        storingIn cancellables: inout Set<AnyCancellable>,
+        action: @escaping @MainActor () async -> Void
+    ) {
+        observe(
+            SyncCoordinator.playlistsDidRefresh,
+            debounce: .milliseconds(500),
+            storingIn: &cancellables,
+            action: action
+        )
+    }
+
     static func observe(
         _ name: Notification.Name,
         debounce: DispatchQueue.SchedulerTimeType.Stride,

@@ -72,31 +72,19 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observe(
-            OfflineDownloadService.downloadsDidChange,
-            debounce: .milliseconds(500),
-            storingIn: &cancellables
-        ) { [weak self] in
+        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }
 
     private func observePlaylistRefresh() {
-        ViewModelNotificationObserver.observe(
-            SyncCoordinator.playlistsDidRefresh,
-            debounce: .milliseconds(500),
-            storingIn: &cancellables
-        ) { [weak self] in
+        ViewModelNotificationObserver.observePlaylistRefresh(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }
 
     private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observe(
-            MetadataMutationService.metadataDidChange,
-            debounce: .milliseconds(300),
-            storingIn: &cancellables
-        ) { [weak self] in
+        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }

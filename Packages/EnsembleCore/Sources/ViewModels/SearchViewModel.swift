@@ -302,11 +302,7 @@ public final class SearchViewModel: ObservableObject {
     }
 
     private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observe(
-            MetadataMutationService.metadataDidChange,
-            debounce: .milliseconds(300),
-            storingIn: &cancellables
-        ) { [weak self] in
+        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
             guard let self else { return }
             let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedQuery.isEmpty {
