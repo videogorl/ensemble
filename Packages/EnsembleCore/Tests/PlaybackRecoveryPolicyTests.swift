@@ -11,6 +11,17 @@ final class PlaybackRecoveryPolicyTests: XCTestCase {
         XCTAssertEqual(profile.stallRecoveryTimeout, 8)
     }
 
+    func testBaseBufferingProfileForOfflineAndCellularUsesConservativeBuffering() {
+        let cellular = PlaybackRecoveryPolicy.baseBufferingProfile(for: .online(.cellular))
+        let offline = PlaybackRecoveryPolicy.baseBufferingProfile(for: .offline)
+
+        XCTAssertTrue(cellular.waitsToMinimizeStalling)
+        XCTAssertEqual(cellular.preferredForwardBufferDuration, 18)
+        XCTAssertEqual(cellular.prefetchDepth, 1)
+        XCTAssertTrue(offline.waitsToMinimizeStalling)
+        XCTAssertEqual(offline.prefetchDepth, 1)
+    }
+
     func testResolvedBufferingProfileUsesConservativeProfileWithinWindow() {
         let now = Date()
         let profile = PlaybackRecoveryPolicy.resolvedBufferingProfile(
@@ -20,6 +31,40 @@ final class PlaybackRecoveryPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(profile, .conservative)
+    }
+
+    func testResolvedBufferingProfileUsesBaseProfileAfterConservativeWindowExpires() {
+        let now = Date()
+        let profile = PlaybackRecoveryPolicy.resolvedBufferingProfile(
+            for: .online(.wifi),
+            conservativeModeUntil: now.addingTimeInterval(-1),
+            now: now
+        )
+
+        XCTAssertEqual(profile, .wifiOrWired)
+    }
+
+    func testConservativeEscalationRequiresTwoStallsInsideWindow() {
+        let now = Date()
+
+        XCTAssertTrue(
+            PlaybackRecoveryPolicy.shouldEnterConservativeMode(
+                stallTimestamps: [
+                    now.addingTimeInterval(-10),
+                    now.addingTimeInterval(-5),
+                ],
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldEnterConservativeMode(
+                stallTimestamps: [
+                    now.addingTimeInterval(-40),
+                    now.addingTimeInterval(-35),
+                ],
+                now: now
+            )
+        )
     }
 
     func testThrottlePrefetchKeepsGaplessMinimumDepth() {
@@ -38,6 +83,45 @@ final class PlaybackRecoveryPolicyTests: XCTestCase {
 
         XCTAssertEqual(throttled.prefetchDepth, 1)
         XCTAssertTrue(throttled.label.contains("prefetch-throttled"))
+    }
+
+    func testThrottlePrefetchLeavesProfileUntouchedWhenInactiveOrAlreadyMinimal() {
+        let inactive = PlaybackRecoveryPolicy.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: false)
+        let alreadyMinimal = PlaybackRecoveryPolicy.throttledPrefetchProfileIfNeeded(.wifiOrWired, throttleActive: true)
+
+        XCTAssertEqual(inactive, .wifiOrWired)
+        XCTAssertEqual(alreadyMinimal, .wifiOrWired)
+    }
+
+    func testWaitingStallEventRequiresPlayingBufferEmptyAndNoActiveSeek() {
+        XCTAssertTrue(
+            PlaybackRecoveryPolicy.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: true,
+                hasActiveSeek: false
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldRecordWaitingStallEvent(
+                playbackState: .loading,
+                isPlaybackBufferEmpty: true,
+                hasActiveSeek: false
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: false,
+                hasActiveSeek: false
+            )
+        )
+        XCTAssertFalse(
+            PlaybackRecoveryPolicy.shouldRecordWaitingStallEvent(
+                playbackState: .playing,
+                isPlaybackBufferEmpty: true,
+                hasActiveSeek: true
+            )
+        )
     }
 
     func testUnexpectedPauseRecoveryRequiresHealthyBufferForImmediateResume() {
