@@ -39,12 +39,6 @@ extension AppDelegate {
         return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 
-    // NOTE: These methods are NOT called in SwiftUI lifecycle apps using @main App.
-    // Background/foreground handling lives in EnsembleApp.handleScenePhaseChange()
-    // via the scenePhase environment value. Keeping these as no-ops for documentation.
-    func applicationDidEnterBackground(_ application: UIApplication) {}
-    func applicationWillEnterForeground(_ application: UIApplication) {}
-
     func application(
         _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
