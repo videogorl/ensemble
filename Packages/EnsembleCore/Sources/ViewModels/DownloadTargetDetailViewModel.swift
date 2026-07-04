@@ -29,6 +29,14 @@ public struct TrackDownloadRow: Identifiable {
     public let trackNumber: Int32
     /// Index within parent container (used for playlist ordering)
     public let index: Int
+
+    public var sourceScopedID: String {
+        sourceScopedIdentity(ratingKey: trackRatingKey, sourceCompositeKey: sourceCompositeKey)
+    }
+
+    public func playableTrackIndex(in tracks: [Track]) -> Int? {
+        tracks.firstIndex { $0.sourceScopedID == sourceScopedID }
+    }
 }
 
 struct TrackDownloadRowStats {

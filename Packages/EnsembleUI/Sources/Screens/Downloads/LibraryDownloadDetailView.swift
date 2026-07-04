@@ -196,7 +196,7 @@ struct LibraryDownloadDetailView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         guard row.status == .completed else { return }
-                        if let index = viewModel.playableTracks.firstIndex(where: { $0.id == row.trackRatingKey }) {
+                        if let index = row.playableTrackIndex(in: viewModel.playableTracks) {
                             nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
                         }
                     }

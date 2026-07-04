@@ -220,11 +220,8 @@ public struct DownloadTargetDetailView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            // Play from this track when it's completed
                             guard row.status == .completed else { return }
-                            if let index = viewModel.playableTracks.firstIndex(where: {
-                                $0.id == row.trackRatingKey && $0.sourceCompositeKey == row.sourceCompositeKey
-                            }) {
+                            if let index = row.playableTrackIndex(in: viewModel.playableTracks) {
                                 nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
                             }
                         }

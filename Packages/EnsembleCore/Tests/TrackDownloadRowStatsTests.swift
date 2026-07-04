@@ -42,11 +42,27 @@ final class TrackDownloadRowStatsTests: XCTestCase {
         XCTAssertEqual(stats.status, .pending)
     }
 
-    private func makeRow(status: CDDownload.Status, fileSize: Int64 = 0) -> TrackDownloadRow {
+    func testPlayableTrackIndexUsesSourceScopedIdentity() {
+        let row = makeRow(status: .completed, trackRatingKey: "track", sourceCompositeKey: "source-b")
+        let tracks = [
+            Track(id: "track", key: "/tracks/a", title: "Wrong Source", sourceCompositeKey: "source-a"),
+            Track(id: "track", key: "/tracks/b", title: "Right Source", sourceCompositeKey: "source-b"),
+        ]
+
+        XCTAssertEqual(row.sourceScopedID, "source-b||track")
+        XCTAssertEqual(row.playableTrackIndex(in: tracks), 1)
+    }
+
+    private func makeRow(
+        status: CDDownload.Status,
+        fileSize: Int64 = 0,
+        trackRatingKey: String = "track",
+        sourceCompositeKey: String = "source"
+    ) -> TrackDownloadRow {
         TrackDownloadRow(
             id: UUID().uuidString,
-            trackRatingKey: "track",
-            sourceCompositeKey: "source",
+            trackRatingKey: trackRatingKey,
+            sourceCompositeKey: sourceCompositeKey,
             title: "Track",
             artistName: nil,
             thumbPath: nil,
