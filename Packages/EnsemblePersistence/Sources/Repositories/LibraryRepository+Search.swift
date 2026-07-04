@@ -9,7 +9,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDTrack.fetchRequest()
-                request.predicate = Self.tokenizedSearchPredicate(
+                request.predicate = RepositorySearchPredicates.tokenized(
                     query: query,
                     fieldNames: ["title", "artistName", "albumName"]
                 )
@@ -50,7 +50,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDArtist.fetchRequest()
-                request.predicate = Self.tokenizedSearchPredicate(
+                request.predicate = RepositorySearchPredicates.tokenized(
                     query: query,
                     fieldNames: ["name"]
                 )
@@ -91,7 +91,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                request.predicate = Self.tokenizedSearchPredicate(
+                request.predicate = RepositorySearchPredicates.tokenized(
                     query: query,
                     fieldNames: ["title", "artistName"]
                 )
@@ -125,34 +125,6 @@ extension LibraryRepository {
                 }
             }
         }
-    }
-
-    /// Builds a search predicate that requires all whitespace-separated tokens
-    /// to appear (in any order) across the given fields.
-    private static func tokenizedSearchPredicate(
-        query: String,
-        fieldNames: [String]
-    ) -> NSPredicate {
-        let tokens = query
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .components(separatedBy: .whitespaces)
-            .filter { !$0.isEmpty }
-
-        guard !tokens.isEmpty else {
-            return NSPredicate(value: false)
-        }
-
-        // For each token, require it to appear in at least one searchable field
-        let tokenPredicates = tokens.map { token in
-            NSCompoundPredicate(orPredicateWithSubpredicates:
-                fieldNames.map { field in
-                    NSPredicate(format: "%K CONTAINS[cd] %@", field, token)
-                }
-            )
-        }
-
-        // All tokens must match
-        return NSCompoundPredicate(andPredicateWithSubpredicates: tokenPredicates)
     }
 
     private static func scopedNameSearchPredicate(
