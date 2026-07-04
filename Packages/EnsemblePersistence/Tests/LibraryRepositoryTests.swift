@@ -625,10 +625,38 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(trackRatings, ["track": 5])
     }
 
+    func testBatchUpsertsLinkSubsetRelationships() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "plex/account/server/library"
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist-1", thumbPath: nil, dateModified: nil),
+            makeArtistInput(ratingKey: "artist-2", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(
+                ratingKey: "album-2",
+                thumbPath: nil,
+                dateModified: nil,
+                artistRatingKey: "artist-2"
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track-2", albumRatingKey: "album-2")
+        ], sourceCompositeKey: sourceKey)
+
+        let album = try await repository.fetchAlbum(ratingKey: "album-2", sourceCompositeKey: sourceKey)
+        let track = try await repository.fetchTrack(ratingKey: "track-2", sourceCompositeKey: sourceKey)
+
+        XCTAssertEqual(album?.artist?.ratingKey, "artist-2")
+        XCTAssertEqual(track?.album?.ratingKey, "album-2")
+    }
+
     private func makeAlbumInput(
         ratingKey: String,
         thumbPath: String?,
-        dateModified: Date?
+        dateModified: Date?,
+        artistRatingKey: String? = nil
     ) -> AlbumUpsertInput {
         AlbumUpsertInput(
             ratingKey: ratingKey,
@@ -636,7 +664,7 @@ final class LibraryRepositoryTests: XCTestCase {
             title: "Album \(ratingKey)",
             artistName: "Artist",
             albumArtist: "Artist",
-            artistRatingKey: nil,
+            artistRatingKey: artistRatingKey,
             summary: nil,
             thumbPath: thumbPath,
             artPath: nil,
@@ -668,7 +696,8 @@ final class LibraryRepositoryTests: XCTestCase {
     private func makeTrackInput(
         ratingKey: String,
         dateModified: Date? = nil,
-        rating: Int? = nil
+        rating: Int? = nil,
+        albumRatingKey: String? = nil
     ) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: ratingKey,
@@ -676,7 +705,7 @@ final class LibraryRepositoryTests: XCTestCase {
             title: "Track \(ratingKey)",
             artistName: "Artist",
             albumName: "Album",
-            albumRatingKey: nil,
+            albumRatingKey: albumRatingKey,
             trackNumber: 1,
             discNumber: 1,
             duration: 180_000,

@@ -2,6 +2,8 @@ import CoreData
 import Foundation
 
 extension LibraryRepository {
+    private static let maximumScopedKeyFetchCount = 500
+
     // MARK: - Music Source
 
     public func fetchMusicSources() async throws -> [CDMusicSource] {
@@ -419,6 +421,17 @@ extension LibraryRepository {
         ])
     }
 
+    private static func sourceScopedPredicate(sourceKey: String, ratingKeys: Set<String>) -> NSPredicate {
+        let sourcePredicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+        guard !ratingKeys.isEmpty, ratingKeys.count <= maximumScopedKeyFetchCount else {
+            return sourcePredicate
+        }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [
+            sourcePredicate,
+            NSPredicate(format: "ratingKey IN %@", Array(ratingKeys))
+        ])
+    }
+
     // MARK: - Batch Upserts
 
     /// Upsert all artists in a single background context with one save.
@@ -428,9 +441,12 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    // Pre-fetch all existing artists for this source into a lookup dictionary
+                    // Pre-fetch matching existing artists into a lookup dictionary.
                     let existingRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    existingRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+                    existingRequest.predicate = Self.sourceScopedPredicate(
+                        sourceKey: sourceCompositeKey,
+                        ratingKeys: Set(inputs.map(\.ratingKey))
+                    )
                     let existingArtists = try context.fetch(existingRequest)
                     var artistsByKey: [String: CDArtist] = [:]
                     artistsByKey.reserveCapacity(existingArtists.count)
@@ -491,9 +507,12 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    // Pre-fetch all existing albums for this source
+                    // Pre-fetch matching existing albums into a lookup dictionary.
                     let existingRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    existingRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+                    existingRequest.predicate = Self.sourceScopedPredicate(
+                        sourceKey: sourceCompositeKey,
+                        ratingKeys: Set(inputs.map(\.ratingKey))
+                    )
                     let existingAlbums = try context.fetch(existingRequest)
                     var albumsByKey: [String: CDAlbum] = [:]
                     albumsByKey.reserveCapacity(existingAlbums.count)
@@ -501,14 +520,20 @@ extension LibraryRepository {
                         albumsByKey[album.ratingKey] = album
                     }
 
-                    // Pre-fetch all artists for this source (for relationship linking)
-                    let artistRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    artistRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
-                    let existingArtists = try context.fetch(artistRequest)
+                    // Pre-fetch artists needed for relationship linking.
                     var artistsByKey: [String: CDArtist] = [:]
-                    artistsByKey.reserveCapacity(existingArtists.count)
-                    for artist in existingArtists {
-                        artistsByKey[artist.ratingKey] = artist
+                    let artistKeys = Set(inputs.compactMap(\.artistRatingKey))
+                    if !artistKeys.isEmpty {
+                        let artistRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+                        artistRequest.predicate = Self.sourceScopedPredicate(
+                            sourceKey: sourceCompositeKey,
+                            ratingKeys: artistKeys
+                        )
+                        let existingArtists = try context.fetch(artistRequest)
+                        artistsByKey.reserveCapacity(existingArtists.count)
+                        for artist in existingArtists {
+                            artistsByKey[artist.ratingKey] = artist
+                        }
                     }
 
                     // Pre-fetch the CDMusicSource once
@@ -575,9 +600,12 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    // Pre-fetch all existing tracks for this source
+                    // Pre-fetch matching existing tracks into a lookup dictionary.
                     let existingRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    existingRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+                    existingRequest.predicate = Self.sourceScopedPredicate(
+                        sourceKey: sourceCompositeKey,
+                        ratingKeys: Set(inputs.map(\.ratingKey))
+                    )
                     let existingTracks = try context.fetch(existingRequest)
                     var tracksByKey: [String: CDTrack] = [:]
                     tracksByKey.reserveCapacity(existingTracks.count)
@@ -585,14 +613,20 @@ extension LibraryRepository {
                         tracksByKey[track.ratingKey] = track
                     }
 
-                    // Pre-fetch all albums for this source (for relationship linking)
-                    let albumRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    albumRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
-                    let existingAlbums = try context.fetch(albumRequest)
+                    // Pre-fetch albums needed for relationship linking.
                     var albumsByKey: [String: CDAlbum] = [:]
-                    albumsByKey.reserveCapacity(existingAlbums.count)
-                    for album in existingAlbums {
-                        albumsByKey[album.ratingKey] = album
+                    let albumKeys = Set(inputs.compactMap(\.albumRatingKey))
+                    if !albumKeys.isEmpty {
+                        let albumRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                        albumRequest.predicate = Self.sourceScopedPredicate(
+                            sourceKey: sourceCompositeKey,
+                            ratingKeys: albumKeys
+                        )
+                        let existingAlbums = try context.fetch(albumRequest)
+                        albumsByKey.reserveCapacity(existingAlbums.count)
+                        for album in existingAlbums {
+                            albumsByKey[album.ratingKey] = album
+                        }
                     }
 
                     // Pre-fetch the CDMusicSource once
