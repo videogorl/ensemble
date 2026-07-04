@@ -74,29 +74,29 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let albumCountRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    albumCountRequest.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    albumCountRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     let albumCount = try context.count(for: albumCountRequest)
 
                     let albumWithGenresRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
                     albumWithGenresRequest.predicate = NSPredicate(
-                        format: "source.compositeKey == %@ AND genreNames != nil AND genreNames != ''",
+                        format: "sourceCompositeKey == %@ AND genreNames != nil AND genreNames != ''",
                         sourceKey
                     )
                     let albumsWithGenreNames = try context.count(for: albumWithGenresRequest)
 
                     let trackCountRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    trackCountRequest.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    trackCountRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     let trackCount = try context.count(for: trackCountRequest)
 
                     let trackWithGenresRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
                     trackWithGenresRequest.predicate = NSPredicate(
-                        format: "source.compositeKey == %@ AND genreNames != nil AND genreNames != ''",
+                        format: "sourceCompositeKey == %@ AND genreNames != nil AND genreNames != ''",
                         sourceKey
                     )
                     let tracksWithGenreNames = try context.count(for: trackWithGenresRequest)
 
                     let genreCountRequest: NSFetchRequest<CDGenre> = CDGenre.fetchRequest()
-                    genreCountRequest.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    genreCountRequest.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     let genreCatalogCount = try context.count(for: genreCountRequest)
 
                     continuation.resume(
@@ -120,7 +120,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDGenre> = CDGenre.fetchRequest()
-                    request.predicate = NSPredicate(format: "source.compositeKey == %@", sourceKey)
+                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
                     let localGenres = try context.fetch(request)
 
                     var removedCount = 0

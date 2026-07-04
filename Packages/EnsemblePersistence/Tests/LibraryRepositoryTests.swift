@@ -625,6 +625,55 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(trackRatings, ["track": 5])
     }
 
+    func testGenreCoverageAndCleanupUseDirectSourceScope() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album-a", thumbPath: nil, dateModified: nil, genreNames: "Rock")
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track-a", genreNames: "Rock")
+        ], sourceCompositeKey: sourceA)
+        _ = try await repository.upsertGenre(
+            ratingKey: "genre-keep",
+            key: "/library/sections/1/genre/keep",
+            title: "Rock",
+            sourceCompositeKey: sourceA
+        )
+        _ = try await repository.upsertGenre(
+            ratingKey: "genre-drop",
+            key: "/library/sections/1/genre/drop",
+            title: "Dusty",
+            sourceCompositeKey: sourceA
+        )
+        _ = try await repository.upsertGenre(
+            ratingKey: "genre-drop",
+            key: "/library/sections/2/genre/drop",
+            title: "Dusty",
+            sourceCompositeKey: sourceB
+        )
+
+        let fetchedStats = try await repository.fetchGenreCoverageStats(forSource: sourceA)
+        let stats = try XCTUnwrap(fetchedStats)
+        let removed = try await repository.removeOrphanedGenres(notIn: ["genre-keep"], forSource: sourceA)
+        let genres = try await repository.fetchGenres()
+
+        XCTAssertEqual(stats, GenreCoverageStats(
+            albumCount: 1,
+            albumsWithGenreNames: 1,
+            trackCount: 1,
+            tracksWithGenreNames: 1,
+            genreCatalogCount: 2
+        ))
+        XCTAssertEqual(removed, 1)
+        XCTAssertEqual(Set(genres.map { "\($0.sourceCompositeKey ?? "")|\($0.ratingKey ?? "")" }), [
+            "\(sourceA)|genre-keep",
+            "\(sourceB)|genre-drop"
+        ])
+    }
+
     func testBatchUpsertsLinkSubsetRelationships() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         let sourceKey = "plex/account/server/library"
@@ -656,7 +705,8 @@ final class LibraryRepositoryTests: XCTestCase {
         ratingKey: String,
         thumbPath: String?,
         dateModified: Date?,
-        artistRatingKey: String? = nil
+        artistRatingKey: String? = nil,
+        genreNames: String? = nil
     ) -> AlbumUpsertInput {
         AlbumUpsertInput(
             ratingKey: ratingKey,
@@ -672,7 +722,8 @@ final class LibraryRepositoryTests: XCTestCase {
             trackCount: 1,
             dateAdded: nil,
             dateModified: dateModified,
-            rating: nil
+            rating: nil,
+            genreNames: genreNames
         )
     }
 
@@ -697,7 +748,8 @@ final class LibraryRepositoryTests: XCTestCase {
         ratingKey: String,
         dateModified: Date? = nil,
         rating: Int? = nil,
-        albumRatingKey: String? = nil
+        albumRatingKey: String? = nil,
+        genreNames: String? = nil
     ) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: ratingKey,
@@ -717,7 +769,7 @@ final class LibraryRepositoryTests: XCTestCase {
             lastPlayed: nil,
             rating: rating,
             playCount: nil,
-            genreNames: nil
+            genreNames: genreNames
         )
     }
 }
