@@ -329,7 +329,6 @@ public final class WatchExperienceModel: ObservableObject {
     private let authService: PlexAuthService
 
     private var discoveredServers: [EnsemblePlexServer] = []
-    private var authPIN: PlexPIN?
     private var bootstrapTask: Task<Void, Never>?
     private var bootstrapTaskID: UUID?
     private var linkPollTask: Task<Void, Never>?
@@ -557,7 +556,6 @@ public final class WatchExperienceModel: ObservableObject {
 
         do {
             let state = try await authService.requestPIN()
-            authPIN = state.pin
             linkState = WatchLinkState(code: state.pin.code, url: state.linkURL)
             bootstrapState = .needsLink
             statusMessage = "Enter the code at plex.tv/link"
