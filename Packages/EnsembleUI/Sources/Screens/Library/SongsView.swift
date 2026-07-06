@@ -310,7 +310,6 @@ public struct SongsView: View {
     }
 
     private func largeScreenSongBrowserView(width: CGFloat) -> some View {
-        #if os(macOS)
         Group {
             if libraryVM.trackSortOption == .title {
                 largeScreenIndexedSongList(width: width, tableHeaderContent: songsTableHeaderContent)
@@ -320,17 +319,6 @@ public struct SongsView: View {
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
         .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        #else
-        Group {
-            if libraryVM.trackSortOption == .title {
-                largeScreenIndexedSongList(width: width, tableHeaderContent: songsTableHeaderContent)
-            } else {
-                largeScreenFlatSongList(width: width, tableHeaderContent: songsTableHeaderContent)
-            }
-        }
-        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
-        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
-        #endif
     }
 
     private func largeScreenIndexedSongList(width: CGFloat, tableHeaderContent: AnyView? = nil) -> some View {
