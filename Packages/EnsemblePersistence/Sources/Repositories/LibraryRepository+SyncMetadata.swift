@@ -7,48 +7,27 @@ extension LibraryRepository {
     // MARK: - Music Source
 
     public func fetchMusicSources() async throws -> [CDMusicSource] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDMusicSource.fetchRequest()
-                do {
-                    let sources = try context.fetch(request)
-                    continuation.resume(returning: sources)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDMusicSource.fetchRequest()
+            return try context.fetch(request)
         }
     }
 
     public func countMusicSources() async throws -> Int {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDMusicSource.fetchRequest()
-                do {
-                    continuation.resume(returning: try context.count(for: request))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDMusicSource.fetchRequest()
+            return try context.count(for: request)
         }
     }
 
     public func countLibraryMetadataItems() async throws -> Int {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    var total = 0
-                    for entityName in ["CDArtist", "CDAlbum", "CDTrack", "CDGenre"] {
-                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
-                        total += try context.count(for: request)
-                    }
-                    continuation.resume(returning: total)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            var total = 0
+            for entityName in ["CDArtist", "CDAlbum", "CDTrack", "CDGenre"] {
+                let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                total += try context.count(for: request)
             }
+            return total
         }
     }
 
@@ -61,200 +40,157 @@ extension LibraryRepository {
         displayName: String?,
         accountName: String?
     ) async throws -> CDMusicSource {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                let request = CDMusicSource.fetchRequest()
-                request.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDMusicSource.fetchRequest()
+            request.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
 
-                do {
-                    let existing = try context.fetch(request).first
-                    let source = existing ?? CDMusicSource(context: context)
+            let existing = try context.fetch(request).first
+            let source = existing ?? CDMusicSource(context: context)
 
-                    source.compositeKey = compositeKey
-                    source.type = type
-                    source.accountId = accountId
-                    source.serverId = serverId
-                    source.libraryId = libraryId
-                    source.displayName = displayName
-                    source.accountName = accountName
+            source.compositeKey = compositeKey
+            source.type = type
+            source.accountId = accountId
+            source.serverId = serverId
+            source.libraryId = libraryId
+            source.displayName = displayName
+            source.accountName = accountName
 
-                    try context.save()
+            try context.save()
+        }
 
-                    let mainContext = self.coreDataStack.viewContext
-                    mainContext.perform {
-                        let mainRequest = CDMusicSource.fetchRequest()
-                        mainRequest.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
-                        if let mainSource = try? mainContext.fetch(mainRequest).first {
-                            continuation.resume(returning: mainSource)
-                        } else {
-                            continuation.resume(throwing: NSError(domain: "LibraryRepository", code: 1, userInfo: nil))
-                        }
-                    }
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        return try await coreDataStack.performViewContext { mainContext in
+            let mainRequest = CDMusicSource.fetchRequest()
+            mainRequest.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
+            guard let mainSource = try mainContext.fetch(mainRequest).first else {
+                throw NSError(domain: "LibraryRepository", code: 1, userInfo: nil)
             }
+            return mainSource
         }
     }
 
     public func updateMusicSourceSyncTimestamp(compositeKey: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                let request = CDMusicSource.fetchRequest()
-                request.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDMusicSource.fetchRequest()
+            request.predicate = NSPredicate(format: "compositeKey == %@", compositeKey)
 
-                do {
-                    if let source = try context.fetch(request).first {
-                        source.lastSyncedAt = Date()
-                        try context.save()
-                    }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            if let source = try context.fetch(request).first {
+                source.lastSyncedAt = Date()
+                try context.save()
             }
         }
     }
 
     public func deleteAllData(forSourceCompositeKey sourceKey: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
-                        let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
-                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                        let objects = try context.fetch(request)
-                        for object in objects {
-                            context.delete(object)
-                        }
-                    }
-
-                    let sourceRequest = CDMusicSource.fetchRequest()
-                    sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceKey)
-                    if let source = try context.fetch(sourceRequest).first {
-                        context.delete(source)
-                    }
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+        try await coreDataStack.performBackgroundContext { context in
+            for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
+                let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                let objects = try context.fetch(request)
+                for object in objects {
+                    context.delete(object)
                 }
             }
+
+            let sourceRequest = CDMusicSource.fetchRequest()
+            sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceKey)
+            if let source = try context.fetch(sourceRequest).first {
+                context.delete(source)
+            }
+
+            try context.save()
         }
     }
 
     public func fetchArtworkRatingKeys(forSourceCompositeKey sourceKey: String) async throws -> Set<String> {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Set<String>, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    var ratingKeys = Set<String>()
-                    for entityName in ["CDAlbum", "CDArtist"] {
-                        let request = NSFetchRequest<NSDictionary>(entityName: entityName)
-                        request.resultType = .dictionaryResultType
-                        request.propertiesToFetch = ["ratingKey"]
-                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+        try await coreDataStack.performBackgroundContext { context in
+            var ratingKeys = Set<String>()
+            for entityName in ["CDAlbum", "CDArtist"] {
+                let request = NSFetchRequest<NSDictionary>(entityName: entityName)
+                request.resultType = .dictionaryResultType
+                request.propertiesToFetch = ["ratingKey"]
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
 
-                        let rows = try context.fetch(request)
-                        for row in rows {
-                            if let ratingKey = row["ratingKey"] as? String, !ratingKey.isEmpty {
-                                ratingKeys.insert(ratingKey)
-                            }
-                        }
+                let rows = try context.fetch(request)
+                for row in rows {
+                    if let ratingKey = row["ratingKey"] as? String, !ratingKey.isEmpty {
+                        ratingKeys.insert(ratingKey)
                     }
-                    continuation.resume(returning: ratingKeys)
-                } catch {
-                    continuation.resume(throwing: error)
                 }
             }
+            return ratingKeys
         }
     }
 
     public func countLibraryItems(forSourceCompositeKey sourceKey: String) async throws -> Int {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    var total = 0
-                    for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
-                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
-                        request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                        total += try context.count(for: request)
-                    }
-                    continuation.resume(returning: total)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            var total = 0
+            for entityName in ["CDTrack", "CDAlbum", "CDArtist", "CDGenre", "CDMood", "CDPlaylist"] {
+                let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+                total += try context.count(for: request)
             }
+            return total
         }
     }
 
     public func countAllLibraryItems() async throws -> Int {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    var total = 0
-                    for entityName in [
-                        "CDOfflineDownloadMembership",
-                        "CDOfflineDownloadTarget",
-                        "CDTrack",
-                        "CDAlbum",
-                        "CDArtist",
-                        "CDGenre",
-                        "CDMood",
-                        "CDPlaylist",
-                        "CDHubItem",
-                        "CDHub",
-                        "CDHomeFeedSnapshot",
-                        "CDMusicSource",
-                        "CDServer"
-                    ] {
-                        let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
-                        total += try context.count(for: request)
-                    }
-                    continuation.resume(returning: total)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            var total = 0
+            for entityName in [
+                "CDOfflineDownloadMembership",
+                "CDOfflineDownloadTarget",
+                "CDTrack",
+                "CDAlbum",
+                "CDArtist",
+                "CDGenre",
+                "CDMood",
+                "CDPlaylist",
+                "CDHubItem",
+                "CDHub",
+                "CDHomeFeedSnapshot",
+                "CDMusicSource",
+                "CDServer"
+            ] {
+                let request = NSFetchRequest<NSFetchRequestResult>(entityName: entityName)
+                total += try context.count(for: request)
             }
+            return total
         }
     }
 
     public func deleteAllLibraryData() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    // Delete all library/cache entities regardless of source.
-                    for entityName in [
-                        "CDOfflineDownloadMembership",
-                        "CDOfflineDownloadTarget",
-                        "CDTrack",
-                        "CDAlbum",
-                        "CDArtist",
-                        "CDGenre",
-                        "CDMood",
-                        "CDPlaylist",
-                        "CDHubItem",
-                        "CDHub",
-                        "CDHomeFeedSnapshot",
-                        "CDMusicSource",
-                        "CDServer"
-                    ] {
-                        let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
-                        let objects = try context.fetch(request)
-                        for object in objects {
-                            context.delete(object)
-                        }
-                        EnsembleLogger.debug("🗑️ Deleted \(objects.count) \(entityName) objects")
+        do {
+            try await coreDataStack.performBackgroundContext { context in
+                // Delete all library/cache entities regardless of source.
+                for entityName in [
+                    "CDOfflineDownloadMembership",
+                    "CDOfflineDownloadTarget",
+                    "CDTrack",
+                    "CDAlbum",
+                    "CDArtist",
+                    "CDGenre",
+                    "CDMood",
+                    "CDPlaylist",
+                    "CDHubItem",
+                    "CDHub",
+                    "CDHomeFeedSnapshot",
+                    "CDMusicSource",
+                    "CDServer"
+                ] {
+                    let request = NSFetchRequest<NSManagedObject>(entityName: entityName)
+                    let objects = try context.fetch(request)
+                    for object in objects {
+                        context.delete(object)
                     }
-
-                    try context.save()
-                    EnsembleLogger.debug("✅ All library data deleted successfully")
-                    continuation.resume()
-                } catch {
-                    EnsembleLogger.debug("❌ Failed to delete library data: \(error)")
-                    continuation.resume(throwing: error)
+                    EnsembleLogger.debug("🗑️ Deleted \(objects.count) \(entityName) objects")
                 }
+
+                try context.save()
+                EnsembleLogger.debug("✅ All library data deleted successfully")
             }
+        } catch {
+            EnsembleLogger.debug("❌ Failed to delete library data: \(error)")
+            throw error
         }
     }
 
@@ -296,31 +232,25 @@ extension LibraryRepository {
         sourceKey: String,
         ratingKey: @escaping (Item) -> String
     ) async throws -> Int {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    request.predicate = RepositoryPredicates.sourceScopedOrphan(
-                        sourceKey: sourceKey,
-                        validRatingKeys: validRatingKeys
-                    )
-                    let localItems = try context.fetch(request)
+        try await coreDataStack.performBackgroundContext { context in
+            request.predicate = RepositoryPredicates.sourceScopedOrphan(
+                sourceKey: sourceKey,
+                validRatingKeys: validRatingKeys
+            )
+            let localItems = try context.fetch(request)
 
-                    var removedCount = 0
-                    for item in localItems {
-                        if !validRatingKeys.contains(ratingKey(item)) {
-                            context.delete(item)
-                            removedCount += 1
-                        }
-                    }
-
-                    if removedCount > 0 {
-                        try context.save()
-                    }
-                    continuation.resume(returning: removedCount)
-                } catch {
-                    continuation.resume(throwing: error)
+            var removedCount = 0
+            for item in localItems {
+                if !validRatingKeys.contains(ratingKey(item)) {
+                    context.delete(item)
+                    removedCount += 1
                 }
             }
+
+            if removedCount > 0 {
+                try context.save()
+            }
+            return removedCount
         }
     }
 
@@ -328,92 +258,68 @@ extension LibraryRepository {
 
     /// Fetch all artist ratingKey -> dateModified pairs for a source (single query for change detection)
     public func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    request.propertiesToFetch = ["ratingKey", "dateModified"]
-                    let artists = try context.fetch(request)
-                    var result: [String: Date] = [:]
-                    result.reserveCapacity(artists.count)
-                    for artist in artists {
-                        // Use distantPast for nil dateModified so we can detect existence
-                        result[artist.ratingKey] = artist.dateModified ?? Date.distantPast
-                    }
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.propertiesToFetch = ["ratingKey", "dateModified"]
+            let artists = try context.fetch(request)
+            var result: [String: Date] = [:]
+            result.reserveCapacity(artists.count)
+            for artist in artists {
+                // Use distantPast for nil dateModified so we can detect existence
+                result[artist.ratingKey] = artist.dateModified ?? Date.distantPast
             }
+            return result
         }
     }
 
     /// Fetch all album ratingKey -> dateModified pairs for a source (single query for change detection)
     public func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    request.propertiesToFetch = ["ratingKey", "dateModified"]
-                    let albums = try context.fetch(request)
-                    var result: [String: Date] = [:]
-                    result.reserveCapacity(albums.count)
-                    for album in albums {
-                        // Use distantPast for nil dateModified so we can detect existence
-                        result[album.ratingKey] = album.dateModified ?? Date.distantPast
-                    }
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.propertiesToFetch = ["ratingKey", "dateModified"]
+            let albums = try context.fetch(request)
+            var result: [String: Date] = [:]
+            result.reserveCapacity(albums.count)
+            for album in albums {
+                // Use distantPast for nil dateModified so we can detect existence
+                result[album.ratingKey] = album.dateModified ?? Date.distantPast
             }
+            return result
         }
     }
 
     /// Fetch all track ratingKey -> dateModified pairs for a source (single query for change detection)
     public func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    request.propertiesToFetch = ["ratingKey", "dateModified"]
-                    let tracks = try context.fetch(request)
-                    var result: [String: Date] = [:]
-                    result.reserveCapacity(tracks.count)
-                    for track in tracks {
-                        // Use distantPast for nil dateModified so we can detect existence
-                        result[track.ratingKey] = track.dateModified ?? Date.distantPast
-                    }
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.propertiesToFetch = ["ratingKey", "dateModified"]
+            let tracks = try context.fetch(request)
+            var result: [String: Date] = [:]
+            result.reserveCapacity(tracks.count)
+            for track in tracks {
+                // Use distantPast for nil dateModified so we can detect existence
+                result[track.ratingKey] = track.dateModified ?? Date.distantPast
             }
+            return result
         }
     }
 
     /// Fetch all track ratingKey -> rating pairs for a source (for detecting rating changes)
     public func fetchTrackRatings(forSource sourceKey: String) async throws -> [String: Int16] {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    request.propertiesToFetch = ["ratingKey", "rating"]
-                    let tracks = try context.fetch(request)
-                    var result: [String: Int16] = [:]
-                    result.reserveCapacity(tracks.count)
-                    for track in tracks {
-                        result[track.ratingKey] = track.rating
-                    }
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.propertiesToFetch = ["ratingKey", "rating"]
+            let tracks = try context.fetch(request)
+            var result: [String: Int16] = [:]
+            result.reserveCapacity(tracks.count)
+            for track in tracks {
+                result[track.ratingKey] = track.rating
             }
+            return result
         }
     }
 
