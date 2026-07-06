@@ -431,7 +431,6 @@ public struct LyricsCard: View {
                 line: line,
                 isActive: isActive,
                 isNextActive: isNextActive,
-                isTimed: isTimed,
                 opacity: opacity
             )
         } else {
@@ -641,7 +640,6 @@ private struct ChordLyricsLineView: View {
     let line: LyricsLine
     let isActive: Bool
     let isNextActive: Bool
-    let isTimed: Bool
     let opacity: Double
 
     private let characterWidth: CGFloat = 8.3

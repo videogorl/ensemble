@@ -202,7 +202,7 @@ extension MediaDetailSurface {
                 labelContent
                     .background(role.backgroundColor)
                     .foregroundColor(isEnabled ? role.foregroundColor : EnsembleDesign.Color.primaryText)
-                    .clipShape(Capsule())
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
         }
 
