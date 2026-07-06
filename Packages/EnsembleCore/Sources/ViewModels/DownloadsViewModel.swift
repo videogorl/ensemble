@@ -252,6 +252,21 @@ public final class DownloadsViewModel: ObservableObject {
     /// Rebuilds aggregated download stats for each sync-enabled library
     private func rebuildLibrarySummaries() async {
         var summaries: [LibraryDownloadSummary] = []
+        let enabledLibrarySourceKeys = Set(accountManager.plexAccounts.flatMap { account in
+            account.servers.flatMap { server in
+                server.libraries.filter(\.isEnabled).map { library in
+                    MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    ).compositeKey
+                }
+            }
+        })
+        let trackStatsBySource = (try? await libraryRepository.fetchTrackStatsBySource(
+            sourceCompositeKeys: enabledLibrarySourceKeys
+        )) ?? [:]
         let downloadsBySource = Dictionary(
             grouping: (try? await downloadManager.fetchDownloads()) ?? [],
             by: { $0.track?.sourceCompositeKey ?? "" }
@@ -284,12 +299,14 @@ public final class DownloadsViewModel: ObservableObject {
                     let completedDownloads = downloads.filter { $0.downloadStatus == .completed }
                     let downloadedBytes = completedDownloads.reduce(Int64(0)) { $0 + $1.fileSize }
 
-                    // Total track count from library cache
-                    let allTracks = (try? await libraryRepository.fetchTracks(forSource: sourceCompositeKey)) ?? []
-                    let totalTrackCount = allTracks.isEmpty ? (library.trackCount ?? 0) : allTracks.count
+                    let trackStats = trackStatsBySource[sourceCompositeKey]
+                    let cachedTrackCount = trackStats?.trackCount ?? 0
+                    let totalTrackCount = cachedTrackCount > 0
+                        ? cachedTrackCount
+                        : library.trackCount ?? 0
 
                     // Estimate total size: sum of duration * bitrate for current quality
-                    let totalDurationMs = allTracks.reduce(Int64(0)) { $0 + $1.duration }
+                    let totalDurationMs = trackStats?.totalDurationMs ?? 0
                     let durationSeconds = Double(totalDurationMs) / 1000.0
                     let estimatedTotalBytes = Self.estimateBytes(durationSeconds: durationSeconds, quality: downloadQuality, actualBytes: downloadedBytes)
 

@@ -75,6 +75,30 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchTrackStatsBySource(sourceCompositeKeys: Set<String>) async throws -> [String: TrackSourceStats] {
+        guard !sourceCompositeKeys.isEmpty else { return [:] }
+        return try await coreDataStack.performBackgroundContext { context in
+            let request = NSFetchRequest<NSDictionary>(entityName: "CDTrack")
+            request.resultType = .dictionaryResultType
+            request.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
+            request.propertiesToFetch = ["sourceCompositeKey", "duration"]
+
+            let rows = try context.fetch(request)
+            var result: [String: TrackSourceStats] = [:]
+            result.reserveCapacity(sourceCompositeKeys.count)
+            for row in rows {
+                guard let sourceCompositeKey = row["sourceCompositeKey"] as? String else { continue }
+                let durationMs = (row["duration"] as? NSNumber)?.int64Value ?? 0
+                let current = result[sourceCompositeKey] ?? TrackSourceStats(trackCount: 0, totalDurationMs: 0)
+                result[sourceCompositeKey] = TrackSourceStats(
+                    trackCount: current.trackCount + 1,
+                    totalDurationMs: current.totalDurationMs + durationMs
+                )
+            }
+            return result
+        }
+    }
+
     public func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int {
         guard sourceCompositeKeys?.isEmpty != true else { return 0 }
         return try await withCheckedThrowingContinuation { continuation in

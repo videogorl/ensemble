@@ -188,6 +188,17 @@ public struct GenreCoverageStats: Sendable, Equatable {
     }
 }
 
+/// Aggregated track metadata for a single music source.
+public struct TrackSourceStats: Sendable, Equatable {
+    public let trackCount: Int
+    public let totalDurationMs: Int64
+
+    public init(trackCount: Int, totalDurationMs: Int64) {
+        self.trackCount = trackCount
+        self.totalDurationMs = totalDurationMs
+    }
+}
+
 public protocol LibraryRepositoryProtocol: Sendable {
     /// Refresh the context to ensure fresh data from the store
     func refreshContext() async
@@ -215,6 +226,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack]
     func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack]
+    func fetchTrackStatsBySource(sourceCompositeKeys: Set<String>) async throws -> [String: TrackSourceStats]
     func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int
     func fetchSiriEligibleTracks() async throws -> [CDTrack]
@@ -379,6 +391,18 @@ public extension LibraryRepositoryProtocol {
             ) {
                 result[reference.membershipID] = track
             }
+        }
+        return result
+    }
+
+    func fetchTrackStatsBySource(sourceCompositeKeys: Set<String>) async throws -> [String: TrackSourceStats] {
+        guard !sourceCompositeKeys.isEmpty else { return [:] }
+        var result: [String: TrackSourceStats] = [:]
+        result.reserveCapacity(sourceCompositeKeys.count)
+        for sourceCompositeKey in sourceCompositeKeys {
+            let tracks = try await fetchTracks(forSource: sourceCompositeKey)
+            let durationMs = tracks.reduce(Int64(0)) { $0 + $1.duration }
+            result[sourceCompositeKey] = TrackSourceStats(trackCount: tracks.count, totalDurationMs: durationMs)
         }
         return result
     }

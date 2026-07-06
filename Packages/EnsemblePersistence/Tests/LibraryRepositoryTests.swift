@@ -81,6 +81,32 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(tracksByKey["\(sourceA)|missing"])
     }
 
+    func testFetchTrackStatsBySourceAggregatesCountsAndDuration() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+        let sourceC = "plex/account/server/library-c"
+
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "a-1", duration: 90_000),
+            makeTrackInput(ratingKey: "a-2", duration: 120_000)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "b-1", duration: 30_000)
+        ], sourceCompositeKey: sourceB)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "c-1", duration: 10_000)
+        ], sourceCompositeKey: sourceC)
+
+        let stats = try await repository.fetchTrackStatsBySource(sourceCompositeKeys: [sourceA, sourceB])
+        let emptyStats = try await repository.fetchTrackStatsBySource(sourceCompositeKeys: [])
+
+        XCTAssertEqual(stats[sourceA], TrackSourceStats(trackCount: 2, totalDurationMs: 210_000))
+        XCTAssertEqual(stats[sourceB], TrackSourceStats(trackCount: 1, totalDurationMs: 30_000))
+        XCTAssertNil(stats[sourceC])
+        XCTAssertTrue(emptyStats.isEmpty)
+    }
+
     func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
@@ -903,6 +929,7 @@ final class LibraryRepositoryTests: XCTestCase {
         dateModified: Date? = nil,
         rating: Int? = nil,
         albumRatingKey: String? = nil,
+        duration: Int = 180_000,
         genreNames: String? = nil
     ) -> TrackUpsertInput {
         TrackUpsertInput(
@@ -914,7 +941,7 @@ final class LibraryRepositoryTests: XCTestCase {
             albumRatingKey: albumRatingKey,
             trackNumber: 1,
             discNumber: 1,
-            duration: 180_000,
+            duration: duration,
             thumbPath: nil,
             streamKey: nil,
             streamId: nil,
