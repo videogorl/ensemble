@@ -257,9 +257,8 @@ public final class LibraryViewModel: ObservableObject {
         setupComputedPipelines()
         setupVisibilityObservation()
 
-        // Re-fetch library when download state changes so offline dimming is accurate
-        observeDownloadChanges()
-        observeMetadataChanges()
+        // Re-fetch library when download or metadata state changes so derived rows stay accurate.
+        observeReloadTriggers()
     }
 
     /// Background queue for sort/filter computation so the main thread stays responsive
@@ -516,14 +515,8 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadLibrary()
-        }
-    }
-
-    private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadLibrary()
         }
     }

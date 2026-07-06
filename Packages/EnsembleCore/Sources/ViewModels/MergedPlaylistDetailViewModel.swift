@@ -47,8 +47,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
         setupFilterPersistence()
         resolveServerNames()
-        observeDownloadChanges()
-        observeMetadataChanges()
+        observeReloadTriggers()
         observePlaylistRefresh()
     }
 
@@ -71,20 +70,14 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         }
     }
 
-    private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
-        }
-    }
-
     private func observePlaylistRefresh() {
         ViewModelNotificationObserver.observePlaylistRefresh(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }
 
-    private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }

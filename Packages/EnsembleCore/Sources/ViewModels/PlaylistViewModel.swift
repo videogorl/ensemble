@@ -712,12 +712,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         // Save filter options when they change
         setupFilterPersistence()
 
-        // Re-fetch tracks when download state changes so offline dimming is accurate
-        observeDownloadChanges()
+        // Re-fetch tracks when download or metadata state changes so row state stays accurate.
+        observeReloadTriggers()
 
         // Re-fetch tracks when playlists are refreshed after a mutation (e.g. tracks added)
         observePlaylistRefresh()
-        observeMetadataChanges()
     }
 
     private func setupFilterPersistence() {
@@ -728,12 +727,6 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             .store(in: &cancellables)
     }
 
-    private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
-        }
-    }
-
     /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).
     private func observePlaylistRefresh() {
         ViewModelNotificationObserver.observePlaylistRefresh(storingIn: &cancellables) { [weak self] in
@@ -742,8 +735,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
     }
 
-    private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }

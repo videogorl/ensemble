@@ -27,6 +27,14 @@ enum ViewModelNotificationObserver {
         )
     }
 
+    static func observeDownloadAndMetadataChanges(
+        storingIn cancellables: inout Set<AnyCancellable>,
+        action: @escaping @MainActor () async -> Void
+    ) {
+        observeDownloadChanges(storingIn: &cancellables, action: action)
+        observeMetadataChanges(storingIn: &cancellables, action: action)
+    }
+
     static func observePlaylistRefresh(
         storingIn cancellables: inout Set<AnyCancellable>,
         action: @escaping @MainActor () async -> Void

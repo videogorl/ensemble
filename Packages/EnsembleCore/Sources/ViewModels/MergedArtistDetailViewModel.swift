@@ -58,8 +58,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         self.filterOptions = FilterPersistence.load(for: "MergedArtistDetail-\(displayArtist.id)")
 
         setupFilterPersistence()
-        observeDownloadChanges()
-        observeMetadataChanges()
+        observeReloadTriggers()
     }
 
     private func setupFilterPersistence() {
@@ -70,14 +69,8 @@ public final class MergedArtistDetailViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.load()
-        }
-    }
-
-    private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.load()
         }
     }

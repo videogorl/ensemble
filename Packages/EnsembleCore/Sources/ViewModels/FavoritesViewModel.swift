@@ -46,8 +46,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         seedFromPersistentCacheIfAvailable()
         setupFilterPersistence()
         setupFilteredTracksPipeline()
-        observeDownloadChanges()
-        observeMetadataChanges()
+        observeReloadTriggers()
 
         // Initial load
         Task {
@@ -104,16 +103,10 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         isLoading = false
     }
 
-    // MARK: - Download Change Observation
+    // MARK: - Change Observation
 
-    private func observeDownloadChanges() {
-        ViewModelNotificationObserver.observeDownloadChanges(storingIn: &cancellables) { [weak self] in
-            await self?.loadTracks()
-        }
-    }
-
-    private func observeMetadataChanges() {
-        ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
+    private func observeReloadTriggers() {
+        ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadTracks()
         }
     }
