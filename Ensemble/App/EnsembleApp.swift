@@ -750,7 +750,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func toggleFavorite(_ sender: NSMenuItem) {
+    @objc private func toggleFavorite(_: NSMenuItem) {
         let dependencies = DependencyContainer.shared
         guard let track = dependencies.playbackService.currentTrack else { return }
         let viewModel = dependencies.activeNowPlayingViewModel ?? dependencies.makeNowPlayingViewModel()
@@ -760,7 +760,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleShuffle(_ sender: NSMenuItem) {
+    @objc private func toggleShuffle(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.toggleShuffle()
     }
 
@@ -784,11 +784,11 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func toggleAutoplay(_ sender: NSMenuItem) {
+    @objc private func toggleAutoplay(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.toggleAutoplay()
     }
 
-    @objc private func togglePlayPause(_ sender: NSMenuItem) {
+    @objc private func togglePlayPause(_: NSMenuItem) {
         let dependencies = DependencyContainer.shared
         if let viewModel = dependencies.activeNowPlayingViewModel {
             viewModel.togglePlayPause()
@@ -810,11 +810,11 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func previousTrack(_ sender: NSMenuItem) {
+    @objc private func previousTrack(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.previous()
     }
 
-    @objc private func nextTrack(_ sender: NSMenuItem) {
+    @objc private func nextTrack(_: NSMenuItem) {
         DependencyContainer.shared.playbackService.next()
     }
 
