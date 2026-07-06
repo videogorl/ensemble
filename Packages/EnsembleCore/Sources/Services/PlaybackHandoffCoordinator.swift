@@ -170,7 +170,6 @@ struct PlaybackHandoffCoordinator {
     }
 
     func shouldSuppressAutomaticAdvance(
-        playbackState: PlaybackState,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
@@ -193,7 +192,6 @@ struct PlaybackHandoffCoordinator {
         }
 
         return !shouldSuppressAutomaticAdvance(
-            playbackState: playbackState,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )

@@ -196,9 +196,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
                     // If registry returned a different URL, replace the placeholder
                     if url != fallbackURL {
                         let replacement = PlexWebSocketManager(serverURL: url, token: serverToken, serverName: serverName, clientIdentifier: cid)
-                        self.setupAndStartManager(replacement, for: serverKey, name: serverName, url: url)
+                        self.setupAndStartManager(replacement, for: serverKey, name: serverName)
                     } else {
-                        self.setupAndStartManager(placeholder, for: serverKey, name: serverName, url: url)
+                        self.setupAndStartManager(placeholder, for: serverKey, name: serverName)
                     }
                 }
             }
@@ -218,7 +218,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Important: `events()` must be called before `start()` on the same actor
     /// to ensure the continuation is registered before the receive loop begins.
     /// Using separate Tasks would race — `start()` could win and broadcast to zero subscribers.
-    private func setupAndStartManager(_ manager: PlexWebSocketManager, for serverKey: String, name: String, url: String) {
+    private func setupAndStartManager(_ manager: PlexWebSocketManager, for serverKey: String, name: String) {
         managers[serverKey] = manager
 
         // Subscribe first, then start — sequentially on the same Task to avoid race.

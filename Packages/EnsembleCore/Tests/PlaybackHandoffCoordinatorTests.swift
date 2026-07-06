@@ -295,7 +295,6 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(
             coordinator.shouldSuppressAutomaticAdvance(
-                playbackState: .paused,
                 isInterrupted: false,
                 isRouteChangeInProgress: false
             )

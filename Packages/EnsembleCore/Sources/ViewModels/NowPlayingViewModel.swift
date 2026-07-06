@@ -1711,7 +1711,6 @@ public final class NowPlayingViewModel: ObservableObject {
             let outcome = try await performTrackRatingMutation(track, rating: nextPlexRating)
             let workflowResult = trackRatingMutationWorkflow.finishRatingUpdate(
                 track: track,
-                newRating: newRating,
                 outcome: outcome
             )
             if workflowResult.outcome == .queued {

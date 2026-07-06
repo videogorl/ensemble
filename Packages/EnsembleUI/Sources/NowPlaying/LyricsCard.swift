@@ -267,7 +267,7 @@ public struct LyricsCard: View {
                            viewModel.instrumentalGapAfterIndices.contains(index) {
                             let isActiveGap = instrumentalProgress != nil
                                 && currentLyricsLineIndex == nil
-                                && isCurrentGap(afterIndex: index, lyrics: lyrics)
+                                && isCurrentGap(afterIndex: index)
                             let progress = isActiveGap ? (instrumentalProgress ?? 0) : (isPastLine(index: index) ? 1.0 : 0.0)
                             let gapBlur = lineBlurRadius(index: index, isTimed: true)
                             instrumentalIndicator(progress: progress)
@@ -599,7 +599,7 @@ public struct LyricsCard: View {
     /// Whether a gap after the given index is the currently active instrumental gap.
     /// During gaps, currentLyricsLineIndex is nil but the scroll target tracks the
     /// underlying active line index from the binary search.
-    private func isCurrentGap(afterIndex index: Int, lyrics: ParsedLyrics) -> Bool {
+    private func isCurrentGap(afterIndex index: Int) -> Bool {
         guard let scrollTarget = lyricsScrollTargetIndex else { return false }
         return scrollTarget == index
     }

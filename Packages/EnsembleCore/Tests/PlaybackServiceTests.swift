@@ -538,7 +538,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(
             PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
                 coordinator: coordinator,
-                playbackState: .paused,
                 isInterrupted: true,
                 isRouteChangeInProgress: false
             )
@@ -555,7 +554,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(
             PlaybackService.shouldSuppressAutomaticAdvanceDuringHandoff(
                 coordinator: coordinator,
-                playbackState: .paused,
                 isInterrupted: false,
                 isRouteChangeInProgress: true
             )

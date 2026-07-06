@@ -1999,12 +1999,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func shouldSuppressAutomaticAdvanceDuringHandoff(
         coordinator: PlaybackHandoffCoordinator,
-        playbackState: PlaybackState,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
         coordinator.shouldSuppressAutomaticAdvance(
-            playbackState: playbackState,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
@@ -2075,7 +2073,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var shouldSuppressAutomaticAdvanceDuringHandoff: Bool {
         Self.shouldSuppressAutomaticAdvanceDuringHandoff(
             coordinator: handoffCoordinator,
-            playbackState: playbackState,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
