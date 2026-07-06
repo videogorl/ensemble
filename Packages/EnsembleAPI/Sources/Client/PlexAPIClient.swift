@@ -838,46 +838,17 @@ public actor PlexAPIClient {
     }
 
     private func recordCurrentEndpointFailure(_ error: Error) async {
-        let transportError = transportError(from: error)
-        guard shouldRecordCurrentEndpointFailure(transportError) else {
+        guard PlexErrorClassification.shouldRecordEndpointFailure(error) else {
             return
         }
 
         let endpoint = serverConnection.endpoints.first { $0.url == currentServerURL }
             ?? PlexEndpointDescriptor(url: currentServerURL, local: false, relay: false)
-        await failoverManager.recordConnectionFailure(endpoint: endpoint, error: transportError)
-    }
-
-    private func transportError(from error: Error) -> Error {
         if let plexError = error as? PlexAPIError,
            case .networkError(let underlying) = plexError {
-            return underlying
-        }
-        return error
-    }
-
-    private func shouldRecordCurrentEndpointFailure(_ error: Error) -> Bool {
-        guard let urlError = error as? URLError else {
-            return false
-        }
-
-        switch urlError.code {
-        case .cannotFindHost,
-             .dnsLookupFailed,
-             .cannotConnectToHost,
-             .networkConnectionLost,
-             .notConnectedToInternet,
-             .dataNotAllowed,
-             .secureConnectionFailed,
-             .serverCertificateUntrusted,
-             .serverCertificateHasBadDate,
-             .serverCertificateHasUnknownRoot,
-             .clientCertificateRejected:
-            return true
-        case .timedOut:
-            return false
-        default:
-            return false
+            await failoverManager.recordConnectionFailure(endpoint: endpoint, error: underlying)
+        } else {
+            await failoverManager.recordConnectionFailure(endpoint: endpoint, error: error)
         }
     }
     
@@ -1078,14 +1049,6 @@ public actor PlexAPIClient {
             EnsembleLogger.debug("📴 Skipping Plex server request while device network unavailable: \(path)")
             throw PlexAPIError.networkError(URLError(.notConnectedToInternet))
         }
-    }
-
-    internal func shouldAttemptFailoverForTesting(after error: Error) -> Bool {
-        shouldAttemptFailover(after: error)
-    }
-
-    internal func shouldRecordCurrentEndpointFailureForTesting(_ error: Error) -> Bool {
-        shouldRecordCurrentEndpointFailure(error)
     }
 
     /// Build Plex metadata URI format used for playlist mutations.

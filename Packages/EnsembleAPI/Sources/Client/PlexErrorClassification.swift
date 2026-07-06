@@ -96,4 +96,41 @@ public enum PlexErrorClassification: Sendable {
         // Unknown errors default to semantic (don't retry blindly)
         return .semanticError
     }
+
+    /// Whether this transport error should temporarily deprioritize the active endpoint.
+    ///
+    /// Request timeouts are intentionally excluded: they should allow a request-time
+    /// failover attempt without poisoning the current endpoint as definitively bad.
+    public static func shouldRecordEndpointFailure(_ error: Error) -> Bool {
+        let transportError: Error
+        if let plexError = error as? PlexAPIError,
+           case .networkError(let underlying) = plexError {
+            transportError = underlying
+        } else {
+            transportError = error
+        }
+
+        guard let urlError = transportError as? URLError else {
+            return false
+        }
+
+        switch urlError.code {
+        case .cannotFindHost,
+             .dnsLookupFailed,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .dataNotAllowed,
+             .secureConnectionFailed,
+             .serverCertificateUntrusted,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .clientCertificateRejected:
+            return true
+        case .timedOut:
+            return false
+        default:
+            return false
+        }
+    }
 }
