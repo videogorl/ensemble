@@ -1,5 +1,4 @@
 import EnsembleCore
-import Nuke
 
 enum TrackArtworkThumbnailLoader {
     @MainActor
@@ -8,33 +7,23 @@ enum TrackArtworkThumbnailLoader {
         artworkLoader: ArtworkLoaderProtocol,
         isCurrent: () -> Bool
     ) async -> PlatformImage? {
-        guard isCurrent(),
-              let url = await artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                size: ArtworkSize.thumbnail.rawValue
-              ),
-              isCurrent()
-        else {
+        guard isCurrent() else {
             return nil
         }
 
-        let request = ArtworkImageRequest.resized(
-            url: url,
+        let descriptor = ArtworkResolutionDescriptor(
+            path: track.thumbPath,
+            sourceKey: track.sourceCompositeKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: track.fallbackRatingKey,
+            cacheHint: nil,
+            fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
             size: ArtworkSize.thumbnail.rawValue,
             priority: .high
         )
 
-        if let cachedImage = ImagePipeline.shared.cache.cachedImage(for: request) {
-            return isCurrent() ? cachedImage.image : nil
-        }
-
-        guard let image = try? await ImagePipeline.shared.image(for: request) else {
-            return nil
-        }
-        return isCurrent() ? image : nil
+        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
+        return isCurrent() ? resolved?.image : nil
     }
 }

@@ -136,6 +136,38 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertTrue(cacheRequests.isEmpty)
     }
 
+    @MainActor
+    func testTrackArtworkThumbnailLoaderUsesResolverLocalFallback() async throws {
+        let localArtworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: localArtworkURL) }
+
+        let missingArtworkURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        let artworkLoader = RecordingArtworkLoader(url: missingArtworkURL, localURL: localArtworkURL)
+        let track = Track(
+            id: "track-1",
+            key: "/library/metadata/track-1",
+            title: "Track One",
+            thumbPath: "/library/metadata/track-1/thumb",
+            fallbackThumbPath: "/library/metadata/album-1/thumb",
+            fallbackRatingKey: "album-1",
+            sourceCompositeKey: "plex:server:library"
+        )
+
+        let image = await TrackArtworkThumbnailLoader.image(
+            for: track,
+            artworkLoader: artworkLoader,
+            isCurrent: { true }
+        )
+
+        XCTAssertNotNil(image)
+        let localRequests = await artworkLoader.localRequests
+        XCTAssertEqual(localRequests.count, 1)
+        XCTAssertEqual(localRequests.first?.minimumPixelDimension, nil)
+        XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
+    }
+
     func testArtworkPreBlurUsesVisibleArtworkSchedulerByDefault() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL) }
