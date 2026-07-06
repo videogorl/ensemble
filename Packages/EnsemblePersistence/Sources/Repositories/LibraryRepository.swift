@@ -195,6 +195,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Artists
     func fetchArtists() async throws -> [CDArtist]
     func fetchArtists(forSource sourceCompositeKey: String) async throws -> [CDArtist]
+    func countArtists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist?
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
@@ -202,6 +203,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
     func fetchAlbums(forSource sourceCompositeKey: String) async throws -> [CDAlbum]
+    func countAlbums(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum?
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
@@ -212,6 +214,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack]
+    func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int
     func fetchSiriEligibleTracks() async throws -> [CDTrack]
     func fetchTracks(forAlbum albumRatingKey: String) async throws -> [CDTrack]
@@ -334,6 +337,36 @@ public extension LibraryRepositoryProtocol {
 }
 
 public extension LibraryRepositoryProtocol {
+    func countArtists(sourceCompositeKeys: Set<String>?) async throws -> Int {
+        let artists = try await fetchArtists()
+        guard let sourceCompositeKeys else { return artists.count }
+        guard !sourceCompositeKeys.isEmpty else { return 0 }
+        return artists.filter {
+            guard let sourceCompositeKey = $0.sourceCompositeKey else { return false }
+            return sourceCompositeKeys.contains(sourceCompositeKey)
+        }.count
+    }
+
+    func countAlbums(sourceCompositeKeys: Set<String>?) async throws -> Int {
+        let albums = try await fetchAlbums()
+        guard let sourceCompositeKeys else { return albums.count }
+        guard !sourceCompositeKeys.isEmpty else { return 0 }
+        return albums.filter {
+            guard let sourceCompositeKey = $0.sourceCompositeKey else { return false }
+            return sourceCompositeKeys.contains(sourceCompositeKey)
+        }.count
+    }
+
+    func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int {
+        let tracks = try await fetchTracks()
+        guard let sourceCompositeKeys else { return tracks.count }
+        guard !sourceCompositeKeys.isEmpty else { return 0 }
+        return tracks.filter {
+            guard let sourceCompositeKey = $0.sourceCompositeKey else { return false }
+            return sourceCompositeKeys.contains(sourceCompositeKey)
+        }.count
+    }
+
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int {
         try await fetchTracks(forSource: sourceCompositeKey).count
     }

@@ -623,6 +623,62 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(Set(sourceAAlbums.map(\.ratingKey)), ["album-a", "album-shared"])
     }
 
+    func testLibraryMetadataCountsUseDirectSourceScope() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist-a", thumbPath: nil, dateModified: nil),
+            makeArtistInput(ratingKey: "artist-shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist-b", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album-a", thumbPath: nil, dateModified: nil),
+            makeAlbumInput(ratingKey: "album-shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album-b", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track-a"),
+            makeTrackInput(ratingKey: "track-shared")
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track-b")
+        ], sourceCompositeKey: sourceB)
+
+        let allArtistCount = try await repository.countArtists(sourceCompositeKeys: nil)
+        let allAlbumCount = try await repository.countAlbums(sourceCompositeKeys: nil)
+        let allTrackCount = try await repository.countTracks(sourceCompositeKeys: nil)
+        let sourceAArtistCount = try await repository.countArtists(sourceCompositeKeys: [sourceA])
+        let sourceAAlbumCount = try await repository.countAlbums(sourceCompositeKeys: [sourceA])
+        let sourceATrackCount = try await repository.countTracks(sourceCompositeKeys: [sourceA])
+        let combinedArtistCount = try await repository.countArtists(sourceCompositeKeys: [sourceA, sourceB])
+        let combinedAlbumCount = try await repository.countAlbums(sourceCompositeKeys: [sourceA, sourceB])
+        let combinedTrackCount = try await repository.countTracks(sourceCompositeKeys: [sourceA, sourceB])
+        let emptyArtistCount = try await repository.countArtists(sourceCompositeKeys: [])
+        let emptyAlbumCount = try await repository.countAlbums(sourceCompositeKeys: [])
+        let emptyTrackCount = try await repository.countTracks(sourceCompositeKeys: [])
+
+        XCTAssertEqual(allArtistCount, 3)
+        XCTAssertEqual(allAlbumCount, 3)
+        XCTAssertEqual(allTrackCount, 3)
+        XCTAssertEqual(sourceAArtistCount, 2)
+        XCTAssertEqual(sourceAAlbumCount, 2)
+        XCTAssertEqual(sourceATrackCount, 2)
+        XCTAssertEqual(combinedArtistCount, 3)
+        XCTAssertEqual(combinedAlbumCount, 3)
+        XCTAssertEqual(combinedTrackCount, 3)
+        XCTAssertEqual(emptyArtistCount, 0)
+        XCTAssertEqual(emptyAlbumCount, 0)
+        XCTAssertEqual(emptyTrackCount, 0)
+    }
+
     func testSyncMetadataLookupsUseDirectSourceScope() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server/library-a"

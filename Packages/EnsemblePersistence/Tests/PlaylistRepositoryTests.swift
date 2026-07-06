@@ -8,6 +8,44 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(playlists.isEmpty)
     }
 
+    func testPlaylistCountsUseDirectSourceScope() async throws {
+        let repository = PlaylistRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "playlist-a",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "playlist-shared",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "playlist-b",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceB
+        )
+
+        let allCount = try await repository.countPlaylists(sourceCompositeKeys: nil)
+        let sourceACount = try await repository.countPlaylists(sourceCompositeKeys: [sourceA])
+        let combinedCount = try await repository.countPlaylists(sourceCompositeKeys: [sourceA, sourceB])
+        let emptyCount = try await repository.countPlaylists(sourceCompositeKeys: [])
+
+        XCTAssertEqual(allCount, 3)
+        XCTAssertEqual(sourceACount, 2)
+        XCTAssertEqual(combinedCount, 3)
+        XCTAssertEqual(emptyCount, 0)
+    }
+
     func testInitialPlaylistInsertDoesNotRecordArtworkInvalidation() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
 

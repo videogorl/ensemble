@@ -4,6 +4,7 @@ import Foundation
 public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylists() async throws -> [CDPlaylist]
     func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist]
+    func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
     func searchPlaylists(query: String) async throws -> [CDPlaylist]
@@ -36,6 +37,16 @@ public protocol PlaylistRepositoryProtocol: Sendable {
 }
 
 public extension PlaylistRepositoryProtocol {
+    func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int {
+        let playlists = try await fetchPlaylists()
+        guard let sourceCompositeKeys else { return playlists.count }
+        guard !sourceCompositeKeys.isEmpty else { return 0 }
+        return playlists.filter {
+            guard let sourceCompositeKey = $0.sourceCompositeKey else { return false }
+            return sourceCompositeKeys.contains(sourceCompositeKey)
+        }.count
+    }
+
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
 }
 
@@ -124,6 +135,24 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 do {
                     let playlists = try context.fetch(request)
                     continuation.resume(returning: playlists)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int {
+        guard sourceCompositeKeys?.isEmpty != true else { return 0 }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = self.coreDataStack.viewContext
+            context.perform {
+                let request = CDPlaylist.fetchRequest()
+                if let sourceCompositeKeys {
+                    request.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
+                }
+                do {
+                    continuation.resume(returning: try context.count(for: request))
                 } catch {
                     continuation.resume(throwing: error)
                 }

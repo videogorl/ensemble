@@ -39,6 +39,24 @@ extension LibraryRepository {
         }
     }
 
+    public func countArtists(sourceCompositeKeys: Set<String>?) async throws -> Int {
+        guard sourceCompositeKeys?.isEmpty != true else { return 0 }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDArtist.fetchRequest()
+                if let sourceCompositeKeys {
+                    request.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
+                }
+                do {
+                    continuation.resume(returning: try context.count(for: request))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func fetchArtist(ratingKey: String) async throws -> CDArtist? {
         try await fetchArtist(ratingKey: ratingKey, sourceCompositeKey: nil)
     }

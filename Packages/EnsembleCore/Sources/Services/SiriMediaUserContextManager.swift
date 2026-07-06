@@ -51,19 +51,16 @@ public final class SiriMediaUserContextManager {
                 SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
             }
 
-            // Gather library statistics
-            let trackCount = try await libraryRepository.fetchTracks()
-                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .count
-            let albumCount = try await libraryRepository.fetchAlbums()
-                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .count
-            let artistCount = try await libraryRepository.fetchArtists()
-                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
-                .count
-            let playlistCount = try await playlistRepository.fetchPlaylists()
-                .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
-                .count
+            // Gather counts without materializing full CoreData collections.
+            async let trackCountTask = libraryRepository.countTracks(sourceCompositeKeys: enabledLibrarySourceKeys)
+            async let albumCountTask = libraryRepository.countAlbums(sourceCompositeKeys: enabledLibrarySourceKeys)
+            async let artistCountTask = libraryRepository.countArtists(sourceCompositeKeys: enabledLibrarySourceKeys)
+            async let playlistCountTask = playlistRepository.countPlaylists(sourceCompositeKeys: playlistSourceKeys)
+            let counts = try await (trackCountTask, albumCountTask, artistCountTask, playlistCountTask)
+            let trackCount = counts.0
+            let albumCount = counts.1
+            let artistCount = counts.2
+            let playlistCount = counts.3
             let totalItems = trackCount + albumCount + artistCount + playlistCount
 
             // Skip if the count hasn't changed since last publish
