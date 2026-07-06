@@ -6,7 +6,8 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
     func testAppRefreshRunsAllStepsAndSchedulesNextRefresh() async {
         var events: [String] = []
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { events.append("endpoint") },
+            appEndpointRefresh: { events.append("endpoint") },
+            foregroundEndpointRefresh: { events.append("endpoint") },
             incrementalSync: { events.append("sync") },
             feedRefresh: {
                 events.append("feed")
@@ -35,7 +36,8 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
     func testForegroundFreshnessHonorsCooldownAfterSuccess() async {
         var runCount = 0
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { runCount += 1 },
+            appEndpointRefresh: { runCount += 1 },
+            foregroundEndpointRefresh: { runCount += 1 },
             incrementalSync: {},
             feedRefresh: { true },
             siriIndexRefresh: { true },
@@ -77,7 +79,8 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
 
         var didRunFeed = false
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { throw TestError.endpoint },
+            appEndpointRefresh: { throw TestError.endpoint },
+            foregroundEndpointRefresh: { throw TestError.endpoint },
             incrementalSync: {},
             feedRefresh: {
                 didRunFeed = true
@@ -100,7 +103,8 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
     func testRefreshSkipsNetworkBackedWorkWhenOffline() async {
         var events: [String] = []
         let sut = BackgroundRefreshCoordinator(
-            endpointRefresh: { events.append("endpoint") },
+            appEndpointRefresh: { events.append("endpoint") },
+            foregroundEndpointRefresh: { events.append("endpoint") },
             incrementalSync: { events.append("sync") },
             feedRefresh: {
                 events.append("feed")

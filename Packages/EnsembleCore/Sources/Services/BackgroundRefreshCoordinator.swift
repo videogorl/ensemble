@@ -77,29 +77,6 @@ public final class BackgroundRefreshCoordinator {
         )
     }
 
-    internal convenience init(
-        endpointRefresh: @escaping AsyncStep,
-        incrementalSync: @escaping AsyncStep,
-        feedRefresh: @escaping FeedStep,
-        siriIndexRefresh: @escaping SiriIndexStep,
-        siriContextRefresh: @escaping AsyncStep,
-        isNetworkAvailable: @escaping @MainActor @Sendable () -> Bool = { true },
-        scheduleNextAppRefresh: ScheduleStep? = nil,
-        foregroundCooldown: TimeInterval = 15 * 60
-    ) {
-        self.init(
-            appEndpointRefresh: endpointRefresh,
-            foregroundEndpointRefresh: endpointRefresh,
-            incrementalSync: incrementalSync,
-            feedRefresh: feedRefresh,
-            siriIndexRefresh: siriIndexRefresh,
-            siriContextRefresh: siriContextRefresh,
-            isNetworkAvailable: isNetworkAvailable,
-            scheduleNextAppRefresh: scheduleNextAppRefresh,
-            foregroundCooldown: foregroundCooldown
-        )
-    }
-
     internal init(
         appEndpointRefresh: @escaping AsyncStep,
         foregroundEndpointRefresh: @escaping AsyncStep,
