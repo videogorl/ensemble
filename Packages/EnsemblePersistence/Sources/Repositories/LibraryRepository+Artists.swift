@@ -21,6 +21,24 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchArtists(forSource sourceCompositeKey: String) async throws -> [CDArtist] {
+        try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                let request = CDArtist.fetchRequest()
+                request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
+                request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                request.relationshipKeyPathsForPrefetching = ["albums"]
+                do {
+                    let artists = try context.fetch(request)
+                    continuation.resume(returning: artists)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func fetchArtist(ratingKey: String) async throws -> CDArtist? {
         try await fetchArtist(ratingKey: ratingKey, sourceCompositeKey: nil)
     }

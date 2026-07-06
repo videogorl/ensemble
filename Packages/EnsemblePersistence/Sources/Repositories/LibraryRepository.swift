@@ -194,12 +194,14 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Artists
     func fetchArtists() async throws -> [CDArtist]
+    func fetchArtists(forSource sourceCompositeKey: String) async throws -> [CDArtist]
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist?
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
 
     // Albums
     func fetchAlbums() async throws -> [CDAlbum]
+    func fetchAlbums(forSource sourceCompositeKey: String) async throws -> [CDAlbum]
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum?
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
@@ -310,6 +312,14 @@ public protocol LibraryRepositoryProtocol: Sendable {
 }
 
 public extension LibraryRepositoryProtocol {
+    func fetchArtists(forSource sourceCompositeKey: String) async throws -> [CDArtist] {
+        try await fetchArtists().filter { $0.sourceCompositeKey == sourceCompositeKey }
+    }
+
+    func fetchAlbums(forSource sourceCompositeKey: String) async throws -> [CDAlbum] {
+        try await fetchAlbums().filter { $0.sourceCompositeKey == sourceCompositeKey }
+    }
+
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist? {
         try await fetchArtist(ratingKey: ratingKey)
     }

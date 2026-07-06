@@ -591,6 +591,38 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(removedTrack)
     }
 
+    func testArtistAndAlbumFetchesCanUseDirectSourceScope() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist-a", thumbPath: nil, dateModified: nil),
+            makeArtistInput(ratingKey: "artist-shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist-b", thumbPath: nil, dateModified: nil),
+            makeArtistInput(ratingKey: "artist-shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album-a", thumbPath: nil, dateModified: nil),
+            makeAlbumInput(ratingKey: "album-shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album-b", thumbPath: nil, dateModified: nil),
+            makeAlbumInput(ratingKey: "album-shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        let sourceAArtists = try await repository.fetchArtists(forSource: sourceA)
+        let sourceAAlbums = try await repository.fetchAlbums(forSource: sourceA)
+
+        XCTAssertEqual(Set(sourceAArtists.compactMap(\.sourceCompositeKey)), [sourceA])
+        XCTAssertEqual(Set(sourceAArtists.map(\.ratingKey)), ["artist-a", "artist-shared"])
+        XCTAssertEqual(Set(sourceAAlbums.compactMap(\.sourceCompositeKey)), [sourceA])
+        XCTAssertEqual(Set(sourceAAlbums.map(\.ratingKey)), ["album-a", "album-shared"])
+    }
+
     func testSyncMetadataLookupsUseDirectSourceScope() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server/library-a"

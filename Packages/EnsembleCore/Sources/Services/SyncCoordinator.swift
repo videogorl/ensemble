@@ -1104,8 +1104,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Lightweight — skips albums that already have detail-grade cached artwork on disk.
     private func cacheAlbumArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
-            let allAlbums = try await libraryRepository.fetchAlbums()
-            let sourceAlbums = allAlbums.filter { $0.sourceCompositeKey == sourceId.compositeKey }
+            let sourceAlbums = try await libraryRepository.fetchAlbums(forSource: sourceId.compositeKey)
             var cached = 0
 
             for album in sourceAlbums {
@@ -1153,8 +1152,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Lightweight — skips artists that already have detail-grade cached artwork on disk.
     private func cacheArtistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
-            let allArtists = try await libraryRepository.fetchArtists()
-            let sourceArtists = allArtists.filter { $0.sourceCompositeKey == sourceId.compositeKey }
+            let sourceArtists = try await libraryRepository.fetchArtists(forSource: sourceId.compositeKey)
             var cached = 0
 
             for artist in sourceArtists {
