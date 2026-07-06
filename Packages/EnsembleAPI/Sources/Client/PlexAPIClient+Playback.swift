@@ -345,38 +345,6 @@ extension PlexAPIClient {
         return queryItems
     }
 
-    /// Build a URLRequest for the start.mp3 transcode endpoint with Plex headers.
-    func buildProgressiveStreamConfig(
-        ratingKey: String,
-        quality: StreamingQuality,
-        queryItems: [URLQueryItem],
-        metadataDuration metadataDurationSeconds: Double?
-    ) throws -> ProgressiveStreamConfig {
-        let startTime = queryItems.first(where: { $0.name == "offset" })?.value.flatMap(TimeInterval.init) ?? 0
-        let url = try buildTranscodeURL(
-            path: "/music/:/transcode/universal/start.mp3",
-            queryItems: queryItems
-        )
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        requestHeaderContext.apply(to: &request, token: serverConnection.token)
-        request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
-
-        let estimatedLength = estimateTranscodeSize(
-            quality: quality,
-            durationSeconds: metadataDurationSeconds
-        )
-
-        return ProgressiveStreamConfig(
-            streamRequest: request,
-            ratingKey: ratingKey,
-            estimatedContentLength: estimatedLength,
-            metadataDuration: metadataDurationSeconds,
-            startTime: startTime
-        )
-    }
-
     static func normalizedTranscodeOffset(_ startTime: TimeInterval) -> TimeInterval {
         guard startTime.isFinite, startTime > 0 else { return 0 }
         return floor(startTime)

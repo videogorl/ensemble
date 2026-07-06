@@ -285,19 +285,6 @@ final class PlaybackTransportCoordinator {
 
     private func startProgressiveDownload(
         for track: Track,
-        config: ProgressiveStreamConfig
-    ) async throws -> URL {
-        try await startProgressiveDownload(
-            for: track,
-            request: config.streamRequest,
-            ratingKey: config.ratingKey,
-            estimatedContentLength: config.estimatedContentLength,
-            metadataDuration: config.metadataDuration
-        )
-    }
-
-    private func startProgressiveDownload(
-        for track: Track,
         request: URLRequest,
         ratingKey: String,
         estimatedContentLength: Int64,
