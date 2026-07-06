@@ -112,7 +112,6 @@ public protocol ArtworkLoaderProtocol {
     func artworkURLAsync(for path: String?, sourceKey: String?, ratingKey: String?, fallbackPath: String?, fallbackRatingKey: String?, size: Int) async -> URL?
     func localArtworkURLAsync(
         for path: String?,
-        sourceKey: String?,
         ratingKey: String?,
         fallbackPath: String?,
         fallbackRatingKey: String?,
@@ -126,7 +125,6 @@ public protocol ArtworkLoaderProtocol {
 public extension ArtworkLoaderProtocol {
     func localArtworkURLAsync(
         for path: String?,
-        sourceKey: String?,
         ratingKey: String?,
         fallbackPath: String?,
         fallbackRatingKey: String?,
@@ -151,6 +149,11 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     private static let asyncArtworkURLCacheTTL: TimeInterval = 60
     private static let maximumArtworkRequestDimension = ArtworkSize.detail.rawValue
     private static let minimumPersistentArtworkWriteDimension = 500
+
+    private struct ArtworkLookup {
+        let path: String
+        let ratingKey: String?
+    }
     
     /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
     /// instead of wiping the entire pipeline cache when a single artwork changes.
@@ -440,31 +443,23 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     ) async -> URL? {
         // Cap size to avoid excessive memory usage while still serving retina detail headers.
         let cappedSize = min(size, Self.maximumArtworkRequestDimension)
-        // Determine which path and ratingKey to use.
-        let actualPath: String?
-        let actualRatingKey: String?
-        if let path, !path.isEmpty {
-            actualPath = path
-            actualRatingKey = ratingKey
-        } else if let fallbackPath, !fallbackPath.isEmpty {
-            actualPath = fallbackPath
-            actualRatingKey = fallbackRatingKey
-        } else {
-            return nil
-        }
-        
-        guard let finalPath = actualPath else { return nil }
+        guard let lookup = Self.artworkLookup(
+            path: path,
+            ratingKey: ratingKey,
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: fallbackRatingKey
+        ) else { return nil }
 
         // Prefer local cache when it can satisfy this request. Undersized persistent
         // artwork is allowed as offline fallback, but should not block an online
         // detail surface from fetching and replacing a better image.
         if let localURL = await localCachedArtworkURL(
-            ratingKey: actualRatingKey,
-            path: finalPath,
+            ratingKey: lookup.ratingKey,
+            path: lookup.path,
             allowStaleIdentity: false,
             minimumPixelDimension: cappedSize
         ) {
-            let localCacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):local"
+            let localCacheKey = "\(sourceKey ?? ""):\(lookup.path):\(lookup.ratingKey ?? ""):local"
             if await urlCache.get(localCacheKey) == nil {
                 await urlCache.set(localCacheKey, url: localURL, ttl: Self.asyncArtworkURLCacheTTL)
             }
@@ -477,7 +472,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // pre-health-check endpoint that never resolves, especially on macOS Feed startup.
         let serverAvailable = await syncCoordinator.isServerAvailable(sourceKey: sourceKey)
         let connectivityTag = isOffline ? "offline" : (serverAvailable ? "online" : "server-offline")
-        let cacheKey = "\(sourceKey ?? ""):\(finalPath):\(actualRatingKey ?? ""):\(cappedSize):\(connectivityTag)"
+        let cacheKey = "\(sourceKey ?? ""):\(lookup.path):\(lookup.ratingKey ?? ""):\(cappedSize):\(connectivityTag)"
 
         if let cachedURL = await urlCache.get(cacheKey) {
             return cachedURL
@@ -488,8 +483,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         let serverUnavailable = !isOffline && !serverAvailable
         if isOffline || serverUnavailable {
             if let localURL = await localCachedArtworkURL(
-                ratingKey: actualRatingKey,
-                path: finalPath,
+                ratingKey: lookup.ratingKey,
+                path: lookup.path,
                 allowStaleIdentity: true,
                 minimumPixelDimension: nil
             ) {
@@ -505,13 +500,13 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         }
 
         // Use network to fetch artwork
-        let networkURL = try? await syncCoordinator.getArtworkURL(path: finalPath, sourceKey: sourceKey, size: cappedSize)
+        let networkURL = try? await syncCoordinator.getArtworkURL(path: lookup.path, sourceKey: sourceKey, size: cappedSize)
         if let url = networkURL {
             #if DEBUG
             await loadStats.recordNetwork()
             #endif
             // Track the URL for targeted cache eviction on invalidation
-            if let key = actualRatingKey {
+            if let key = lookup.ratingKey {
                 await artworkURLTracker.record(url: url, forRatingKey: key)
             }
             await urlCache.set(cacheKey, url: url, ttl: Self.asyncArtworkURLCacheTTL)
@@ -520,8 +515,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
         // Network URL resolution failed — fall back to local cache if available
         if let localURL = await localCachedArtworkURL(
-            ratingKey: actualRatingKey,
-            path: finalPath,
+            ratingKey: lookup.ratingKey,
+            path: lookup.path,
             allowStaleIdentity: true,
             minimumPixelDimension: nil
         ) {
@@ -536,31 +531,42 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
     public func localArtworkURLAsync(
         for path: String?,
-        sourceKey: String? = nil,
         ratingKey: String? = nil,
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
         minimumPixelDimension: Int? = nil,
         allowStaleIdentity: Bool = true
     ) async -> URL? {
-        let actualPath: String?
-        let actualRatingKey: String?
-        if let path, !path.isEmpty {
-            actualPath = path
-            actualRatingKey = ratingKey
-        } else if let fallbackPath, !fallbackPath.isEmpty {
-            actualPath = fallbackPath
-            actualRatingKey = fallbackRatingKey
-        } else {
-            return nil
-        }
+        guard let lookup = Self.artworkLookup(
+            path: path,
+            ratingKey: ratingKey,
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: fallbackRatingKey
+        ) else { return nil }
 
         return await localCachedArtworkURL(
-            ratingKey: actualRatingKey,
-            path: actualPath,
+            ratingKey: lookup.ratingKey,
+            path: lookup.path,
             allowStaleIdentity: allowStaleIdentity,
             minimumPixelDimension: minimumPixelDimension
         )
+    }
+
+    private static func artworkLookup(
+        path: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?
+    ) -> ArtworkLookup? {
+        if let path, !path.isEmpty {
+            return ArtworkLookup(path: path, ratingKey: ratingKey)
+        }
+
+        if let fallbackPath, !fallbackPath.isEmpty {
+            return ArtworkLookup(path: fallbackPath, ratingKey: fallbackRatingKey)
+        }
+
+        return nil
     }
     
     /// Extract ratingKey from an artwork path like `/library/metadata/{ratingKey}/thumb/...`

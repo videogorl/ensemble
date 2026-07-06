@@ -94,7 +94,6 @@ public enum ArtworkImageResolver {
     ) async -> ArtworkResolvedImage? {
         guard let localURL = await artworkLoader.localArtworkURLAsync(
             for: descriptor.path,
-            sourceKey: descriptor.sourceKey,
             ratingKey: descriptor.ratingKey,
             fallbackPath: descriptor.fallbackPath,
             fallbackRatingKey: descriptor.fallbackRatingKey,
@@ -193,7 +192,6 @@ public enum ArtworkImageResolver {
     ) async -> ArtworkResolvedImage? {
         guard let localURL = await artworkLoader.localArtworkURLAsync(
             for: descriptor.path,
-            sourceKey: descriptor.sourceKey,
             ratingKey: descriptor.ratingKey,
             fallbackPath: descriptor.fallbackPath,
             fallbackRatingKey: descriptor.fallbackRatingKey,

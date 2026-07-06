@@ -1337,7 +1337,6 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
 
     func localArtworkURLAsync(
         for path: String?,
-        sourceKey: String?,
         ratingKey: String?,
         fallbackPath: String?,
         fallbackRatingKey: String?,

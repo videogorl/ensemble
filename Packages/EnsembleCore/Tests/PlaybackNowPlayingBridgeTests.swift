@@ -517,7 +517,6 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
 
     func localArtworkURLAsync(
         for path: String?,
-        sourceKey: String?,
         ratingKey: String?,
         fallbackPath: String?,
         fallbackRatingKey: String?,
