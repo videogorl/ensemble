@@ -157,7 +157,6 @@ public extension DependencyContainer {
             sourceCompositeKey: sourceCompositeKey,
             title: title,
             downloadManager: downloadManager,
-            libraryRepository: libraryRepository,
             offlineDownloadService: offlineDownloadService
         )
     }

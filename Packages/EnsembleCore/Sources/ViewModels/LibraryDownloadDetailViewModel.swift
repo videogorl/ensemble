@@ -20,7 +20,6 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
     public let title: String
 
     private let downloadManager: DownloadManagerProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
     private let offlineDownloadService: OfflineDownloadService
     private var cancellables = Set<AnyCancellable>()
     private var trackStats = TrackDownloadRowStats()
@@ -29,13 +28,11 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
         sourceCompositeKey: String,
         title: String,
         downloadManager: DownloadManagerProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
         offlineDownloadService: OfflineDownloadService
     ) {
         self.sourceCompositeKey = sourceCompositeKey
         self.title = title
         self.downloadManager = downloadManager
-        self.libraryRepository = libraryRepository
         self.offlineDownloadService = offlineDownloadService
 
         // Observe queue status
