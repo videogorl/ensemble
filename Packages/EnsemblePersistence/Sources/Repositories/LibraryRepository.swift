@@ -214,6 +214,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Tracks
     func fetchTracks() async throws -> [CDTrack]
     func fetchTracks(forSource sourceCompositeKey: String) async throws -> [CDTrack]
+    func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack]
     func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int
     func fetchSiriEligibleTracks() async throws -> [CDTrack]
@@ -365,6 +366,21 @@ public extension LibraryRepositoryProtocol {
             guard let sourceCompositeKey = $0.sourceCompositeKey else { return false }
             return sourceCompositeKeys.contains(sourceCompositeKey)
         }.count
+    }
+
+    func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: CDTrack] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let track = try await fetchTrack(
+                ratingKey: reference.trackRatingKey,
+                sourceCompositeKey: reference.trackSourceCompositeKey
+            ) {
+                result[reference.membershipID] = track
+            }
+        }
+        return result
     }
 
     func countTracks(forSource sourceCompositeKey: String) async throws -> Int {

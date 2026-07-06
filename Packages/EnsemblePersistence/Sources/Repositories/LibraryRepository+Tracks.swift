@@ -46,6 +46,35 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchTracksBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDTrack] {
+        guard !references.isEmpty else { return [:] }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                do {
+                    let ratingKeys = Array(Set(references.map(\.trackRatingKey)))
+                    let request = CDTrack.fetchRequest()
+                    request.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+                    request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+
+                    let requestedKeys = Set(references.map(\.membershipID))
+                    let tracks = try context.fetch(request)
+                    var result: [String: CDTrack] = [:]
+                    result.reserveCapacity(min(tracks.count, requestedKeys.count))
+                    for track in tracks {
+                        guard let sourceCompositeKey = track.sourceCompositeKey else { continue }
+                        let key = "\(sourceCompositeKey)|\(track.ratingKey)"
+                        guard requestedKeys.contains(key) else { continue }
+                        result[key] = track
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func countTracks(sourceCompositeKeys: Set<String>?) async throws -> Int {
         guard sourceCompositeKeys?.isEmpty != true else { return 0 }
         return try await withCheckedThrowingContinuation { continuation in

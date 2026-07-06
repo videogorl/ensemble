@@ -363,15 +363,19 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     let ratingKeys = Array(Set(references.map(\.trackRatingKey)))
                     let request = CDDownload.fetchRequest()
                     request.predicate = NSPredicate(format: "track.ratingKey IN %@", ratingKeys)
+                    request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
 
                     let downloads = try context.fetch(request)
 
+                    let requestedKeys = Set(references.map(\.membershipID))
+
                     // Index by "sourceCompositeKey|ratingKey" for O(1) lookup
                     var result: [String: CDDownload] = [:]
-                    result.reserveCapacity(downloads.count)
+                    result.reserveCapacity(min(downloads.count, requestedKeys.count))
                     for download in downloads {
                         guard let track = download.track else { continue }
                         let key = "\(track.sourceCompositeKey ?? "")|\(track.ratingKey)"
+                        guard requestedKeys.contains(key), result[key] == nil else { continue }
                         result[key] = download
                     }
                     continuation.resume(returning: result)

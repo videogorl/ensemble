@@ -51,6 +51,36 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(track.streamId, 456)
     }
 
+    func testFetchTracksBatchUsesSourceScopedReferences() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "shared"),
+            makeTrackInput(ratingKey: "only-a")
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "shared"),
+            makeTrackInput(ratingKey: "only-b")
+        ], sourceCompositeKey: sourceB)
+
+        let references = [
+            OfflineTrackReference(trackRatingKey: "shared", trackSourceCompositeKey: sourceA),
+            OfflineTrackReference(trackRatingKey: "shared", trackSourceCompositeKey: sourceB),
+            OfflineTrackReference(trackRatingKey: "only-a", trackSourceCompositeKey: sourceA),
+            OfflineTrackReference(trackRatingKey: "missing", trackSourceCompositeKey: sourceA)
+        ]
+
+        let tracksByKey = try await repository.fetchTracksBatch(forReferences: references)
+
+        XCTAssertEqual(tracksByKey.count, 3)
+        XCTAssertEqual(tracksByKey["\(sourceA)|shared"]?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(tracksByKey["\(sourceB)|shared"]?.sourceCompositeKey, sourceB)
+        XCTAssertEqual(tracksByKey["\(sourceA)|only-a"]?.ratingKey, "only-a")
+        XCTAssertNil(tracksByKey["\(sourceA)|missing"])
+    }
+
     func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)

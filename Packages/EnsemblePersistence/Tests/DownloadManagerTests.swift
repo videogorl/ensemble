@@ -5,6 +5,7 @@ import XCTest
 final class DownloadManagerTests: XCTestCase {
     private let sourceA = "plex:accountA:serverA:libraryA"
     private let sourceB = "plex:accountA:serverA:libraryB"
+    private let sourceC = "plex:accountA:serverA:libraryC"
 
     func testCreateAndFetchDownloadsAreSourceAware() async throws {
         let stack = CoreDataStack.inMemory()
@@ -98,6 +99,46 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertEqual(downloadA?.track?.sourceCompositeKey, sourceA)
         XCTAssertEqual(downloadB?.track?.sourceCompositeKey, sourceB)
         XCTAssertNotEqual(downloadA?.objectID, downloadB?.objectID)
+    }
+
+    func testFetchDownloadsBatchKeepsSameRatingKeyAcrossSourcesSeparate() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceB, repository: libraryRepository)
+        try await seedTrack(ratingKey: "7551", sourceCompositeKey: sourceC, repository: libraryRepository)
+
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "7551",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "7551",
+            sourceCompositeKey: sourceB,
+            quality: "medium"
+        )
+        _ = try await downloadManager.createDownload(
+            forTrackRatingKey: "7551",
+            sourceCompositeKey: sourceC,
+            quality: "low"
+        )
+
+        let downloadsByKey = try await downloadManager.fetchDownloadsBatch(
+            forReferences: [
+                OfflineTrackReference(trackRatingKey: "7551", trackSourceCompositeKey: sourceA),
+                OfflineTrackReference(trackRatingKey: "7551", trackSourceCompositeKey: sourceB),
+                OfflineTrackReference(trackRatingKey: "missing", trackSourceCompositeKey: sourceA)
+            ]
+        )
+
+        XCTAssertEqual(downloadsByKey.count, 2)
+        XCTAssertEqual(downloadsByKey["\(sourceA)|7551"]?.quality, "high")
+        XCTAssertEqual(downloadsByKey["\(sourceB)|7551"]?.quality, "medium")
+        XCTAssertNil(downloadsByKey["\(sourceC)|7551"])
+        XCTAssertNil(downloadsByKey["\(sourceA)|missing"])
     }
 
     func testCountDownloadsSupportsAllSourceScopedAndCompletedCounts() async throws {

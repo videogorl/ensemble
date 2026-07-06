@@ -271,19 +271,19 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
     private func loadTrackRows() async {
         do {
             let references = try await offlineDownloadTargetRepository.fetchTrackReferences(targetKey: summary.key)
+            async let downloadsByKeyTask = downloadManager.fetchDownloadsBatch(forReferences: references)
+            async let tracksByKeyTask = libraryRepository.fetchTracksBatch(forReferences: references)
+            let (downloadsByKey, tracksByKey) = try await (downloadsByKeyTask, tracksByKeyTask)
 
             var rows: [TrackDownloadRow] = []
             var resolved: [Track] = []
+            rows.reserveCapacity(references.count)
+            resolved.reserveCapacity(references.count)
 
             for (index, ref) in references.enumerated() {
-                let download = try? await downloadManager.fetchDownload(
-                    forTrackRatingKey: ref.trackRatingKey,
-                    sourceCompositeKey: ref.trackSourceCompositeKey
-                )
-                let cdTrack = try? await libraryRepository.fetchTrack(
-                    ratingKey: ref.trackRatingKey,
-                    sourceCompositeKey: ref.trackSourceCompositeKey
-                )
+                let lookupKey = ref.membershipID
+                let download = downloadsByKey[lookupKey]
+                let cdTrack = tracksByKey[lookupKey]
 
                 let status = download?.downloadStatus ?? .pending
                 let row = TrackDownloadRow(
