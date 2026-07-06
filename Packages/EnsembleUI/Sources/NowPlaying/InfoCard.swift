@@ -405,10 +405,7 @@ public struct InfoCard: View {
 
     /// Format a date for display
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        MediaFormatters.mediumDate(date)
     }
 
     /// Format streaming quality setting for display

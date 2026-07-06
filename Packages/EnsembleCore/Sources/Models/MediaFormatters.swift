@@ -23,6 +23,14 @@ public enum MediaFormatters {
         return "\(minutes) min"
     }
 
+    public static func mediumDate(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    public static func mediumDateTime(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .shortened)
+    }
+
     public static func trackCollectionDuration(_ tracks: [Track]) -> String {
         collectionDuration(tracks.reduce(0) { $0 + $1.duration })
     }

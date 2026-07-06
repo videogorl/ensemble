@@ -179,10 +179,7 @@ private struct LogSessionRow: View {
     }
 
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: session.date)
+        MediaFormatters.mediumDateTime(session.date)
     }
 
     private var formattedSize: String {

@@ -258,10 +258,7 @@ public struct LibraryItemInfoView: View {
 
     private func formatDate(_ date: Date?) -> String? {
         guard let date else { return nil }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        return MediaFormatters.mediumDate(date)
     }
 
     private func formatDuration(_ duration: TimeInterval?) -> String? {
