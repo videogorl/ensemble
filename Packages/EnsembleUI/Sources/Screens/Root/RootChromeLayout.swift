@@ -261,9 +261,7 @@ enum RootChromeLayoutResolver {
 
         return RootChromeLayout(
             frame: rootBounds,
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(
-                safeAreaBottom: proxy.safeAreaInsets.bottom
-            ),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )

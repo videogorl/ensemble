@@ -72,7 +72,7 @@ public enum TrackListLayoutMetrics {
         min(max(safeAreaBottom + 12, 20), 32)
     }
 
-    public static func rootMiniPlayerBottomLift(safeAreaBottom: CGFloat) -> CGFloat {
+    public static func rootMiniPlayerBottomLift() -> CGFloat {
         #if os(iOS)
         // The root mini player is overlaid outside the TabView's native safe
         // area negotiation. Keep it above the tab bar on iOS 15 devices that
@@ -95,7 +95,7 @@ public enum TrackListLayoutMetrics {
         return plainLeadingInset
     }
 
-    public static func rowInsets(showArtwork: Bool, showTrackNumbers: Bool) -> EdgeInsets {
+    public static func rowInsets() -> EdgeInsets {
         EdgeInsets(
             top: rowVerticalPadding,
             leading: rowHorizontalPadding,

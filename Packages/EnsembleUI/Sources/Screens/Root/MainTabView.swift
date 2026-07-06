@@ -97,9 +97,7 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift(
-                safeAreaBottom: geometry.safeAreaInsets.bottom
-            )
+            let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift()
             let activeStageFlowRootTab = activeStageFlowRootTab
             let rootStageFlowActive = isStageFlowActive(for: geometry.size, activeTab: activeStageFlowRootTab)
             let rootChromeSuppressed = rootStageFlowActive
