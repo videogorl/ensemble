@@ -57,14 +57,4 @@ struct SyncProviderResolver {
         }
         return provider
     }
-
-    func provider(sourceKey: String) -> MusicSourceSyncProvider? {
-        providers[sourceKey]
-    }
-
-    func provider(matching sourceId: MusicSourceIdentifier) -> MusicSourceSyncProvider? {
-        providers.first(where: { _, provider in
-            provider.sourceIdentifier == sourceId
-        })?.value
-    }
 }
