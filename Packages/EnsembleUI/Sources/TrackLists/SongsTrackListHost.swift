@@ -1,6 +1,5 @@
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 #if os(iOS)
 import UIKit

@@ -1,7 +1,6 @@
 import Combine
 import EnsemblePersistence
 import Foundation
-import Nuke
 import SwiftUI
 
 /// Rating states for the three-state heart button
@@ -1046,52 +1045,37 @@ public final class NowPlayingViewModel: ObservableObject {
             // Check if cancelled early
             guard !Task.isCancelled else { return }
 
-            // Get artwork URL
             let deps = DependencyContainer.shared
-            if let artworkURL = await deps.artworkLoader.artworkURLAsync(
-                for: track.thumbPath,
+            let descriptor = ArtworkResolutionDescriptor(
+                path: track.thumbPath,
                 sourceKey: track.sourceCompositeKey,
                 ratingKey: track.id,
                 fallbackPath: track.fallbackThumbPath,
                 fallbackRatingKey: track.fallbackRatingKey,
-                size: 600 // Use slightly larger size for background
-            ) {
+                cacheHint: nil,
+                fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
+                size: 600,
+                priority: .high
+            )
+
+            switch await ArtworkImageResolver.resolveImage(for: descriptor, artworkLoader: deps.artworkLoader) {
+            case .resolved(let resolved):
                 guard !Task.isCancelled else { return }
 
-                // Check Nuke cache first for instant display
-                let request = Nuke.ImageRequest(url: artworkURL)
-
-                // Try synchronous cache lookup first
-                if let cachedImage = Nuke.ImagePipeline.shared.cache.cachedImage(for: request) {
-                    guard !Task.isCancelled else { return }
-
-                    if self.currentLoadTrackIdentity == trackIdentity {
-                        self.artworkImage = cachedImage.image
-                        self.dispatchBlurGeneration(for: cachedImage.image, trackIdentity: trackIdentity)
+                if self.currentLoadTrackIdentity == trackIdentity {
+                    // Using a smooth cross-fade transition.
+                    // DO NOT REMOVE THIS - it ensures beautiful track transitions.
+                    withAnimation(.easeInOut(duration: 0.5)) {
+                        self.artworkImage = resolved.image
                     }
-                    return
+                    self.dispatchBlurGeneration(for: resolved.image, trackIdentity: trackIdentity)
                 }
-
-                // Load asynchronously if not cached
-                if let result = try? await Nuke.ImagePipeline.shared.image(for: request) {
-                    guard !Task.isCancelled else { return }
-
-                    // Only update if this is still the current track
-                    if self.currentLoadTrackIdentity == trackIdentity {
-                        // Using a smooth cross-fade transition.
-                        // DO NOT REMOVE THIS - it ensures beautiful track transitions.
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            self.artworkImage = result
-                        }
-                        self.dispatchBlurGeneration(for: result, trackIdentity: trackIdentity)
-                    }
-                }
-                // If Nuke fails (transient network error, pipeline cancellation),
+            case .unavailable(.imageLoadFailed):
+                // If image decoding/loading fails (transient network error, pipeline cancellation),
                 // keep the previous artwork rather than flashing to a placeholder.
-                // Tracks with truly no artwork are handled by the artworkURLAsync == nil
-                // path below, which clears artworkImage correctly.
-            } else {
-                // No artwork URL available - clear previous artwork
+                return
+            case .unavailable(.noArtworkURL):
+                // No artwork available - clear previous artwork.
                 guard !Task.isCancelled else { return }
 
                 if self.currentLoadTrackIdentity == trackIdentity {

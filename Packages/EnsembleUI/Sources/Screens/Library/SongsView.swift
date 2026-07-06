@@ -1,5 +1,4 @@
 import EnsembleCore
-import Nuke
 import SwiftUI
 
 #if canImport(UIKit)

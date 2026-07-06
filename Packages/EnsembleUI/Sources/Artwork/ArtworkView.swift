@@ -1,6 +1,5 @@
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 #if canImport(UIKit)
 import UIKit
@@ -55,7 +54,7 @@ public struct ArtworkView: View {
         "\(effectivePath ?? "")|\(effectiveRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
     }
 
-    private var imagePriority: ImageRequest.Priority {
+    private var imagePriority: ArtworkImagePriority {
         switch size {
         case .tiny:
             return .high

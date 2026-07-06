@@ -1,6 +1,5 @@
 import EnsembleCore
 import SwiftUI
-import Nuke
 
 private struct SendableMediaDetailPlatformImage: @unchecked Sendable {
     let value: PlatformImage
