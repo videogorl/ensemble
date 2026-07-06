@@ -43,14 +43,8 @@ final class AlbumReleaseClassificationTests: XCTestCase {
 
     func testUnformattedShortReleaseStaysClassifiedAsAlbum() {
         let album = makeAlbum(id: "ep", title: "Short Release", trackCount: 4)
-        let tracks = [
-            makeTrack(id: "1", albumID: "ep", duration: 180),
-            makeTrack(id: "2", albumID: "ep", duration: 210),
-            makeTrack(id: "3", albumID: "ep", duration: 240),
-            makeTrack(id: "4", albumID: "ep", duration: 200)
-        ]
 
-        XCTAssertFalse(album.isLikelySingleOrEP(artistTracks: tracks))
+        XCTAssertFalse(album.isLikelySingleOrEP())
     }
 
     func testUnformattedUnknownCountReleaseStaysClassifiedAsAlbum() {
@@ -75,14 +69,4 @@ final class AlbumReleaseClassificationTests: XCTestCase {
         )
     }
 
-    private func makeTrack(id: String, albumID: String, duration: TimeInterval) -> Track {
-        Track(
-            id: id,
-            key: "/library/metadata/\(id)",
-            title: "Track \(id)",
-            albumName: "Album",
-            albumRatingKey: albumID,
-            duration: duration
-        )
-    }
 }

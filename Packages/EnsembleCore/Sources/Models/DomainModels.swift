@@ -428,7 +428,7 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
 
 public extension Album {
     /// Artist detail grouping from Plex's release format metadata.
-    func isLikelySingleOrEP(artistTracks: [Track] = []) -> Bool {
+    func isLikelySingleOrEP() -> Bool {
         releaseFormat == .single || releaseFormat == .ep
     }
 }
