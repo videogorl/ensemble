@@ -234,7 +234,6 @@ public actor PlexAPIClient {
     }
 
     let session: URLSession
-    private let keychain: KeychainServiceProtocol
     let clientIdentifier: String
     let productName: String
     let productVersion: String
@@ -275,7 +274,6 @@ public actor PlexAPIClient {
         productName: String = "Ensemble",
         productVersion: String = "1.0"
     ) {
-        self.keychain = keychain
         self.serverConnection = connection
         self.selectedLibrary = librarySelection
         self.currentServerURL = connection.url

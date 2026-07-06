@@ -38,7 +38,6 @@ public struct PlexAuthState: Sendable {
 
 public actor PlexAuthService {
     private let session: URLSession
-    private let keychain: KeychainServiceProtocol
     private let clientIdentifier: String
     private let productName: String
     private let productVersion: String
@@ -54,7 +53,6 @@ public actor PlexAuthService {
         productVersion: String = "1.0",
         deviceName: String? = nil
     ) {
-        self.keychain = keychain
         self.productName = productName
         self.productVersion = productVersion
 
