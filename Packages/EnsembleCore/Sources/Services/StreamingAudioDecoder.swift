@@ -253,23 +253,6 @@ final class StreamingAudioDecoder {
         return buffer
     }
 
-    private func makeCompressedBuffer(
-        byteCount: UInt32,
-        packetCount: UInt32,
-        inputData: UnsafeRawPointer,
-        packetDescriptions: UnsafeMutablePointer<AudioStreamPacketDescription>?
-    ) -> AVAudioCompressedBuffer? {
-        let descriptions: [AudioStreamPacketDescription]? = packetDescriptions.map { pointer in
-            (0 ..< Int(packetCount)).map { pointer[$0] }
-        }
-        return makeCompressedBuffer(
-            byteCount: byteCount,
-            packetCount: packetCount,
-            inputData: inputData,
-            packetDescriptions: descriptions
-        )
-    }
-
     private func drainPendingCompressedBuffers() {
         while !pendingCompressedBuffers.isEmpty {
             let buffer = pendingCompressedBuffers.removeFirst()
