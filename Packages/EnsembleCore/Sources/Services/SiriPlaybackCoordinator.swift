@@ -732,10 +732,6 @@ public final class SiriPlaybackCoordinator {
         SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
     }
 
-    private func matchScore(query: String, candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
-    }
-
     private func playlistSearchSourceKeys(from enabledLibrarySourceKeys: Set<String>) -> Set<String> {
         var keys = enabledLibrarySourceKeys
 
