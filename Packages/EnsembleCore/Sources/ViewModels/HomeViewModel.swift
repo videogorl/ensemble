@@ -43,9 +43,6 @@ public final class HomeViewModel: ObservableObject {
     private var currentSourceKey: String?
     private var isViewVisible = false
     private var pendingAutoRefreshReasons = Set<AutoRefreshReason>()
-    // Preserve the server snapshot separately so Feed can stay a local-library
-    // projection without mutating the cached hub payload itself.
-    private var rawHubSnapshot: [Hub] = []
     private var unfilteredHubs: [Hub] = []
 
     // Startup suppression: the explicit .task load IS the startup load;
@@ -309,7 +306,6 @@ public final class HomeViewModel: ObservableObject {
 
             if !cachedSnapshot.orderedHubs.isEmpty {
                 appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: true)
-                rawHubSnapshot = cachedSnapshot.orderedHubs
                 let availableHubs = await filterHubsForLocalAvailability(cachedSnapshot.orderedHubs)
                 unfilteredHubs = availableHubs
                 hubs = Self.filterHubsForVisibility(
@@ -427,7 +423,6 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func applyHubSnapshot(_ snapshot: [Hub], source: String) async {
-        rawHubSnapshot = snapshot
         let availableSnapshot = await filterHubsForLocalAvailability(snapshot)
         unfilteredHubs = availableSnapshot
         let visibleSnapshot = Self.filterHubsForVisibility(
@@ -468,7 +463,6 @@ public final class HomeViewModel: ObservableObject {
     }
 
     internal func seedHubsForTesting(_ hubs: [Hub]) {
-        rawHubSnapshot = hubs
         unfilteredHubs = hubs
         self.hubs = hubs
     }
@@ -737,7 +731,6 @@ public final class HomeViewModel: ObservableObject {
         lastFeedCacheRefreshDate = nil
         lastNetworkHubFetchTime = nil
         lastAutomaticHubRefreshAttemptTime = nil
-        rawHubSnapshot = []
         unfilteredHubs = []
         hubs = []
         editableHubs = []
