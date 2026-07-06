@@ -3,10 +3,6 @@ import Foundation
 struct PlaybackSettingsChange: Equatable {
     let visualizerEnabled: Bool?
     let streamingQuality: String?
-
-    var isEmpty: Bool {
-        visualizerEnabled == nil && streamingQuality == nil
-    }
 }
 
 /// Observes playback-related UserDefaults keys and emits only material setting changes.

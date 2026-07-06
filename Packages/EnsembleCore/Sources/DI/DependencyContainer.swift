@@ -211,7 +211,6 @@ public final class DependencyContainer: @unchecked Sendable {
         let siri = Self.buildSiriBootstrap(
             core: core,
             network: network,
-            sync: sync,
             playback: playback,
             mutation: mutation,
             foregroundWorkScheduler: builtForegroundWorkScheduler
@@ -610,7 +609,6 @@ public final class DependencyContainer: @unchecked Sendable {
     private static func buildSiriBootstrap(
         core: CoreBootstrap,
         network: NetworkBootstrap,
-        sync: SyncBootstrap,
         playback: PlaybackBootstrap,
         mutation: MutationBootstrap,
         foregroundWorkScheduler: ForegroundWorkScheduler
