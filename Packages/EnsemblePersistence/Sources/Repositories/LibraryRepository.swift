@@ -140,6 +140,30 @@ public struct ArtworkInvalidationInfo: Sendable, Hashable {
     }
 }
 
+final class ArtworkInvalidationBuffer: @unchecked Sendable {
+    private var pendingInfo: [ArtworkInvalidationInfo] = []
+    private let lock = NSLock()
+
+    func drain() -> [ArtworkInvalidationInfo] {
+        lock.lock()
+        defer { lock.unlock() }
+        let info = pendingInfo
+        pendingInfo = []
+        return info
+    }
+
+    func record(_ info: ArtworkInvalidationInfo) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !pendingInfo.contains(where: {
+            $0.ratingKey == info.ratingKey && $0.type == info.type
+        }) else {
+            return
+        }
+        pendingInfo.append(info)
+    }
+}
+
 /// Summarizes how much persisted album/track genre metadata exists for a source.
 /// Used to detect restored stores that have the genre catalog but not the per-item genre fields.
 public struct GenreCoverageStats: Sendable, Equatable {
@@ -347,8 +371,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     // Protected by reparentLock; drained by SyncCoordinator after sync.
     private var pendingReparentInfo: [TrackReparentInfo] = []
     private let reparentLock = NSLock()
-    private var pendingArtworkInvalidationInfo: [ArtworkInvalidationInfo] = []
-    private let artworkInvalidationLock = NSLock()
+    private let artworkInvalidations = ArtworkInvalidationBuffer()
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
@@ -369,22 +392,11 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     }
 
     public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
-        artworkInvalidationLock.lock()
-        defer { artworkInvalidationLock.unlock() }
-        let info = pendingArtworkInvalidationInfo
-        pendingArtworkInvalidationInfo = []
-        return info
+        artworkInvalidations.drain()
     }
 
     func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {
-        artworkInvalidationLock.lock()
-        defer { artworkInvalidationLock.unlock() }
-        guard !pendingArtworkInvalidationInfo.contains(where: {
-            $0.ratingKey == info.ratingKey && $0.type == info.type
-        }) else {
-            return
-        }
-        pendingArtworkInvalidationInfo.append(info)
+        artworkInvalidations.record(info)
     }
 
     func recordArtworkInvalidationIfNeeded(

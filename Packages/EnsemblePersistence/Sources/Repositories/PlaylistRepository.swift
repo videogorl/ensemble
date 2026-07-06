@@ -41,30 +41,18 @@ public extension PlaylistRepositoryProtocol {
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
-    private var pendingArtworkInvalidationInfo: [ArtworkInvalidationInfo] = []
-    private let artworkInvalidationLock = NSLock()
+    private let artworkInvalidations = ArtworkInvalidationBuffer()
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
     }
 
     public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
-        artworkInvalidationLock.lock()
-        defer { artworkInvalidationLock.unlock() }
-        let info = pendingArtworkInvalidationInfo
-        pendingArtworkInvalidationInfo = []
-        return info
+        artworkInvalidations.drain()
     }
 
     func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {
-        artworkInvalidationLock.lock()
-        defer { artworkInvalidationLock.unlock() }
-        guard !pendingArtworkInvalidationInfo.contains(where: {
-            $0.ratingKey == info.ratingKey && $0.type == info.type
-        }) else {
-            return
-        }
-        pendingArtworkInvalidationInfo.append(info)
+        artworkInvalidations.record(info)
     }
 
     func recordPlaylistArtworkInvalidationIfNeeded(
