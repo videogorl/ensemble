@@ -433,7 +433,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 if action == .favoriteToggle {
                     self?.showFavoriteLoadingToast(for: track, willFavorite: !resolvedActions.isFavorited)
                 }
-                TrackActionPresentation.execute(action, track: track, resolvedActions: resolvedActions)
+                TrackActionPresentation.execute(action, resolvedActions: resolvedActions)
                 self?.showSwipeConfirmation(for: action, track: track)
             }
             rowAction.backgroundColor = NSColor(TrackActionPresentation.tint(for: action, resolvedActions: resolvedActions))

@@ -9,10 +9,6 @@ public struct BlurredArtworkBackground: View {
     let image: PlatformImage?
     let preBlurredImage: PlatformImage?
     let preBlurredCacheKey: String?
-    let blurRadius: CGFloat
-    let contrast: Double
-    let saturation: Double
-    let brightness: Double
     let opacity: Double
     let topDimming: Double
     let bottomDimming: Double
@@ -31,10 +27,6 @@ public struct BlurredArtworkBackground: View {
         image: PlatformImage?,
         preBlurredImage: PlatformImage? = nil,
         preBlurredCacheKey: String? = nil,
-        blurRadius: CGFloat = 80,
-        contrast: Double = 2.0,
-        saturation: Double = 1.9,
-        brightness: Double = -0.05,
         opacity: Double = 1.0,
         topDimming: Double = 0.1,
         bottomDimming: Double = 0.5,
@@ -57,10 +49,6 @@ public struct BlurredArtworkBackground: View {
         self.image = image
         self.preBlurredImage = preBlurredImage
         self.preBlurredCacheKey = preBlurredCacheKey
-        self.blurRadius = blurRadius
-        self.contrast = contrast
-        self.saturation = saturation
-        self.brightness = brightness
         self.opacity = opacity
         self.topDimming = topDimming
         self.bottomDimming = bottomDimming

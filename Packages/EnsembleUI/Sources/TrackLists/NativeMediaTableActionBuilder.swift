@@ -66,7 +66,6 @@ enum TrackActionPresentation {
 
     static func execute(
         _ action: TrackSwipeAction,
-        track: Track,
         resolvedActions: TrackRowInteractionModel.ResolvedActions
     ) {
         switch action {

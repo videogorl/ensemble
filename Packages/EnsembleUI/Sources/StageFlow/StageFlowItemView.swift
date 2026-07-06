@@ -82,15 +82,6 @@ extension StageFlowItemView {
         )
     }
 
-    init(playlist: Playlist) {
-        self.init(
-            ratingKey: playlist.id,
-            artworkPath: playlist.compositePath,
-            sourceCompositeKey: playlist.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(playlist: playlist)
-        )
-    }
-
     init(displayPlaylist dp: DisplayPlaylist) {
         self.init(
             ratingKey: dp.primaryPlaylist.id,

@@ -55,9 +55,6 @@ struct RootChromeLayout: Equatable {
         frame.width > 0 && frame.height > 0
     }
 
-    var horizontalAnchor: CGFloat {
-        frame.midX + horizontalOffset
-    }
 }
 
 struct RootChromeRegistrationPreferenceKey: PreferenceKey {
@@ -425,30 +422,6 @@ enum RootChromeLayoutResolver {
             y: rootBounds.minY,
             width: contentWidth,
             height: rootBounds.height
-        )
-    }
-
-    static func anchorMiniPlayerVertically(
-        _ layout: RootChromeLayout,
-        to rootBounds: CGRect
-    ) -> RootChromeLayout {
-        guard layout.showsMiniPlayer,
-              layout.hasRenderableFrame,
-              rootBounds.width > 0,
-              rootBounds.height > 0 else {
-            return layout
-        }
-
-        return RootChromeLayout(
-            frame: CGRect(
-                x: layout.frame.minX,
-                y: rootBounds.minY,
-                width: layout.frame.width,
-                height: rootBounds.height
-            ),
-            bottomPadding: layout.bottomPadding,
-            horizontalOffset: layout.horizontalOffset,
-            showsMiniPlayer: layout.showsMiniPlayer
         )
     }
 

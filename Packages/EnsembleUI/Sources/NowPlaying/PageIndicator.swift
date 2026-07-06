@@ -24,7 +24,6 @@ public enum NowPlayingPage: Int, CaseIterable {
 public struct PageIndicator: View {
     @Binding var currentPage: Int
     let lyricsAvailable: Bool
-    @Environment(\.colorScheme) private var colorScheme
 
     public init(currentPage: Binding<Int>, lyricsAvailable: Bool = false) {
         self._currentPage = currentPage

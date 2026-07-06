@@ -31,14 +31,6 @@ public struct FavoritesView: View {
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
-    private var backgroundColor: Color {
-        #if os(macOS)
-            return EnsembleDesign.Color.windowSurface
-        #else
-            return EnsembleDesign.Color.windowSurface
-        #endif
-    }
-
     public init(libraryVM _: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
         self.nowPlayingVM = nowPlayingVM
