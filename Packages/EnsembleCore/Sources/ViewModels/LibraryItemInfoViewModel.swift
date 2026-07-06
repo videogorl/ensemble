@@ -31,7 +31,6 @@ public final class LibraryItemInfoViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
-    private let accountManager: AccountManager
 
     public init(
         request: LibraryItemInfoRequest,
@@ -44,7 +43,6 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
-        self.accountManager = accountManager
         self.sourceContext = Self.resolveSourceContext(
             sourceCompositeKey: request.sourceCompositeKey,
             accountManager: accountManager

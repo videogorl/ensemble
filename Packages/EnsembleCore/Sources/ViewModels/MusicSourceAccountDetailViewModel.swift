@@ -87,8 +87,6 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
     private let accountManager: AccountManager
     private let accountDiscoveryService: any PlexAccountDiscoveryServiceProtocol
     private let syncCoordinator: SyncCoordinator
-    private let mutationCoordinator: MutationCoordinator
-    private let webSocketCoordinator: PlexWebSocketCoordinator
     private let libraryRepository: any LibraryRepositoryProtocol
     private var sourceStatuses: [MusicSourceIdentifier: MusicSourceStatus] = [:]
     private var syncedTrackCounts: [MusicSourceIdentifier: Int] = [:]
@@ -116,8 +114,6 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         self.accountManager = accountManager
         self.accountDiscoveryService = accountDiscoveryService
         self.syncCoordinator = syncCoordinator
-        self.mutationCoordinator = mutationCoordinator
-        self.webSocketCoordinator = webSocketCoordinator
         self.libraryRepository = libraryRepository
 
         // Subscribe to library scan progress from WebSocket events

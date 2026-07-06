@@ -60,7 +60,6 @@ public final class DownloadsViewModel: ObservableObject {
     private let downloadMutationWorkflow: DownloadMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let mutationCoordinator: MutationCoordinator
     private let accountManager: AccountManager
     private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
@@ -78,7 +77,6 @@ public final class DownloadsViewModel: ObservableObject {
         self.downloadMutationWorkflow = downloadMutationWorkflow ?? DownloadMutationWorkflow(mutator: offlineDownloadService)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
-        self.mutationCoordinator = mutationCoordinator
         self.accountManager = accountManager
         self.downloadManager = downloadManager
 
