@@ -91,6 +91,44 @@ private struct PlaylistActionPresentationModifier: ViewModifier {
     }
 }
 
+private struct RecentPlaylistTargetObservationModifier: ViewModifier {
+    let nowPlayingVM: NowPlayingViewModel
+    let tracks: [Track]
+    let isEnabled: Bool
+    @Binding var target: Playlist?
+    @State private var lastPlaylistTargetID: String?
+
+    private var refreshKey: String {
+        let trackIDs = tracks.map(\.playbackIdentity).joined(separator: "|")
+        return "\(isEnabled):\(trackIDs)"
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: refreshKey) {
+                lastPlaylistTargetID = nowPlayingVM.lastPlaylistTarget?.id
+                await refreshTarget()
+            }
+            .onReceive(nowPlayingVM.lastPlaylistTargetPublisher) { playlistTarget in
+                guard playlistTarget?.id != lastPlaylistTargetID else { return }
+                lastPlaylistTargetID = playlistTarget?.id
+                Task { @MainActor in await refreshTarget() }
+            }
+    }
+
+    @MainActor
+    private func refreshTarget() async {
+        guard isEnabled, !tracks.isEmpty else {
+            target = nil
+            return
+        }
+        target = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
+            for: tracks,
+            nowPlayingVM: nowPlayingVM
+        )
+    }
+}
+
 public extension View {
     func playlistActionPresentation(
         request: Binding<PlaylistActionPresentationRequest?>,
@@ -100,6 +138,22 @@ public extension View {
             PlaylistActionPresentationModifier(
                 nowPlayingVM: nowPlayingVM,
                 request: request
+            )
+        )
+    }
+
+    func recentPlaylistTargetObservation(
+        nowPlayingVM: NowPlayingViewModel,
+        tracks: [Track],
+        isEnabled: Bool = true,
+        target: Binding<Playlist?>
+    ) -> some View {
+        modifier(
+            RecentPlaylistTargetObservationModifier(
+                nowPlayingVM: nowPlayingVM,
+                tracks: tracks,
+                isEnabled: isEnabled,
+                target: target
             )
         )
     }

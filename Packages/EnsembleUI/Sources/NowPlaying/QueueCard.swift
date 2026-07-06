@@ -20,7 +20,6 @@ public struct QueueCard: View {
 
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
-    @State private var lastPlaylistTargetID: String?
     #if os(macOS)
     @State private var macOSDraggingQueueItemID: String?
     #endif
@@ -112,17 +111,11 @@ public struct QueueCard: View {
             .padding(.bottom, EnsembleScaffold.NowPlaying.secondaryControlsBottomPadding)
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
-        .task {
-            await refreshLastPlaylistQuickTarget()
-        }
-        .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
-            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
-        }
-        .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
-            guard lastPlaylistTargetID != target?.id else { return }
-            lastPlaylistTargetID = target?.id
-            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
-        }
+        .recentPlaylistTargetObservation(
+            nowPlayingVM: viewModel,
+            tracks: playbackProjection.currentTrack.map { [$0] } ?? [],
+            target: $lastPlaylistQuickTarget
+        )
     }
 
     // MARK: - Header
@@ -551,18 +544,6 @@ public struct QueueCard: View {
     }
 
     // MARK: - Helper Methods
-
-    @MainActor
-    private func refreshLastPlaylistQuickTarget() async {
-        guard let currentTrack = playbackProjection.currentTrack else {
-            lastPlaylistQuickTarget = nil
-            return
-        }
-        lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
-            for: [currentTrack],
-            nowPlayingVM: viewModel
-        )
-    }
 
     private func presentPlaylistPicker(with tracks: [Track], title: String) {
         guard !tracks.isEmpty else {

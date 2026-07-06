@@ -108,7 +108,6 @@ public struct ControlsCard: View {
     @State private var bufferedProgress: Double = 0
     @State private var playbackCurrentTime: TimeInterval = 0
     @State private var playbackDuration: TimeInterval = 0
-    @State private var lastPlaylistTargetID: String?
 
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -155,38 +154,22 @@ public struct ControlsCard: View {
             }
         }
         .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: viewModel)
-        .task {
-            guard isActivePage || isAlwaysVisible else { return }
-            await refreshLastPlaylistQuickTarget()
-        }
+        .recentPlaylistTargetObservation(
+            nowPlayingVM: viewModel,
+            tracks: playbackProjection.currentTrack.map { [$0] } ?? [],
+            isEnabled: isActivePage || isAlwaysVisible,
+            target: $lastPlaylistQuickTarget
+        )
         .onAppear {
             syncPlaybackSnapshot()
-            lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
-        }
-        .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
-            guard isActivePage || isAlwaysVisible else { return }
-            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
         .onChange(of: currentPage) { newPage in
-            let isActive = NowPlayingPanelPage.controls.isActive(currentPage: newPage)
             let isRenderable = NowPlayingPanelPage.controls.shouldRenderContent(
                 currentPage: newPage,
                 isAlwaysVisible: isAlwaysVisible
             )
             guard isRenderable else { return }
             syncPlaybackSnapshot()
-            guard isActive || isAlwaysVisible else { return }
-            Task { @MainActor in
-                lastPlaylistTargetID = viewModel.lastPlaylistTarget?.id
-                await refreshLastPlaylistQuickTarget()
-            }
-        }
-        .onReceive(viewModel.lastPlaylistTargetPublisher) { target in
-            guard isActivePage || isAlwaysVisible else { return }
-            let targetID = target?.id
-            guard targetID != lastPlaylistTargetID else { return }
-            lastPlaylistTargetID = targetID
-            Task { @MainActor in await refreshLastPlaylistQuickTarget() }
         }
         .onReceive(playbackProjection.waveformPublisher) { heights in
             guard isActivePage || isAlwaysVisible, waveformHeights != heights else { return }
@@ -746,18 +729,6 @@ public struct ControlsCard: View {
         bufferedProgress = playbackProjection.bufferedProgress
         playbackCurrentTime = playbackProjection.currentTime
         playbackDuration = playbackProjection.scrubberDuration
-    }
-
-    @MainActor
-    private func refreshLastPlaylistQuickTarget() async {
-        guard let currentTrack = playbackProjection.currentTrack else {
-            lastPlaylistQuickTarget = nil
-            return
-        }
-        lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
-            for: [currentTrack],
-            nowPlayingVM: viewModel
-        )
     }
 
     @MainActor
