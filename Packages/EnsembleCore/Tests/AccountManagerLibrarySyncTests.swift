@@ -29,19 +29,16 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
 
     private let migrationDefaultsKey = "plex_auth_migration_version"
     private let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
-    private let libraryFlagOriginDeviceIDKey = "sync.libraryFlagOriginDeviceID"
 
     override func setUp() {
         super.setUp()
         UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
         UserDefaults.standard.removeObject(forKey: libraryFlagModifiedAtKey)
-        UserDefaults.standard.removeObject(forKey: libraryFlagOriginDeviceIDKey)
     }
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: migrationDefaultsKey)
         UserDefaults.standard.removeObject(forKey: libraryFlagModifiedAtKey)
-        UserDefaults.standard.removeObject(forKey: libraryFlagOriginDeviceIDKey)
         super.tearDown()
     }
 
@@ -116,8 +113,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                 VersionedFlagPayload(
                     key: "account-1:server-1:1",
                     isEnabled: false,
-                    updatedAt: 1,
-                    originDeviceID: "other-device"
+                    updatedAt: 1
                 )
             ])
         )
@@ -142,8 +138,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                 VersionedFlagPayload(
                     key: "account-1:server-1:1",
                     isEnabled: false,
-                    updatedAt: 1,
-                    originDeviceID: "other-device"
+                    updatedAt: 1
                 )
             ])
         )
@@ -213,8 +208,7 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
                 VersionedFlagPayload(
                     key: "account-1:server-1:1",
                     isEnabled: false,
-                    updatedAt: Date().timeIntervalSince1970 + 60,
-                    originDeviceID: "other-device"
+                    updatedAt: Date().timeIntervalSince1970 + 60
                 )
             ])
         )
@@ -578,7 +572,6 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         let key: String
         let isEnabled: Bool
         let updatedAt: TimeInterval
-        let originDeviceID: String
     }
 
     private func makeVersionedFlagsData(_ flags: [VersionedFlagPayload]) throws -> Data {

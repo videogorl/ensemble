@@ -9,18 +9,15 @@ public final class AccountManager: ObservableObject {
         let key: String
         let isEnabled: Bool
         let updatedAt: TimeInterval?
-        let originDeviceID: String?
 
         init(
             key: String,
             isEnabled: Bool,
-            updatedAt: TimeInterval? = nil,
-            originDeviceID: String? = nil
+            updatedAt: TimeInterval? = nil
         ) {
             self.key = key
             self.isEnabled = isEnabled
             self.updatedAt = updatedAt
-            self.originDeviceID = originDeviceID
         }
     }
 
@@ -63,11 +60,9 @@ public final class AccountManager: ObservableObject {
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
     private var libraryFlagModifiedAt: [String: TimeInterval]
-    private let libraryFlagOriginDeviceID: String
     private static let authMigrationVersionKey = "plex_auth_migration_version"
     private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
-    private static let libraryFlagOriginDeviceIDKey = "sync.libraryFlagOriginDeviceID"
 
     public init(
         keychain: KeychainServiceProtocol,
@@ -78,7 +73,6 @@ public final class AccountManager: ObservableObject {
         self.connectionRegistry = connectionRegistry
         self.isNetworkAvailable = isNetworkAvailable
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
-        self.libraryFlagOriginDeviceID = Self.loadOrCreateLibraryFlagOriginDeviceID()
     }
 
     // MARK: - Load / Save
@@ -193,8 +187,7 @@ public final class AccountManager: ObservableObject {
             LibraryFlagEntry(
                 key: key,
                 isEnabled: flags[key] ?? false,
-                updatedAt: ensureLibraryFlagModifiedAt(for: key),
-                originDeviceID: libraryFlagOriginDeviceID
+                updatedAt: ensureLibraryFlagModifiedAt(for: key)
             )
         }
         let encoder = JSONEncoder()
@@ -887,15 +880,6 @@ public final class AccountManager: ObservableObject {
             return [:]
         }
         return timestamps
-    }
-
-    private static func loadOrCreateLibraryFlagOriginDeviceID() -> String {
-        if let existing = UserDefaults.standard.string(forKey: libraryFlagOriginDeviceIDKey) {
-            return existing
-        }
-        let deviceID = UUID().uuidString
-        UserDefaults.standard.set(deviceID, forKey: libraryFlagOriginDeviceIDKey)
-        return deviceID
     }
 
     private func requiresSyncReconciliation(
