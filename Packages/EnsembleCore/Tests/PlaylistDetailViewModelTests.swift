@@ -56,6 +56,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
         var playlists: [String: CDPlaylist] = [:]
+        var fetchPlaylistCallCount = 0
+        var fetchPlaylistsForReferencesCallCount = 0
 
         func fetchPlaylists() async throws -> [CDPlaylist] {
             Array(playlists.values)
@@ -71,7 +73,21 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         }
 
         func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
-            playlists[playlistKey(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)] ?? playlists[ratingKey]
+            fetchPlaylistCallCount += 1
+            return playlists[playlistKey(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)] ?? playlists[ratingKey]
+        }
+
+        func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+            fetchPlaylistsForReferencesCallCount += 1
+            var result: [String: CDPlaylist] = [:]
+            result.reserveCapacity(references.count)
+            for reference in references {
+                let key = playlistKey(ratingKey: reference.ratingKey, sourceCompositeKey: reference.sourceCompositeKey)
+                if let playlist = playlists[key] {
+                    result[reference.lookupKey] = playlist
+                }
+            }
+            return result
         }
 
         func searchPlaylists(query: String) async throws -> [CDPlaylist] { [] }
@@ -791,6 +807,9 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
         await viewModel.loadTracks()
+
+        XCTAssertEqual(playlistRepository.fetchPlaylistsForReferencesCallCount, 1)
+        XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 0)
 
         let didRemove = await viewModel.removeTrackFromPlaylist(secondTracks[0], displayIndex: 1)
 

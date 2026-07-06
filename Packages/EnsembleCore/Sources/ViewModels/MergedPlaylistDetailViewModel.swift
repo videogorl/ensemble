@@ -92,26 +92,50 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         error = nil
 
         do {
-            var trackSets: [[Track]] = []
-
-            for playlist in displayPlaylist.playlists {
-                if let cached = try await playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
-                ) {
-                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                } else {
-                    trackSets.append([])
-                }
-            }
-
-            tracks = DisplayPlaylist.interleave(trackSets)
+            tracks = DisplayPlaylist.interleave(try await loadConstituentTrackSets())
         } catch {
             self.error = error.localizedDescription
         }
 
         hasLoadedTracks = true
         isLoading = false
+    }
+
+    private func loadConstituentTrackSets() async throws -> [[Track]] {
+        let references = displayPlaylist.playlists.compactMap { playlist -> SourceScopedArtworkReference? in
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { return nil }
+            return SourceScopedArtworkReference(ratingKey: playlist.id, sourceCompositeKey: sourceCompositeKey)
+        }
+
+        guard references.count == displayPlaylist.playlists.count else {
+            return try await loadConstituentTrackSetsOneByOne()
+        }
+
+        let playlistsByKey = try await playlistRepository.fetchPlaylists(forReferences: references)
+        return displayPlaylist.playlists.map { playlist in
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { return [] }
+            let key = SourceScopedArtworkReference(
+                ratingKey: playlist.id,
+                sourceCompositeKey: sourceCompositeKey
+            ).lookupKey
+            return playlistsByKey[key]?.tracksArray.map { Track(from: $0) } ?? []
+        }
+    }
+
+    private func loadConstituentTrackSetsOneByOne() async throws -> [[Track]] {
+        var trackSets: [[Track]] = []
+        trackSets.reserveCapacity(displayPlaylist.playlists.count)
+        for playlist in displayPlaylist.playlists {
+            if let cached = try await playlistRepository.fetchPlaylist(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            ) {
+                trackSets.append(cached.tracksArray.map { Track(from: $0) })
+            } else {
+                trackSets.append([])
+            }
+        }
+        return trackSets
     }
 
     /// Sync all constituent playlists then reload
