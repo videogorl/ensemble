@@ -60,18 +60,6 @@ final class StreamingAudioPipeline: NSObject {
         super.init()
     }
 
-    var outputFormat: AVAudioFormat? {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return pcmBuffer?.format
-    }
-
-    var availableFrames: Int {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        return pcmBuffer?.availableFrames ?? 0
-    }
-
     var isComplete: Bool {
         stateLock.lock()
         defer { stateLock.unlock() }
