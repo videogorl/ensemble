@@ -1342,7 +1342,11 @@ public struct ArtistDetailView: View {
 
             // Description
             if let summary = viewModel.artist.summary, !summary.isEmpty {
-                descriptionContent(summary: summary)
+                LibraryDescriptionSection(
+                    summary: summary,
+                    isExpanded: $isBioExpanded,
+                    spacing: EnsembleScaffold.ArtistDetail.descriptionSpacing
+                )
             }
 
             // Wikipedia link (below description)
@@ -1360,61 +1364,6 @@ public struct ArtistDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func descriptionContent(summary: String) -> some View {
-        // Plex sends paragraphs separated by \r\n; split on any newline variant
-        let paragraphs = summary
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.descriptionSpacing) {
-            Text("Description")
-                .font(EnsembleDesign.Typography.actionLabel)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-            // Tappable description text to toggle expanded/collapsed
-            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
-                if isBioExpanded {
-                    // Expanded: show all paragraphs with paragraph spacing
-                    ForEach(Array(paragraphs.enumerated()), id: \.offset) { index, paragraph in
-                        Text(paragraph)
-                            .font(EnsembleDesign.Typography.rowPrimary)
-                            .foregroundColor(EnsembleDesign.Color.primaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, index == paragraphs.indices.lowerBound ? EnsembleDesign.Spacing.none : EnsembleDesign.Spacing.md)
-                    }
-                } else {
-                    // Collapsed: show truncated text
-                    Text(paragraphs.first ?? summary)
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .foregroundColor(EnsembleDesign.Color.primaryText)
-                        .lineLimit(4)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    isBioExpanded.toggle()
-                }
-            }
-
-            // Expand/collapse link
-            if paragraphs.count > 1 || summary.count > 200 {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        isBioExpanded.toggle()
-                    }
-                } label: {
-                    Text(isBioExpanded ? "Show less" : "Read more")
-                        .font(EnsembleDesign.Typography.rowPrimary)
-                        .fontWeight(.medium)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                }
-            }
-        }
     }
 
     private func factRow(label: String, value: String) -> some View {
