@@ -1017,7 +1017,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var handoffCoordinator = PlaybackHandoffCoordinator()
     private var handoffSettleTask: Task<Void, Never>?
     private var handoffEventCounter: UInt64 = 0
-    private var lastUnexpectedPauseAt: Date?
     private var unexpectedPauseCount = 0
     // Background task identifier used to keep the app alive during track transitions.
     // Without this, iOS may suspend the app between tracks when no audio is playing.
@@ -1052,7 +1051,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
-    private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let trackRatingLocalStore: TrackRatingLocalStoring
@@ -1090,7 +1088,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let maxQueueLookahead = 5 // Max number of future tracks to keep queued
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
-    private let maxHistorySize = 100 // Cap for 2GB RAM devices
+    private static let maxHistorySize = 100 // Cap for 2GB RAM devices
     private var isNavigatingBackward = false // Flag to prevent duplicate history entries
 
     private var isSkipTransitionInProgress = false // Suppresses stale callbacks during next/previous
@@ -1261,13 +1259,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
-        self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.trackRatingLocalStore = trackRatingLocalStore
         self.foregroundWorkScheduler = foregroundWorkScheduler
         queueStore = PlaybackQueueStore()
-        queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
+        queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: Self.maxHistorySize)
         prefetchController = PlaybackPrefetchController()
         smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
@@ -1300,13 +1297,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
-        self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.trackRatingLocalStore = trackRatingLocalStore
         self.queueStore = queueStore
         self.foregroundWorkScheduler = foregroundWorkScheduler
-        queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: 100)
+        queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: Self.maxHistorySize)
         prefetchController = PlaybackPrefetchController()
         smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
@@ -1539,7 +1535,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Reset pause tracking for the new track
         unexpectedPauseCount = 0
-        lastUnexpectedPauseAt = nil
 
         // Activate the pre-computed frequency timeline for the new track.
         MainActor.assumeIsolated {
@@ -1579,7 +1574,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         waveformHeights = []
         reportingController.resetForTrack()
         unexpectedPauseCount = 0
-        lastUnexpectedPauseAt = nil
 
         MainActor.assumeIsolated {
             audioAnalyzer.activateTimeline(for: promotedTrack.playbackIdentity, at: currentTime)
@@ -2181,7 +2175,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     )
                     self.applyHandoffOutcome(settleOutcome, event: "settleWindowFinished")
                     self.unexpectedPauseCount = 0
-                    self.lastUnexpectedPauseAt = nil
                     EnsembleLogger.debug("🎧 Route handover settle window finished; pause counters reset")
                 }
 
@@ -3070,7 +3063,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         // Reset pause loop counters for the new route
         unexpectedPauseCount = 0
-        lastUnexpectedPauseAt = nil
         EnsembleLogger.debug("🎧 nudgeForAirPlayRoute: state=\(playbackState) — re-asserting playback on new route")
         // AudioPlaybackEngine handles route changes via AVAudioEngineConfigurationChange
         // notification internally. For paused state, resume normally.
@@ -5109,7 +5101,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Reset pause tracking for the new track
         unexpectedPauseCount = 0
-        lastUnexpectedPauseAt = nil
 
         bufferedProgress = source.initialBufferedProgress
 
