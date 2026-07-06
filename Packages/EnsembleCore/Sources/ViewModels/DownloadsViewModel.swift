@@ -252,6 +252,18 @@ public final class DownloadsViewModel: ObservableObject {
     /// Rebuilds aggregated download stats for each sync-enabled library
     private func rebuildLibrarySummaries() async {
         var summaries: [LibraryDownloadSummary] = []
+        let downloadsBySource = Dictionary(
+            grouping: (try? await downloadManager.fetchDownloads()) ?? [],
+            by: { $0.track?.sourceCompositeKey ?? "" }
+        )
+        let libraryTargetsBySource = Dictionary(
+            offlineDownloadService.targets.compactMap { target -> (String, OfflineDownloadTargetSnapshot)? in
+                guard target.kind == .library, let sourceCompositeKey = target.sourceCompositeKey else { return nil }
+                return (sourceCompositeKey, target)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let downloadQuality = AudioQualityPreference.storedDownloadQuality()
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -268,25 +280,21 @@ public final class DownloadsViewModel: ObservableObject {
                         sourceCompositeKey: sourceCompositeKey
                     )
 
-                    // Fetch download counts for this library
-                    let downloads = (try? await downloadManager.fetchDownloads(forSourceCompositeKey: sourceCompositeKey)) ?? []
+                    let downloads = downloadsBySource[sourceCompositeKey] ?? []
                     let completedDownloads = downloads.filter { $0.downloadStatus == .completed }
                     let downloadedBytes = completedDownloads.reduce(Int64(0)) { $0 + $1.fileSize }
 
                     // Total track count from library cache
                     let allTracks = (try? await libraryRepository.fetchTracks(forSource: sourceCompositeKey)) ?? []
-                    let totalTrackCount = allTracks.count
+                    let totalTrackCount = allTracks.isEmpty ? (library.trackCount ?? 0) : allTracks.count
 
                     // Estimate total size: sum of duration * bitrate for current quality
                     let totalDurationMs = allTracks.reduce(Int64(0)) { $0 + $1.duration }
                     let durationSeconds = Double(totalDurationMs) / 1000.0
-                    let downloadQuality = AudioQualityPreference.storedDownloadQuality()
                     let estimatedTotalBytes = Self.estimateBytes(durationSeconds: durationSeconds, quality: downloadQuality, actualBytes: downloadedBytes)
 
                     // Determine status from library-level target snapshot
-                    let targetSnapshot = offlineDownloadService.targets.first {
-                        $0.kind == .library && $0.sourceCompositeKey == sourceCompositeKey
-                    }
+                    let targetSnapshot = libraryTargetsBySource[sourceCompositeKey]
 
                     // Compute progress
                     let progress: Float
