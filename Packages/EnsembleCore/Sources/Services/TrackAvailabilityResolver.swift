@@ -1,6 +1,5 @@
 import Combine
 import EnsembleAPI
-import EnsemblePersistence
 import Foundation
 
 /// Availability state for a single track.
@@ -54,17 +53,14 @@ public final class TrackAvailabilityResolver: ObservableObject {
 
     private let networkMonitor: NetworkMonitor
     private let serverHealthChecker: ServerHealthChecker
-    private let downloadManager: DownloadManagerProtocol
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         networkMonitor: NetworkMonitor,
-        serverHealthChecker: ServerHealthChecker,
-        downloadManager: DownloadManagerProtocol
+        serverHealthChecker: ServerHealthChecker
     ) {
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
-        self.downloadManager = downloadManager
 
         setupObservers()
     }

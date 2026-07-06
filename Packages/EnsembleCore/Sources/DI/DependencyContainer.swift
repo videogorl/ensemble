@@ -428,8 +428,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let trackAvailabilityResolver = MainActor.assumeIsolated {
             TrackAvailabilityResolver(
                 networkMonitor: networkMonitor,
-                serverHealthChecker: serverHealthChecker,
-                downloadManager: core.downloadManager
+                serverHealthChecker: serverHealthChecker
             )
         }
 

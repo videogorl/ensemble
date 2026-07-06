@@ -670,8 +670,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         )
         let trackAvailabilityResolver = TrackAvailabilityResolver(
             networkMonitor: networkMonitor,
-            serverHealthChecker: serverHealthChecker,
-            downloadManager: MockDownloadManager()
+            serverHealthChecker: serverHealthChecker
         )
 
         let lyricsService = LyricsService(
