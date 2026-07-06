@@ -26,7 +26,6 @@ public enum ForegroundInteractionState: String, CaseIterable, Hashable, Sendable
 public enum ForegroundWorkPolicy: Equatable, Sendable {
     case immediate
     case debounce(TimeInterval)
-    case serialize
     case idleOnly
     case playbackSafe
 }
@@ -67,27 +66,6 @@ public protocol ForegroundWorkScheduling: AnyObject, Sendable {
     func waitUntilAllowed(_ kind: ForegroundWorkKind, policy: ForegroundWorkPolicy) async -> Bool
 }
 
-private actor ForegroundWorkSerialExecutor {
-    private var runningKinds: Set<ForegroundWorkKind> = []
-
-    func waitForTurn(kind: ForegroundWorkKind) async -> Bool {
-        while runningKinds.contains(kind) {
-            do {
-                try await Task.sleep(nanoseconds: 100_000_000)
-            } catch {
-                return false
-            }
-            guard !Task.isCancelled else { return false }
-        }
-        runningKinds.insert(kind)
-        return true
-    }
-
-    func finish(kind: ForegroundWorkKind) {
-        runningKinds.remove(kind)
-    }
-}
-
 /// Gates nonessential foreground work behind explicit user-interaction and playback state.
 @MainActor
 public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkScheduling {
@@ -97,7 +75,6 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
 
     private let configuration: ForegroundWorkSchedulerConfiguration
     private let now: () -> Date
-    private let serialExecutor = ForegroundWorkSerialExecutor()
     private var lastInteractionAt: Date
 
     public init(
@@ -156,46 +133,11 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
                 return await waitForIdle()
             }
             return !Task.isCancelled
-        case .serialize:
-            if configuration.isConstrainedLegacyDevice, nonessentialKinds.contains(kind) {
-                return await waitForIdle()
-            }
-            return !Task.isCancelled
         case .idleOnly:
             return await waitForIdle()
         case .playbackSafe:
             return await waitForPlaybackSafe(kind: kind)
         }
-    }
-
-    public func run<T>(
-        _ kind: ForegroundWorkKind,
-        policy: ForegroundWorkPolicy,
-        operation: @escaping @Sendable () async throws -> T
-    ) async throws -> T {
-        guard await waitUntilAllowed(kind, policy: policy) else {
-            throw CancellationError()
-        }
-        let shouldSerialize = policy == .serialize ||
-            configuration.isConstrainedLegacyDevice ||
-            kind == .smartMixAnalysis ||
-            kind == .sidecarAnalysis
-
-        if shouldSerialize {
-            guard await serialExecutor.waitForTurn(kind: kind) else {
-                throw CancellationError()
-            }
-            do {
-                let value = try await operation()
-                await serialExecutor.finish(kind: kind)
-                return value
-            } catch {
-                await serialExecutor.finish(kind: kind)
-                throw error
-            }
-        }
-
-        return try await operation()
     }
 
     public func clearLaunchState() {
