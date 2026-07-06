@@ -340,158 +340,144 @@ extension LibraryRepository {
     /// Much faster than per-item upserts for full sync (eliminates N individual fetches + saves).
     public func batchUpsertArtists(_ inputs: [ArtistUpsertInput], sourceCompositeKey: String) async throws {
         guard !inputs.isEmpty else { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    // Pre-fetch matching existing artists into a lookup dictionary.
-                    let existingRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                    existingRequest.predicate = Self.sourceScopedPredicate(
-                        sourceKey: sourceCompositeKey,
-                        ratingKeys: Set(inputs.map(\.ratingKey))
-                    )
-                    let existingArtists = try context.fetch(existingRequest)
-                    var artistsByKey: [String: CDArtist] = [:]
-                    artistsByKey.reserveCapacity(existingArtists.count)
-                    for artist in existingArtists {
-                        artistsByKey[artist.ratingKey] = artist
-                    }
-
-                    // Pre-fetch the CDMusicSource once
-                    let sourceRequest = CDMusicSource.fetchRequest()
-                    sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
-                    let source = try context.fetch(sourceRequest).first
-
-                    let now = Date()
-                    for input in inputs {
-                        let existing = artistsByKey[input.ratingKey]
-                        let artist = existing ?? CDArtist(context: context)
-
-                        if let existing {
-                            self.recordArtworkInvalidationIfNeeded(
-                                ratingKey: input.ratingKey,
-                                type: .artist,
-                                oldThumbPath: existing.thumbPath,
-                                oldArtPath: existing.artPath,
-                                oldDateModified: existing.dateModified,
-                                newThumbPath: input.thumbPath,
-                                newArtPath: input.artPath,
-                                newDateModified: input.dateModified
-                            )
-                        }
-
-                        artist.ratingKey = input.ratingKey
-                        artist.key = input.key
-                        artist.name = input.name
-                        artist.summary = input.summary
-                        artist.thumbPath = input.thumbPath
-                        artist.artPath = input.artPath
-                        if existing == nil, let added = input.dateAdded {
-                            artist.dateAdded = added
-                        }
-                        artist.dateModified = input.dateModified
-                        artist.updatedAt = now
-                        artist.sourceCompositeKey = sourceCompositeKey
-                        artist.source = source
-                    }
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            // Pre-fetch matching existing artists into a lookup dictionary.
+            let existingRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+            existingRequest.predicate = Self.sourceScopedPredicate(
+                sourceKey: sourceCompositeKey,
+                ratingKeys: Set(inputs.map(\.ratingKey))
+            )
+            let existingArtists = try context.fetch(existingRequest)
+            var artistsByKey: [String: CDArtist] = [:]
+            artistsByKey.reserveCapacity(existingArtists.count)
+            for artist in existingArtists {
+                artistsByKey[artist.ratingKey] = artist
             }
+
+            // Pre-fetch the CDMusicSource once
+            let sourceRequest = CDMusicSource.fetchRequest()
+            sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
+            let source = try context.fetch(sourceRequest).first
+
+            let now = Date()
+            for input in inputs {
+                let existing = artistsByKey[input.ratingKey]
+                let artist = existing ?? CDArtist(context: context)
+
+                if let existing {
+                    self.recordArtworkInvalidationIfNeeded(
+                        ratingKey: input.ratingKey,
+                        type: .artist,
+                        oldThumbPath: existing.thumbPath,
+                        oldArtPath: existing.artPath,
+                        oldDateModified: existing.dateModified,
+                        newThumbPath: input.thumbPath,
+                        newArtPath: input.artPath,
+                        newDateModified: input.dateModified
+                    )
+                }
+
+                artist.ratingKey = input.ratingKey
+                artist.key = input.key
+                artist.name = input.name
+                artist.summary = input.summary
+                artist.thumbPath = input.thumbPath
+                artist.artPath = input.artPath
+                if existing == nil, let added = input.dateAdded {
+                    artist.dateAdded = added
+                }
+                artist.dateModified = input.dateModified
+                artist.updatedAt = now
+                artist.sourceCompositeKey = sourceCompositeKey
+                artist.source = source
+            }
+
+            try context.save()
         }
     }
 
     /// Upsert all albums in a single background context with one save.
     public func batchUpsertAlbums(_ inputs: [AlbumUpsertInput], sourceCompositeKey: String) async throws {
         guard !inputs.isEmpty else { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    // Pre-fetch matching existing albums into a lookup dictionary.
-                    let existingRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                    existingRequest.predicate = Self.sourceScopedPredicate(
-                        sourceKey: sourceCompositeKey,
-                        ratingKeys: Set(inputs.map(\.ratingKey))
-                    )
-                    let existingAlbums = try context.fetch(existingRequest)
-                    var albumsByKey: [String: CDAlbum] = [:]
-                    albumsByKey.reserveCapacity(existingAlbums.count)
-                    for album in existingAlbums {
-                        albumsByKey[album.ratingKey] = album
-                    }
+        try await coreDataStack.performBackgroundContext { context in
+            // Pre-fetch matching existing albums into a lookup dictionary.
+            let existingRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+            existingRequest.predicate = Self.sourceScopedPredicate(
+                sourceKey: sourceCompositeKey,
+                ratingKeys: Set(inputs.map(\.ratingKey))
+            )
+            let existingAlbums = try context.fetch(existingRequest)
+            var albumsByKey: [String: CDAlbum] = [:]
+            albumsByKey.reserveCapacity(existingAlbums.count)
+            for album in existingAlbums {
+                albumsByKey[album.ratingKey] = album
+            }
 
-                    // Pre-fetch artists needed for relationship linking.
-                    var artistsByKey: [String: CDArtist] = [:]
-                    let artistKeys = Set(inputs.compactMap(\.artistRatingKey))
-                    if !artistKeys.isEmpty {
-                        let artistRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-                        artistRequest.predicate = Self.sourceScopedPredicate(
-                            sourceKey: sourceCompositeKey,
-                            ratingKeys: artistKeys
-                        )
-                        let existingArtists = try context.fetch(artistRequest)
-                        artistsByKey.reserveCapacity(existingArtists.count)
-                        for artist in existingArtists {
-                            artistsByKey[artist.ratingKey] = artist
-                        }
-                    }
-
-                    // Pre-fetch the CDMusicSource once
-                    let sourceRequest = CDMusicSource.fetchRequest()
-                    sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
-                    let source = try context.fetch(sourceRequest).first
-
-                    let now = Date()
-                    for input in inputs {
-                        let existing = albumsByKey[input.ratingKey]
-                        let album = existing ?? CDAlbum(context: context)
-
-                        if let existing {
-                            self.recordArtworkInvalidationIfNeeded(
-                                ratingKey: input.ratingKey,
-                                type: .album,
-                                oldThumbPath: existing.thumbPath,
-                                oldArtPath: existing.artPath,
-                                oldDateModified: existing.dateModified,
-                                newThumbPath: input.thumbPath,
-                                newArtPath: input.artPath,
-                                newDateModified: input.dateModified
-                            )
-                        }
-
-                        album.ratingKey = input.ratingKey
-                        album.key = input.key
-                        album.title = input.title
-                        album.artistName = input.artistName
-                        album.albumArtist = input.albumArtist
-                        album.summary = input.summary
-                        album.thumbPath = input.thumbPath
-                        album.artPath = input.artPath
-                        album.year = Int32(input.year ?? 0)
-                        album.trackCount = Int32(input.trackCount ?? 0)
-                        album.genreNames = input.genreNames
-                        if existing == nil, let added = input.dateAdded {
-                            album.dateAdded = added
-                        }
-                        album.dateModified = input.dateModified
-                        album.rating = Int16(input.rating ?? 0)
-                        album.updatedAt = now
-                        album.sourceCompositeKey = sourceCompositeKey
-                        album.source = source
-
-                        if let artistKey = input.artistRatingKey {
-                            album.artist = artistsByKey[artistKey]
-                        }
-                    }
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+            // Pre-fetch artists needed for relationship linking.
+            var artistsByKey: [String: CDArtist] = [:]
+            let artistKeys = Set(inputs.compactMap(\.artistRatingKey))
+            if !artistKeys.isEmpty {
+                let artistRequest: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+                artistRequest.predicate = Self.sourceScopedPredicate(
+                    sourceKey: sourceCompositeKey,
+                    ratingKeys: artistKeys
+                )
+                let existingArtists = try context.fetch(artistRequest)
+                artistsByKey.reserveCapacity(existingArtists.count)
+                for artist in existingArtists {
+                    artistsByKey[artist.ratingKey] = artist
                 }
             }
+
+            // Pre-fetch the CDMusicSource once
+            let sourceRequest = CDMusicSource.fetchRequest()
+            sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
+            let source = try context.fetch(sourceRequest).first
+
+            let now = Date()
+            for input in inputs {
+                let existing = albumsByKey[input.ratingKey]
+                let album = existing ?? CDAlbum(context: context)
+
+                if let existing {
+                    self.recordArtworkInvalidationIfNeeded(
+                        ratingKey: input.ratingKey,
+                        type: .album,
+                        oldThumbPath: existing.thumbPath,
+                        oldArtPath: existing.artPath,
+                        oldDateModified: existing.dateModified,
+                        newThumbPath: input.thumbPath,
+                        newArtPath: input.artPath,
+                        newDateModified: input.dateModified
+                    )
+                }
+
+                album.ratingKey = input.ratingKey
+                album.key = input.key
+                album.title = input.title
+                album.artistName = input.artistName
+                album.albumArtist = input.albumArtist
+                album.summary = input.summary
+                album.thumbPath = input.thumbPath
+                album.artPath = input.artPath
+                album.year = Int32(input.year ?? 0)
+                album.trackCount = Int32(input.trackCount ?? 0)
+                album.genreNames = input.genreNames
+                if existing == nil, let added = input.dateAdded {
+                    album.dateAdded = added
+                }
+                album.dateModified = input.dateModified
+                album.rating = Int16(input.rating ?? 0)
+                album.updatedAt = now
+                album.sourceCompositeKey = sourceCompositeKey
+                album.source = source
+
+                if let artistKey = input.artistRatingKey {
+                    album.artist = artistsByKey[artistKey]
+                }
+            }
+
+            try context.save()
         }
     }
 
@@ -499,103 +485,96 @@ extension LibraryRepository {
     /// This is the biggest performance win - tracks go from ~24s to ~2-3s for 1400+ items.
     public func batchUpsertTracks(_ inputs: [TrackUpsertInput], sourceCompositeKey: String) async throws {
         guard !inputs.isEmpty else { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    // Pre-fetch matching existing tracks into a lookup dictionary.
-                    let existingRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-                    existingRequest.predicate = Self.sourceScopedPredicate(
-                        sourceKey: sourceCompositeKey,
-                        ratingKeys: Set(inputs.map(\.ratingKey))
-                    )
-                    let existingTracks = try context.fetch(existingRequest)
-                    var tracksByKey: [String: CDTrack] = [:]
-                    tracksByKey.reserveCapacity(existingTracks.count)
-                    for track in existingTracks {
-                        tracksByKey[track.ratingKey] = track
-                    }
+        try await coreDataStack.performBackgroundContext { context in
+            // Pre-fetch matching existing tracks into a lookup dictionary.
+            let existingRequest: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+            existingRequest.predicate = Self.sourceScopedPredicate(
+                sourceKey: sourceCompositeKey,
+                ratingKeys: Set(inputs.map(\.ratingKey))
+            )
+            let existingTracks = try context.fetch(existingRequest)
+            var tracksByKey: [String: CDTrack] = [:]
+            tracksByKey.reserveCapacity(existingTracks.count)
+            for track in existingTracks {
+                tracksByKey[track.ratingKey] = track
+            }
 
-                    // Pre-fetch albums needed for relationship linking.
-                    var albumsByKey: [String: CDAlbum] = [:]
-                    let albumKeys = Set(inputs.compactMap(\.albumRatingKey))
-                    if !albumKeys.isEmpty {
-                        let albumRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-                        albumRequest.predicate = Self.sourceScopedPredicate(
-                            sourceKey: sourceCompositeKey,
-                            ratingKeys: albumKeys
-                        )
-                        let existingAlbums = try context.fetch(albumRequest)
-                        albumsByKey.reserveCapacity(existingAlbums.count)
-                        for album in existingAlbums {
-                            albumsByKey[album.ratingKey] = album
-                        }
-                    }
-
-                    // Pre-fetch the CDMusicSource once
-                    let sourceRequest = CDMusicSource.fetchRequest()
-                    sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
-                    let source = try context.fetch(sourceRequest).first
-
-                    let now = Date()
-                    for input in inputs {
-                        let existing = tracksByKey[input.ratingKey]
-                        let track = existing ?? CDTrack(context: context)
-
-                        track.ratingKey = input.ratingKey
-                        track.key = input.key
-                        track.title = Self.normalizedTrackTitle(input.title, streamKey: input.streamKey)
-                        track.artistName = input.artistName
-                        track.albumName = input.albumName
-                        track.trackNumber = Int32(input.trackNumber ?? 0)
-                        track.discNumber = Int32(input.discNumber ?? 1)
-                        track.duration = Int64(input.duration ?? 0)
-                        track.thumbPath = input.thumbPath
-                        track.streamKey = input.streamKey
-                        track.streamId = Int32(input.streamId ?? 0)
-                        track.genreNames = input.genreNames
-                        if existing == nil, let added = input.dateAdded {
-                            track.dateAdded = added
-                        }
-                        track.dateModified = input.dateModified
-                        track.lastPlayed = input.lastPlayed
-                        track.lastRatedAt = input.lastRatedAt
-                        track.rating = Int16(input.rating ?? 0)
-                        track.playCount = Int32(input.playCount ?? 0)
-                        track.updatedAt = now
-                        track.sourceCompositeKey = sourceCompositeKey
-                        track.source = source
-
-                        if let albumKey = input.albumRatingKey {
-                            // Detect album reparenting for existing tracks
-                            if let oldKey = existing?.album?.ratingKey, oldKey != albumKey {
-                                self.recordReparent(TrackReparentInfo(
-                                    trackRatingKey: input.ratingKey,
-                                    oldAlbumRatingKey: oldKey,
-                                    newAlbumRatingKey: albumKey
-                                ))
-                            }
-
-                            let album = albumsByKey[albumKey]
-                            track.album = album
-
-                            // Backfill empty album titles from track-level album name
-                            if let album = album,
-                               let resolvedAlbumName = input.albumName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                               !resolvedAlbumName.isEmpty {
-                                let existingTitle = album.title.trimmingCharacters(in: .whitespacesAndNewlines)
-                                if existingTitle.isEmpty || existingTitle == "Unknown Album" {
-                                    album.title = resolvedAlbumName
-                                }
-                            }
-                        }
-                    }
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+            // Pre-fetch albums needed for relationship linking.
+            var albumsByKey: [String: CDAlbum] = [:]
+            let albumKeys = Set(inputs.compactMap(\.albumRatingKey))
+            if !albumKeys.isEmpty {
+                let albumRequest: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+                albumRequest.predicate = Self.sourceScopedPredicate(
+                    sourceKey: sourceCompositeKey,
+                    ratingKeys: albumKeys
+                )
+                let existingAlbums = try context.fetch(albumRequest)
+                albumsByKey.reserveCapacity(existingAlbums.count)
+                for album in existingAlbums {
+                    albumsByKey[album.ratingKey] = album
                 }
             }
+
+            // Pre-fetch the CDMusicSource once
+            let sourceRequest = CDMusicSource.fetchRequest()
+            sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
+            let source = try context.fetch(sourceRequest).first
+
+            let now = Date()
+            for input in inputs {
+                let existing = tracksByKey[input.ratingKey]
+                let track = existing ?? CDTrack(context: context)
+
+                track.ratingKey = input.ratingKey
+                track.key = input.key
+                track.title = Self.normalizedTrackTitle(input.title, streamKey: input.streamKey)
+                track.artistName = input.artistName
+                track.albumName = input.albumName
+                track.trackNumber = Int32(input.trackNumber ?? 0)
+                track.discNumber = Int32(input.discNumber ?? 1)
+                track.duration = Int64(input.duration ?? 0)
+                track.thumbPath = input.thumbPath
+                track.streamKey = input.streamKey
+                track.streamId = Int32(input.streamId ?? 0)
+                track.genreNames = input.genreNames
+                if existing == nil, let added = input.dateAdded {
+                    track.dateAdded = added
+                }
+                track.dateModified = input.dateModified
+                track.lastPlayed = input.lastPlayed
+                track.lastRatedAt = input.lastRatedAt
+                track.rating = Int16(input.rating ?? 0)
+                track.playCount = Int32(input.playCount ?? 0)
+                track.updatedAt = now
+                track.sourceCompositeKey = sourceCompositeKey
+                track.source = source
+
+                if let albumKey = input.albumRatingKey {
+                    // Detect album reparenting for existing tracks
+                    if let oldKey = existing?.album?.ratingKey, oldKey != albumKey {
+                        self.recordReparent(TrackReparentInfo(
+                            trackRatingKey: input.ratingKey,
+                            oldAlbumRatingKey: oldKey,
+                            newAlbumRatingKey: albumKey
+                        ))
+                    }
+
+                    let album = albumsByKey[albumKey]
+                    track.album = album
+
+                    // Backfill empty album titles from track-level album name
+                    if let album = album,
+                       let resolvedAlbumName = input.albumName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !resolvedAlbumName.isEmpty {
+                        let existingTitle = album.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if existingTitle.isEmpty || existingTitle == "Unknown Album" {
+                            album.title = resolvedAlbumName
+                        }
+                    }
+                }
+            }
+
+            try context.save()
         }
     }
 }
