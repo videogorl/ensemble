@@ -7,8 +7,6 @@ final class StreamingAudioDecoder {
         case openFailed(OSStatus)
         case parseFailed(OSStatus)
         case missingFormat
-        case unsupportedFormat
-        case conversionFailed(Error?)
     }
 
     var onFormatReady: ((AVAudioFormat) -> Void)?
