@@ -51,7 +51,7 @@ final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
     // MARK: - Callbacks
 
     /// Called when the download completes successfully. Parameters: (fileURL, metadataDuration).
-    /// Use this for XING header injection and frequency analysis.
+    /// Use this for post-download analysis and cache finalization.
     var onDownloadComplete: ((URL, Double?) -> Void)?
 
     /// Called when the download fails (HTTP error, invalid payload, etc.).

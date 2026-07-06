@@ -70,8 +70,7 @@ extension PlexAPIClient {
     public func downloadUniversalStreamToFile(
         ratingKey: String,
         quality: StreamingQuality = .original,
-        sessionId: String? = nil,
-        metadataDurationSeconds: Double? = nil
+        sessionId: String? = nil
     ) async throws -> URL {
         EnsembleLogger.debug("🎵 PlexAPIClient.downloadUniversalStreamToFile(ratingKey): \(ratingKey) [quality: \(quality.rawValue)]")
 
@@ -91,25 +90,6 @@ extension PlexAPIClient {
             logOriginalContentType: true,
             unknownContentTypeContext: "original quality stream",
             successLogPrefix: "Downloaded universal stream to file:"
-        )
-    }
-
-    /// Download universal stream with a pre-warmed session.
-    func downloadUniversalStreamToFileWithSession(
-        ratingKey: String,
-        quality: StreamingQuality,
-        sessionId: String,
-        queryItems: [URLQueryItem],
-        metadataDurationSeconds: Double?
-    ) async throws -> URL {
-        try await downloadUniversalStreamFile(
-            ratingKey: ratingKey,
-            quality: quality,
-            sessionId: sessionId,
-            queryItems: queryItems,
-            logOriginalContentType: false,
-            unknownContentTypeContext: "stream",
-            successLogPrefix: "✅ Downloaded universal stream to file:"
         )
     }
 
