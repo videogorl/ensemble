@@ -17,26 +17,6 @@ enum WatchCompanionRepeatMode: Int, Codable, Equatable {
     case off = 0
     case all = 1
     case one = 2
-
-    var systemImage: String {
-        switch self {
-        case .off, .all:
-            return "repeat"
-        case .one:
-            return "repeat.1"
-        }
-    }
-
-    var accessibilityLabel: String {
-        switch self {
-        case .off:
-            return "Repeat Off"
-        case .all:
-            return "Repeat All"
-        case .one:
-            return "Repeat One"
-        }
-    }
 }
 
 struct WatchCompanionTrackSnapshot: Codable, Equatable {
