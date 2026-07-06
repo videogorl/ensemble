@@ -94,12 +94,11 @@ public enum SharePayload {
 }
 
 /// Assembles share payloads for tracks and albums.
-/// Coordinates between SongLinkService (link resolution) and DownloadManager (file access).
+/// Coordinates between SongLinkService (link resolution) and SyncCoordinator (stream access).
 @MainActor
 public final class ShareService: ObservableObject {
     private let songLinkService: SongLinkService
     private let syncCoordinator: SyncCoordinator
-    private let downloadManager: DownloadManagerProtocol
     private let logger = Logger(subsystem: "com.videogorl.ensemble", category: "ShareService")
 
     /// Directory for temporary files created during share-file-for-non-downloaded-tracks
@@ -111,12 +110,10 @@ public final class ShareService: ObservableObject {
 
     public init(
         songLinkService: SongLinkService,
-        syncCoordinator: SyncCoordinator,
-        downloadManager: DownloadManagerProtocol
+        syncCoordinator: SyncCoordinator
     ) {
         self.songLinkService = songLinkService
         self.syncCoordinator = syncCoordinator
-        self.downloadManager = downloadManager
     }
 
     // MARK: - Link Sharing

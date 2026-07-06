@@ -504,8 +504,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let shareService = MainActor.assumeIsolated {
             ShareService(
                 songLinkService: songLinkService,
-                syncCoordinator: sync.syncCoordinator,
-                downloadManager: core.downloadManager
+                syncCoordinator: sync.syncCoordinator
             )
         }
 
