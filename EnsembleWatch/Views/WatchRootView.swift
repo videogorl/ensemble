@@ -936,8 +936,7 @@ private struct WatchNowPlayingView: View {
                 progress: remoteSession.progress,
                 elapsedText: remoteSession.elapsedText,
                 remainingText: remoteSession.remainingText,
-                isRemote: true,
-                isPlaying: remoteSession.isPlaying
+                isRemote: true
             )
         }
 
@@ -949,8 +948,7 @@ private struct WatchNowPlayingView: View {
             progress: experience.playback.progress,
             elapsedText: experience.playback.currentTime.ensembleWatchClockText,
             remainingText: "-" + max(0, track.duration - experience.playback.currentTime).ensembleWatchClockText,
-            isRemote: false,
-            isPlaying: experience.playback.isPlaying
+            isRemote: false
         )
     }
 
@@ -1001,7 +999,6 @@ private struct WatchNowPlayingPresentation {
     let elapsedText: String
     let remainingText: String
     let isRemote: Bool
-    let isPlaying: Bool
 
     init(
         title: String,
@@ -1011,8 +1008,7 @@ private struct WatchNowPlayingPresentation {
         progress: Double,
         elapsedText: String,
         remainingText: String,
-        isRemote: Bool,
-        isPlaying: Bool
+        isRemote: Bool
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -1022,7 +1018,6 @@ private struct WatchNowPlayingPresentation {
         self.elapsedText = elapsedText
         self.remainingText = remainingText
         self.isRemote = isRemote
-        self.isPlaying = isPlaying
     }
 }
 
@@ -1322,15 +1317,6 @@ private extension EnsembleMediaKind {
         case .artist: return "Artist"
         case .playlist: return "Playlist"
         case .track: return "Track"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .album: return "square.stack"
-        case .artist: return "music.mic"
-        case .playlist: return "music.note.list"
-        case .track: return "music.note"
         }
     }
 }
