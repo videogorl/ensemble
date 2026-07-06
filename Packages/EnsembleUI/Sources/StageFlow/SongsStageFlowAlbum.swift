@@ -8,13 +8,11 @@ struct SongsStageFlowAlbum: Identifiable, Equatable {
     let artistName: String?
     let thumbPath: String?
     let sourceCompositeKey: String?
-    let matchingTrackCount: Int
 }
 
 /// Builds the Songs screen's StageFlow source from the filtered track result set.
 enum SongsStageFlowAlbumBuilder {
     static func build(from tracks: [Track]) -> [SongsStageFlowAlbum] {
-        var countsByAlbumKey: [String: Int] = [:]
         var orderedAlbums: [SongsStageFlowAlbum] = []
         var seenAlbumKeys = Set<String>()
 
@@ -22,7 +20,6 @@ enum SongsStageFlowAlbumBuilder {
             guard let albumID = track.albumRatingKey else { continue }
             let sourceKey = track.sourceCompositeKey ?? "global"
             let stageID = "\(sourceKey)::\(albumID)"
-            countsByAlbumKey[stageID, default: 0] += 1
 
             guard !seenAlbumKeys.contains(stageID) else { continue }
             seenAlbumKeys.insert(stageID)
@@ -34,22 +31,11 @@ enum SongsStageFlowAlbumBuilder {
                     title: track.albumName ?? "Unknown Album",
                     artistName: track.albumArtistName ?? track.artistName,
                     thumbPath: track.fallbackThumbPath ?? track.thumbPath,
-                    sourceCompositeKey: track.sourceCompositeKey,
-                    matchingTrackCount: 0
+                    sourceCompositeKey: track.sourceCompositeKey
                 )
             )
         }
 
-        return orderedAlbums.map { album in
-            SongsStageFlowAlbum(
-                id: album.id,
-                albumID: album.albumID,
-                title: album.title,
-                artistName: album.artistName,
-                thumbPath: album.thumbPath,
-                sourceCompositeKey: album.sourceCompositeKey,
-                matchingTrackCount: countsByAlbumKey[album.id] ?? 0
-            )
-        }
+        return orderedAlbums
     }
 }

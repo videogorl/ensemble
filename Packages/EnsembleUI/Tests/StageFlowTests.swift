@@ -97,7 +97,6 @@ final class StageFlowTests: XCTestCase {
         let albums = SongsStageFlowAlbumBuilder.build(from: tracks)
 
         XCTAssertEqual(albums.map(\.albumID), ["album-a", "album-b"])
-        XCTAssertEqual(albums.map(\.matchingTrackCount), [2, 1])
         XCTAssertEqual(albums.first?.thumbPath, "/album-a")
     }
 }
