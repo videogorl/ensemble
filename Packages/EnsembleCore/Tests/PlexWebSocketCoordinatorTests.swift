@@ -9,15 +9,9 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
         let accountManager = AccountManager(keychain: TestKeychain())
         let registry = ServerConnectionRegistry()
         let monitor = NetworkMonitor()
-        let checker = ServerHealthChecker(
-            accountManager: accountManager,
-            networkMonitor: monitor,
-            connectionRegistry: registry
-        )
         let coordinator = PlexWebSocketCoordinator(
             accountManager: accountManager,
             connectionRegistry: registry,
-            serverHealthChecker: checker,
             networkMonitor: monitor,
             clientIdentifier: "test-client"
         )

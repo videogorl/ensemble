@@ -722,11 +722,9 @@ final class MusicSourceAccountDetailViewModelTests: XCTestCase {
             syncCoordinator: syncCoordinator
         )
 
-        let shc = ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         let wsc = PlexWebSocketCoordinator(
             accountManager: accountManager,
             connectionRegistry: ServerConnectionRegistry(),
-            serverHealthChecker: shc,
             networkMonitor: networkMonitor,
             clientIdentifier: "test"
         )

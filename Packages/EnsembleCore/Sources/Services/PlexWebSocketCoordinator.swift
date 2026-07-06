@@ -22,7 +22,6 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
     private let accountManager: AccountManager
     private let connectionRegistry: ServerConnectionRegistry
-    private let serverHealthChecker: ServerHealthChecker
     private let networkMonitor: NetworkMonitor
     private let clientIdentifier: String
 
@@ -76,13 +75,11 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     public init(
         accountManager: AccountManager,
         connectionRegistry: ServerConnectionRegistry,
-        serverHealthChecker: ServerHealthChecker,
         networkMonitor: NetworkMonitor,
         clientIdentifier: String
     ) {
         self.accountManager = accountManager
         self.connectionRegistry = connectionRegistry
-        self.serverHealthChecker = serverHealthChecker
         self.networkMonitor = networkMonitor
         self.clientIdentifier = clientIdentifier
     }

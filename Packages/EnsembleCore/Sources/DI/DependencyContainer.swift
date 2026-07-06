@@ -420,7 +420,6 @@ public final class DependencyContainer: @unchecked Sendable {
             PlexWebSocketCoordinator(
                 accountManager: accountManager,
                 connectionRegistry: connectionRegistry,
-                serverHealthChecker: serverHealthChecker,
                 networkMonitor: networkMonitor,
                 clientIdentifier: plexClientId
             )
