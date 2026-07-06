@@ -620,27 +620,7 @@ public struct PlaylistsView: View {
             titleContent: { $0.title },
             subtitleContent: { "\($0.trackCount) tracks" },
             resolvePlaybackTracks: { dp in
-                // For merged playlists, load and interleave tracks from all constituents
-                if dp.isMerged {
-                    var trackSets: [[Track]] = []
-                    for playlist in dp.playlists {
-                        if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                            ratingKey: playlist.id,
-                            sourceCompositeKey: playlist.sourceCompositeKey
-                        ) {
-                            trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                        }
-                    }
-                    return DisplayPlaylist.interleave(trackSets)
-                }
-                // Single playlist — fetch directly
-                if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: dp.primaryPlaylist.id,
-                    sourceCompositeKey: dp.primaryPlaylist.sourceCompositeKey
-                ) {
-                    return cached.tracksArray.map { Track(from: $0) }
-                }
-                return []
+                (try? await dp.resolvedTracks(using: deps.playlistRepository)) ?? []
             },
             selectedItem: selectedPlaylistBinding
         )

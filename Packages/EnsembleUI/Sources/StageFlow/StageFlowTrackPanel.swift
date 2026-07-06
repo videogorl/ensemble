@@ -46,17 +46,10 @@ struct StageFlowTrackLoader {
             return playlist.tracksArray.map { Track(from: $0) }
 
         case .mergedPlaylist(let playlists):
-            // Fetch tracks from each constituent playlist and interleave them
-            var trackSets: [[Track]] = []
-            for playlist in playlists {
-                if let cached = try await playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
-                ) {
-                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                }
-            }
-            return DisplayPlaylist.interleave(trackSets)
+            return try await DisplayPlaylist.resolvedTracks(
+                for: playlists,
+                using: playlistRepository
+            )
         }
     }
 }

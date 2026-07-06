@@ -1,4 +1,5 @@
 import Foundation
+import EnsemblePersistence
 
 /// Represents a playlist entry in the UI — either a single playlist or a merged group
 /// of same-named playlists from different servers. When merging is enabled, playlists
@@ -157,5 +158,52 @@ public struct DisplayPlaylist: Identifiable, Equatable {
             }
         }
         return result
+    }
+
+    /// Resolves this display playlist's cached tracks while preserving constituent playlist order.
+    public func resolvedTracks(using playlistRepository: PlaylistRepositoryProtocol) async throws -> [Track] {
+        try await Self.resolvedTracks(for: playlists, using: playlistRepository)
+    }
+
+    /// Resolves cached tracks for playlists, batching source-scoped lookups before interleaving.
+    public static func resolvedTracks(
+        for playlists: [Playlist],
+        using playlistRepository: PlaylistRepositoryProtocol
+    ) async throws -> [Track] {
+        guard !playlists.isEmpty else { return [] }
+
+        let references = playlists.compactMap { playlist -> SourceScopedArtworkReference? in
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { return nil }
+            return SourceScopedArtworkReference(
+                ratingKey: playlist.id,
+                sourceCompositeKey: sourceCompositeKey
+            )
+        }
+        let playlistsByReference = references.isEmpty
+            ? [:]
+            : try await playlistRepository.fetchPlaylists(forReferences: references)
+
+        var trackSets: [[Track]] = []
+        trackSets.reserveCapacity(playlists.count)
+        for playlist in playlists {
+            let cachedPlaylist: CDPlaylist?
+            if let sourceCompositeKey = playlist.sourceCompositeKey {
+                let reference = SourceScopedArtworkReference(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: sourceCompositeKey
+                )
+                cachedPlaylist = playlistsByReference[reference.lookupKey]
+            } else {
+                cachedPlaylist = try await playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: nil
+                )
+            }
+
+            if let cachedPlaylist {
+                trackSets.append(cachedPlaylist.tracksArray.map { Track(from: $0) })
+            }
+        }
+        return interleave(trackSets)
     }
 }

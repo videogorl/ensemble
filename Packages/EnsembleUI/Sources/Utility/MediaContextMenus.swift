@@ -568,13 +568,10 @@ struct PlaylistActionsContextMenu: View {
     }
 
     private func resolveTracks(for playlist: Playlist) async -> [Track] {
-        if let cachedPlaylist = try? await deps.playlistRepository.fetchPlaylist(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        ) {
-            return cachedPlaylist.tracksArray.map { Track(from: $0) }
-        }
-        return []
+        (try? await DisplayPlaylist.resolvedTracks(
+            for: [playlist],
+            using: deps.playlistRepository
+        )) ?? []
     }
 }
 
@@ -671,16 +668,9 @@ struct MergedPlaylistActionsContextMenu: View {
 
     private func withMergedTracks(perform action: @escaping ([Track]) -> Void) {
         Task {
-            var trackSets: [[Track]] = []
-            for playlist in displayPlaylist.playlists {
-                if let cached = try? await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: playlist.sourceCompositeKey
-                ) {
-                    trackSets.append(cached.tracksArray.map { Track(from: $0) })
-                }
-            }
-            let interleaved = DisplayPlaylist.interleave(trackSets)
+            let interleaved = (try? await displayPlaylist.resolvedTracks(
+                using: deps.playlistRepository
+            )) ?? []
             guard !interleaved.isEmpty else {
                 await MainActor.run {
                     deps.toastCenter.show(
