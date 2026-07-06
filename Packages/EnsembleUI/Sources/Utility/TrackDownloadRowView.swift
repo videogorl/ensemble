@@ -2,6 +2,78 @@ import EnsembleCore
 import EnsemblePersistence
 import SwiftUI
 
+struct DownloadQueueStatusBanner: View {
+    let tracks: [TrackDownloadRow]
+    let queueStatusReason: QueueStatusReason
+
+    var body: some View {
+        if hasPendingTracks {
+            switch queueStatusReason {
+            case .waitingForWiFi:
+                queueBannerRow(
+                    icon: EnsembleDesign.Icon.offline,
+                    message: "Downloads paused — connect to Wi-Fi to continue"
+                )
+            case .offline:
+                queueBannerRow(
+                    icon: EnsembleDesign.Icon.offline,
+                    message: "Downloads paused — no connection"
+                )
+            case .idle, .downloading, .paused:
+                EmptyView()
+            }
+        }
+    }
+
+    private var hasPendingTracks: Bool {
+        tracks.contains { $0.status == .pending || $0.status == .paused }
+    }
+
+    private func queueBannerRow(icon: String, message: String) -> some View {
+        HStack(spacing: EnsembleScaffold.DownloadDetail.bannerSpacing) {
+            Image(systemName: icon)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+            Text(message)
+                .font(EnsembleDesign.Typography.stateMessage)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
+        .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
+    }
+}
+
+struct DownloadTrackRowsList: View {
+    let rows: [TrackDownloadRow]
+    let playableTracks: [Track]
+    let currentQuality: String
+    let retryDownload: (TrackDownloadRow) async -> Void
+    let playTracks: ([Track], Int) -> Void
+
+    var body: some View {
+        LazyVStack(spacing: EnsembleDesign.Spacing.none) {
+            ForEach(rows) { row in
+                TrackDownloadRowView(row: row, currentQuality: currentQuality) {
+                    Task { await retryDownload(row) }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard row.status == .completed else { return }
+                    if let index = row.playableTrackIndex(in: playableTracks) {
+                        playTracks(playableTracks, index)
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                if row.id != rows.last?.id {
+                    Divider()
+                        .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: rows.map { "\($0.id)-\($0.status.rawValue)" })
+    }
+}
+
 /// Single track row with artwork thumbnail, title, status chip, and optional retry button.
 /// Shared between DownloadTargetDetailView and LibraryDownloadDetailView.
 struct TrackDownloadRowView: View {

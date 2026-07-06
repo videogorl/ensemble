@@ -134,41 +134,6 @@ struct LibraryDownloadDetailView: View {
         }
     }
 
-    // MARK: - Queue Status Banner
-
-    @ViewBuilder
-    private var queueStatusBanner: some View {
-        let hasPendingTracks = viewModel.tracks.contains { $0.status == .pending || $0.status == .paused }
-        if hasPendingTracks {
-            switch viewModel.queueStatusReason {
-            case .waitingForWiFi:
-                queueBannerRow(
-                    icon: EnsembleDesign.Icon.offline,
-                    message: "Downloads paused \u{2014} connect to Wi-Fi to continue"
-                )
-            case .offline:
-                queueBannerRow(
-                    icon: EnsembleDesign.Icon.offline,
-                    message: "Downloads paused \u{2014} no connection"
-                )
-            case .idle, .downloading, .paused:
-                EmptyView()
-            }
-        }
-    }
-
-    private func queueBannerRow(icon: String, message: String) -> some View {
-        HStack(spacing: EnsembleScaffold.DownloadDetail.bannerSpacing) {
-            Image(systemName: icon)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-            Text(message)
-                .font(EnsembleDesign.Typography.stateMessage)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-        }
-        .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        .padding(.vertical, EnsembleDesign.Spacing.compactControlVertical)
-    }
-
     // MARK: - Track List
 
     @ViewBuilder
@@ -187,29 +152,20 @@ struct LibraryDownloadDetailView: View {
                 presentation: .compactFooter
             )
         } else {
-            queueStatusBanner
+            DownloadQueueStatusBanner(
+                tracks: viewModel.tracks,
+                queueStatusReason: viewModel.queueStatusReason
+            )
 
-            LazyVStack(spacing: EnsembleDesign.Spacing.none) {
-                ForEach(viewModel.tracks) { row in
-                    TrackDownloadRowView(row: row, currentQuality: downloadQuality) {
-                        Task { await viewModel.retryDownload(row: row) }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        guard row.status == .completed else { return }
-                        if let index = row.playableTrackIndex(in: viewModel.playableTracks) {
-                            nowPlayingVM.play(tracks: viewModel.playableTracks, startingAt: index)
-                        }
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                    if row.id != viewModel.tracks.last?.id {
-                        Divider()
-                            .padding(.leading, TrackListLayoutMetrics.artworkLeadingInset)
-                    }
+            DownloadTrackRowsList(
+                rows: viewModel.tracks,
+                playableTracks: viewModel.playableTracks,
+                currentQuality: downloadQuality,
+                retryDownload: { row in await viewModel.retryDownload(row: row) },
+                playTracks: { tracks, index in
+                    nowPlayingVM.play(tracks: tracks, startingAt: index)
                 }
-            }
-            .animation(.easeInOut(duration: 0.35), value: viewModel.tracks.map { "\($0.id)-\($0.status.rawValue)" })
+            )
             .background(EnsembleDesign.Color.groupedSurface)
             .cornerRadius(EnsembleDesign.Radius.card)
             .padding(.horizontal)
