@@ -105,10 +105,7 @@ private struct NavigationTabContentView: View {
 
     var body: some View {
         if isMoreRoot {
-            MoreView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM
-            )
+            MoreView(libraryVM: libraryVM)
         } else {
             tabBody
         }

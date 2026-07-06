@@ -272,10 +272,7 @@ final class NavigationRootHelperTests: XCTestCase {
             .artist(id: "artist", sourceKey: "server/library")
         ]
 
-        XCTAssertEqual(
-            NestedNavigationLink.firstDestination(in: path),
-            .view(.albums)
-        )
+        XCTAssertEqual(NestedNavigationLink.destination(in: path, at: 0), .view(.albums))
         XCTAssertEqual(
             NestedNavigationLink.destination(in: path, at: 1),
             .albumDetail(album)
@@ -285,10 +282,6 @@ final class NavigationRootHelperTests: XCTestCase {
             .artist(id: "artist", sourceKey: "server/library")
         )
         XCTAssertNil(NestedNavigationLink.destination(in: path, at: 3))
-    }
-
-    func testLegacyNestedNavigationIgnoresEmptyPath() {
-        XCTAssertNil(NestedNavigationLink.firstDestination(in: []))
     }
 
     func testLegacyNestedNavigationTrimsPathWhenNestedLinkDeactivates() {
