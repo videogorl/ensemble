@@ -299,7 +299,7 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { continuation in
             coreDataStack.performBackgroundTask { context in
                 do {
-                    request.predicate = Self.orphanPredicate(
+                    request.predicate = RepositoryPredicates.sourceScopedOrphan(
                         sourceKey: sourceKey,
                         validRatingKeys: validRatingKeys
                     )
@@ -415,15 +415,6 @@ extension LibraryRepository {
                 }
             }
         }
-    }
-
-    private static func orphanPredicate(sourceKey: String, validRatingKeys: Set<String>) -> NSPredicate {
-        let sourcePredicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-        guard !validRatingKeys.isEmpty else { return sourcePredicate }
-        return NSCompoundPredicate(andPredicateWithSubpredicates: [
-            sourcePredicate,
-            NSPredicate(format: "NOT (ratingKey IN %@)", Array(validRatingKeys))
-        ])
     }
 
     private static func sourceScopedPredicate(sourceKey: String, ratingKeys: Set<String>) -> NSPredicate {

@@ -148,7 +148,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
-                request.predicate = RepositorySearchPredicates.tokenized(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["title"]
                 )
@@ -452,7 +452,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request: NSFetchRequest<CDPlaylist> = CDPlaylist.fetchRequest()
-                    request.predicate = Self.orphanPredicate(
+                    request.predicate = RepositoryPredicates.sourceScopedOrphan(
                         sourceKey: sourceKey,
                         validRatingKeys: validRatingKeys
                     )
@@ -475,15 +475,6 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 }
             }
         }
-    }
-
-    private static func orphanPredicate(sourceKey: String, validRatingKeys: Set<String>) -> NSPredicate {
-        let sourcePredicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-        guard !validRatingKeys.isEmpty else { return sourcePredicate }
-        return NSCompoundPredicate(andPredicateWithSubpredicates: [
-            sourcePredicate,
-            NSPredicate(format: "NOT (ratingKey IN %@)", Array(validRatingKeys))
-        ])
     }
 
     // MARK: - Bulk Timestamp Lookup

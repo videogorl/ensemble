@@ -9,7 +9,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDTrack.fetchRequest()
-                request.predicate = RepositorySearchPredicates.tokenized(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["title", "artistName", "albumName"]
                 )
@@ -50,7 +50,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDArtist.fetchRequest()
-                request.predicate = RepositorySearchPredicates.tokenized(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["name"]
                 )
@@ -91,7 +91,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                request.predicate = RepositorySearchPredicates.tokenized(
+                request.predicate = RepositoryPredicates.tokenized(
                     query: query,
                     fieldNames: ["title", "artistName"]
                 )

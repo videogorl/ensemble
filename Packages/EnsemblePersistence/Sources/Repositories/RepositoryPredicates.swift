@@ -1,6 +1,6 @@
 import Foundation
 
-enum RepositorySearchPredicates {
+enum RepositoryPredicates {
     static func tokenized(query: String, fieldNames: [String]) -> NSPredicate {
         let tokens = query
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -20,5 +20,14 @@ enum RepositorySearchPredicates {
         }
 
         return NSCompoundPredicate(andPredicateWithSubpredicates: tokenPredicates)
+    }
+
+    static func sourceScopedOrphan(sourceKey: String, validRatingKeys: Set<String>) -> NSPredicate {
+        let sourcePredicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+        guard !validRatingKeys.isEmpty else { return sourcePredicate }
+        return NSCompoundPredicate(andPredicateWithSubpredicates: [
+            sourcePredicate,
+            NSPredicate(format: "NOT (ratingKey IN %@)", Array(validRatingKeys))
+        ])
     }
 }
