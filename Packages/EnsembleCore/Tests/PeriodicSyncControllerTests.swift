@@ -5,7 +5,7 @@ import XCTest
 final class PeriodicSyncControllerTests: XCTestCase {
     private final class FakeTimer: PeriodicSyncTimer {
         private(set) var invalidateCount = 0
-        private let handler: @MainActor () -> Void
+        let handler: @MainActor () -> Void
 
         init(handler: @escaping @MainActor () -> Void) {
             self.handler = handler
@@ -13,10 +13,6 @@ final class PeriodicSyncControllerTests: XCTestCase {
 
         func invalidate() {
             invalidateCount += 1
-        }
-
-        func fire() {
-            handler()
         }
     }
 
@@ -55,18 +51,21 @@ final class PeriodicSyncControllerTests: XCTestCase {
 
     func testFireRunsScheduledAction() async {
         let expectation = expectation(description: "periodic sync action")
+        var scheduledTimer: FakeTimer?
         let controller = PeriodicSyncController(
             defaultInterval: 60,
             relaxedWebSocketInterval: 240,
             timerFactory: { _, handler in
-                FakeTimer(handler: handler)
+                let timer = FakeTimer(handler: handler)
+                scheduledTimer = timer
+                return timer
             }
         )
 
         controller.start {
             expectation.fulfill()
         }
-        controller.fireForTesting()
+        scheduledTimer?.handler()
 
         await fulfillment(of: [expectation], timeout: 1.0)
     }

@@ -40,10 +40,6 @@ final class PeriodicSyncController {
         return interval
     }
 
-    internal func fireForTesting() {
-        timer?.fire()
-    }
-
     private func schedule(interval: TimeInterval, action: @escaping SyncRunner) {
         stop()
         timer = timerFactory(interval) {
@@ -57,7 +53,6 @@ final class PeriodicSyncController {
 @MainActor
 protocol PeriodicSyncTimer: AnyObject {
     func invalidate()
-    func fire()
 }
 
 @MainActor
@@ -74,9 +69,5 @@ private final class FoundationPeriodicSyncTimer: PeriodicSyncTimer {
 
     func invalidate() {
         timer.invalidate()
-    }
-
-    func fire() {
-        timer.fire()
     }
 }
