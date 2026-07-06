@@ -401,10 +401,11 @@ public final class DownloadsViewModel: ObservableObject {
         return accountManager.sourceLibraryContext(for: snapshot.sourceCompositeKey)?.displaySubtitle
     }
 
-    /// Resolves artwork thumb paths for all items from library/playlist repositories and updates the published list.
+    /// Resolves missing artwork thumb paths from library/playlist repositories and updates the published list.
     private func resolveThumbPaths() async {
         var updated = items
         for i in updated.indices {
+            guard updated[i].thumbPath == nil else { continue }
             updated[i].thumbPath = await resolveThumb(for: updated[i])
         }
         // Only publish when thumb paths actually changed
