@@ -334,12 +334,15 @@ public actor PlexAPIClient {
 
     /// Get user info
     public func getUserInfo(token: String) async throws -> PlexUser {
-        guard let url = URL(string: "\(Self.plexTVBaseURL)/api/v2/user") else {
-            throw PlexAPIError.invalidURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        addPlexHeaders(to: &request, token: token)
+        let request = try PlexRequestBuilder(
+            baseURL: Self.plexTVBaseURL,
+            token: token,
+            headerContext: requestHeaderContext
+        ).makeRequest(
+            method: "GET",
+            path: "/api/v2/user",
+            includeTokenInQuery: false
+        )
 
         let (data, _) = try await performRequest(request)
         return try JSONDecoder().decode(PlexUser.self, from: data)
@@ -459,7 +462,7 @@ public actor PlexAPIClient {
     /// caches LyricFind lyrics briefly and may need a moment to re-fetch.
     public func getLyricsContent(streamKey: String) async throws -> String? {
         // Plexamp fetches lyrics with format=xml; Accept: application/json from
-        // addPlexHeaders causes PMS to return JSON instead. We handle both formats.
+        // the shared Plex headers causes PMS to return JSON instead. We handle both formats.
         let query = ["format": "xml", "includeInlineAttribution": "1"]
 
         // Attempt fetch with retries — PMS may return 404 if its LyricFind cache
@@ -880,7 +883,7 @@ public actor PlexAPIClient {
         }
     }
     
-    private var requestHeaderContext: PlexRequestHeaderContext {
+    var requestHeaderContext: PlexRequestHeaderContext {
         PlexRequestHeaderContext(
             clientIdentifier: clientIdentifier,
             productName: productName,
@@ -1140,17 +1143,6 @@ public actor PlexAPIClient {
         }
     }
 
-    func addPlexHeaders(to request: inout URLRequest, token: String) {
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue(token, forHTTPHeaderField: "X-Plex-Token")
-        request.setValue(clientIdentifier, forHTTPHeaderField: "X-Plex-Client-Identifier")
-        request.setValue(productName, forHTTPHeaderField: "X-Plex-Product")
-        request.setValue(productVersion, forHTTPHeaderField: "X-Plex-Version")
-        request.setValue(platformName, forHTTPHeaderField: "X-Plex-Platform")
-        request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device-Name")
-        request.setValue(deviceName, forHTTPHeaderField: "X-Plex-Device")
-        request.setValue("controller", forHTTPHeaderField: "X-Plex-Provides")
-    }
 }
 
 // MARK: - Lyrics XML Parser

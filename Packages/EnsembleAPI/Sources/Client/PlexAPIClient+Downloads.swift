@@ -132,7 +132,7 @@ extension PlexAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        addPlexHeaders(to: &request, token: serverConnection.token)
+        requestHeaderContext.apply(to: &request, token: serverConnection.token)
         request.setValue("iOS", forHTTPHeaderField: "X-Plex-Platform")
 
         let (tempURL, response) = try await session.download(for: request)
