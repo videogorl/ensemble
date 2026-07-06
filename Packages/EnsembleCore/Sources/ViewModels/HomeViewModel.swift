@@ -576,12 +576,27 @@ public final class HomeViewModel: ObservableObject {
 
     private func filterHubsForLocalAvailability(_ hubs: [Hub]) async -> [Hub] {
         do {
-            let filteredHubs = try await Self.filterHubsForLocalAvailability(hubs) { [libraryRepository, playlistRepository] item in
-                try await Self.resolveHubItemFromLocalLibrary(
-                    item,
-                    libraryRepository: libraryRepository,
-                    playlistRepository: playlistRepository
-                )
+            async let albumsByKeyTask = libraryRepository.fetchAlbums(
+                forReferences: Self.sourceScopedReferences(in: hubs, itemType: "album")
+            )
+            async let artistsByKeyTask = libraryRepository.fetchArtists(
+                forReferences: Self.sourceScopedReferences(in: hubs, itemType: "artist")
+            )
+            async let playlistsByKeyTask = playlistRepository.fetchPlaylists(
+                forReferences: Self.sourceScopedReferences(in: hubs, itemType: "playlist")
+            )
+            async let tracksByKeyTask = libraryRepository.fetchTracksBatch(
+                forReferences: Self.trackReferences(in: hubs)
+            )
+
+            let lookup = try await LocalHubItemLookup(
+                albumsByKey: albumsByKeyTask,
+                artistsByKey: artistsByKeyTask,
+                playlistsByKey: playlistsByKeyTask,
+                tracksByKey: tracksByKeyTask
+            )
+            let filteredHubs = await Self.filterHubsForLocalAvailability(hubs) { item in
+                Self.resolveHubItemFromLocalLibrary(item, lookup: lookup)
             }
 
             let filteredItemCount = filteredHubs.reduce(into: 0) { $0 += $1.items.count }
@@ -599,17 +614,47 @@ public final class HomeViewModel: ObservableObject {
         }
     }
 
-    private static func resolveHubItemFromLocalLibrary(
-        _ item: HubItem,
-        libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
-    ) async throws -> HubItem? {
-        switch item.type {
-        case "album":
-            guard let cdAlbum = try await libraryRepository.fetchAlbum(
+    private struct LocalHubItemLookup {
+        let albumsByKey: [String: CDAlbum]
+        let artistsByKey: [String: CDArtist]
+        let playlistsByKey: [String: CDPlaylist]
+        let tracksByKey: [String: CDTrack]
+    }
+
+    private nonisolated static func sourceScopedReferences(
+        in hubs: [Hub],
+        itemType: String
+    ) -> [SourceScopedArtworkReference] {
+        Array(Set(hubs.flatMap(\.items).compactMap { item in
+            guard item.type == itemType else { return nil }
+            return SourceScopedArtworkReference(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
+            )
+        }))
+    }
+
+    private nonisolated static func trackReferences(in hubs: [Hub]) -> [OfflineTrackReference] {
+        Array(Set(hubs.flatMap(\.items).compactMap { item in
+            guard item.type == "track" else { return nil }
+            return OfflineTrackReference(
+                trackRatingKey: item.id,
+                trackSourceCompositeKey: item.sourceCompositeKey
+            )
+        }))
+    }
+
+    private nonisolated static func resolveHubItemFromLocalLibrary(
+        _ item: HubItem,
+        lookup: LocalHubItemLookup
+    ) -> HubItem? {
+        switch item.type {
+        case "album":
+            let lookupKey = SourceScopedArtworkReference(
+                ratingKey: item.id,
+                sourceCompositeKey: item.sourceCompositeKey
+            ).lookupKey
+            guard let cdAlbum = lookup.albumsByKey[lookupKey] else { return nil }
             let album = Album(from: cdAlbum)
             return HubItem(
                 id: item.id,
@@ -625,10 +670,11 @@ public final class HomeViewModel: ObservableObject {
                 playlist: item.playlist
             )
         case "artist":
-            guard let cdArtist = try await libraryRepository.fetchArtist(
+            let lookupKey = SourceScopedArtworkReference(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
+            ).lookupKey
+            guard let cdArtist = lookup.artistsByKey[lookupKey] else { return nil }
             let artist = Artist(from: cdArtist)
             return HubItem(
                 id: item.id,
@@ -644,10 +690,11 @@ public final class HomeViewModel: ObservableObject {
                 playlist: item.playlist
             )
         case "playlist":
-            guard let cdPlaylist = try await playlistRepository.fetchPlaylist(
+            let lookupKey = SourceScopedArtworkReference(
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
+            ).lookupKey
+            guard let cdPlaylist = lookup.playlistsByKey[lookupKey] else { return nil }
             let playlist = Playlist(from: cdPlaylist)
             return HubItem(
                 id: item.id,
@@ -663,10 +710,11 @@ public final class HomeViewModel: ObservableObject {
                 playlist: playlist
             )
         case "track":
-            guard let cdTrack = try await libraryRepository.fetchTrack(
-                ratingKey: item.id,
-                sourceCompositeKey: item.sourceCompositeKey
-            ) else { return nil }
+            let lookupKey = OfflineTrackReference(
+                trackRatingKey: item.id,
+                trackSourceCompositeKey: item.sourceCompositeKey
+            ).membershipID
+            guard let cdTrack = lookup.tracksByKey[lookupKey] else { return nil }
             let track = Track(from: cdTrack)
             return HubItem(
                 id: item.id,
