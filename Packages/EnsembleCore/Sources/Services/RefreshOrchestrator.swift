@@ -166,10 +166,6 @@ final class RefreshOrchestrator {
         return true
     }
 
-    func markHealthRefreshCompleted(at date: Date) {
-        lastHealthRefreshAt = date
-    }
-
     func schedulePostRatingPlaylistSync(
         serverSourceKey: String,
         action: @escaping @MainActor (String) async -> Void

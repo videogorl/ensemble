@@ -116,7 +116,7 @@ final class RefreshOrchestratorTests: XCTestCase {
         XCTAssertFalse(orchestrator.beginStartupHealthChecksIfNeeded())
 
         let freshOrchestrator = RefreshOrchestrator()
-        freshOrchestrator.markHealthRefreshCompleted(at: Date())
+        freshOrchestrator.setLastHealthRefreshForTesting(Date())
         XCTAssertFalse(freshOrchestrator.beginStartupHealthChecksIfNeeded())
     }
 
