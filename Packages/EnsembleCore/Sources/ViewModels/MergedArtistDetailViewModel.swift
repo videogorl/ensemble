@@ -63,10 +63,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
 
     private func setupFilterPersistence() {
         let key = displayArtist.id
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "MergedArtistDetail-\(key)") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "MergedArtistDetail-\(key)", storingIn: &cancellables)
     }
 
     private func observeReloadTriggers() {

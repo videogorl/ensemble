@@ -152,10 +152,7 @@ public final class PlaylistViewModel: ObservableObject {
     }
     
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Playlists") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "Playlists", storingIn: &cancellables)
     }
 
     public func loadPlaylists() async {
@@ -757,10 +754,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
 
     private func setupFilterPersistence() {
         let playlistId = playlist.id
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "PlaylistDetail-\(playlistId)") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "PlaylistDetail-\(playlistId)", storingIn: &cancellables)
     }
 
     /// Reload tracks when playlists are refreshed (e.g. after adding/removing tracks via mutation).

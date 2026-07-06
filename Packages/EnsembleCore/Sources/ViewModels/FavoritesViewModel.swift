@@ -55,10 +55,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
 
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Favorites") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "Favorites", storingIn: &cancellables)
     }
 
     /// Reactive pipeline: recompute filteredTracks whenever inputs change.

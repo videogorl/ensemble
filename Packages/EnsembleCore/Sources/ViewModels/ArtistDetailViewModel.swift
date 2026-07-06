@@ -99,10 +99,7 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "ArtistDetail") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "ArtistDetail", storingIn: &cancellables)
     }
 
     public func loadAlbums() async {

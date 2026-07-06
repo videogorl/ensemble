@@ -55,10 +55,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     private func setupFilterPersistence() {
         let title = displayPlaylist.title
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "MergedPlaylistDetail-\(title)") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "MergedPlaylistDetail-\(title)", storingIn: &cancellables)
     }
 
     /// Resolves human-readable server names from each constituent playlist's sourceCompositeKey

@@ -65,10 +65,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     }
     
     private func setupFilterPersistence() {
-        $filterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "AlbumDetail") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($filterOptions, key: "AlbumDetail", storingIn: &cancellables)
     }
 
     public func loadTracks() async {

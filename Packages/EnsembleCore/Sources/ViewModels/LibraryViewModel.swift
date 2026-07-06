@@ -489,30 +489,11 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func setupFilterPersistence() {
-        $tracksFilterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Songs") }
-            .store(in: &cancellables)
-
-        $artistsFilterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Artists") }
-            .store(in: &cancellables)
-
-        $albumsFilterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Albums") }
-            .store(in: &cancellables)
-
-        $genresFilterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "Genres") }
-            .store(in: &cancellables)
-
-        $genreDetailAlbumFilterOptions
-            .debounce(for: 0.5, scheduler: DispatchQueue.main)
-            .sink { FilterPersistence.save($0, for: "GenreDetailAlbums") }
-            .store(in: &cancellables)
+        FilterPersistence.observe($tracksFilterOptions, key: "Songs", storingIn: &cancellables)
+        FilterPersistence.observe($artistsFilterOptions, key: "Artists", storingIn: &cancellables)
+        FilterPersistence.observe($albumsFilterOptions, key: "Albums", storingIn: &cancellables)
+        FilterPersistence.observe($genresFilterOptions, key: "Genres", storingIn: &cancellables)
+        FilterPersistence.observe($genreDetailAlbumFilterOptions, key: "GenreDetailAlbums", storingIn: &cancellables)
     }
 
     private func observeReloadTriggers() {
