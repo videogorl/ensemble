@@ -496,7 +496,6 @@ public struct PlaylistsView: View {
                 let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
                     displayPlaylist: dp,
-                    nowPlayingVM: nowPlayingVM,
                     chipStyle: chipStyle(for: dp),
                     onTap: isPendingCreation ? nil : { setSelectedPlaylist(dp) },
                     isDisabled: isPendingCreation,
@@ -526,7 +525,6 @@ public struct PlaylistsView: View {
                 let isPendingCreation = viewModel.isDisplayPlaylistPendingCreation(dp)
                 PlaylistRow(
                     displayPlaylist: dp,
-                    nowPlayingVM: nowPlayingVM,
                     chipStyle: chipStyle(for: dp),
                     isDisabled: isPendingCreation,
                     statusText: isPendingCreation ? "Creating..." : nil

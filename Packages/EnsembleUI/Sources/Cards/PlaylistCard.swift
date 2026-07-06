@@ -44,7 +44,6 @@ public struct PlaylistCard: View {
 /// Handles navigation to either a single playlist or merged playlist detail.
 public struct PlaylistRow: View {
     let displayPlaylist: DisplayPlaylist
-    let nowPlayingVM: NowPlayingViewModel
     let chipStyle: PlaylistRowChip.Style?
     let onTap: (() -> Void)?
     let isDisabled: Bool
@@ -53,14 +52,12 @@ public struct PlaylistRow: View {
 
     public init(
         displayPlaylist: DisplayPlaylist,
-        nowPlayingVM: NowPlayingViewModel,
         chipStyle: PlaylistRowChip.Style? = nil,
         onTap: (() -> Void)? = nil,
         isDisabled: Bool = false,
         statusText: String? = nil
     ) {
         self.displayPlaylist = displayPlaylist
-        self.nowPlayingVM = nowPlayingVM
         self.chipStyle = chipStyle
         self.onTap = onTap
         self.isDisabled = isDisabled
