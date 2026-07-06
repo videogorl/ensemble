@@ -105,7 +105,6 @@ public extension DependencyContainer {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
-            libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
             initialTracks: initialTracks

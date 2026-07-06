@@ -714,7 +714,6 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
@@ -723,7 +722,6 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     public init(
         playlist: Playlist,
         playlistRepository: PlaylistRepositoryProtocol,
-        libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
         initialTracks: [Track]? = nil
@@ -736,7 +734,6 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             self.isLoading = true
         }
         self.playlistRepository = playlistRepository
-        self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")

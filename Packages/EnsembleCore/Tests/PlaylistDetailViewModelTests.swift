@@ -373,7 +373,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let viewModel = PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: MockPlaylistRepository(),
-            libraryRepository: MockLibraryRepository(),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -390,7 +389,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let viewModel = PlaylistDetailViewModel(
             playlist: smartPlaylist,
             playlistRepository: MockPlaylistRepository(),
-            libraryRepository: MockLibraryRepository(),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -640,7 +638,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let viewModel = PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
-            libraryRepository: MockLibraryRepository(),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -673,7 +670,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let viewModel = PlaylistDetailViewModel(
             playlist: makePlaylist(),
             playlistRepository: MockPlaylistRepository(),
-            libraryRepository: MockLibraryRepository(),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -700,7 +696,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let viewModel = PlaylistDetailViewModel(
             playlist: makePlaylist(),
             playlistRepository: MockPlaylistRepository(),
-            libraryRepository: MockLibraryRepository(),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -731,7 +726,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let viewModel = PlaylistDetailViewModel(
             playlist: makePlaylist(isSmart: true),
             playlistRepository: MockPlaylistRepository(),
-            libraryRepository: MockLibraryRepository(),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
