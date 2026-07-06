@@ -7,6 +7,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
+    func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist]
     func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func searchPlaylists(query: String) async throws -> [CDPlaylist]
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist]
@@ -49,6 +50,21 @@ public extension PlaylistRepositoryProtocol {
     }
 
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
+
+    func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: CDPlaylist] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let playlist = try await fetchPlaylist(
+                ratingKey: reference.ratingKey,
+                sourceCompositeKey: reference.sourceCompositeKey
+            ) {
+                result[reference.lookupKey] = playlist
+            }
+        }
+        return result
+    }
 
     func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
         guard !references.isEmpty else { return [:] }
@@ -257,6 +273,35 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 do {
                     let playlist = try context.fetch(request).first
                     continuation.resume(returning: playlist)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+        guard !references.isEmpty else { return [:] }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = self.coreDataStack.viewContext
+            context.perform {
+                do {
+                    let ratingKeys = Array(Set(references.map(\.ratingKey)))
+                    let request = CDPlaylist.fetchRequest()
+                    request.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+                    request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
+
+                    let requestedKeys = Set(references.map(\.lookupKey))
+                    let playlists = try context.fetch(request)
+                    var result: [String: CDPlaylist] = [:]
+                    result.reserveCapacity(min(playlists.count, requestedKeys.count))
+                    for playlist in playlists {
+                        guard let sourceCompositeKey = playlist.sourceCompositeKey else { continue }
+                        let key = "\(sourceCompositeKey)|\(playlist.ratingKey)"
+                        guard requestedKeys.contains(key) else { continue }
+                        result[key] = playlist
+                    }
+                    continuation.resume(returning: result)
                 } catch {
                     continuation.resume(throwing: error)
                 }

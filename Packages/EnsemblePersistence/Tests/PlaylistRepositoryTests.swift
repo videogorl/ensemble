@@ -257,6 +257,49 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertNil(compositePaths["\(sourceA)|missing"])
     }
 
+    func testFetchPlaylistsBatchUsesSourceScopedReferences() async throws {
+        let repository = PlaylistRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server-a"
+        let sourceB = "plex/account/server-b"
+        let sourceC = "plex/account/server-c"
+
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "shared",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "shared",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceB
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "shared",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceC
+        )
+
+        let playlistsByKey = try await repository.fetchPlaylists(
+            forReferences: [
+                SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceA),
+                SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceB),
+                SourceScopedArtworkReference(ratingKey: "missing", sourceCompositeKey: sourceA)
+            ]
+        )
+
+        XCTAssertEqual(playlistsByKey.count, 2)
+        XCTAssertEqual(playlistsByKey["\(sourceA)|shared"]?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(playlistsByKey["\(sourceB)|shared"]?.sourceCompositeKey, sourceB)
+        XCTAssertNil(playlistsByKey["\(sourceC)|shared"])
+        XCTAssertNil(playlistsByKey["\(sourceA)|missing"])
+    }
+
     func testOrphanRemovalKeepsValidAndOtherSourcePlaylists() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server-a"

@@ -85,6 +85,35 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchAlbums(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDAlbum] {
+        guard !references.isEmpty else { return [:] }
+        return try await withCheckedThrowingContinuation { continuation in
+            let context = coreDataStack.viewContext
+            context.perform {
+                do {
+                    let ratingKeys = Array(Set(references.map(\.ratingKey)))
+                    let request = CDAlbum.fetchRequest()
+                    request.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+                    request.relationshipKeyPathsForPrefetching = ["artist"]
+
+                    let requestedKeys = Set(references.map(\.lookupKey))
+                    let albums = try context.fetch(request)
+                    var result: [String: CDAlbum] = [:]
+                    result.reserveCapacity(min(albums.count, requestedKeys.count))
+                    for album in albums {
+                        guard let sourceCompositeKey = album.sourceCompositeKey else { continue }
+                        let key = "\(sourceCompositeKey)|\(album.ratingKey)"
+                        guard requestedKeys.contains(key) else { continue }
+                        result[key] = album
+                    }
+                    continuation.resume(returning: result)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     public func fetchAlbumThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
         guard !references.isEmpty else { return [:] }
         return try await coreDataStack.performBackgroundContext { context in

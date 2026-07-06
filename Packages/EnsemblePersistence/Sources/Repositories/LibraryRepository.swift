@@ -224,6 +224,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func countArtists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist?
+    func fetchArtists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDArtist]
     func fetchArtistThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
 
@@ -233,6 +234,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func countAlbums(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum?
+    func fetchAlbums(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDAlbum]
     func fetchAlbumThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws
@@ -357,6 +359,21 @@ public extension LibraryRepositoryProtocol {
         try await fetchArtist(ratingKey: ratingKey)
     }
 
+    func fetchArtists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDArtist] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: CDArtist] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let artist = try await fetchArtist(
+                ratingKey: reference.ratingKey,
+                sourceCompositeKey: reference.sourceCompositeKey
+            ) {
+                result[reference.lookupKey] = artist
+            }
+        }
+        return result
+    }
+
     func fetchArtistThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
         guard !references.isEmpty else { return [:] }
         var result: [String: String] = [:]
@@ -374,6 +391,21 @@ public extension LibraryRepositoryProtocol {
 
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
         try await fetchAlbum(ratingKey: ratingKey)
+    }
+
+    func fetchAlbums(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDAlbum] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: CDAlbum] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let album = try await fetchAlbum(
+                ratingKey: reference.ratingKey,
+                sourceCompositeKey: reference.sourceCompositeKey
+            ) {
+                result[reference.lookupKey] = album
+            }
+        }
+        return result
     }
 
     func fetchAlbumThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {

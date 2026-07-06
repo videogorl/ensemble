@@ -87,7 +87,7 @@ public final class PinnedViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Fetch each pinned item from CoreData by ratingKey (parallel fetches)
+    /// Fetch pinned items from Core Data by ratingKey, preserving pin order.
     public func loadPinnedItems() async {
         guard !isMoving else { return }
 
@@ -98,37 +98,33 @@ public final class PinnedViewModel: ObservableObject {
         isLoading = true
         let pins = pinManager.pinnedItems
 
-        // Resolve pins sequentially to avoid concurrent viewContext access.
-        // Each fetch + model mapping must happen on the same (main) queue
-        // since CDPlaylist/CDArtist/CDAlbum are viewContext managed objects.
-        var results: [(index: Int, pin: ResolvedPin?)] = []
-        for (index, pin) in pins.enumerated() {
+        let albumReferences = references(in: pins, matching: .album)
+        let artistReferences = references(in: pins, matching: .artist)
+        let playlistReferences = references(in: pins, matching: .playlist)
+        let albumsByKey = (try? await libraryRepository.fetchAlbums(forReferences: albumReferences)) ?? [:]
+        let artistsByKey = (try? await libraryRepository.fetchArtists(forReferences: artistReferences)) ?? [:]
+        let playlistsByKey = (try? await playlistRepository.fetchPlaylists(forReferences: playlistReferences)) ?? [:]
+
+        var resolved: [ResolvedPin] = []
+        resolved.reserveCapacity(pins.count)
+        for pin in pins {
+            let lookupKey = SourceScopedArtworkReference(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            ).lookupKey
+
             switch pin.type {
             case .album:
-                if let cd = try? await libraryRepository.fetchAlbum(ratingKey: pin.id, sourceCompositeKey: pin.sourceCompositeKey) {
-                    results.append((index, .album(Album(from: cd), pin)))
-                } else {
-                    results.append((index, nil))
-                }
+                guard let cd = albumsByKey[lookupKey] else { continue }
+                resolved.append(.album(Album(from: cd), pin))
             case .artist:
-                if let cd = try? await libraryRepository.fetchArtist(ratingKey: pin.id, sourceCompositeKey: pin.sourceCompositeKey) {
-                    results.append((index, .artist(Artist(from: cd), pin)))
-                } else {
-                    results.append((index, nil))
-                }
+                guard let cd = artistsByKey[lookupKey] else { continue }
+                resolved.append(.artist(Artist(from: cd), pin))
             case .playlist:
-                if let cd = try? await playlistRepository.fetchPlaylist(ratingKey: pin.id, sourceCompositeKey: pin.sourceCompositeKey) {
-                    results.append((index, .playlist(Playlist(from: cd), pin)))
-                } else {
-                    results.append((index, nil))
-                }
+                guard let cd = playlistsByKey[lookupKey] else { continue }
+                resolved.append(.playlist(Playlist(from: cd), pin))
             }
         }
-
-        // Preserve original pin order
-        var resolved = results
-            .sorted { $0.index < $1.index }
-            .compactMap { $0.pin }
 
         // When merge is enabled, group adjacent playlist pins with the same title
         let isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
@@ -138,6 +134,16 @@ public final class PinnedViewModel: ObservableObject {
 
         resolvedPins = resolved
         isLoading = false
+    }
+
+    private func references(in pins: [PinnedItem], matching type: PinnedItemType) -> [SourceScopedArtworkReference] {
+        pins.compactMap { pin in
+            guard pin.type == type else { return nil }
+            return SourceScopedArtworkReference(
+                ratingKey: pin.id,
+                sourceCompositeKey: pin.sourceCompositeKey
+            )
+        }
     }
 
     /// Groups resolved playlist pins with the same (title, isSmart) into merged entries.

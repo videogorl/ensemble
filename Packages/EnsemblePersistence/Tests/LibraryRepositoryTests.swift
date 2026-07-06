@@ -149,6 +149,48 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(artistThumbPaths["\(sourceA)|missing"])
     }
 
+    func testFetchAlbumAndArtistBatchesUseSourceScopedReferences() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+        let sourceC = "plex/account/server/library-c"
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceC)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "shared", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        let references = [
+            SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceA),
+            SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceB),
+            SourceScopedArtworkReference(ratingKey: "missing", sourceCompositeKey: sourceA)
+        ]
+
+        let albumsByKey = try await repository.fetchAlbums(forReferences: references)
+        let artistsByKey = try await repository.fetchArtists(forReferences: references)
+
+        XCTAssertEqual(albumsByKey.count, 2)
+        XCTAssertEqual(albumsByKey["\(sourceA)|shared"]?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(albumsByKey["\(sourceB)|shared"]?.sourceCompositeKey, sourceB)
+        XCTAssertNil(albumsByKey["\(sourceC)|shared"])
+        XCTAssertNil(albumsByKey["\(sourceA)|missing"])
+        XCTAssertEqual(artistsByKey.count, 2)
+        XCTAssertEqual(artistsByKey["\(sourceA)|shared"]?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(artistsByKey["\(sourceB)|shared"]?.sourceCompositeKey, sourceB)
+        XCTAssertNil(artistsByKey["\(sourceA)|missing"])
+    }
+
     func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
