@@ -2,6 +2,61 @@ import Combine
 import EnsembleAPI
 import Foundation
 
+@MainActor
+private final class DebouncedTaskRegistry<Key: Hashable> {
+    private struct Entry {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var entries: [Key: Entry] = [:]
+
+    func schedule(
+        key: Key,
+        delay: TimeInterval,
+        operation: @escaping @MainActor () async -> Void
+    ) {
+        entries[key]?.task.cancel()
+
+        let id = UUID()
+        let nanoseconds = UInt64(max(0, delay) * 1_000_000_000)
+        let task = Task { @MainActor [weak self] in
+            if nanoseconds > 0 {
+                try? await Task.sleep(nanoseconds: nanoseconds)
+            }
+            guard !Task.isCancelled, let self else { return }
+
+            defer { self.removeEntry(key: key, id: id) }
+            await operation()
+        }
+        entries[key] = Entry(id: id, task: task)
+    }
+
+    func cancelAll() {
+        for entry in entries.values {
+            entry.task.cancel()
+        }
+        entries.removeAll()
+    }
+
+    func cancel(key: Key) {
+        entries[key]?.task.cancel()
+        entries.removeValue(forKey: key)
+    }
+
+    func cancel(where shouldCancel: (Key) -> Bool) {
+        let keysToCancel = entries.keys.filter(shouldCancel)
+        for key in keysToCancel {
+            cancel(key: key)
+        }
+    }
+
+    private func removeEntry(key: Key, id: UUID) {
+        guard entries[key]?.id == id else { return }
+        entries.removeValue(forKey: key)
+    }
+}
+
 /// Coordinates WebSocket connections to all active Plex servers.
 ///
 /// Creates/destroys `PlexWebSocketManager` instances per connected server and routes
@@ -60,8 +115,8 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var isActive = false
 
     // Debounce library/playlist update triggers to avoid spamming sync for batch updates
-    private var pendingLibraryUpdates: [String: Task<Void, Never>] = [:]
-    private var pendingPlaylistUpdates: [String: Task<Void, Never>] = [:]
+    private let pendingLibraryUpdates = DebouncedTaskRegistry<String>()
+    private let pendingPlaylistUpdates = DebouncedTaskRegistry<String>()
     private let libraryUpdateDebounce: TimeInterval = 3.0
     private let playlistUpdateDebounce: TimeInterval = 5.0
     private let recentLibrarySyncCooldown: TimeInterval = 10.0
@@ -69,7 +124,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private var lastLibrarySyncCompletion: [String: Date] = [:]
 
     // Debounce settings-changed events per server to coalesce rapid bursts
-    private var pendingSettingsUpdates: [String: Task<Void, Never>] = [:]
+    private let pendingSettingsUpdates = DebouncedTaskRegistry<String>()
     private let settingsUpdateDebounce: TimeInterval = 5.0
 
     public init(
@@ -136,20 +191,11 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         applyConnectedState(Set())
 
         // Cancel pending debounced updates
-        for (_, task) in pendingLibraryUpdates {
-            task.cancel()
-        }
-        pendingLibraryUpdates.removeAll()
+        pendingLibraryUpdates.cancelAll()
         activeLibrarySyncs.removeAll()
         lastLibrarySyncCompletion.removeAll()
-        for (_, task) in pendingPlaylistUpdates {
-            task.cancel()
-        }
-        pendingPlaylistUpdates.removeAll()
-        for (_, task) in pendingSettingsUpdates {
-            task.cancel()
-        }
-        pendingSettingsUpdates.removeAll()
+        pendingPlaylistUpdates.cancelAll()
+        pendingSettingsUpdates.cancelAll()
     }
 
     // MARK: - Connection Management
@@ -246,10 +292,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             Task { await manager.stop() }
         }
 
-        pendingLibraryUpdates[serverKey]?.cancel()
-        pendingLibraryUpdates.removeValue(forKey: serverKey)
-        pendingPlaylistUpdates[serverKey]?.cancel()
-        pendingPlaylistUpdates.removeValue(forKey: serverKey)
+        pendingLibraryUpdates.cancel { $0.hasPrefix("\(serverKey):") }
+        pendingPlaylistUpdates.cancel(key: serverKey)
+        pendingSettingsUpdates.cancel(key: serverKey)
     }
 
     private func disconnectManagersForOffline() {
@@ -345,13 +390,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private func debouncedLibraryUpdate(sectionKey: String, serverKey: String) {
         let debounceKey = "\(serverKey):\(sectionKey)"
 
-        // Cancel any pending debounce for this section
-        pendingLibraryUpdates[debounceKey]?.cancel()
-
-        pendingLibraryUpdates[debounceKey] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64((self?.libraryUpdateDebounce ?? 3.0) * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-
+        pendingLibraryUpdates.schedule(key: debounceKey, delay: libraryUpdateDebounce) { [weak self] in
             guard let self else { return }
             guard self.shouldTriggerLibrarySync(for: debounceKey) else { return }
 
@@ -371,12 +410,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Uses a longer debounce than library updates because playlist mutations often
     /// emit several timeline events in quick succession (add item, reorder, etc.).
     private func debouncedPlaylistUpdate(serverKey: String) {
-        pendingPlaylistUpdates[serverKey]?.cancel()
-
-        pendingPlaylistUpdates[serverKey] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64((self?.playlistUpdateDebounce ?? 5.0) * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-
+        pendingPlaylistUpdates.schedule(key: serverKey, delay: playlistUpdateDebounce) { [weak self] in
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering playlist sync for server \(serverKey)")
 
             if let onPlaylistUpdate = self?.onPlaylistUpdate {
@@ -388,12 +422,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     /// Debounce settings-changed events to avoid processing rapid bursts.
     /// Only logs once per server within the debounce window.
     private func debouncedSettingsUpdate(serverKey: String) {
-        pendingSettingsUpdates[serverKey]?.cancel()
-
-        pendingSettingsUpdates[serverKey] = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64((self?.settingsUpdateDebounce ?? 5.0) * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-
+        pendingSettingsUpdates.schedule(key: serverKey, delay: settingsUpdateDebounce) {
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Settings changed for \(serverKey) (debounced)")
         }
     }
