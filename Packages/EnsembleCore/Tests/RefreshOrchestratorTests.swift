@@ -186,7 +186,7 @@ final class RefreshOrchestratorTests: XCTestCase {
             invocations.append("\(serverKey)-latest")
         }
 
-        await orchestrator.awaitPostRatingPlaylistSyncForTesting(serverSourceKey: "plex:a:s1")
+        try? await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(invocations, ["plex:a:s1-latest"])
     }
 
@@ -204,7 +204,7 @@ final class RefreshOrchestratorTests: XCTestCase {
             invocationCount += 1
         }
 
-        await orchestrator.awaitPostRatingFavoritesReconciliationForTesting()
+        try? await Task.sleep(nanoseconds: 30_000_000)
         XCTAssertEqual(invocationCount, 1)
     }
 }

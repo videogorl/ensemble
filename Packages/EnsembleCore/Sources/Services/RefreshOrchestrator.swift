@@ -40,8 +40,8 @@ final class RefreshOrchestrator {
     private var lastHealthRefreshAt: Date?
     private var activeHealthRefreshTask: Task<Void, Never>?
     private var startupHealthChecksInitiated = false
-    private var postRatingPlaylistSyncTasks: [String: Task<Void, Never>] = [:]
-    private var postRatingFavoritesReconciliationTask: Task<Void, Never>?
+    private let postRatingPlaylistSyncTasks = DebouncedTaskRegistry<String>()
+    private let postRatingFavoritesReconciliationTasks = DebouncedTaskRegistry<String>()
 
     init(
         healthRefreshCooldown: TimeInterval = 30,
@@ -174,30 +174,24 @@ final class RefreshOrchestrator {
         serverSourceKey: String,
         action: @escaping @MainActor (String) async -> Void
     ) {
-        let debounceDelay = postRatingPlaylistDebounceNanoseconds
-        postRatingPlaylistSyncTasks[serverSourceKey]?.cancel()
-        postRatingPlaylistSyncTasks[serverSourceKey] = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: debounceDelay)
-            guard !Task.isCancelled, let self else { return }
-
+        postRatingPlaylistSyncTasks.schedule(
+            key: serverSourceKey,
+            delayNanoseconds: postRatingPlaylistDebounceNanoseconds
+        ) {
             EnsembleLogger.debug("🔄 RefreshOrchestrator: Post-rating playlist sync for \(serverSourceKey)")
             await action(serverSourceKey)
-            self.postRatingPlaylistSyncTasks.removeValue(forKey: serverSourceKey)
         }
     }
 
     func schedulePostRatingFavoritesReconciliation(
         action: @escaping @MainActor () async -> Void
     ) {
-        let debounceDelay = postRatingFavoritesDebounceNanoseconds
-        postRatingFavoritesReconciliationTask?.cancel()
-        postRatingFavoritesReconciliationTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: debounceDelay)
-            guard !Task.isCancelled, let self else { return }
-
+        postRatingFavoritesReconciliationTasks.schedule(
+            key: "favorites",
+            delayNanoseconds: postRatingFavoritesDebounceNanoseconds
+        ) {
             EnsembleLogger.debug("🔄 RefreshOrchestrator: Post-rating favorites reconciliation")
             await action()
-            self.postRatingFavoritesReconciliationTask = nil
         }
     }
 
@@ -207,14 +201,6 @@ final class RefreshOrchestrator {
 
     internal func setLastHealthRefreshForTesting(_ date: Date?) {
         lastHealthRefreshAt = date
-    }
-
-    internal func awaitPostRatingPlaylistSyncForTesting(serverSourceKey: String) async {
-        await postRatingPlaylistSyncTasks[serverSourceKey]?.value
-    }
-
-    internal func awaitPostRatingFavoritesReconciliationForTesting() async {
-        await postRatingFavoritesReconciliationTask?.value
     }
 
     private func shouldHonorCooldown(for reason: HealthRefreshReason) -> Bool {
