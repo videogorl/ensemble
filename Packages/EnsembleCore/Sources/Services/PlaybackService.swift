@@ -4371,8 +4371,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             track: track,
             forcingFreshItem: forcingFreshItem,
             requestedSeekTime: startTime,
-            effectiveTrackDuration: max(track.duration, duration),
-            caller: caller
+            effectiveTrackDuration: max(track.duration, duration)
         )
 
         let hasLocalFile = track.localFilePath != nil

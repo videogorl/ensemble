@@ -6,7 +6,6 @@ enum PlaybackSessionStateMachine {
         let track: Track
         let forcingFreshItem: Bool
         let recoverySeekTime: TimeInterval?
-        let caller: String
     }
 
     enum TerminalFailure: Equatable {
@@ -28,8 +27,7 @@ enum PlaybackSessionStateMachine {
         track: Track,
         forcingFreshItem: Bool,
         requestedSeekTime: TimeInterval?,
-        effectiveTrackDuration: TimeInterval,
-        caller: String
+        effectiveTrackDuration: TimeInterval
     ) -> SessionRequest {
         SessionRequest(
             generation: generation,
@@ -38,8 +36,7 @@ enum PlaybackSessionStateMachine {
             recoverySeekTime: validatedRecoverySeekTime(
                 requestedSeekTime,
                 effectiveTrackDuration: effectiveTrackDuration
-            ),
-            caller: caller
+            )
         )
     }
 

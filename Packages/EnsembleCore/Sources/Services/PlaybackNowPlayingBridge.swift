@@ -101,7 +101,6 @@ private final class LivePlaybackChangeRepeatModeCommand:
 }
 
 private final class LivePlaybackRemoteCommandCenter: PlaybackRemoteCommandCenter {
-    private let center: MPRemoteCommandCenter
     let playCommand: PlaybackRemoteCommand
     let pauseCommand: PlaybackRemoteCommand
     let togglePlayPauseCommand: PlaybackRemoteCommand
@@ -114,7 +113,6 @@ private final class LivePlaybackRemoteCommandCenter: PlaybackRemoteCommandCenter
     let dislikeCommand: PlaybackFeedbackCommand
 
     init(center: MPRemoteCommandCenter = .shared()) {
-        self.center = center
         self.playCommand = LivePlaybackRemoteCommandAdapter(center.playCommand)
         self.pauseCommand = LivePlaybackRemoteCommandAdapter(center.pauseCommand)
         self.togglePlayPauseCommand = LivePlaybackRemoteCommandAdapter(center.togglePlayPauseCommand)

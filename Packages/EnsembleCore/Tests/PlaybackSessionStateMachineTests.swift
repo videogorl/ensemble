@@ -10,8 +10,7 @@ final class PlaybackSessionStateMachineTests: XCTestCase {
             track: track,
             forcingFreshItem: true,
             requestedSeekTime: 199,
-            effectiveTrackDuration: 200,
-            caller: "test"
+            effectiveTrackDuration: 200
         )
 
         XCTAssertEqual(request.generation, 7)
