@@ -2,6 +2,42 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+struct PlaylistDetailTrackDerivation: Equatable {
+    let filteredTracks: [Track]
+    let availableGenres: [String]
+    let totalDuration: String
+
+    @MainActor
+    static func make(tracks: [Track], filterOptions: FilterOptions) -> PlaylistDetailTrackDerivation {
+        let filteredTracks = filter(tracks, with: filterOptions)
+        return PlaylistDetailTrackDerivation(
+            filteredTracks: filteredTracks,
+            availableGenres: LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres)),
+            totalDuration: MediaFormatters.trackCollectionDuration(filteredTracks)
+        )
+    }
+
+    static func filter(_ tracks: [Track], with options: FilterOptions) -> [Track] {
+        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+    }
+
+    func publishChanges(
+        filteredTracks currentFilteredTracks: inout [Track],
+        availableGenres currentAvailableGenres: inout [String],
+        totalDuration currentTotalDuration: inout String
+    ) {
+        if currentFilteredTracks != filteredTracks {
+            currentFilteredTracks = filteredTracks
+        }
+        if currentAvailableGenres != availableGenres {
+            currentAvailableGenres = availableGenres
+        }
+        if currentTotalDuration != totalDuration {
+            currentTotalDuration = totalDuration
+        }
+    }
+}
+
 @MainActor
 public final class PlaylistViewModel: ObservableObject {
     private static let optimisticCreatePrefix = "creating:"
@@ -810,26 +846,12 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     // MARK: - Filtered Collections
 
     private func updateDerivedTrackState() {
-        let nextFilteredTracks = applyFilters(to: tracks, with: filterOptions)
-        if filteredTracks != nextFilteredTracks {
-            filteredTracks = nextFilteredTracks
-        }
-
-        let nextAvailableGenres = LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
-        if availableGenres != nextAvailableGenres {
-            availableGenres = nextAvailableGenres
-        }
-
-        let nextTotalDuration = MediaFormatters.trackCollectionDuration(nextFilteredTracks)
-        if totalDuration != nextTotalDuration {
-            totalDuration = nextTotalDuration
-        }
-    }
-
-    // MARK: - Filter Application
-    
-    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+        PlaylistDetailTrackDerivation.make(tracks: tracks, filterOptions: filterOptions)
+            .publishChanges(
+                filteredTracks: &filteredTracks,
+                availableGenres: &availableGenres,
+                totalDuration: &totalDuration
+            )
     }
 
     private func shouldPublishTrackSnapshot(_ nextTracks: [Track], cachedTrackCount: Int) -> Bool {

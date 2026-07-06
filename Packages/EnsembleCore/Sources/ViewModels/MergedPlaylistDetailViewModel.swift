@@ -181,24 +181,12 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func updateDerivedTrackState() {
-        let nextFilteredTracks = applyFilters(to: tracks, with: filterOptions)
-        if filteredTracks != nextFilteredTracks {
-            filteredTracks = nextFilteredTracks
-        }
-
-        let nextAvailableGenres = LibraryViewModel.extractUniqueGenres(from: tracks.flatMap(\.genres))
-        if availableGenres != nextAvailableGenres {
-            availableGenres = nextAvailableGenres
-        }
-
-        let nextTotalDuration = MediaFormatters.trackCollectionDuration(nextFilteredTracks)
-        if totalDuration != nextTotalDuration {
-            totalDuration = nextTotalDuration
-        }
-    }
-
-    private func applyFilters(to tracks: [Track], with options: FilterOptions) -> [Track] {
-        MediaFilterEngine.filterTracks(tracks, with: options, configuration: .playlistDetail)
+        PlaylistDetailTrackDerivation.make(tracks: tracks, filterOptions: filterOptions)
+            .publishChanges(
+                filteredTracks: &filteredTracks,
+                availableGenres: &availableGenres,
+                totalDuration: &totalDuration
+            )
     }
 
     private func selectedTrack(for track: Track, displayIndex: Int?) -> Track {
@@ -272,7 +260,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func trackPassesCurrentFilters(_ track: Track) -> Bool {
-        !applyFilters(to: [track], with: filterOptions).isEmpty
+        !PlaylistDetailTrackDerivation.filter([track], with: filterOptions).isEmpty
     }
 
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)
