@@ -33,15 +33,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDAlbum.fetchRequest()
-                if let sourceCompositeKey {
-                    request.predicate = NSPredicate(
-                        format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                        ratingKey,
-                        sourceCompositeKey
-                    )
-                } else {
-                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                }
+                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                 request.fetchLimit = 1
                 request.relationshipKeyPathsForPrefetching = ["artist"]
                 do {
@@ -62,11 +54,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request = CDAlbum.fetchRequest()
-                    if let sourceCompositeKey {
-                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
-                    } else {
-                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                    }
+                    request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                     request.fetchLimit = 1
 
                     guard let album = try context.fetch(request).first else {
@@ -100,11 +88,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request = CDAlbum.fetchRequest()
-                    if let sourceCompositeKey {
-                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
-                    } else {
-                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                    }
+                    request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                     request.fetchLimit = 1
 
                     guard let album = try context.fetch(request).first else {

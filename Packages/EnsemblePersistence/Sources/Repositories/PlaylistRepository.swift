@@ -214,10 +214,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             let context = self.coreDataStack.viewContext
             context.perform {
                 let request = CDPlaylist.fetchRequest()
-                if let sourceCompositeKey {
-                    request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
-                } else {
-                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
+                if sourceCompositeKey == nil {
                     // Prefer the freshest copy if multiple servers share a rating key.
                     request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
                 }
@@ -250,11 +248,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         try await withCheckedThrowingContinuation { continuation in
             self.coreDataStack.performBackgroundTask { context in
                 let request = CDPlaylist.fetchRequest()
-                if let sourceKey = sourceCompositeKey {
-                    request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
-                } else {
-                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                }
+                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
 
                 do {
                     let existing = try context.fetch(request).first
@@ -294,11 +288,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     let mainContext = self.coreDataStack.viewContext
                     mainContext.perform {
                         let mainRequest = CDPlaylist.fetchRequest()
-                        if let sourceKey = sourceCompositeKey {
-                            mainRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
-                        } else {
-                            mainRequest.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                        }
+                        mainRequest.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                         if let mainPlaylist = try? mainContext.fetch(mainRequest).first {
                             continuation.resume(returning: mainPlaylist)
                         } else {
@@ -317,11 +307,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             self.coreDataStack.performBackgroundTask { context in
                 do {
                     let playlistRequest = CDPlaylist.fetchRequest()
-                    if let sourceKey = sourceCompositeKey {
-                        playlistRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", playlistRatingKey, sourceKey)
-                    } else {
-                        playlistRequest.predicate = NSPredicate(format: "ratingKey == %@", playlistRatingKey)
-                    }
+                    playlistRequest.predicate = RepositoryPredicates.ratingKey(playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
                     guard let playlist = try context.fetch(playlistRequest).first else {
                         continuation.resume(throwing: NSError(domain: "PlaylistRepository", code: 2, userInfo: [NSLocalizedDescriptionKey: "Playlist not found"]))
                         return

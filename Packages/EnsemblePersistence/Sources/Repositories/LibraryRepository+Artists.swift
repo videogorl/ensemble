@@ -30,15 +30,7 @@ extension LibraryRepository {
             let context = coreDataStack.viewContext
             context.perform {
                 let request = CDArtist.fetchRequest()
-                if let sourceCompositeKey {
-                    request.predicate = NSPredicate(
-                        format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                        ratingKey,
-                        sourceCompositeKey
-                    )
-                } else {
-                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                }
+                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                 do {
                     let artist = try context.fetch(request).first
                     continuation.resume(returning: artist)
@@ -57,11 +49,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request = CDArtist.fetchRequest()
-                    if let sourceCompositeKey {
-                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
-                    } else {
-                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                    }
+                    request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                     request.fetchLimit = 1
 
                     guard let artist = try context.fetch(request).first else {

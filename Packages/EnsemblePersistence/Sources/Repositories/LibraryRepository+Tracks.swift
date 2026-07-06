@@ -166,14 +166,8 @@ extension LibraryRepository {
 
     public func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
         try await fetchFirstTrack { request in
-            if let sourceCompositeKey {
-                request.predicate = NSPredicate(
-                    format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                    ratingKey,
-                    sourceCompositeKey
-                )
-            } else {
-                request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
+            request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
+            if sourceCompositeKey == nil {
                 request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
             }
         }
@@ -227,11 +221,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request = CDTrack.fetchRequest()
-                    if let sourceCompositeKey {
-                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
-                    } else {
-                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                    }
+                    request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                     request.fetchLimit = 1
 
                     guard let track = try context.fetch(request).first else {
@@ -256,11 +246,7 @@ extension LibraryRepository {
             coreDataStack.performBackgroundTask { context in
                 do {
                     let request = CDTrack.fetchRequest()
-                    if let sourceCompositeKey {
-                        request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceCompositeKey)
-                    } else {
-                        request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                    }
+                    request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                     request.fetchLimit = 1
 
                     guard let track = try context.fetch(request).first else {
@@ -304,11 +290,7 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { continuation in
             coreDataStack.performBackgroundTask { context in
                 let request = CDTrack.fetchRequest()
-                if let sourceKey = sourceCompositeKey {
-                    request.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
-                } else {
-                    request.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                }
+                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
 
                 do {
                     let existing = try context.fetch(request).first
@@ -351,11 +333,7 @@ extension LibraryRepository {
                         }
 
                         let albumRequest = CDAlbum.fetchRequest()
-                        if let sourceKey = sourceCompositeKey {
-                            albumRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", albumKey, sourceKey)
-                        } else {
-                            albumRequest.predicate = NSPredicate(format: "ratingKey == %@", albumKey)
-                        }
+                        albumRequest.predicate = RepositoryPredicates.ratingKey(albumKey, sourceCompositeKey: sourceCompositeKey)
                         track.album = try context.fetch(albumRequest).first
 
                         // If album metadata arrived without a usable title, backfill from track-level album name.
@@ -382,11 +360,7 @@ extension LibraryRepository {
                     let mainContext = self.coreDataStack.viewContext
                     mainContext.perform {
                         let mainRequest = CDTrack.fetchRequest()
-                        if let sourceKey = sourceCompositeKey {
-                            mainRequest.predicate = NSPredicate(format: "ratingKey == %@ AND sourceCompositeKey == %@", ratingKey, sourceKey)
-                        } else {
-                            mainRequest.predicate = NSPredicate(format: "ratingKey == %@", ratingKey)
-                        }
+                        mainRequest.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                         if let mainTrack = try? mainContext.fetch(mainRequest).first {
                             continuation.resume(returning: mainTrack)
                         } else {

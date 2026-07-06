@@ -30,4 +30,16 @@ enum RepositoryPredicates {
             NSPredicate(format: "NOT (ratingKey IN %@)", Array(validRatingKeys))
         ])
     }
+
+    static func ratingKey(_ ratingKey: String, sourceCompositeKey: String?) -> NSPredicate {
+        guard let sourceCompositeKey else {
+            return NSPredicate(format: "ratingKey == %@", ratingKey)
+        }
+
+        return NSPredicate(
+            format: "ratingKey == %@ AND sourceCompositeKey == %@",
+            ratingKey,
+            sourceCompositeKey
+        )
+    }
 }
