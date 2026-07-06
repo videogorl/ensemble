@@ -176,7 +176,6 @@ public actor EnsemblePlexDiscoveryService {
                     .libraries ?? []
 
                 let client = Self.client(
-                    account: account,
                     serverId: device.clientIdentifier,
                     serverName: device.name,
                     serverToken: token,
@@ -290,7 +289,6 @@ public actor EnsemblePlexDiscoveryService {
 
     public static func client(for library: EnsemblePlexLibrary) -> PlexAPIClient {
         client(
-            account: library.server.account,
             serverId: library.server.id,
             serverName: library.server.name,
             serverToken: library.server.token,
@@ -301,7 +299,6 @@ public actor EnsemblePlexDiscoveryService {
     }
 
     private static func client(
-        account: EnsembleAccountCredential,
         serverId: String,
         serverName: String,
         serverToken: String,
