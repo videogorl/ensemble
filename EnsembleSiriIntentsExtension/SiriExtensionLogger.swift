@@ -6,18 +6,8 @@ import OSLog
 enum SiriExtensionLogger {
     private static let logger = Logger(subsystem: "com.videogorl.ensemble.siri-intents", category: "siri-extension")
 
-    static func debug(_ message: @autoclosure () -> String) {
-        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
-        logger.debug("\(msg, privacy: .public)")
-    }
-
     static func info(_ message: @autoclosure () -> String) {
         let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
         logger.info("\(msg, privacy: .public)")
-    }
-
-    static func error(_ message: @autoclosure () -> String) {
-        let msg = EnsembleLogRedactor.redactSensitiveValues(in: message())
-        logger.error("\(msg, privacy: .public)")
     }
 }

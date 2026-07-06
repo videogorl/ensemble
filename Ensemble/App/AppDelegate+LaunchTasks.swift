@@ -175,7 +175,7 @@ extension AppDelegate {
         // Emit one structured startup summary after the launch pipeline settles so
         // device logs capture the post-bootstrap sync/playback/offline state in a
         // single line instead of requiring manual reconstruction from many events.
-        coldLaunchDiagnosticsTask = Task.detached(priority: .utility) { [weak self] in
+        Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             await self.earlyHealthCheckTask?.value
             await self.playbackRestoreTask?.value

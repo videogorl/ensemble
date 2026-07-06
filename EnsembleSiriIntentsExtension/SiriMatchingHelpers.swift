@@ -25,18 +25,6 @@ enum SiriMatchingHelpers {
         )
     }
 
-    static func normalize(_ raw: String) -> String {
-        SiriPhraseNormalizer.basic(raw)
-    }
-
-    static func scoreMatch(query: String, candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(query: query, candidate: candidate)
-    }
-
-    static func scoreMatch(queries: [String], candidate: String) -> Double {
-        SiriMatchScorer.scoreMatch(queries: queries, candidate: candidate)
-    }
-
     static func currentTrackMediaItem() -> INMediaItem {
         INMediaItem(
             identifier: "current-track",

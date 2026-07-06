@@ -23,8 +23,4 @@ enum AppLogger {
     static func error(_ message: @autoclosure () -> String) {
         EnsembleLogEmitter.error(message(), logger: logger, category: category, fileLogHandler: fileLogHandler)
     }
-
-    static func fault(_ message: @autoclosure () -> String) {
-        EnsembleLogEmitter.fault(message(), logger: logger, category: category, fileLogHandler: fileLogHandler)
-    }
 }
