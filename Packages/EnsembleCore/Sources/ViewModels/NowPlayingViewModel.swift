@@ -187,7 +187,6 @@ public final class NowPlayingViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let navigationCoordinator: NavigationCoordinator
     private let toastCenter: ToastCenter
-    private let mutationCoordinator: MutationCoordinator
     private let trackRatingLocalStore: TrackRatingLocalStoring
     private let playlistMutationWorkflow: PlaylistMutationWorkflow
     private let playlistActionService = PlaylistActionService()
@@ -234,7 +233,6 @@ public final class NowPlayingViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.navigationCoordinator = navigationCoordinator
         self.toastCenter = toastCenter
-        self.mutationCoordinator = mutationCoordinator
         self.trackRatingLocalStore = trackRatingLocalStore
         self.playlistMutationWorkflow = playlistMutationWorkflow ?? PlaylistMutationWorkflow(mutator: mutationCoordinator)
         self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
@@ -1137,10 +1135,6 @@ public final class NowPlayingViewModel: ObservableObject {
         return max(0, min(1, currentTime / displayDuration))
     }
 
-    public var bufferedProgress: Double {
-        max(0, min(1, playbackService.bufferedProgressValue))
-    }
-
     public var isPlaying: Bool {
         playbackState == .playing
     }
@@ -1154,26 +1148,9 @@ public final class NowPlayingViewModel: ObservableObject {
         return availability == .available || availability == .availableDownloadedOnly
     }
 
-    public var hasCurrentTrack: Bool {
-        currentTrack != nil
-    }
-
-    public var formattedCurrentTime: String {
-        MediaFormatters.trackClock(currentTime)
-    }
-
-    public var formattedDuration: String {
-        MediaFormatters.trackClock(duration)
-    }
-
     public var formattedRemainingTime: String {
         let remaining = max(0, scrubberDuration - currentTime)
         return MediaFormatters.negativeTrackClock(remaining)
-    }
-
-    /// Queue split into sections for UI display
-    public var queueSections: QueueSections {
-        playbackService.queueSections
     }
 
     // MARK: - Album Metadata
@@ -1300,16 +1277,6 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.updateVisualizerPosition(time)
     }
 
-    /// Begin rate-based audible scrubbing (long-press skip buttons).
-    public func startFastSeeking(forward: Bool) {
-        playbackService.startFastSeeking(forward: forward)
-    }
-
-    /// Stop rate-based scrubbing and restore normal playback.
-    public func stopFastSeeking() {
-        playbackService.stopFastSeeking()
-    }
-
     // MARK: - Queue Management
 
     public func addToQueue(_ track: Track) {
@@ -1393,16 +1360,6 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func loadPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
         try await syncCoordinator.fetchPlaylists(forServerSourceKey: sourceKey)
-    }
-
-    public func addCurrentTrack(to playlist: Playlist) async throws -> PlaylistMutationResult {
-        guard !isPlaylistMutationInProgress else {
-            throw PlaylistActionError.operationInProgress
-        }
-        guard let currentTrack else {
-            throw PlaylistMutationError.emptySelection
-        }
-        return try await addTracks([currentTrack], to: playlist)
     }
 
     public func addTracks(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
@@ -1516,10 +1473,6 @@ public final class NowPlayingViewModel: ObservableObject {
             deduped.append(track)
         }
         return deduped
-    }
-
-    public func clearQueue() {
-        playbackService.clearQueue()
     }
 
     public func playFromQueue(at index: Int) {
