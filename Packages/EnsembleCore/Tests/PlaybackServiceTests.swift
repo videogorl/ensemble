@@ -417,44 +417,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(decision.shouldHandleDisconnect)
     }
 
-    func testObservedTimeSyncAcceptsSamplesNearPendingSeekTarget() {
-        let isSynchronized = PlaybackService.isObservedTimeSynchronizedWithPendingSeek(
-            observedTime: 120.8,
-            pendingSeekTargetTime: 120.0
-        )
-
-        XCTAssertTrue(isSynchronized)
-    }
-
-    func testObservedTimeSyncRejectsDistantSamplesDuringPendingSeek() {
-        let isSynchronized = PlaybackService.isObservedTimeSynchronizedWithPendingSeek(
-            observedTime: 44.0,
-            pendingSeekTargetTime: 120.0
-        )
-
-        XCTAssertFalse(isSynchronized)
-    }
-
-    func testPendingSeekGateIgnoresUnsyncedSamplesDuringInitialWindow() {
-        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeDuringPendingSeek(
-            observedTime: 44.0,
-            pendingSeekTargetTime: 120.0,
-            elapsedSinceSeek: 0.3
-        )
-
-        XCTAssertTrue(shouldIgnore)
-    }
-
-    func testPendingSeekGateStopsIgnoringAfterTimeout() {
-        let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeDuringPendingSeek(
-            observedTime: 44.0,
-            pendingSeekTargetTime: 120.0,
-            elapsedSinceSeek: 1.2
-        )
-
-        XCTAssertFalse(shouldIgnore)
-    }
-
     func testAutomaticAdvanceGateRejectsOldTrackTimeSample() {
         let shouldIgnore = PlaybackService.shouldIgnoreObservedTimeAfterAutomaticAdvance(
             observedTime: 248.0,
@@ -632,88 +594,6 @@ final class PlaybackServiceTests: XCTestCase {
             ),
             .historyIndex(1)
         )
-    }
-
-    func testTransportRecoveryIncludesNetworkConnectionLost() {
-        XCTAssertTrue(
-            PlaybackService.shouldForceTransportRecovery(
-                errorCode: NSURLErrorNetworkConnectionLost,
-                domain: NSURLErrorDomain
-            )
-        )
-        XCTAssertFalse(
-            PlaybackService.shouldForceTransportRecovery(
-                errorCode: NSURLErrorCancelled,
-                domain: NSURLErrorDomain
-            )
-        )
-        XCTAssertFalse(
-            PlaybackService.shouldForceTransportRecovery(
-                errorCode: NSURLErrorNetworkConnectionLost,
-                domain: NSCocoaErrorDomain
-            )
-        )
-    }
-
-    func testPendingSeekGateStaysActiveWhileBufferingAndUnsynchronized() {
-        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
-            observedTime: 44.0,
-            pendingSeekTargetTime: 120.0,
-            elapsedSinceSeek: 2.0,
-            playbackState: .buffering
-        )
-
-        XCTAssertTrue(shouldGate)
-    }
-
-    func testPendingSeekGateReleasesWhenUnsynchronizedAndNotBuffering() {
-        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
-            observedTime: 44.0,
-            pendingSeekTargetTime: 120.0,
-            elapsedSinceSeek: 2.0,
-            playbackState: .playing
-        )
-
-        XCTAssertFalse(shouldGate)
-    }
-
-    func testPendingSeekGateReleasesWhenBufferingButObservedTimeIsAhead() {
-        let shouldGate = PlaybackService.shouldContinueSeekProgressGate(
-            observedTime: 126.0,
-            pendingSeekTargetTime: 120.0,
-            elapsedSinceSeek: 2.0,
-            playbackState: .buffering
-        )
-
-        XCTAssertFalse(shouldGate)
-    }
-
-    func testContiguousBufferedRangeEndReturnsRangeEndWhenPlaybackInsideRange() throws {
-        let ranges = [
-            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
-        ]
-
-        let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
-            ranges: ranges,
-            playbackTime: 12
-        )
-
-        let unwrappedRangeEnd = try XCTUnwrap(rangeEnd)
-        XCTAssertEqual(unwrappedRangeEnd, 20, accuracy: 0.001)
-    }
-
-    func testContiguousBufferedRangeEndReturnsNilWhenPlaybackInGap() {
-        let ranges = [
-            CMTimeRange(start: .zero, duration: CMTime(seconds: 20, preferredTimescale: 600)),
-            CMTimeRange(start: CMTime(seconds: 40, preferredTimescale: 600), duration: CMTime(seconds: 20, preferredTimescale: 600)),
-        ]
-
-        let rangeEnd = PlaybackService.contiguousBufferedRangeEnd(
-            ranges: ranges,
-            playbackTime: 30
-        )
-
-        XCTAssertNil(rangeEnd)
     }
 
     func testEffectiveDurationPrefersLongerItemDuration() {

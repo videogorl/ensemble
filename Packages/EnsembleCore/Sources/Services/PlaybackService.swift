@@ -256,7 +256,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let isInterfaceSwitch: Bool
     }
 
-    static let bufferedSeekGateDuration: TimeInterval = 3
     static let previousRestartThreshold: TimeInterval = 3
     private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
 
@@ -378,36 +377,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
-    /// During an active seek, reject stale periodic observer samples that still point to the pre-seek playhead.
-    static func isObservedTimeSynchronizedWithPendingSeek(
-        observedTime: TimeInterval,
-        pendingSeekTargetTime: TimeInterval,
-        tolerance: TimeInterval = 1.25
-    ) -> Bool {
-        abs(observedTime - pendingSeekTargetTime) <= tolerance
-    }
-
-    static func isObservedTimeBehindPendingSeekTarget(
-        observedTime: TimeInterval,
-        pendingSeekTargetTime: TimeInterval,
-        tolerance: TimeInterval = 1.25
-    ) -> Bool {
-        observedTime + tolerance < pendingSeekTargetTime
-    }
-
-    static func shouldIgnoreObservedTimeDuringPendingSeek(
-        observedTime: TimeInterval,
-        pendingSeekTargetTime: TimeInterval,
-        elapsedSinceSeek: TimeInterval,
-        maxGateDuration: TimeInterval = 1.0
-    ) -> Bool {
-        guard elapsedSinceSeek < maxGateDuration else { return false }
-        return !isObservedTimeSynchronizedWithPendingSeek(
-            observedTime: observedTime,
-            pendingSeekTargetTime: pendingSeekTargetTime
-        )
-    }
-
     /// During a gapless handoff, reject old-track time samples that arrive after the
     /// UI has already switched to the next track. Engine time samples are not track
     /// tagged, so this short gate protects the visualizer from being anchored to the
@@ -420,47 +389,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) -> Bool {
         guard elapsedSinceAdvance >= 0, elapsedSinceAdvance < maxGateDuration else { return false }
         return observedTime > elapsedSinceAdvance + tolerance
-    }
-
-    static func shouldContinueSeekProgressGate(
-        observedTime: TimeInterval,
-        pendingSeekTargetTime: TimeInterval,
-        elapsedSinceSeek: TimeInterval,
-        playbackState: PlaybackState,
-        maxGateDuration: TimeInterval = 1.0
-    ) -> Bool {
-        if shouldIgnoreObservedTimeDuringPendingSeek(
-            observedTime: observedTime,
-            pendingSeekTargetTime: pendingSeekTargetTime,
-            elapsedSinceSeek: elapsedSinceSeek,
-            maxGateDuration: maxGateDuration
-        ) {
-            return true
-        }
-
-        let isBehindSeekTarget = isObservedTimeBehindPendingSeekTarget(
-            observedTime: observedTime,
-            pendingSeekTargetTime: pendingSeekTargetTime
-        )
-        if playbackState == .buffering,
-           isBehindSeekTarget,
-           elapsedSinceSeek < bufferedSeekGateDuration
-        {
-            return true
-        }
-
-        return false
-    }
-
-    static func contiguousBufferedRangeEnd(
-        ranges: [CMTimeRange],
-        playbackTime: TimeInterval
-    ) -> TimeInterval? {
-        let playbackCMTime = CMTime(seconds: max(0, playbackTime), preferredTimescale: 600)
-        guard let currentRange = ranges.first(where: { CMTimeRangeContainsTime($0, time: playbackCMTime) }) else {
-            return nil
-        }
-        return currentRange.start.seconds + currentRange.duration.seconds
     }
 
     static func effectiveDuration(
@@ -984,9 +912,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var engineTimeCancellable: AnyCancellable?
     private var loadingStateTask: Task<Void, Never>? // Delayed loading state transition
     private var isHandlingQueueExhaustion = false
-    /// Set while handleServerUnreachablePlaybackFailure is running a health check.
-    /// Prevents handleQueueExhausted from advancing before the circuit breaker is armed.
-    private var isHandlingServerUnreachable = false
     /// Set while handleTLSPlaybackFailure is refreshing connection and retrying.
     /// Prevents handleQueueExhausted from racing with the TLS retry path.
     private var isHandlingTLSFailure = false
@@ -1616,17 +1541,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             for _ in 0 ..< 100 {
                 await Task.yield()
                 if !isHandlingTLSFailure { break }
-            }
-        }
-
-        // If a server-unreachable health check is in progress, wait for it to finish
-        // so the circuit breaker is properly armed before we decide what to do next.
-        if isHandlingServerUnreachable {
-            EnsembleLogger.debug("⏭️ Queue exhaustion deferred — waiting for server unreachable handler")
-            // Yield repeatedly until the handler finishes (it's on MainActor too)
-            for _ in 0 ..< 100 {
-                await Task.yield()
-                if !isHandlingServerUnreachable { break }
             }
         }
 
@@ -4612,44 +4526,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil, caller: "handleTLSPlaybackFailure")
     }
 
-    /// Handle playback failure when the server is unreachable (timeout, can't connect, etc.).
-    /// Triggers a targeted health check to update server state and track availability UI,
-    /// then fast-tracks the circuit breaker to skip remaining tracks from the dead server.
-    @MainActor
-    private func handleServerUnreachablePlaybackFailure() async {
-        isHandlingServerUnreachable = true
-        defer { isHandlingServerUnreachable = false }
-
-        guard let track = currentTrack, let sourceKey = track.sourceCompositeKey else {
-            playbackState = .failed("Server is unavailable")
-            return
-        }
-
-        // If playing a local file, this shouldn't be a server issue
-        guard track.localFilePath == nil else {
-            playbackState = .failed("Playback error")
-            return
-        }
-
-        // Trigger health check for the affected server to update serverStates.
-        // This bumps TrackAvailabilityResolver's generation, updating the UI.
-        await syncCoordinator.triggerServerHealthCheck(sourceKey: sourceKey)
-
-        // Fast-track circuit breaker if server is confirmed offline
-        if !syncCoordinator.isServerAvailable(sourceKey: sourceKey) {
-            consecutivePlaybackFailures = maxConsecutiveFailuresBeforeStop
-            EnsembleLogger.debug("⛔ Server confirmed offline via AVPlayer failure — fast-tracking circuit breaker")
-        } else {
-            consecutivePlaybackFailures += 1
-        }
-
-        // Set failed state and pause player. handleQueueExhausted will see
-        // the .failed state and stop — no auto-advance to the next track.
-        audioEngine?.pause()
-        let failureMessage = await syncCoordinator.serverFailureMessage(for: track)
-        playbackState = .failed(failureMessage ?? "Server is unavailable")
-    }
-
     /// Resolve a playable source for a track. File-backed sources are cached;
     /// remote sources stream incrementally through `AudioPlaybackEngine`.
     private func resolvePlaybackSource(for track: Track, startTime: TimeInterval = 0) async throws -> PlaybackSource {
@@ -4798,20 +4674,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             } catch {
                 EnsembleLogger.debug("[evictTruncatedFile] Failed to mark download as failed for '\(track.title)': \(error.localizedDescription)")
             }
-        }
-    }
-
-    static func shouldForceTransportRecovery(errorCode: Int, domain: String) -> Bool {
-        guard domain == NSURLErrorDomain else { return false }
-        switch errorCode {
-        case NSURLErrorNotConnectedToInternet,
-             NSURLErrorCannotConnectToHost,
-             NSURLErrorCannotFindHost,
-             NSURLErrorTimedOut,
-             NSURLErrorNetworkConnectionLost:
-            return true
-        default:
-            return false
         }
     }
 
@@ -5063,14 +4925,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             transportCoordinator.evict(trackId: trackIdentity, includeDecision: true, cancelTask: true)
         }
     }
-    /// Load a file into AudioPlaybackEngine and start playback.
-    @MainActor
-    private func loadAndPlayFile(fileURL: URL, track: Track) {
-        Task { @MainActor in
-            await loadAndPlaySource(.localFile(fileURL), track: track)
-        }
-    }
-
     @MainActor
     private func loadAndPlaySource(_ source: PlaybackSource, track: Track) async {
         guard let engine = audioEngine else {
@@ -5107,7 +4961,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // CRITICAL: If the audio session is currently interrupted or a route change
         // is in progress, do NOT attempt to play yet.
         if isInterrupted || isRouteChangeInProgress {
-            EnsembleLogger.debug("[loadAndPlayFile] deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)")
+            EnsembleLogger.debug("[loadAndPlaySource] deferred: interrupted=\(isInterrupted), routeChange=\(isRouteChangeInProgress)")
             do {
                 PlaybackJourneyLogger.mark("engineLoadStarted", trackId: trackIdentity, detail: source.journeyDescription)
                 try await engine.load(source: source, trackId: trackIdentity)
@@ -5850,10 +5704,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         nowPlayingBridge.pushNowPlayingForSkipTransition(makeNowPlayingState())
     }
 
-    private func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {
-        nowPlayingBridge.updateFeedbackCommandState(isLiked: isLiked, isDisliked: isDisliked)
-    }
-
     private func makeNowPlayingState() -> PlaybackNowPlayingState {
         let feedbackFlags = Self.feedbackFlags(for: currentTrack?.rating ?? 0)
         let hasCurrentTrack = currentTrack != nil
@@ -6117,30 +5967,4 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
-    /// Load and prepare an audio file without starting playback.
-    @MainActor
-    private func loadAndPrepare(fileURL: URL, track: Track, seekTo time: TimeInterval) {
-        guard let engine = audioEngine else { return }
-
-        do {
-            try engine.load(fileURL: fileURL, trackId: track.playbackIdentity)
-            let restoredTime = Self.restoredPausedSeekTime(
-                savedTime: time,
-                duration: Self.effectiveDuration(
-                    metadataDuration: track.duration,
-                    itemDuration: engine.fileDuration
-                )
-            )
-            if restoredTime > 0 {
-                try engine.seek(to: restoredTime)
-                updatePlaybackTimes(rawTime: restoredTime)
-            }
-        } catch {
-            EnsembleLogger.playback("ENGINE: loadAndPrepare failed -- \(error.localizedDescription)")
-        }
-
-        playbackState = .paused
-        updateNowPlayingInfo()
-        Task { await prefetchNextItem() }
-    }
 }
