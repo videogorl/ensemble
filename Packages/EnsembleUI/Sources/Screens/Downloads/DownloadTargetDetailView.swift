@@ -130,9 +130,9 @@ public struct DownloadTargetDetailView: View {
                         .progressViewStyle(.linear)
                         .frame(maxWidth: EnsembleScaffold.DownloadDetail.progressMaxWidth)
 
-                    Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(statusLabel(for: viewModel.liveStatus))")
+                    Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks • \(viewModel.liveStatus.downloadStatusLabel)")
                         .font(EnsembleDesign.Typography.rowSecondary)
-                        .foregroundColor(statusColor(for: viewModel.liveStatus))
+                        .foregroundColor(viewModel.liveStatus.downloadStatusColor)
                         .multilineTextAlignment(alignment == .center ? .center : .leading)
                 }
                 .frame(maxWidth: alignment == .center ? .infinity : nil, alignment: alignment == .center ? .center : .leading)
@@ -414,8 +414,11 @@ public struct DownloadTargetDetailView: View {
         return size
     }
 
-    private func statusLabel(for status: CDOfflineDownloadTarget.Status) -> String {
-        switch status {
+}
+
+extension CDOfflineDownloadTarget.Status {
+    var downloadStatusLabel: String {
+        switch self {
         case .pending: return "Queued"
         case .downloading: return "Downloading"
         case .completed: return "Downloaded"
@@ -424,8 +427,8 @@ public struct DownloadTargetDetailView: View {
         }
     }
 
-    private func statusColor(for status: CDOfflineDownloadTarget.Status) -> Color {
-        switch status {
+    var downloadStatusColor: Color {
+        switch self {
         case .failed: return .red
         case .downloading: return .accentColor
         case .paused: return .orange

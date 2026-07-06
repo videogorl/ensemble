@@ -106,9 +106,9 @@ struct LibraryDownloadDetailView: View {
                             .progressViewStyle(.linear)
                             .frame(maxWidth: EnsembleScaffold.DownloadDetail.progressMaxWidth)
 
-                        Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks \u{2022} \(statusLabel(for: viewModel.liveStatus))")
+                        Text("\(viewModel.liveCompletedCount) of \(viewModel.liveTotalCount) tracks \u{2022} \(viewModel.liveStatus.downloadStatusLabel)")
                             .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(statusColor(for: viewModel.liveStatus))
+                            .foregroundColor(viewModel.liveStatus.downloadStatusColor)
                     }
                 }
             }
@@ -196,25 +196,6 @@ struct LibraryDownloadDetailView: View {
             return "\(count) \(noun) \u{2022} \(size)"
         }
         return size
-    }
-
-    private func statusLabel(for status: CDOfflineDownloadTarget.Status) -> String {
-        switch status {
-        case .pending: return "Queued"
-        case .downloading: return "Downloading"
-        case .completed: return "Downloaded"
-        case .paused: return "Paused"
-        case .failed: return "Failed"
-        }
-    }
-
-    private func statusColor(for status: CDOfflineDownloadTarget.Status) -> Color {
-        switch status {
-        case .failed: return .red
-        case .downloading: return .accentColor
-        case .paused: return .orange
-        case .pending, .completed: return .secondary
-        }
     }
 
 }
