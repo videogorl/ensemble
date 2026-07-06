@@ -46,7 +46,7 @@ final class LibraryVisibilityProfileTests: XCTestCase {
             Track(id: "t2", key: "/tracks/t2", title: "Visible", sourceCompositeKey: "plex:account-1:server-1:lib-2"),
         ]
 
-        let filteredTracks = LibraryViewModel.filterTracksForVisibility(
+        let filteredTracks = LibraryVisibilityFiltering.visibleItems(
             tracks,
             hiddenSourceCompositeKeys: hidden
         )
@@ -58,21 +58,21 @@ final class LibraryVisibilityProfileTests: XCTestCase {
     func testSearchVisibilityFiltersMultipleEntityTypes() {
         let hidden = Set(["plex:a:s:hidden"])
 
-        let tracks = SearchViewModel.filterTracksForVisibility(
+        let tracks = LibraryVisibilityFiltering.visibleItems(
             [
                 Track(id: "track-hidden", key: "/tracks/1", title: "Hidden", sourceCompositeKey: "plex:a:s:hidden"),
                 Track(id: "track-visible", key: "/tracks/2", title: "Visible", sourceCompositeKey: "plex:a:s:visible"),
             ],
             hiddenSourceCompositeKeys: hidden
         )
-        let artists = SearchViewModel.filterArtistsForVisibility(
+        let artists = LibraryVisibilityFiltering.visibleItems(
             [
                 Artist(id: "artist-hidden", key: "/artists/1", name: "Hidden", sourceCompositeKey: "plex:a:s:hidden"),
                 Artist(id: "artist-visible", key: "/artists/2", name: "Visible", sourceCompositeKey: "plex:a:s:visible"),
             ],
             hiddenSourceCompositeKeys: hidden
         )
-        let playlists = SearchViewModel.filterPlaylistsForVisibility(
+        let playlists = LibraryVisibilityFiltering.visibleItems(
             [
                 Playlist(id: "playlist-hidden", key: "/playlists/1", title: "Hidden", sourceCompositeKey: "plex:a:s:hidden"),
                 Playlist(id: "playlist-visible", key: "/playlists/2", title: "Visible", sourceCompositeKey: "plex:a:s:visible"),

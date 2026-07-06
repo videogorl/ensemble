@@ -413,20 +413,20 @@ public final class SearchViewModel: ObservableObject {
 
     private func applyVisibilityToSearchResults() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        trackResults = Self.filterTracksForVisibility(
+        trackResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredTrackResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
-        artistResults = Self.filterArtistsForVisibility(
+        artistResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredArtistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
         displayArtistResults = DisplayArtist.group(artistResults)
-        albumResults = Self.filterAlbumsForVisibility(
+        albumResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredAlbumResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
-        playlistResults = Self.filterPlaylistsForVisibility(
+        playlistResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredPlaylistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
@@ -435,15 +435,15 @@ public final class SearchViewModel: ObservableObject {
 
     private func applyVisibilityToExploreContent() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        recentlyPlayedAlbums = Self.filterAlbumsForVisibility(
+        recentlyPlayedAlbums = LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
-        recentlyPlayedArtists = Self.filterArtistsForVisibility(
+        recentlyPlayedArtists = LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedArtists,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
-        recentlyAddedAlbums = Self.filterAlbumsForVisibility(
+        recentlyAddedAlbums = LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyAddedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
@@ -455,34 +455,6 @@ public final class SearchViewModel: ObservableObject {
             unfilteredMoods,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
-    }
-
-    internal static func filterTracksForVisibility(
-        _ tracks: [Track],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Track] {
-        LibraryVisibilityFiltering.visibleItems(tracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-    }
-
-    internal static func filterArtistsForVisibility(
-        _ artists: [Artist],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Artist] {
-        LibraryVisibilityFiltering.visibleItems(artists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-    }
-
-    internal static func filterAlbumsForVisibility(
-        _ albums: [Album],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Album] {
-        LibraryVisibilityFiltering.visibleItems(albums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-    }
-
-    internal static func filterPlaylistsForVisibility(
-        _ playlists: [Playlist],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Playlist] {
-        LibraryVisibilityFiltering.visibleItems(playlists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
     }
 
     internal static func filterHubItemsForVisibility(

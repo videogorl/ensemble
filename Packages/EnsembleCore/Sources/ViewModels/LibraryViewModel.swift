@@ -816,10 +816,10 @@ public final class LibraryViewModel: ObservableObject {
     /// which would cause spurious body re-evaluations in all subscribing views.
     private func applyVisibilityToPublishedCollections() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        let newArtists = Self.filterArtistsForVisibility(allArtists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        let newAlbums = Self.filterAlbumsForVisibility(allAlbums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        let newTracks = Self.filterTracksForVisibility(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        let newGenres = Self.filterGenresForVisibility(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newArtists = LibraryVisibilityFiltering.visibleItems(allArtists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newAlbums = LibraryVisibilityFiltering.visibleItems(allAlbums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newTracks = LibraryVisibilityFiltering.visibleItems(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let newGenres = LibraryVisibilityFiltering.visibleItems(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
 
         if !Self.idsEqual(artists, newArtists, identifier: \.sourceScopedID) { artists = newArtists }
         if !Self.idsEqual(albums, newAlbums, identifier: \.sourceScopedID) { albums = newAlbums }
@@ -984,34 +984,6 @@ public final class LibraryViewModel: ObservableObject {
     private static func idsEqual<T>(_ a: [T], _ b: [T], identifier: (T) -> String) -> Bool {
         guard a.count == b.count else { return false }
         return zip(a, b).allSatisfy { identifier($0) == identifier($1) }
-    }
-
-    internal static func filterTracksForVisibility(
-        _ tracks: [Track],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Track] {
-        LibraryVisibilityFiltering.visibleItems(tracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-    }
-
-    internal static func filterArtistsForVisibility(
-        _ artists: [Artist],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Artist] {
-        LibraryVisibilityFiltering.visibleItems(artists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-    }
-
-    internal static func filterAlbumsForVisibility(
-        _ albums: [Album],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Album] {
-        LibraryVisibilityFiltering.visibleItems(albums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-    }
-
-    internal static func filterGenresForVisibility(
-        _ genres: [Genre],
-        hiddenSourceCompositeKeys: Set<String>
-    ) -> [Genre] {
-        LibraryVisibilityFiltering.visibleItems(genres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
     }
 
     // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
