@@ -90,9 +90,103 @@ final class OfflineDownloadTargetRepositoryTests: XCTestCase {
         XCTAssertEqual(l2Count, 1)
     }
 
+    func testFetchTargetKeysReturnsTargetsContainingReference() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let repository = OfflineDownloadTargetRepository(coreDataStack: stack)
+
+        try await seedTrack(ratingKey: "20", sourceCompositeKey: "plex:acc:srv:l1", repository: libraryRepository)
+        let reference = OfflineTrackReference(trackRatingKey: "20", trackSourceCompositeKey: "plex:acc:srv:l1")
+
+        _ = try await repository.upsertTarget(
+            key: "offline:album:plex:acc:srv:l1:20",
+            kind: .album,
+            ratingKey: "20",
+            sourceCompositeKey: "plex:acc:srv:l1",
+            displayName: "Album 20"
+        )
+        _ = try await repository.upsertTarget(
+            key: "offline:playlist:plex:acc:srv:*:shared",
+            kind: .playlist,
+            ratingKey: "shared",
+            sourceCompositeKey: "plex:acc:srv",
+            displayName: "Shared"
+        )
+
+        try await repository.replaceMemberships(
+            targetKey: "offline:album:plex:acc:srv:l1:20",
+            trackReferences: [reference]
+        )
+        try await repository.replaceMemberships(
+            targetKey: "offline:playlist:plex:acc:srv:*:shared",
+            trackReferences: [reference]
+        )
+
+        let targetKeys = try await repository.fetchTargetKeys(containing: reference)
+
+        XCTAssertEqual(
+            Set(targetKeys),
+            [
+                "offline:album:plex:acc:srv:l1:20",
+                "offline:playlist:plex:acc:srv:*:shared",
+            ]
+        )
+    }
+
+    func testTotalTrackDurationCountsSharedTracksOnce() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let repository = OfflineDownloadTargetRepository(coreDataStack: stack)
+
+        try await seedTrack(
+            ratingKey: "30",
+            sourceCompositeKey: "plex:acc:srv:l1",
+            duration: 90_000,
+            repository: libraryRepository
+        )
+        try await seedTrack(
+            ratingKey: "31",
+            sourceCompositeKey: "plex:acc:srv:l1",
+            duration: 45_000,
+            repository: libraryRepository
+        )
+
+        let shared = OfflineTrackReference(trackRatingKey: "30", trackSourceCompositeKey: "plex:acc:srv:l1")
+        let unique = OfflineTrackReference(trackRatingKey: "31", trackSourceCompositeKey: "plex:acc:srv:l1")
+
+        _ = try await repository.upsertTarget(
+            key: "offline:album:plex:acc:srv:l1:30",
+            kind: .album,
+            ratingKey: "30",
+            sourceCompositeKey: "plex:acc:srv:l1",
+            displayName: "Album 30"
+        )
+        _ = try await repository.upsertTarget(
+            key: "offline:playlist:plex:acc:srv:*:mix",
+            kind: .playlist,
+            ratingKey: "mix",
+            sourceCompositeKey: "plex:acc:srv",
+            displayName: "Mix"
+        )
+
+        try await repository.replaceMemberships(
+            targetKey: "offline:album:plex:acc:srv:l1:30",
+            trackReferences: [shared]
+        )
+        try await repository.replaceMemberships(
+            targetKey: "offline:playlist:plex:acc:srv:*:mix",
+            trackReferences: [shared, unique]
+        )
+
+        let duration = try await repository.totalTrackDurationMs()
+
+        XCTAssertEqual(duration, 135_000)
+    }
+
     private func seedTrack(
         ratingKey: String,
         sourceCompositeKey: String,
+        duration: Int = 120_000,
         repository: LibraryRepository
     ) async throws {
         _ = try await repository.upsertTrack(
@@ -104,7 +198,7 @@ final class OfflineDownloadTargetRepositoryTests: XCTestCase {
             albumRatingKey: nil,
             trackNumber: 1,
             discNumber: 1,
-            duration: 120_000,
+            duration: duration,
             thumbPath: nil,
             streamKey: "/library/metadata/\(ratingKey)",
             dateAdded: Date(),

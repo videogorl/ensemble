@@ -67,35 +67,19 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
     }
 
     public func fetchTargets() async throws -> [CDOfflineDownloadTarget] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDOfflineDownloadTarget.fetchRequest()
-                request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
-                do {
-                    let targets = try context.fetch(request)
-                    continuation.resume(returning: targets)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDOfflineDownloadTarget.fetchRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+            return try context.fetch(request)
         }
     }
 
     public func fetchTarget(key: String) async throws -> CDOfflineDownloadTarget? {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDOfflineDownloadTarget.fetchRequest()
-                request.predicate = NSPredicate(format: "key == %@", key)
-                request.fetchLimit = 1
-                do {
-                    let target = try context.fetch(request).first
-                    continuation.resume(returning: target)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDOfflineDownloadTarget.fetchRequest()
+            request.predicate = NSPredicate(format: "key == %@", key)
+            request.fetchLimit = 1
+            return try context.fetch(request).first
         }
     }
 
@@ -106,44 +90,36 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         sourceCompositeKey: String?,
         displayName: String?
     ) async throws -> CDOfflineDownloadTarget {
-        try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = CDOfflineDownloadTarget.fetchRequest()
-                    request.predicate = NSPredicate(format: "key == %@", key)
-                    let existing = try context.fetch(request).first
-                    let target = existing ?? CDOfflineDownloadTarget(context: context)
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDOfflineDownloadTarget.fetchRequest()
+            request.predicate = NSPredicate(format: "key == %@", key)
+            let existing = try context.fetch(request).first
+            let target = existing ?? CDOfflineDownloadTarget(context: context)
 
-                    target.key = key
-                    target.targetKind = kind
-                    target.ratingKey = ratingKey
-                    target.sourceCompositeKey = sourceCompositeKey
-                    target.displayName = displayName
-                    target.updatedAt = Date()
-                    if target.createdAt == nil {
-                        target.createdAt = Date()
-                    }
-                    if target.status == nil {
-                        target.targetStatus = .pending
-                    }
-
-                    try context.save()
-
-                    let mainContext = self.coreDataStack.viewContext
-                    mainContext.perform {
-                        let mainRequest = CDOfflineDownloadTarget.fetchRequest()
-                        mainRequest.predicate = NSPredicate(format: "key == %@", key)
-                        mainRequest.fetchLimit = 1
-                        if let target = try? mainContext.fetch(mainRequest).first {
-                            continuation.resume(returning: target)
-                        } else {
-                            continuation.resume(throwing: NSError(domain: "OfflineDownloadTargetRepository", code: 1))
-                        }
-                    }
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            target.key = key
+            target.targetKind = kind
+            target.ratingKey = ratingKey
+            target.sourceCompositeKey = sourceCompositeKey
+            target.displayName = displayName
+            target.updatedAt = Date()
+            if target.createdAt == nil {
+                target.createdAt = Date()
             }
+            if target.status == nil {
+                target.targetStatus = .pending
+            }
+
+            try context.save()
+        }
+
+        return try await coreDataStack.performViewContext { mainContext in
+            let mainRequest = CDOfflineDownloadTarget.fetchRequest()
+            mainRequest.predicate = NSPredicate(format: "key == %@", key)
+            mainRequest.fetchLimit = 1
+            guard let target = try mainContext.fetch(mainRequest).first else {
+                throw NSError(domain: "OfflineDownloadTargetRepository", code: 1)
+            }
+            return target
         }
     }
 
@@ -155,149 +131,100 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         progress: Float,
         lastError: String?
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = CDOfflineDownloadTarget.fetchRequest()
-                    request.predicate = NSPredicate(format: "key == %@", key)
-                    request.fetchLimit = 1
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDOfflineDownloadTarget.fetchRequest()
+            request.predicate = NSPredicate(format: "key == %@", key)
+            request.fetchLimit = 1
 
-                    if let target = try context.fetch(request).first {
-                        target.targetStatus = status
-                        target.totalTrackCount = Int32(totalTrackCount)
-                        target.completedTrackCount = Int32(completedTrackCount)
-                        target.progress = progress
-                        target.lastError = lastError
-                        target.updatedAt = Date()
-                        try context.save()
-                    }
-
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            if let target = try context.fetch(request).first {
+                target.targetStatus = status
+                target.totalTrackCount = Int32(totalTrackCount)
+                target.completedTrackCount = Int32(completedTrackCount)
+                target.progress = progress
+                target.lastError = lastError
+                target.updatedAt = Date()
+                try context.save()
             }
         }
     }
 
     public func deleteTarget(key: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = CDOfflineDownloadTarget.fetchRequest()
-                    request.predicate = NSPredicate(format: "key == %@", key)
-                    request.fetchLimit = 1
-                    if let target = try context.fetch(request).first {
-                        context.delete(target)
-                        try context.save()
-                    }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDOfflineDownloadTarget.fetchRequest()
+            request.predicate = NSPredicate(format: "key == %@", key)
+            request.fetchLimit = 1
+            if let target = try context.fetch(request).first {
+                context.delete(target)
+                try context.save()
             }
         }
     }
 
     public func deleteTargets(forSourceCompositeKey sourceKey: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = CDOfflineDownloadTarget.fetchRequest()
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    let targets = try context.fetch(request)
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDOfflineDownloadTarget.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            let targets = try context.fetch(request)
 
-                    // Delete memberships then targets
-                    for target in targets {
-                        if let memberships = target.memberships as? Set<CDOfflineDownloadMembership> {
-                            for membership in memberships {
-                                context.delete(membership)
-                            }
-                        }
-                        context.delete(target)
+            // Delete memberships then targets
+            for target in targets {
+                if let memberships = target.memberships as? Set<CDOfflineDownloadMembership> {
+                    for membership in memberships {
+                        context.delete(membership)
                     }
-
-                    if context.hasChanges {
-                        try context.save()
-                    }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
                 }
+                context.delete(target)
+            }
+
+            if context.hasChanges {
+                try context.save()
             }
         }
     }
 
     public func countTargets(forSourceCompositeKey sourceKey: String) async throws -> Int {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = NSFetchRequest<NSFetchRequestResult>(entityName: "CDOfflineDownloadTarget")
-                    request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
-                    continuation.resume(returning: try context.count(for: request))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performBackgroundContext { context in
+            let request = NSFetchRequest<NSFetchRequestResult>(entityName: "CDOfflineDownloadTarget")
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            return try context.count(for: request)
         }
     }
 
     public func countAllTargets() async throws -> Int {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = NSFetchRequest<NSFetchRequestResult>(entityName: "CDOfflineDownloadTarget")
-                    continuation.resume(returning: try context.count(for: request))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performBackgroundContext { context in
+            let request = NSFetchRequest<NSFetchRequestResult>(entityName: "CDOfflineDownloadTarget")
+            return try context.count(for: request)
         }
     }
 
     public func deleteAllTargets() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    // Delete all memberships
-                    let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
-                    let memberships = try context.fetch(membershipRequest)
-                    for membership in memberships {
-                        context.delete(membership)
-                    }
+        try await coreDataStack.performBackgroundContext { context in
+            // Delete all memberships
+            let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
+            let memberships = try context.fetch(membershipRequest)
+            for membership in memberships {
+                context.delete(membership)
+            }
 
-                    // Delete all targets
-                    let targetRequest = CDOfflineDownloadTarget.fetchRequest()
-                    let targets = try context.fetch(targetRequest)
-                    for target in targets {
-                        context.delete(target)
-                    }
+            // Delete all targets
+            let targetRequest = CDOfflineDownloadTarget.fetchRequest()
+            let targets = try context.fetch(targetRequest)
+            for target in targets {
+                context.delete(target)
+            }
 
-                    if context.hasChanges {
-                        try context.save()
-                    }
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            if context.hasChanges {
+                try context.save()
             }
         }
     }
 
     public func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDOfflineDownloadMembership.fetchRequest()
-                request.predicate = NSPredicate(format: "targetKey == %@", targetKey)
-                request.sortDescriptors = [NSSortDescriptor(key: "trackRatingKey", ascending: true)]
-                do {
-                    let memberships = try context.fetch(request)
-                    continuation.resume(returning: memberships)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDOfflineDownloadMembership.fetchRequest()
+            request.predicate = NSPredicate(format: "targetKey == %@", targetKey)
+            request.sortDescriptors = [NSSortDescriptor(key: "trackRatingKey", ascending: true)]
+            return try context.fetch(request)
         }
     }
 
@@ -312,36 +239,32 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
     }
 
     public func replaceMemberships(targetKey: String, trackReferences: [OfflineTrackReference]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                // Use merge-by-property policy to handle concurrent writes from
-                // different targets referencing the same CDTrack objects.
-                context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
+        try await coreDataStack.performBackgroundContext { context in
+            // Use merge-by-property policy to handle concurrent writes from
+            // different targets referencing the same CDTrack objects.
+            context.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
+            do {
+                try self.performReplaceMemberships(
+                    targetKey: targetKey,
+                    trackReferences: trackReferences,
+                    context: context
+                )
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain
+                && (error.code == NSManagedObjectMergeError || error.code == NSManagedObjectConstraintMergeError) {
+                // Single retry on merge conflict
+                context.rollback()
                 do {
                     try self.performReplaceMemberships(
                         targetKey: targetKey,
                         trackReferences: trackReferences,
                         context: context
                     )
-                    continuation.resume()
-                } catch let error as NSError where error.domain == NSCocoaErrorDomain
-                    && (error.code == NSManagedObjectMergeError || error.code == NSManagedObjectConstraintMergeError) {
-                    // Single retry on merge conflict
-                    context.rollback()
-                    do {
-                        try self.performReplaceMemberships(
-                            targetKey: targetKey,
-                            trackReferences: trackReferences,
-                            context: context
-                        )
-                        continuation.resume()
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
                 } catch {
-                    continuation.resume(throwing: error)
+                    throw error
                 }
+            } catch {
+                throw error
             }
         }
     }
@@ -413,43 +336,27 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
     }
 
     public func membershipCount(for reference: OfflineTrackReference) async throws -> Int {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDOfflineDownloadMembership.fetchRequest()
-                request.predicate = NSPredicate(
-                    format: "trackRatingKey == %@ AND trackSourceCompositeKey == %@",
-                    reference.trackRatingKey,
-                    reference.trackSourceCompositeKey
-                )
-                do {
-                    let count = try context.count(for: request)
-                    continuation.resume(returning: count)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDOfflineDownloadMembership.fetchRequest()
+            request.predicate = NSPredicate(
+                format: "trackRatingKey == %@ AND trackSourceCompositeKey == %@",
+                reference.trackRatingKey,
+                reference.trackSourceCompositeKey
+            )
+            return try context.count(for: request)
         }
     }
 
     public func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDOfflineDownloadMembership.fetchRequest()
-                request.predicate = NSPredicate(
-                    format: "trackRatingKey == %@ AND trackSourceCompositeKey == %@",
-                    reference.trackRatingKey,
-                    reference.trackSourceCompositeKey
-                )
-                do {
-                    let memberships = try context.fetch(request)
-                    let keys = memberships.map(\.targetKey)
-                    continuation.resume(returning: keys)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await coreDataStack.performViewContext { context in
+            let request = CDOfflineDownloadMembership.fetchRequest()
+            request.predicate = NSPredicate(
+                format: "trackRatingKey == %@ AND trackSourceCompositeKey == %@",
+                reference.trackRatingKey,
+                reference.trackSourceCompositeKey
+            )
+            let memberships = try context.fetch(request)
+            return memberships.map(\.targetKey)
         }
     }
 
@@ -465,33 +372,24 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
     }
 
     public func totalTrackDurationMs() async throws -> Int64 {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                do {
-                    // Get distinct track ratingKey+source pairs to avoid counting shared tracks multiple times
-                    let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
-                    let memberships = try context.fetch(membershipRequest)
+        try await coreDataStack.performViewContext { context in
+            // Get distinct track ratingKey+source pairs to avoid counting shared tracks multiple times
+            let membershipRequest = CDOfflineDownloadMembership.fetchRequest()
+            let memberships = try context.fetch(membershipRequest)
 
-                    var seenTrackKeys = Set<String>()
-                    var totalDuration: Int64 = 0
+            var seenTrackKeys = Set<String>()
+            var totalDuration: Int64 = 0
 
-                    for membership in memberships {
-                        let trackKey = "\(membership.trackSourceCompositeKey)|\(membership.trackRatingKey)"
-                        guard !seenTrackKeys.contains(trackKey) else { continue }
-                        seenTrackKeys.insert(trackKey)
+            for membership in memberships {
+                let trackKey = "\(membership.trackSourceCompositeKey)|\(membership.trackRatingKey)"
+                guard !seenTrackKeys.contains(trackKey) else { continue }
+                seenTrackKeys.insert(trackKey)
 
-                        // Look up the track's duration
-                        if let track = membership.track {
-                            totalDuration += track.duration
-                        }
-                    }
-
-                    continuation.resume(returning: totalDuration)
-                } catch {
-                    continuation.resume(throwing: error)
+                if let track = membership.track {
+                    totalDuration += track.duration
                 }
             }
+            return totalDuration
         }
     }
 
