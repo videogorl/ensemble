@@ -93,14 +93,19 @@ final class LibraryVisibilityProfileTests: XCTestCase {
                 key: "/library/sections/1/mood/11",
                 title: "Acerbic",
                 sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(
-                    from: ["plex:a:s:hidden", "plex:a:s:visible"]
+                    from: [
+                        "plex:a:s:hidden": "/library/sections/1/mood/11",
+                        "plex:a:s:visible": "/library/sections/2/mood/22",
+                    ]
                 )
             ),
             Mood(
                 id: "mood:hidden-only",
                 key: "/library/sections/1/mood/12",
                 title: "Hidden Only",
-                sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(from: ["plex:a:s:hidden"])
+                sourceCompositeKey: SearchViewModel.mergedMoodSourceCompositeKey(
+                    from: ["plex:a:s:hidden": "/library/sections/1/mood/12"]
+                )
             ),
         ]
 

@@ -696,12 +696,6 @@ public final class SearchViewModel: ObservableObject {
         Mood.normalizedTitleKey(title)
     }
 
-    internal nonisolated static func mergedMoodSourceCompositeKey(from sourceKeys: Set<String>) -> String? {
-        let sortedKeys = sourceKeys.sorted()
-        guard !sortedKeys.isEmpty else { return nil }
-        return sortedKeys.joined(separator: "|")
-    }
-
     internal nonisolated static func mergedMoodSourceCompositeKey(from sourceMoodKeys: [String: String]) -> String? {
         let references = sourceMoodKeys
             .sorted { $0.key < $1.key }
