@@ -21,32 +21,8 @@ enum ProgressiveStreamError: Error, LocalizedError {
 }
 
 /// Bridges PMS's chunked transcode stream (`Transfer-Encoding: chunked`, no `Content-Length`)
-/// to AVPlayer via `AVAssetResourceLoaderDelegate`. Data is written to a growing temp file
-/// and served to AVPlayer as it arrives, giving ~1-2s startup instead of waiting for the
-/// full ~5MB download.
-///
-/// Usage:
-/// 1. Create with the pre-built URLRequest and estimated content length.
-/// 2. Assign as the delegate on an `AVURLAsset` that uses the `ensemble-transcode://` scheme.
-/// 3. The loader starts downloading immediately and feeds data to AVPlayer on demand.
-/// 4. When the download finishes, `onDownloadComplete` fires for XING injection + analysis.
+/// into a growing temp file that playback can consume after progressive download completion.
 final class ProgressiveStreamLoader: NSObject, @unchecked Sendable {
-
-    // MARK: - Custom URL Scheme
-
-    /// The scheme that triggers resource loader delegation instead of CFHTTP.
-    static let customScheme = "ensemble-transcode"
-
-    /// Convert an HTTPS URL to the custom scheme for AVAssetResourceLoader interception.
-    static func customSchemeURL(from originalURL: URL) -> URL? {
-        let string = originalURL.absoluteString
-        if string.hasPrefix("https://") {
-            return URL(string: string.replacingOccurrences(of: "https://", with: "\(customScheme)://"))
-        } else if string.hasPrefix("http://") {
-            return URL(string: string.replacingOccurrences(of: "http://", with: "\(customScheme)://"))
-        }
-        return nil
-    }
 
     // MARK: - Callbacks
 
