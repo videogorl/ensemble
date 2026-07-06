@@ -107,6 +107,48 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(emptyStats.isEmpty)
     }
 
+    func testFetchArtworkThumbPathsUseSourceScopedReferences() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+        let sourceC = "plex/account/server/library-c"
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "shared", thumbPath: "/album/source-a.jpg", dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "shared", thumbPath: "/album/source-b.jpg", dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "shared", thumbPath: "/album/source-c.jpg", dateModified: nil)
+        ], sourceCompositeKey: sourceC)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "shared", thumbPath: "/artist/source-a.jpg", dateModified: nil)
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "shared", thumbPath: "/artist/source-b.jpg", dateModified: nil)
+        ], sourceCompositeKey: sourceB)
+
+        let references = [
+            SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceA),
+            SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceB),
+            SourceScopedArtworkReference(ratingKey: "missing", sourceCompositeKey: sourceA)
+        ]
+
+        let albumThumbPaths = try await repository.fetchAlbumThumbPaths(forReferences: references)
+        let artistThumbPaths = try await repository.fetchArtistThumbPaths(forReferences: references)
+
+        XCTAssertEqual(albumThumbPaths.count, 2)
+        XCTAssertEqual(albumThumbPaths["\(sourceA)|shared"], "/album/source-a.jpg")
+        XCTAssertEqual(albumThumbPaths["\(sourceB)|shared"], "/album/source-b.jpg")
+        XCTAssertNil(albumThumbPaths["\(sourceC)|shared"])
+        XCTAssertNil(albumThumbPaths["\(sourceA)|missing"])
+        XCTAssertEqual(artistThumbPaths.count, 2)
+        XCTAssertEqual(artistThumbPaths["\(sourceA)|shared"], "/artist/source-a.jpg")
+        XCTAssertEqual(artistThumbPaths["\(sourceB)|shared"], "/artist/source-b.jpg")
+        XCTAssertNil(artistThumbPaths["\(sourceA)|missing"])
+    }
+
     func testFetchTrackArtworkFallbackFindsEquivalentArtworkBackedDuplicate() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)

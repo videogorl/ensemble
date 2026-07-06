@@ -421,28 +421,51 @@ public final class DownloadsViewModel: ObservableObject {
     /// Resolves missing artwork thumb paths from library/playlist repositories and updates the published list.
     private func resolveThumbPaths() async {
         var updated = items
-        for i in updated.indices {
-            guard updated[i].thumbPath == nil else { continue }
-            updated[i].thumbPath = await resolveThumb(for: updated[i])
+        let unresolvedItems = updated.filter { $0.thumbPath == nil }
+        let albumReferences = artworkReferences(from: unresolvedItems, kind: .album)
+        let artistReferences = artworkReferences(from: unresolvedItems, kind: .artist)
+        let playlistReferences = artworkReferences(from: unresolvedItems, kind: .playlist)
+
+        async let albumThumbPathsTask = libraryRepository.fetchAlbumThumbPaths(forReferences: albumReferences)
+        async let artistThumbPathsTask = libraryRepository.fetchArtistThumbPaths(forReferences: artistReferences)
+        async let playlistCompositePathsTask = playlistRepository.fetchPlaylistCompositePaths(forReferences: playlistReferences)
+        let albumThumbPaths = (try? await albumThumbPathsTask) ?? [:]
+        let artistThumbPaths = (try? await artistThumbPathsTask) ?? [:]
+        let playlistCompositePaths = (try? await playlistCompositePathsTask) ?? [:]
+
+        for i in updated.indices where updated[i].thumbPath == nil {
+            guard let reference = artworkReference(for: updated[i]) else { continue }
+            switch updated[i].kind {
+            case .album:
+                updated[i].thumbPath = albumThumbPaths[reference.lookupKey]
+            case .artist:
+                updated[i].thumbPath = artistThumbPaths[reference.lookupKey]
+            case .playlist:
+                updated[i].thumbPath = playlistCompositePaths[reference.lookupKey]
+            case .library, .favorites:
+                break
+            }
         }
+
         // Only publish when thumb paths actually changed
         if updated != items {
             items = updated
         }
     }
 
-    private func resolveThumb(for item: DownloadedItemSummary) async -> String? {
-        guard let ratingKey = item.ratingKey, let sourceKey = item.sourceCompositeKey else { return nil }
-        switch item.kind {
-        case .album:
-            return (try? await libraryRepository.fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.thumbPath
-        case .artist:
-            return (try? await libraryRepository.fetchArtist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.thumbPath
-        case .playlist:
-            return (try? await playlistRepository.fetchPlaylist(ratingKey: ratingKey, sourceCompositeKey: sourceKey))?.compositePath
-        case .library, .favorites:
-            return nil
+    private func artworkReferences(
+        from items: [DownloadedItemSummary],
+        kind: CDOfflineDownloadTarget.Kind
+    ) -> [SourceScopedArtworkReference] {
+        items.compactMap { item in
+            guard item.kind == kind else { return nil }
+            return artworkReference(for: item)
         }
+    }
+
+    private func artworkReference(for item: DownloadedItemSummary) -> SourceScopedArtworkReference? {
+        guard let ratingKey = item.ratingKey, let sourceKey = item.sourceCompositeKey else { return nil }
+        return SourceScopedArtworkReference(ratingKey: ratingKey, sourceCompositeKey: sourceKey)
     }
 
     private static func statusPriority(_ status: CDOfflineDownloadTarget.Status) -> Int {

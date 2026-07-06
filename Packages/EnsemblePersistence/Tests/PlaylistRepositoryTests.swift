@@ -214,6 +214,49 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(repository.drainArtworkInvalidationInfo().isEmpty)
     }
 
+    func testFetchPlaylistCompositePathsUsesSourceScopedReferences() async throws {
+        let repository = PlaylistRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server-a"
+        let sourceB = "plex/account/server-b"
+        let sourceC = "plex/account/server-c"
+
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "shared",
+            compositePath: "/playlists/source-a/composite",
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "shared",
+            compositePath: "/playlists/source-b/composite",
+            dateModified: nil,
+            sourceCompositeKey: sourceB
+        )
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "shared",
+            compositePath: "/playlists/source-c/composite",
+            dateModified: nil,
+            sourceCompositeKey: sourceC
+        )
+
+        let compositePaths = try await repository.fetchPlaylistCompositePaths(
+            forReferences: [
+                SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceA),
+                SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceB),
+                SourceScopedArtworkReference(ratingKey: "missing", sourceCompositeKey: sourceA)
+            ]
+        )
+
+        XCTAssertEqual(compositePaths.count, 2)
+        XCTAssertEqual(compositePaths["\(sourceA)|shared"], "/playlists/source-a/composite")
+        XCTAssertEqual(compositePaths["\(sourceB)|shared"], "/playlists/source-b/composite")
+        XCTAssertNil(compositePaths["\(sourceC)|shared"])
+        XCTAssertNil(compositePaths["\(sourceA)|missing"])
+    }
+
     func testOrphanRemovalKeepsValidAndOtherSourcePlaylists() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server-a"

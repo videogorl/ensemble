@@ -108,6 +108,21 @@ public struct TrackUpsertInput: Sendable {
     }
 }
 
+/// Source-scoped media identity used for batched lightweight metadata lookups.
+public struct SourceScopedArtworkReference: Sendable, Hashable {
+    public let ratingKey: String
+    public let sourceCompositeKey: String
+
+    public init(ratingKey: String, sourceCompositeKey: String) {
+        self.ratingKey = ratingKey
+        self.sourceCompositeKey = sourceCompositeKey
+    }
+
+    public var lookupKey: String {
+        "\(sourceCompositeKey)|\(ratingKey)"
+    }
+}
+
 /// Describes a track whose album association changed during a sync upsert.
 /// Used to trigger downstream artwork cache invalidation.
 public struct TrackReparentInfo: Sendable {
@@ -209,6 +224,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func countArtists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchArtist(ratingKey: String) async throws -> CDArtist?
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist?
+    func fetchArtistThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func updateArtistName(ratingKey: String, sourceCompositeKey: String?, name: String) async throws
 
     // Albums
@@ -217,6 +233,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func countAlbums(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchAlbum(ratingKey: String) async throws -> CDAlbum?
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum?
+    func fetchAlbumThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteAlbum(ratingKey: String, sourceCompositeKey: String?) async throws
     func fetchAlbums(forArtist artistRatingKey: String) async throws -> [CDAlbum]
@@ -340,8 +357,38 @@ public extension LibraryRepositoryProtocol {
         try await fetchArtist(ratingKey: ratingKey)
     }
 
+    func fetchArtistThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: String] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let thumbPath = try await fetchArtist(
+                ratingKey: reference.ratingKey,
+                sourceCompositeKey: reference.sourceCompositeKey
+            )?.thumbPath {
+                result[reference.lookupKey] = thumbPath
+            }
+        }
+        return result
+    }
+
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
         try await fetchAlbum(ratingKey: ratingKey)
+    }
+
+    func fetchAlbumThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: String] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let thumbPath = try await fetchAlbum(
+                ratingKey: reference.ratingKey,
+                sourceCompositeKey: reference.sourceCompositeKey
+            )?.thumbPath {
+                result[reference.lookupKey] = thumbPath
+            }
+        }
+        return result
     }
 
     func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum] {

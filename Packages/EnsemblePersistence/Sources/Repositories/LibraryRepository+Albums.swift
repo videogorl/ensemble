@@ -85,6 +85,33 @@ extension LibraryRepository {
         }
     }
 
+    public func fetchAlbumThumbPaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
+        guard !references.isEmpty else { return [:] }
+        return try await coreDataStack.performBackgroundContext { context in
+            let ratingKeys = Array(Set(references.map(\.ratingKey)))
+            let request = NSFetchRequest<NSDictionary>(entityName: "CDAlbum")
+            request.resultType = .dictionaryResultType
+            request.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+            request.propertiesToFetch = ["ratingKey", "sourceCompositeKey", "thumbPath"]
+
+            let requestedKeys = Set(references.map(\.lookupKey))
+            let rows = try context.fetch(request)
+            var result: [String: String] = [:]
+            result.reserveCapacity(min(rows.count, requestedKeys.count))
+            for row in rows {
+                guard let sourceCompositeKey = row["sourceCompositeKey"] as? String,
+                      let ratingKey = row["ratingKey"] as? String,
+                      let thumbPath = row["thumbPath"] as? String else {
+                    continue
+                }
+                let lookupKey = "\(sourceCompositeKey)|\(ratingKey)"
+                guard requestedKeys.contains(lookupKey) else { continue }
+                result[lookupKey] = thumbPath
+            }
+            return result
+        }
+    }
+
     public func updateAlbumTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

@@ -7,6 +7,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
+    func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func searchPlaylists(query: String) async throws -> [CDPlaylist]
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist]
     func upsertPlaylist(
@@ -48,6 +49,21 @@ public extension PlaylistRepositoryProtocol {
     }
 
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
+
+    func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
+        guard !references.isEmpty else { return [:] }
+        var result: [String: String] = [:]
+        result.reserveCapacity(references.count)
+        for reference in references {
+            if let compositePath = try await fetchPlaylist(
+                ratingKey: reference.ratingKey,
+                sourceCompositeKey: reference.sourceCompositeKey
+            )?.compositePath {
+                result[reference.lookupKey] = compositePath
+            }
+        }
+        return result
+    }
 }
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
@@ -245,6 +261,33 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    public func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String] {
+        guard !references.isEmpty else { return [:] }
+        return try await coreDataStack.performBackgroundContext { context in
+            let ratingKeys = Array(Set(references.map(\.ratingKey)))
+            let request = NSFetchRequest<NSDictionary>(entityName: "CDPlaylist")
+            request.resultType = .dictionaryResultType
+            request.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+            request.propertiesToFetch = ["ratingKey", "sourceCompositeKey", "compositePath"]
+
+            let requestedKeys = Set(references.map(\.lookupKey))
+            let rows = try context.fetch(request)
+            var result: [String: String] = [:]
+            result.reserveCapacity(min(rows.count, requestedKeys.count))
+            for row in rows {
+                guard let sourceCompositeKey = row["sourceCompositeKey"] as? String,
+                      let ratingKey = row["ratingKey"] as? String,
+                      let compositePath = row["compositePath"] as? String else {
+                    continue
+                }
+                let lookupKey = "\(sourceCompositeKey)|\(ratingKey)"
+                guard requestedKeys.contains(lookupKey) else { continue }
+                result[lookupKey] = compositePath
+            }
+            return result
         }
     }
 
