@@ -53,17 +53,31 @@ final class TrackDownloadRowStatsTests: XCTestCase {
         XCTAssertEqual(row.playableTrackIndex(in: tracks), 1)
     }
 
+    func testStatusAndMetadataOrderingHelpers() {
+        XCTAssertLessThan(makeRow(status: .downloading).statusSortPriority, makeRow(status: .completed).statusSortPriority)
+
+        let discOneTrackTwo = makeRow(status: .completed, title: "Bravo", discNumber: 1, trackNumber: 2)
+        let discTwoTrackOne = makeRow(status: .completed, title: "Alpha", discNumber: 2, trackNumber: 1)
+        let titleA = makeRow(status: .completed, title: "Alpha", discNumber: 1, trackNumber: 2)
+
+        XCTAssertTrue(discOneTrackTwo.isOrderedBeforeByDiscTrackTitle(discTwoTrackOne))
+        XCTAssertTrue(titleA.isOrderedBeforeByDiscTrackTitle(discOneTrackTwo))
+    }
+
     private func makeRow(
         status: CDDownload.Status,
         fileSize: Int64 = 0,
         trackRatingKey: String = "track",
-        sourceCompositeKey: String = "source"
+        sourceCompositeKey: String = "source",
+        title: String = "Track",
+        discNumber: Int32 = 1,
+        trackNumber: Int32 = 1
     ) -> TrackDownloadRow {
         TrackDownloadRow(
             id: UUID().uuidString,
             trackRatingKey: trackRatingKey,
             sourceCompositeKey: sourceCompositeKey,
-            title: "Track",
+            title: title,
             artistName: nil,
             thumbPath: nil,
             fallbackThumbPath: nil,
@@ -73,8 +87,8 @@ final class TrackDownloadRowStatsTests: XCTestCase {
             fileSize: fileSize,
             errorMessage: nil,
             downloadedQuality: nil,
-            discNumber: 1,
-            trackNumber: 1,
+            discNumber: discNumber,
+            trackNumber: trackNumber,
             index: 0
         )
     }

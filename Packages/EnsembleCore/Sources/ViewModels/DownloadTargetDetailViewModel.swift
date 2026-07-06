@@ -37,6 +37,22 @@ public struct TrackDownloadRow: Identifiable {
     public func playableTrackIndex(in tracks: [Track]) -> Int? {
         tracks.firstIndex { $0.sourceScopedID == sourceScopedID }
     }
+
+    var statusSortPriority: Int {
+        switch status {
+        case .downloading: return 0
+        case .pending: return 1
+        case .paused: return 2
+        case .failed: return 3
+        case .completed: return 4
+        }
+    }
+
+    func isOrderedBeforeByDiscTrackTitle(_ other: TrackDownloadRow) -> Bool {
+        if discNumber != other.discNumber { return discNumber < other.discNumber }
+        if trackNumber != other.trackNumber { return trackNumber < other.trackNumber }
+        return title.localizedCaseInsensitiveCompare(other.title) == .orderedAscending
+    }
 }
 
 struct TrackDownloadRowStats {
@@ -97,6 +113,21 @@ struct TrackDownloadRowStats {
             status = .paused
         } else {
             status = .pending
+        }
+    }
+}
+
+extension OfflineDownloadService {
+    func retryDownload(row: TrackDownloadRow) async {
+        await retryDownload(
+            trackRatingKey: row.trackRatingKey,
+            sourceCompositeKey: row.sourceCompositeKey
+        )
+    }
+
+    func retryFailedDownloads(in rows: [TrackDownloadRow]) async {
+        for row in rows where row.status == .failed {
+            await retryDownload(row: row)
         }
     }
 }
@@ -168,22 +199,13 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
     /// Retry a single failed download
     public func retryDownload(row: TrackDownloadRow) async {
-        await offlineDownloadService.retryDownload(
-            trackRatingKey: row.trackRatingKey,
-            sourceCompositeKey: row.sourceCompositeKey
-        )
+        await offlineDownloadService.retryDownload(row: row)
         await loadTrackRows()
     }
 
     /// Retry all tracks in a failed state
     public func retryAllFailed() async {
-        let failedRows = tracks.filter { $0.status == .failed }
-        for row in failedRows {
-            await offlineDownloadService.retryDownload(
-                trackRatingKey: row.trackRatingKey,
-                sourceCompositeKey: row.sourceCompositeKey
-            )
-        }
+        await offlineDownloadService.retryFailedDownloads(in: tracks)
         await loadTrackRows()
     }
 
@@ -292,8 +314,8 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
 
             // Sort completed tracks by metadata order; in-progress/pending/failed float to top by status
             tracks = rows.sorted { lhs, rhs in
-                let lp = trackStatusSortPriority(lhs.status)
-                let rp = trackStatusSortPriority(rhs.status)
+                let lp = lhs.statusSortPriority
+                let rp = rhs.statusSortPriority
                 if lp != rp { return lp < rp }
                 // Within same status, sort by metadata order
                 return metadataOrder(lhs, rhs)
@@ -315,19 +337,7 @@ public final class DownloadTargetDetailViewModel: ObservableObject {
         case .playlist:
             return lhs.index < rhs.index
         case .album, .artist, .library, .favorites:
-            if lhs.discNumber != rhs.discNumber { return lhs.discNumber < rhs.discNumber }
-            if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
-            return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-        }
-    }
-
-    private func trackStatusSortPriority(_ status: CDDownload.Status) -> Int {
-        switch status {
-        case .downloading: return 0
-        case .pending: return 1
-        case .paused: return 2
-        case .failed: return 3
-        case .completed: return 4
+            return lhs.isOrderedBeforeByDiscTrackTitle(rhs)
         }
     }
 }

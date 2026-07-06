@@ -66,22 +66,13 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
 
     /// Retry a single failed download
     public func retryDownload(row: TrackDownloadRow) async {
-        await offlineDownloadService.retryDownload(
-            trackRatingKey: row.trackRatingKey,
-            sourceCompositeKey: row.sourceCompositeKey
-        )
+        await offlineDownloadService.retryDownload(row: row)
         await loadTrackRows()
     }
 
     /// Retry all failed downloads in this library
     public func retryAllFailed() async {
-        let failedRows = tracks.filter { $0.status == .failed }
-        for row in failedRows {
-            await offlineDownloadService.retryDownload(
-                trackRatingKey: row.trackRatingKey,
-                sourceCompositeKey: row.sourceCompositeKey
-            )
-        }
+        await offlineDownloadService.retryFailedDownloads(in: tracks)
         await loadTrackRows()
     }
 
@@ -155,12 +146,10 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
 
             // Sort completed tracks by disc/track number; in-progress/pending/failed float to top
             tracks = rows.sorted { lhs, rhs in
-                let lp = trackStatusSortPriority(lhs.status)
-                let rp = trackStatusSortPriority(rhs.status)
+                let lp = lhs.statusSortPriority
+                let rp = rhs.statusSortPriority
                 if lp != rp { return lp < rp }
-                if lhs.discNumber != rhs.discNumber { return lhs.discNumber < rhs.discNumber }
-                if lhs.trackNumber != rhs.trackNumber { return lhs.trackNumber < rhs.trackNumber }
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                return lhs.isOrderedBeforeByDiscTrackTitle(rhs)
             }
 
             // Playable tracks in natural order (disc + track number)
@@ -173,13 +162,4 @@ public final class LibraryDownloadDetailViewModel: ObservableObject {
         }
     }
 
-    private func trackStatusSortPriority(_ status: CDDownload.Status) -> Int {
-        switch status {
-        case .downloading: return 0
-        case .pending: return 1
-        case .paused: return 2
-        case .failed: return 3
-        case .completed: return 4
-        }
-    }
 }
