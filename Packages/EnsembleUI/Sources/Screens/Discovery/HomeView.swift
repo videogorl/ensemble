@@ -7,10 +7,11 @@ public struct HomeView: View {
     @ObservedObject private var viewModel: HomeViewModel
     let nowPlayingVM: NowPlayingViewModel
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
-    @ObservedObject private var cacheManager = DependencyContainer.shared.cacheManager
+    private let cacheManager: CacheManager
     @State private var profileBackgroundImage: PlatformImage?
     @State private var profileBackgroundBlurredImage: PlatformImage?
     @State private var profileBackgroundCacheKey: String?
+    @State private var artworkCacheInvalidationGeneration: UInt64
     // Targeted singleton observation: only fires when sync state changes (for empty state)
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -18,8 +19,13 @@ public struct HomeView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(nowPlayingVM: NowPlayingViewModel, viewModel: HomeViewModel? = nil) {
-        self.viewModel = viewModel ?? DependencyContainer.shared.makeHomeViewModel()
+        let container = DependencyContainer.shared
+        self.viewModel = viewModel ?? container.makeHomeViewModel()
         self.nowPlayingVM = nowPlayingVM
+        self.cacheManager = container.cacheManager
+        _artworkCacheInvalidationGeneration = State(
+            initialValue: container.cacheManager.artworkCacheInvalidationGeneration
+        )
     }
 
     public var body: some View {
@@ -72,6 +78,11 @@ public struct HomeView: View {
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
         }
+        .onReceive(cacheManager.$artworkCacheInvalidationGeneration) { generation in
+            if generation != artworkCacheInvalidationGeneration {
+                artworkCacheInvalidationGeneration = generation
+            }
+        }
         .task {
             await viewModel.loadHubsIfNeeded()
         }
@@ -111,7 +122,7 @@ public struct HomeView: View {
     private var profileBackgroundReloadKey: String {
         let imagePath = profileStore.profile.profileImagePath ?? "none"
         let modified = profileStore.profile.lastModified.timeIntervalSinceReferenceDate
-        return "\(imagePath)-\(modified)-artwork-cache-\(cacheManager.artworkCacheInvalidationGeneration)"
+        return "\(imagePath)-\(modified)-artwork-cache-\(artworkCacheInvalidationGeneration)"
     }
 
     private var profileBackgroundStableCacheKey: String? {
