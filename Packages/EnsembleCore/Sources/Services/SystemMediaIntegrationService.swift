@@ -106,7 +106,6 @@ protocol SystemSpotlightIndexing: AnyObject {
     var isIndexingAvailable: Bool { get }
     func indexSearchableItems(_ items: [CSSearchableItem]) async throws
     func deleteSearchableItems(withIdentifiers identifiers: [String]) async throws
-    func deleteSearchableItems(withDomainIdentifiers domainIdentifiers: [String]) async throws
 }
 
 final class CoreSpotlightSystemIndex: SystemSpotlightIndexing {
@@ -145,18 +144,6 @@ final class CoreSpotlightSystemIndex: SystemSpotlightIndexing {
         }
     }
 
-    func deleteSearchableItems(withDomainIdentifiers domainIdentifiers: [String]) async throws {
-        guard !domainIdentifiers.isEmpty else { return }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            index.deleteSearchableItems(withDomainIdentifiers: domainIdentifiers) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
-            }
-        }
-    }
 }
 
 #if !os(macOS)
