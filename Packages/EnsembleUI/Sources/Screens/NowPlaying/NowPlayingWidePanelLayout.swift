@@ -77,13 +77,11 @@ struct NowPlayingWidePanelLayout: View {
         HStack(alignment: .center, spacing: EnsembleScaffold.NowPlaying.sectionTopPadding) {
             Spacer()
 
-            Picker("Panel", selection: panelSelection) {
-                Text("Queue").tag(NowPlayingPanelPage.queue.rawValue)
-                Text("Lyrics").tag(NowPlayingPanelPage.lyrics.rawValue)
-                Text("Info").tag(NowPlayingPanelPage.info.rawValue)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: EnsembleScaffold.NowPlaying.viewportPickerWidth)
+            NowPlayingPanelSelector(
+                selection: panelSelection,
+                options: [.queue, .lyrics, .info],
+                width: EnsembleScaffold.NowPlaying.viewportPickerWidth
+            )
 
             if let dismissAction {
                 Button {
@@ -129,5 +127,67 @@ struct NowPlayingWidePanelLayout: View {
             maxContentWidth
         )
         return max((available - EnsembleScaffold.NowPlaying.viewportInnerSpacing) / 2, 0)
+    }
+}
+
+struct NowPlayingPanelSelector: View {
+    @Binding var selection: Int
+    let options: [NowPlayingPanelPage]
+    let width: CGFloat
+
+    var body: some View {
+        HStack(spacing: EnsembleDesign.Spacing.none) {
+            ForEach(options, id: \.rawValue) { option in
+                panelButton(for: option)
+            }
+        }
+        .padding(EnsembleDesign.Spacing.xxs)
+        .frame(width: width)
+        .background(
+            Capsule()
+                .fill(EnsembleDesign.Color.secondaryControlFill)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Panel")
+    }
+
+    private func panelButton(for option: NowPlayingPanelPage) -> some View {
+        let selected = selection == option.rawValue
+
+        return Text(option.title)
+            .font(EnsembleDesign.Typography.stateMessage.weight(selected ? .semibold : .regular))
+            .foregroundColor(selected ? EnsembleDesign.Color.primaryText : EnsembleDesign.Color.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .contentShape(Capsule())
+            .background {
+                if selected {
+                    Capsule()
+                        .fill(EnsembleDesign.Color.windowSurface.opacity(0.86))
+                }
+            }
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                    selection = option.rawValue
+                }
+            }
+            .accessibilityElement()
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(option.title)
+            .accessibilityValue(selected ? "Selected" : "")
+    }
+}
+
+private extension NowPlayingPanelPage {
+    var title: String {
+        switch self {
+        case .queue:
+            return "Queue"
+        case .controls:
+            return "Controls"
+        case .lyrics:
+            return "Lyrics"
+        case .info:
+            return "Info"
+        }
     }
 }

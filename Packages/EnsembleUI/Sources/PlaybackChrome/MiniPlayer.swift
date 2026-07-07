@@ -164,7 +164,8 @@ public struct MiniPlayer: View {
             showsWaveform: showsWaveform,
             waveformColor: waveformColor,
             namespace: namespace,
-            animationID: animationID
+            animationID: animationID,
+            onOpen: onTap
         )
     }
 }
@@ -182,6 +183,7 @@ private struct MiniPlayerTrackInfo: View {
     let waveformColor: Color
     let namespace: Namespace.ID?
     let animationID: String?
+    let onOpen: () -> Void
 
     @State private var dragOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
@@ -279,7 +281,9 @@ private struct MiniPlayerTrackInfo: View {
 
     private func compactTrackRow(for track: Track) -> some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
-            trackInfoLane(for: track)
+            openNowPlayingButton {
+                trackInfoLane(for: track)
+            }
 
             Spacer(minLength: EnsembleDesign.Spacing.none)
 
@@ -310,7 +314,9 @@ private struct MiniPlayerTrackInfo: View {
             )
 
             HStack(spacing: laneSpacing) {
-                trackInfoLane(for: track)
+                openNowPlayingButton {
+                    trackInfoLane(for: track)
+                }
                     .frame(width: trackLaneWidth, alignment: .leading)
 
                 MiniPlayerWaveform(
@@ -330,6 +336,17 @@ private struct MiniPlayerTrackInfo: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .frame(height: max(artworkDimension, EnsembleScaffold.MiniPlayer.largeRowMinimumHeight))
+    }
+
+    private func openNowPlayingButton<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpen)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Show Now Playing")
     }
 
     private func trackInfoLane(for track: Track) -> some View {
