@@ -128,12 +128,9 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         )
 
         async let lyricsCleanup: Int = clearAllLyricsCaches()
-        async let targetCleanup: Void = targetRepository.deleteAllTargets()
-        async let downloadCleanup: Void = downloadManager.deleteAllDownloads()
-
         let lyricsItemCount = await lyricsCleanup
-        try await targetCleanup
-        try await downloadCleanup
+        try await targetRepository.deleteAllTargets()
+        try await downloadManager.deleteAllDownloads()
         try await libraryRepository.deleteAllLibraryData()
         try await artworkDownloadManager.clearArtworkCache()
 
@@ -177,12 +174,10 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             targetCount += sourceCounts.targets
 
             async let lyricsCleanup: Int = clearLyricsCache(sourceKey)
-            async let targetCleanup: Void = targetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
-            async let downloadCleanup: Void = downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
-
             lyricsItemCount += await lyricsCleanup
-            try await targetCleanup
-            try await downloadCleanup
+            try await targetRepository.deleteTargets(forSourceCompositeKey: sourceKey)
+            try await downloadManager.deleteDownloads(forSourceCompositeKey: sourceKey)
+            _ = try await downloadManager.removeOrphanedDownloadFiles()
 
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)
         }

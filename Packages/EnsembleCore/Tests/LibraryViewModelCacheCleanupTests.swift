@@ -235,6 +235,38 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
+    func testSourceCleanupRemovesDownloadFilesAndOrphanedSidecars() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        let trackRatingKey = "track-lib-1"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+        let fileURL = try await seedCompletedOfflineDownloadFile(
+            harness: harness,
+            sourceKey: sourceKey,
+            trackRatingKey: trackRatingKey
+        )
+        let sidecarURL = URL(fileURLWithPath: fileURL.path + ".freq")
+        let orphanSidecarURL = DownloadManager.downloadsDirectory
+            .appendingPathComponent("orphan-sidecar-\(UUID().uuidString).mp3.freq")
+        defer {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: sidecarURL)
+            try? FileManager.default.removeItem(at: orphanSidecarURL)
+        }
+        try Data("orphan".utf8).write(to: orphanSidecarURL)
+
+        let result = try await harness.sourceCacheCleanupService.cleanupSource(sourceKey)
+
+        XCTAssertEqual(result.sourceKeys, [sourceKey])
+        XCTAssertEqual(result.downloadRecordCount, 1)
+        XCTAssertEqual(result.targetCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanSidecarURL.path))
+        try await waitForDeferredCleanup(repository: harness.libraryRepository)
+        try await waitForDeferredOfflineCleanup(harness: harness)
+    }
+
     func testCacheManagerClearAllCachesUsesSourceCleanupWorker() async throws {
         let harness = makeHarness(clearAllLyricsCaches: { 3 })
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
