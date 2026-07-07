@@ -113,6 +113,9 @@ final class PlaylistMutationController {
         let serverSourceKey = try mutableServerSourceKey(for: playlist)
 
         let filteredTrackIds = await dependencies.filteredTrackIDsForServer(orderedTracks, serverSourceKey)
+        guard orderedTracks.isEmpty || !filteredTrackIds.isEmpty else {
+            throw PlaylistMutationError.emptySelection
+        }
         try await dependencies.replaceRemotePlaylistContents(playlist.id, filteredTrackIds, serverSourceKey)
         await dependencies.refreshServerPlaylists(serverSourceKey)
     }

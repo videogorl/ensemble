@@ -429,10 +429,12 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     var foundCount = 0
                     for (index, trackKey) in trackRatingKeys.enumerated() {
                         let trackRequest = CDTrack.fetchRequest()
-                        // Don't filter by sourceCompositeKey since playlists use server-level keys
-                        // but tracks use library-level keys. Track ratingKeys are unique anyway.
                         trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
-                        if let track = try context.fetch(trackRequest).first {
+                        let candidates = try context.fetch(trackRequest)
+                        if let track = Self.bestTrackMatch(
+                            from: candidates,
+                            playlistSourceCompositeKey: sourceCompositeKey
+                        ) {
                             foundCount += 1
                             let playlistTrack = CDPlaylistTrack(context: context)
                             playlistTrack.order = Int32(index)
@@ -455,6 +457,34 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 }
             }
         }
+    }
+
+    private static func bestTrackMatch(
+        from candidates: [CDTrack],
+        playlistSourceCompositeKey: String?
+    ) -> CDTrack? {
+        guard let playlistSourceCompositeKey else {
+            return candidates.first
+        }
+
+        if let exactMatch = candidates.first(where: { $0.sourceCompositeKey == playlistSourceCompositeKey }) {
+            return exactMatch
+        }
+
+        guard let playlistServerSourceKey = serverSourceKey(from: playlistSourceCompositeKey) else {
+            return nil
+        }
+
+        return candidates.first {
+            serverSourceKey(from: $0.sourceCompositeKey) == playlistServerSourceKey
+        }
+    }
+
+    private static func serverSourceKey(from sourceCompositeKey: String?) -> String? {
+        guard let sourceCompositeKey else { return nil }
+        let components = sourceCompositeKey.split(separator: ":")
+        guard components.count >= 3 else { return nil }
+        return components.prefix(3).joined(separator: ":")
     }
 
     public func deletePlaylist(ratingKey: String) async throws {

@@ -228,4 +228,43 @@ final class PlaylistMutationControllerTests: XCTestCase {
         XCTAssertEqual(replacedTrackIDs, ["t1", "t2"])
         XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
     }
+
+    func testReplacePlaylistContentsRejectsNonEmptyEditWhenNoTracksMatchSource() async throws {
+        var didReplaceRemote = false
+        var didRefresh = false
+
+        let controller = PlaylistMutationController(
+            dependencies: .init(
+                validateServerSourceKey: { _ in true },
+                fetchPlaylists: { _ in [] },
+                filteredTrackIDsForServer: { _, _ in [] },
+                createRemotePlaylist: { _, _, _ in },
+                reconcileCreatedPlaylist: { _, _, _, _ in nil },
+                addTracksToRemotePlaylist: { _, _, _ in },
+                renameRemotePlaylist: { _, _, _ in },
+                deleteRemotePlaylist: { _, _ in },
+                replaceRemotePlaylistContents: { _, _, _ in
+                    didReplaceRemote = true
+                },
+                persistLastPlaylistTarget: { _ in },
+                clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshServerPlaylists: { _ in
+                    didRefresh = true
+                }
+            )
+        )
+
+        do {
+            try await controller.replacePlaylistContents(
+                makePlaylist(),
+                with: [makeTrack(id: "t1")]
+            )
+            XCTFail("Expected emptySelection")
+        } catch let error as PlaylistMutationError {
+            XCTAssertEqual(error, .emptySelection)
+        }
+
+        XCTAssertFalse(didReplaceRemote)
+        XCTAssertFalse(didRefresh)
+    }
 }

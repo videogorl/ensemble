@@ -347,6 +347,49 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertNil(sourceBDropAfterEmptySetCleanup)
     }
 
+    func testSetPlaylistTracksLinksTrackFromPlaylistServerSource() async throws {
+        let stack = CoreDataStack.inMemory()
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistSource = "plex:account-1:server-1"
+        let matchingTrackSource = "plex:account-1:server-1:library-1"
+        let otherAccountTrackSource = "plex:account-2:server-1:library-1"
+
+        try await seedTrack(
+            ratingKey: "track-1",
+            title: "Wrong Account",
+            sourceCompositeKey: otherAccountTrackSource,
+            repository: libraryRepository
+        )
+        try await seedTrack(
+            ratingKey: "track-1",
+            title: "Right Account",
+            sourceCompositeKey: matchingTrackSource,
+            repository: libraryRepository
+        )
+        _ = try await upsertPlaylist(
+            in: playlistRepository,
+            ratingKey: "playlist-1",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: playlistSource
+        )
+
+        try await playlistRepository.setPlaylistTracks(
+            ["track-1"],
+            forPlaylist: "playlist-1",
+            sourceCompositeKey: playlistSource
+        )
+
+        let fetchedPlaylist = try await playlistRepository.fetchPlaylist(
+            ratingKey: "playlist-1",
+            sourceCompositeKey: playlistSource
+        )
+        let playlist = try XCTUnwrap(fetchedPlaylist)
+        XCTAssertEqual(playlist.tracksArray.map(\.sourceCompositeKey), [matchingTrackSource])
+        XCTAssertEqual(playlist.tracksArray.map(\.title), ["Right Account"])
+    }
+
     @discardableResult
     private func upsertPlaylist(
         in repository: PlaylistRepository,
@@ -367,6 +410,35 @@ final class PlaylistRepositoryTests: XCTestCase {
             dateAdded: nil,
             dateModified: dateModified,
             lastPlayed: nil,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func seedTrack(
+        ratingKey: String,
+        title: String,
+        sourceCompositeKey: String,
+        repository: LibraryRepository
+    ) async throws {
+        _ = try await repository.upsertTrack(
+            ratingKey: ratingKey,
+            key: "/library/metadata/\(ratingKey)",
+            title: title,
+            artistName: "Artist",
+            albumName: "Album",
+            albumRatingKey: "album-\(sourceCompositeKey)",
+            trackNumber: nil,
+            discNumber: nil,
+            duration: nil,
+            thumbPath: nil,
+            streamKey: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            lastRatedAt: nil,
+            rating: nil,
+            playCount: nil,
+            genreNames: nil,
             sourceCompositeKey: sourceCompositeKey
         )
     }
