@@ -247,28 +247,34 @@ public final class AccountManager: ObservableObject {
 
                     recordRemoteLibraryFlagTimestamp(remoteEntry)
 
-                    if updatedLibraries[k].isEnabled != remoteEntry.isEnabled {
-                        let sourceId = MusicSourceIdentifier(
-                            type: .plex,
-                            accountId: plexAccounts[i].id,
-                            serverId: server.id,
-                            libraryId: updatedLibraries[k].key
-                        )
-                        if remoteEntry.isEnabled {
-                            enabledSources.append(sourceId)
-                        } else {
+                    let sourceId = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: plexAccounts[i].id,
+                        serverId: server.id,
+                        libraryId: updatedLibraries[k].key
+                    )
+
+                    guard updatedLibraries[k].isEnabled != remoteEntry.isEnabled else {
+                        if !remoteEntry.isEnabled {
                             disabledSources.append(sourceId)
                         }
-                        updatedLibraries[k] = PlexLibraryConfig(
-                            id: updatedLibraries[k].id,
-                            key: updatedLibraries[k].key,
-                            title: updatedLibraries[k].title,
-                            isEnabled: remoteEntry.isEnabled,
-                            allowSync: updatedLibraries[k].allowSync,
-                            trackCount: updatedLibraries[k].trackCount
-                        )
-                        serverChanged = true
+                        continue
                     }
+
+                    if remoteEntry.isEnabled {
+                        enabledSources.append(sourceId)
+                    } else {
+                        disabledSources.append(sourceId)
+                    }
+                    updatedLibraries[k] = PlexLibraryConfig(
+                        id: updatedLibraries[k].id,
+                        key: updatedLibraries[k].key,
+                        title: updatedLibraries[k].title,
+                        isEnabled: remoteEntry.isEnabled,
+                        allowSync: updatedLibraries[k].allowSync,
+                        trackCount: updatedLibraries[k].trackCount
+                    )
+                    serverChanged = true
                 }
 
                 if serverChanged {
