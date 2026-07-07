@@ -55,6 +55,7 @@ struct DownloadTransferContext {
 
 struct DownloadTransferResult {
     let attemptedDirectFallback: Bool
+    let persisted: Bool
 }
 
 struct DownloadTransferExecutionError: Error {
@@ -75,6 +76,7 @@ final class DownloadTransferExecutor {
         let fetchAndCacheLyrics: @Sendable (String, String?) async -> Void
         let enqueueSidecarAnalysis: (URL, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
+        let isStillReferenced: (DownloadTransferContext) async -> Bool
     }
 
     private let dependencies: Dependencies
@@ -102,8 +104,13 @@ final class DownloadTransferExecutor {
                         quality: requestedQuality,
                         mode: "download-queue"
                     )
-                    if completed {
-                        return DownloadTransferResult(attemptedDirectFallback: false)
+                    switch completed {
+                    case .completed:
+                        return DownloadTransferResult(attemptedDirectFallback: false, persisted: true)
+                    case .skippedUnreferenced:
+                        return DownloadTransferResult(attemptedDirectFallback: false, persisted: false)
+                    case .emptyPayload:
+                        break
                     }
                 } catch {
                     if !dependencies.shouldAttemptDirectFallback(error, ctx) {
@@ -185,15 +192,19 @@ final class DownloadTransferExecutor {
             )
 
             try Self.validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
-            try await completeDownloadWithRecovery(
+            let persisted = try await completeDownloadIfStillReferenced(
                 ctx: ctx,
                 filePath: destinationURL.lastPathComponent,
                 fileSize: persistedFileSize,
-                quality: effectiveQuality
+                quality: effectiveQuality,
+                fileURL: destinationURL
             )
+            guard persisted else {
+                return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback, persisted: false)
+            }
             await runPostCompletionWork(fileURL: destinationURL, ctx: ctx)
 
-            return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback)
+            return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback, persisted: true)
         } catch {
             throw DownloadTransferExecutionError(
                 underlying: error,
@@ -202,14 +213,20 @@ final class DownloadTransferExecutor {
         }
     }
 
+    private enum QueueDownloadCompletion {
+        case completed
+        case emptyPayload
+        case skippedUnreferenced
+    }
+
     private func completeViaDownloadQueue(
         ctx: DownloadTransferContext,
         quality: StreamingQuality,
         mode: String
-    ) async throws -> Bool {
+    ) async throws -> QueueDownloadCompletion {
         let queuePayload = try await dependencies.fetchOfflineDownloadQueueMedia(ctx.domainTrack, quality)
         guard !queuePayload.data.isEmpty else {
-            return false
+            return .emptyPayload
         }
 
         let destinationURL = Self.localFileURL(
@@ -228,7 +245,7 @@ final class DownloadTransferExecutor {
         let queueAttributes = try? FileManager.default.attributesOfItem(atPath: destinationURL.path)
         let queueFileSize = (queueAttributes?[.size] as? NSNumber)?.int64Value ?? Int64(queuePayload.data.count)
         guard queueFileSize > 0 else {
-            return false
+            return .emptyPayload
         }
 
         var magicBytesHex = "?"
@@ -242,22 +259,35 @@ final class DownloadTransferExecutor {
         )
 
         try Self.validateDownloadDuration(fileURL: destinationURL, ctx: ctx)
-        try await completeDownloadWithRecovery(
+        let persisted = try await completeDownloadIfStillReferenced(
             ctx: ctx,
             filePath: destinationURL.lastPathComponent,
             fileSize: queueFileSize,
-            quality: quality
+            quality: quality,
+            fileURL: destinationURL
         )
+        guard persisted else {
+            return .skippedUnreferenced
+        }
         await runPostCompletionWork(fileURL: destinationURL, ctx: ctx)
-        return true
+        return .completed
     }
 
-    private func completeDownloadWithRecovery(
+    private func completeDownloadIfStillReferenced(
         ctx: DownloadTransferContext,
         filePath: String,
         fileSize: Int64,
-        quality: StreamingQuality
-    ) async throws {
+        quality: StreamingQuality,
+        fileURL: URL
+    ) async throws -> Bool {
+        guard await dependencies.isStillReferenced(ctx) else {
+            Self.removeLocalDownloadArtifact(fileURL)
+            EnsembleLogger.debug(
+                "🗑️ Skipped persisting completed download for unreferenced target: track=\(ctx.trackRatingKey)"
+            )
+            return false
+        }
+
         do {
             try await dependencies.downloadManager.completeDownload(
                 ctx.downloadObjectID,
@@ -265,7 +295,16 @@ final class DownloadTransferExecutor {
                 fileSize: fileSize,
                 quality: quality.rawValue
             )
+            return true
         } catch {
+            guard await dependencies.isStillReferenced(ctx) else {
+                Self.removeLocalDownloadArtifact(fileURL)
+                EnsembleLogger.debug(
+                    "🗑️ Skipped recovery for unreferenced completed download: track=\(ctx.trackRatingKey)"
+                )
+                return false
+            }
+
             EnsembleLogger.debug(
                 "⚠️ completeDownload(\(ctx.trackRatingKey)) objectID not found: \(error.localizedDescription); attempting recovery"
             )
@@ -281,6 +320,7 @@ final class DownloadTransferExecutor {
                 quality: quality.rawValue
             )
             EnsembleLogger.debug("✅ Download recovery successful for track=\(ctx.trackRatingKey)")
+            return true
         }
     }
 
@@ -534,6 +574,11 @@ final class DownloadTransferExecutor {
             : inferredFileExtension(mimeType: mimeType, payload: payload)
         let fileName = "\(ratingKey)_\(safeSourceKey)_\(quality.rawValue).\(ext)"
         return DownloadManager.downloadsDirectory.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static func removeLocalDownloadArtifact(_ fileURL: URL) {
+        try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: fileURL.appendingPathExtension("freq"))
     }
 
     static func inferredFileExtension(mimeType: String?, payload: Data?) -> String {

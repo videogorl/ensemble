@@ -116,7 +116,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 },
                 scheduleDownloadsChanged: {
                     notificationCount += 1
-                }
+                },
+                isStillReferenced: { _ in true }
             )
         )
 
@@ -169,7 +170,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     lyricsExpectation.fulfill()
                 },
                 enqueueSidecarAnalysis: { _, _ in },
-                scheduleDownloadsChanged: {}
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in true }
             )
         )
 
@@ -220,7 +222,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     lyricsExpectation.fulfill()
                 },
                 enqueueSidecarAnalysis: { _, _ in },
-                scheduleDownloadsChanged: {}
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in true }
             )
         )
 
@@ -242,6 +245,58 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
     }
 
+    func testExecuteSkipsPersistingWhenTargetIsRemovedBeforeCompletion() async throws {
+        let downloadManager = DownloadManagerMock()
+        let ctx = makeContext(trackRatingKey: "removed-target", quality: "original")
+        let response = makeHTTPResponse(url: URL(string: "https://example.com/removed-target.mp3")!, mimeType: "audio/mpeg")
+        var sidecarCount = 0
+        var notificationCount = 0
+
+        let executor = DownloadTransferExecutor(
+            dependencies: .init(
+                downloadManager: downloadManager,
+                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/removed-target.mp3")! },
+                fetchOfflineDownloadQueueMedia: { _, _ in
+                    XCTFail("Queue download should not be used for original quality")
+                    return (Data(), nil, nil)
+                },
+                shouldAttemptDirectFallback: { _, _ in false },
+                performDirectDownload: { _, _, _ in
+                    let tempURL = try self.writeTemporaryFile(named: "removed-target.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
+                    return (tempURL, response)
+                },
+                fetchArtworkURL: { _, _, _ in nil },
+                artworkDownloadManager: ArtworkDownloadManagerMock(),
+                fetchAndCacheLyrics: { _, _ in
+                    XCTFail("Lyrics should not be fetched for an unreferenced download")
+                },
+                enqueueSidecarAnalysis: { _, _ in
+                    sidecarCount += 1
+                },
+                scheduleDownloadsChanged: {
+                    notificationCount += 1
+                },
+                isStillReferenced: { _ in false }
+            )
+        )
+
+        let result = try await executor.execute(ctx: ctx, requestedQuality: .original)
+
+        let destinationURL = DownloadTransferExecutor.localFileURL(
+            ratingKey: ctx.trackRatingKey,
+            safeSourceKey: ctx.safeSourceKey,
+            quality: .original,
+            response: response
+        )
+
+        XCTAssertFalse(result.attemptedDirectFallback)
+        XCTAssertFalse(result.persisted)
+        XCTAssertTrue(downloadManager.completionCalls.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destinationURL.path))
+        XCTAssertEqual(sidecarCount, 0)
+        XCTAssertEqual(notificationCount, 0)
+    }
+
     func testExecuteThrowsWrappedErrorWhenFallbackIsBlocked() async throws {
         let sampleError = URLError(.badServerResponse)
         let executor = DownloadTransferExecutor(
@@ -258,7 +313,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 artworkDownloadManager: ArtworkDownloadManagerMock(),
                 fetchAndCacheLyrics: { _, _ in },
                 enqueueSidecarAnalysis: { _, _ in },
-                scheduleDownloadsChanged: {}
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in true }
             )
         )
 

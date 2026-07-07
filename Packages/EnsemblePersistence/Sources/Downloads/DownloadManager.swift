@@ -73,6 +73,10 @@ public protocol DownloadManagerProtocol: Sendable {
 
     /// Delete all download records and their associated files on disk.
     func deleteAllDownloads() async throws
+
+    /// Remove files in the downloads directory that are no longer referenced by
+    /// any download record, including orphaned sidecar files.
+    func removeOrphanedDownloadFiles() async throws -> Int
 }
 
 // Convenience defaults for lightweight protocol conformers.
@@ -100,6 +104,8 @@ public extension DownloadManagerProtocol {
     func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
         try await updateDownloadStatus(downloadId, status: .pending, quality: quality)
     }
+
+    func removeOrphanedDownloadFiles() async throws -> Int { 0 }
 }
 
 public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable {
@@ -848,6 +854,43 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     try Self.removeAllDownloadDirectoryFiles()
                     continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func removeOrphanedDownloadFiles() async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let request = CDDownload.fetchRequest()
+                    let downloads = try context.fetch(request)
+                    let referencedFilenames = Set(downloads.compactMap { download -> String? in
+                        guard let filePath = download.filePath, !filePath.isEmpty else { return nil }
+                        return Self.extractFilename(from: filePath)
+                    })
+
+                    let contents = (try? FileManager.default.contentsOfDirectory(
+                        at: Self.downloadsDirectory,
+                        includingPropertiesForKeys: nil,
+                        options: []
+                    )) ?? []
+
+                    var removedCount = 0
+                    for url in contents {
+                        let filename = url.lastPathComponent
+                        let ownerFilename = filename.hasSuffix(".freq")
+                            ? String(filename.dropLast(".freq".count))
+                            : filename
+                        guard !referencedFilenames.contains(ownerFilename) else { continue }
+
+                        try? FileManager.default.removeItem(at: url)
+                        removedCount += 1
+                    }
+
+                    continuation.resume(returning: removedCount)
                 } catch {
                     continuation.resume(throwing: error)
                 }

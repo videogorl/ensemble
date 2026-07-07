@@ -259,6 +259,14 @@ public final class OfflineDownloadService: ObservableObject {
             },
             scheduleDownloadsChanged: { [weak self] in
                 self?.notificationBridge.scheduleDownloadsChanged()
+            },
+            isStillReferenced: { [weak self] ctx in
+                guard let self else { return false }
+                let reference = OfflineTrackReference(
+                    trackRatingKey: ctx.trackRatingKey,
+                    trackSourceCompositeKey: ctx.sourceCompositeKey
+                )
+                return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
             }
         )
     )
@@ -757,6 +765,7 @@ public final class OfflineDownloadService: ObservableObject {
                 }
                 removalInProgress[key] = RemovalProgress(targetTitle: targetTitle, completed: index + 1, total: total)
             }
+            _ = try await downloadManager.removeOrphanedDownloadFiles()
 
             removalInProgress.removeValue(forKey: key)
 
@@ -1076,11 +1085,13 @@ public final class OfflineDownloadService: ObservableObject {
             let result = try await transferExecutor.execute(ctx: ctx, requestedQuality: requestedQuality)
             await refreshTargetsForTrack(ratingKey: ctx.trackRatingKey, sourceCompositeKey: ctx.sourceCompositeKey)
 
-            retryPolicy.recordSuccess(
-                trackRatingKey: ctx.trackRatingKey,
-                sourceCompositeKey: ctx.sourceCompositeKey,
-                attemptedDirectFallback: result.attemptedDirectFallback
-            )
+            if result.persisted {
+                retryPolicy.recordSuccess(
+                    trackRatingKey: ctx.trackRatingKey,
+                    sourceCompositeKey: ctx.sourceCompositeKey,
+                    attemptedDirectFallback: result.attemptedDirectFallback
+                )
+            }
         } catch {
             let executionError = error as? DownloadTransferExecutionError
             let underlyingError = executionError?.underlying ?? error
@@ -1828,6 +1839,7 @@ private actor SidecarAnalysisQueue {
 
     /// Add an item to the end of the queue. Skips duplicates (same sourceURL already pending).
     func enqueue(sourceURL: URL, sidecarURL: URL) {
+        guard Self.sourceFileExists(sourceURL, sidecarURL: sidecarURL) else { return }
         guard !pending.contains(where: { $0.sourceURL == sourceURL }) else { return }
         pending.append((sourceURL: sourceURL, sidecarURL: sidecarURL))
         startWorkerIfNeeded()
@@ -1836,6 +1848,7 @@ private actor SidecarAnalysisQueue {
     /// Move an item to the front so it runs next. If not already queued, inserts it.
     /// No-op if the sidecar file already exists.
     func prioritize(sourceURL: URL, sidecarURL: URL) {
+        guard Self.sourceFileExists(sourceURL, sidecarURL: sidecarURL) else { return }
         guard !FileManager.default.fileExists(atPath: sidecarURL.path) else { return }
         pending.removeAll { $0.sourceURL == sourceURL }
         pending.insert((sourceURL: sourceURL, sidecarURL: sidecarURL), at: 0)
@@ -1866,6 +1879,10 @@ private actor SidecarAnalysisQueue {
         guard !isSuspended, workerTask == nil, !pending.isEmpty else { return }
         let task = Task.detached(priority: .background) { [self] in
             while let item = await self.popNextItem() {
+                guard Self.sourceFileExists(item.sourceURL, sidecarURL: item.sidecarURL) else {
+                    await self.clearCurrentItem()
+                    continue
+                }
                 // Skip if sidecar was already generated (e.g. by the playback path)
                 if FileManager.default.fileExists(atPath: item.sidecarURL.path) {
                     await self.clearCurrentItem()
@@ -1878,6 +1895,10 @@ private actor SidecarAnalysisQueue {
                     await self.requeueCurrentItem()
                     break
                 }
+                guard Self.sourceFileExists(item.sourceURL, sidecarURL: item.sidecarURL) else {
+                    await self.clearCurrentItem()
+                    continue
+                }
                 if let scheduler = await self.scheduler() {
                     guard await scheduler.waitUntilAllowed(.sidecarAnalysis, policy: .playbackSafe) else {
                         await self.requeueCurrentItem()
@@ -1885,6 +1906,10 @@ private actor SidecarAnalysisQueue {
                     }
                 }
                 if let timeline = await FrequencyAnalysisService.analyzeForSidecar(fileURL: item.sourceURL) {
+                    guard Self.sourceFileExists(item.sourceURL, sidecarURL: item.sidecarURL) else {
+                        await self.clearCurrentItem()
+                        continue
+                    }
                     try? FrequencyTimelinePersistence.save(timeline, to: item.sidecarURL)
                 }
                 await self.clearCurrentItem()
@@ -1923,5 +1948,13 @@ private actor SidecarAnalysisQueue {
 
     private func scheduler() -> ForegroundWorkScheduling? {
         foregroundWorkScheduler
+    }
+
+    private static func sourceFileExists(_ sourceURL: URL, sidecarURL: URL) -> Bool {
+        let exists = FileManager.default.fileExists(atPath: sourceURL.path)
+        if !exists {
+            try? FileManager.default.removeItem(at: sidecarURL)
+        }
+        return exists
     }
 }

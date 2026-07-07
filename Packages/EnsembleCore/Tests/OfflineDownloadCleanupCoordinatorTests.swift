@@ -8,6 +8,7 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
     private final class DownloadManagerMock: DownloadManagerProtocol, @unchecked Sendable {
         var completedDownloads: [CDDownload] = []
         var deletedReferences: [OfflineTrackReference] = []
+        var removeOrphanedDownloadFilesCallCount = 0
 
         func fetchDownloads() async throws -> [CDDownload] { completedDownloads }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
@@ -38,6 +39,10 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
         func getTotalDownloadSize() async throws -> Int64 { 0 }
         func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}
+        func removeOrphanedDownloadFiles() async throws -> Int {
+            removeOrphanedDownloadFilesCallCount += 1
+            return 0
+        }
     }
 
     private final class TargetRepositoryMock: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
@@ -94,6 +99,7 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
             downloadManager.deletedReferences,
             [OfflineTrackReference(trackRatingKey: "drop-track", trackSourceCompositeKey: "source-a")]
         )
+        XCTAssertEqual(downloadManager.removeOrphanedDownloadFilesCallCount, 1)
     }
 
     private func makeCompletedDownload(trackRatingKey: String, sourceCompositeKey: String) -> CDDownload {

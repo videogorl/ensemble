@@ -45,6 +45,7 @@ final class OfflineDownloadCleanupCoordinator {
             removedCount += 1
         }
 
+        _ = try await dependencies.downloadManager.removeOrphanedDownloadFiles()
         return removedCount
     }
 }

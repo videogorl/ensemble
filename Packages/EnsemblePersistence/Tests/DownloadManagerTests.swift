@@ -417,6 +417,51 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNil(track.localFilePath)
     }
 
+    func testRemoveOrphanedDownloadFilesRemovesUnreferencedFilesAndSidecars() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let suffix = UUID().uuidString
+        let referencedFilename = "referenced-\(suffix).mp3"
+        let orphanFilename = "orphan-\(suffix).mp3"
+        let orphanSidecarFilename = "sidecar-only-\(suffix).mp3.freq"
+        let referencedURL = DownloadManager.downloadsDirectory.appendingPathComponent(referencedFilename)
+        let referencedSidecarURL = DownloadManager.downloadsDirectory.appendingPathComponent(referencedFilename + ".freq")
+        let orphanURL = DownloadManager.downloadsDirectory.appendingPathComponent(orphanFilename)
+        let orphanSidecarURL = DownloadManager.downloadsDirectory.appendingPathComponent(orphanSidecarFilename)
+        defer {
+            try? FileManager.default.removeItem(at: referencedURL)
+            try? FileManager.default.removeItem(at: referencedSidecarURL)
+            try? FileManager.default.removeItem(at: orphanURL)
+            try? FileManager.default.removeItem(at: orphanSidecarURL)
+        }
+
+        try Data([0x01]).write(to: referencedURL)
+        try Data([0x02]).write(to: referencedSidecarURL)
+        try Data([0x03]).write(to: orphanURL)
+        try Data([0x04]).write(to: orphanSidecarURL)
+        try await seedTrack(ratingKey: "302", sourceCompositeKey: sourceA, repository: libraryRepository)
+        let download = try await downloadManager.createDownload(
+            forTrackRatingKey: "302",
+            sourceCompositeKey: sourceA,
+            quality: "high"
+        )
+        try await downloadManager.completeDownload(
+            download.objectID,
+            filePath: referencedFilename,
+            fileSize: 1,
+            quality: "high"
+        )
+
+        let removedCount = try await downloadManager.removeOrphanedDownloadFiles()
+
+        XCTAssertEqual(removedCount, 2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: referencedURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: referencedSidecarURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanSidecarURL.path))
+    }
+
     func testFetchDownloadsHealsMetadataFromDirectorySnapshot() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
