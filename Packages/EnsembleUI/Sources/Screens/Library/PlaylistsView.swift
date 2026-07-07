@@ -665,6 +665,8 @@ public struct PlaylistsView: View {
         guard !pendingDeletionPlaylistIDs.contains(playlist.id) else { return }
         guard let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
 
+        viewModel.applyOptimisticDelete(for: playlist)
+
         let deletingToast = start.pendingToast
         deletingToastIDsByPlaylistID[playlist.id] = deletingToast.id
         deps.toastCenter.show(deletingToast)
@@ -678,9 +680,6 @@ public struct PlaylistsView: View {
         Task {
             do {
                 let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
-                if result.outcome == .queued {
-                    viewModel.applyOptimisticDelete(for: playlist)
-                }
                 deps.pinMutationWorkflow.unpin(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
@@ -694,6 +693,8 @@ public struct PlaylistsView: View {
                     object: nil,
                     userInfo: ["playlistID": playlist.id]
                 )
+                viewModel.clearOptimisticDelete(for: playlist.id)
+                await viewModel.loadPlaylists()
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.deleteFailureToast(
                         playlist: playlist,

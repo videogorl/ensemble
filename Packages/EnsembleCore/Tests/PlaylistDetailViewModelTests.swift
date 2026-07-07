@@ -480,6 +480,45 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.error)
     }
 
+    func testPlaylistViewModelKeepsCompletedDeleteHiddenWhenCacheReloadIsStale() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        syncCoordinator.playlistDeleteHandlerForTesting = { _, _ in }
+        syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let deletedPlaylist = makePlaylist(id: "playlist-a", title: "Audit")
+        let remainingPlaylist = makePlaylist(id: "playlist-b", title: "Road")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: deletedPlaylist.id,
+            sourceCompositeKey: deletedPlaylist.sourceCompositeKey
+        )] = makeCachedPlaylist(deletedPlaylist, tracks: [], context: context)
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: remainingPlaylist.id,
+            sourceCompositeKey: remainingPlaylist.sourceCompositeKey
+        )] = makeCachedPlaylist(remainingPlaylist, tracks: [], context: context)
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id).sorted(), ["playlist-a", "playlist-b"])
+
+        let didDelete = await viewModel.deletePlaylist(deletedPlaylist)
+
+        XCTAssertTrue(didDelete)
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-b"])
+
+        await viewModel.loadPlaylists()
+
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-b"])
+        XCTAssertEqual(viewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-b"])
+    }
+
     func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()

@@ -19,6 +19,15 @@ final class PlaylistRefreshController {
                 return "websocket sync"
             }
         }
+
+        var forcesPlaylistOrphanCheck: Bool {
+            switch self {
+            case .mutationRefresh, .playlistOnly:
+                return true
+            case .webSocket:
+                return false
+            }
+        }
     }
 
     struct RefreshResult {
@@ -83,6 +92,10 @@ final class PlaylistRefreshController {
             let sourceId = provider.sourceIdentifier
 
             do {
+                if trigger.forcesPlaylistOrphanCheck {
+                    PlexMusicSourceSyncProvider.resetPlaylistOrphanCheckTimestamp(for: serverSourceKey)
+                }
+
                 let playlistResult = try await provider.syncPlaylistsIncremental(
                     to: playlistRepository,
                     progressHandler: { _ in }

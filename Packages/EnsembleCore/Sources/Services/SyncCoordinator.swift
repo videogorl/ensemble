@@ -633,7 +633,19 @@ public final class SyncCoordinator: ObservableObject {
         if let playlistReplaceContentsHandlerForTesting {
             try await playlistReplaceContentsHandlerForTesting(apiClient, playlistId, trackIDs, server.serverId)
         } else {
-            try await apiClient.clearPlaylistItems(playlistId: playlistId)
+            let currentItems = try await apiClient.getPlaylistTracks(playlistKey: playlistId)
+            let playlistItemIDs = currentItems.compactMap(\.playlistItemID)
+            if playlistItemIDs.count == currentItems.count {
+                for playlistItemID in playlistItemIDs {
+                    try await apiClient.removePlaylistItem(
+                        playlistId: playlistId,
+                        playlistItemId: playlistItemID
+                    )
+                }
+            } else {
+                EnsembleLogger.debug("⚠️ Playlist \(playlistId) has items without playlistItemID; falling back to bulk clear")
+                try await apiClient.clearPlaylistItems(playlistId: playlistId)
+            }
             if !trackIDs.isEmpty {
                 try await apiClient.addItemsToPlaylist(
                     playlistId: playlistId,

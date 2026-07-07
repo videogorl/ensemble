@@ -87,6 +87,7 @@ public final class PlaylistViewModel: ObservableObject {
     private var coalescedReloadTask: Task<Void, Never>?
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
+    private var optimisticDeletedPlaylistIDs: Set<String> = []
     /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
     /// CoreData states (partial data while sync rebuilds records) don't clobber the list.
     /// Published so the view can freeze its cached list during refresh.
@@ -211,11 +212,8 @@ public final class PlaylistViewModel: ObservableObject {
 
     public func deletePlaylist(_ playlist: Playlist) async -> Bool {
         do {
-            let outcome = try await mutationCoordinator.deletePlaylist(playlist)
-            if outcome == .queued {
-                // Optimistically remove from list while queued
-                playlists.removeAll { $0.id == playlist.id }
-            }
+            _ = try await mutationCoordinator.deletePlaylist(playlist)
+            applyOptimisticDelete(for: playlist)
             return true
         } catch {
             self.error = error.localizedDescription
@@ -224,7 +222,15 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func applyOptimisticDelete(for playlist: Playlist) {
-        playlists.removeAll { $0.id == playlist.id }
+        optimisticDeletedPlaylistIDs.insert(playlist.id)
+        optimisticCreatingPlaylists.removeAll { $0.id == playlist.id }
+        optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlist.id)
+        publishPlaylistsIfChanged(filterOptimisticallyDeletedPlaylists(playlists))
+        updateLastGoodSnapshotIfNeeded(playlists)
+    }
+
+    public func clearOptimisticDelete(for playlistID: String) {
+        optimisticDeletedPlaylistIDs.remove(playlistID)
     }
 
     public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
@@ -419,7 +425,9 @@ public final class PlaylistViewModel: ObservableObject {
                 serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
             }
             let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
-            let merged = mergeWithOptimisticCreatingPlaylists(renamedApplied)
+            let merged = filterOptimisticallyDeletedPlaylists(
+                mergeWithOptimisticCreatingPlaylists(renamedApplied)
+            )
 
             // Never replace populated playlists with empty or degraded results.
             // CoreData can return empty mid-sync while records are being rebuilt,
@@ -489,6 +497,7 @@ public final class PlaylistViewModel: ObservableObject {
         }
         optimisticCreatingPlaylists = []
         optimisticRenamedPlaylistTitlesByID = [:]
+        optimisticDeletedPlaylistIDs = []
         publishPlaylistsIfChanged([])
         visibleSnapshot = []
         filteredPlaylists = []
@@ -504,6 +513,11 @@ public final class PlaylistViewModel: ObservableObject {
         playlists = nextPlaylists
         visibleSnapshot = nextPlaylists
         applyDerivedPlaylistSnapshots(nextPlaylists)
+    }
+
+    private func filterOptimisticallyDeletedPlaylists(_ playlists: [Playlist]) -> [Playlist] {
+        guard !optimisticDeletedPlaylistIDs.isEmpty else { return playlists }
+        return playlists.filter { !optimisticDeletedPlaylistIDs.contains($0.id) }
     }
 
     private func applyDerivedPlaylistSnapshots(_ snapshot: [Playlist]) {

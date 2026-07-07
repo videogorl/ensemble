@@ -641,7 +641,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
     }
 
-    private static func playlistOrphanCheckKey(for serverSourceKey: String) -> String {
+    static func resetPlaylistOrphanCheckTimestamp(for serverSourceKey: String) {
+        UserDefaults.standard.removeObject(forKey: playlistOrphanCheckKey(for: serverSourceKey))
+    }
+
+    static func playlistOrphanCheckKey(for serverSourceKey: String) -> String {
         "lastPlaylistOrphanCheckAt_\(serverSourceKey)"
     }
 
