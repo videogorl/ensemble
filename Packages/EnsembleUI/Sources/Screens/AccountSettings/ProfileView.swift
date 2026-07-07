@@ -15,6 +15,7 @@ public struct ProfileView: View {
     @State private var showingDeleteAlert = false
     @State private var showingClearArtworkCacheAlert = false
     @State private var showingClearDataAlert = false
+    @State private var showingRemoveAllAccountsAlert = false
     @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
@@ -93,6 +94,14 @@ public struct ProfileView: View {
                 }
             } message: {
                 Text("This will delete all synced music data (tracks, albums, artists, playlists). Your account settings will be preserved. You'll need to re-sync after clearing.")
+            }
+            .alert("Remove All Accounts", isPresented: $showingRemoveAllAccountsAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Remove All Accounts", role: .destructive) {
+                    removeAllAccountsAndCachedData()
+                }
+            } message: {
+                Text("This removes every Plex account and clears synced library data, downloads, artwork, and playlists from this device.")
             }
     }
 
@@ -331,7 +340,7 @@ public struct ProfileView: View {
     private var resetSection: some View {
         Section(header: EnsembleUtilitySectionHeader("Reset")) {
             Button(role: .destructive) {
-                removeAllAccountsAndCachedData()
+                showingRemoveAllAccountsAlert = true
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.removeAccounts,
@@ -657,7 +666,7 @@ public struct ProfileView: View {
     private var macOSResetSection: some View {
         EnsembleUtilityCardSection("Reset") {
             macDestructiveButtonRow {
-                removeAllAccountsAndCachedData()
+                showingRemoveAllAccountsAlert = true
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.removeAccounts,

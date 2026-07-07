@@ -7,6 +7,7 @@ import SwiftUI
 public struct LogsSettingsView: View {
     @ObservedObject private var logService = DependencyContainer.shared.persistentLogService
     @State private var isLoggingEnabled: Bool = DependencyContainer.shared.persistentLogService.isEnabled
+    @State private var showingDeleteAllSessionsAlert = false
 
     public init() {}
 
@@ -18,6 +19,14 @@ public struct LogsSettingsView: View {
         }
         .onAppear {
             logService.loadSessions()
+        }
+        .alert("Delete All Sessions", isPresented: $showingDeleteAllSessionsAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete All Sessions", role: .destructive) {
+                logService.deleteAllSessions()
+            }
+        } message: {
+            Text("This permanently deletes every saved diagnostic log session on this device.")
         }
     }
 
@@ -57,7 +66,7 @@ public struct LogsSettingsView: View {
             if !logService.sessions.isEmpty {
                 Section {
                     Button(role: .destructive) {
-                        logService.deleteAllSessions()
+                        showingDeleteAllSessionsAlert = true
                     } label: {
                         HStack {
                             Image(systemName: EnsembleDesign.Icon.delete)
@@ -149,7 +158,7 @@ public struct LogsSettingsView: View {
 
     private var deleteAllButton: some View {
         Button(role: .destructive) {
-            logService.deleteAllSessions()
+            showingDeleteAllSessionsAlert = true
         } label: {
             HStack {
                 Image(systemName: EnsembleDesign.Icon.delete)
