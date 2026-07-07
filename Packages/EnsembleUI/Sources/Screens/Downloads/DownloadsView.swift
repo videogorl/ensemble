@@ -218,6 +218,9 @@ public struct DownloadsView: View {
                     )
                 )
                 .labelsHidden()
+                .accessibilityLabel(libraryDownloadToggleLabel(for: library))
+                .accessibilityValue(libraryDownloadToggleValue(for: library))
+                .accessibilityHint(libraryDownloadToggleHint(for: library))
                 .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
             }
         }
@@ -322,6 +325,9 @@ public struct DownloadsView: View {
                     )
                 )
                 .labelsHidden()
+                .accessibilityLabel(libraryDownloadToggleLabel(for: library))
+                .accessibilityValue(libraryDownloadToggleValue(for: library))
+                .accessibilityHint(libraryDownloadToggleHint(for: library))
                 .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
 
                 // Manual chevron since the hidden NavigationLink won't render one
@@ -416,6 +422,21 @@ public struct DownloadsView: View {
             isEnabled: settingsManager.demoModeEnabled
         )
         return "\(serverName): \(library.libraryName)"
+    }
+
+    private func libraryDownloadToggleLabel(for library: LibraryDownloadSummary) -> String {
+        "\(displayLibraryTitle(for: library)) offline download"
+    }
+
+    private func libraryDownloadToggleValue(for library: LibraryDownloadSummary) -> String {
+        viewModel.isLibraryEnabled(sourceCompositeKey: library.sourceCompositeKey) ? "On" : "Off"
+    }
+
+    private func libraryDownloadToggleHint(for library: LibraryDownloadSummary) -> String {
+        if library.canDownload {
+            return "Enables or removes offline downloads for this library."
+        }
+        return "Downloads are unavailable for this library."
     }
 
     // MARK: - Target Rows
