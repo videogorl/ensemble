@@ -147,33 +147,32 @@ struct NowPlayingPanelSelector: View {
             Capsule()
                 .fill(EnsembleDesign.Color.secondaryControlFill)
         )
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Panel")
     }
 
     private func panelButton(for option: NowPlayingPanelPage) -> some View {
         let selected = selection == option.rawValue
 
-        return Text(option.title)
-            .font(EnsembleDesign.Typography.stateMessage.weight(selected ? .semibold : .regular))
-            .foregroundColor(selected ? EnsembleDesign.Color.primaryText : EnsembleDesign.Color.secondaryText)
-            .frame(maxWidth: .infinity, minHeight: 32)
-            .contentShape(Capsule())
-            .background {
-                if selected {
-                    Capsule()
-                        .fill(EnsembleDesign.Color.windowSurface.opacity(0.86))
-                }
+        return Button {
+            withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
+                selection = option.rawValue
             }
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
-                    selection = option.rawValue
+        } label: {
+            Text(option.title)
+                .font(EnsembleDesign.Typography.stateMessage.weight(selected ? .semibold : .regular))
+                .foregroundColor(selected ? EnsembleDesign.Color.primaryText : EnsembleDesign.Color.secondaryText)
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .background {
+                    if selected {
+                        Capsule()
+                            .fill(EnsembleDesign.Color.windowSurface.opacity(0.86))
+                    }
                 }
-            }
-            .accessibilityElement()
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(option.title)
-            .accessibilityValue(selected ? "Selected" : "")
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .contentShape(Capsule())
+        .accessibilityLabel(option.title)
+        .accessibilityValue(selected ? "Selected" : "")
     }
 }
 
