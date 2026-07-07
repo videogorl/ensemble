@@ -604,7 +604,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             let context = coreDataStack.viewContext
             context.perform {
                 context.stalenessInterval = 0
-                context.refreshAllObjects()
+                context.reset()
                 context.stalenessInterval = 5.0
                 continuation.resume()
             }

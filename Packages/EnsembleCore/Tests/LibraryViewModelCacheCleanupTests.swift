@@ -267,6 +267,68 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
+    func testRemoteLibraryDisableCleansSourceDownloadsAndPreservesEnabledSource() async throws {
+        let harness = makeHarness()
+        let enabledSourceKey = "plex:account-1:server-1:lib-1"
+        let disabledSourceKey = "plex:account-1:server-1:lib-2"
+        harness.accountManager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    ("lib-1", "Library One", true),
+                    ("lib-2", "Library Two", true)
+                ]
+            )
+        )
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: enabledSourceKey)
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: disabledSourceKey)
+
+        let keptFileURL = try await seedCompletedOfflineDownloadFile(
+            harness: harness,
+            sourceKey: enabledSourceKey,
+            trackRatingKey: "track-lib-1"
+        )
+        let removedFileURL = try await seedCompletedOfflineDownloadFile(
+            harness: harness,
+            sourceKey: disabledSourceKey,
+            trackRatingKey: "track-lib-2"
+        )
+        let keptSidecarURL = URL(fileURLWithPath: keptFileURL.path + ".freq")
+        let removedSidecarURL = URL(fileURLWithPath: removedFileURL.path + ".freq")
+        defer {
+            try? FileManager.default.removeItem(at: keptFileURL)
+            try? FileManager.default.removeItem(at: keptSidecarURL)
+            try? FileManager.default.removeItem(at: removedFileURL)
+            try? FileManager.default.removeItem(at: removedSidecarURL)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keptFileURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: removedFileURL.path))
+
+        let result = harness.accountManager.applyLibraryFlags(
+            try makeFlagsData([
+                "account-1:server-1:lib-1": true,
+                "account-1:server-1:lib-2": false
+            ])
+        )
+        XCTAssertEqual(result.disabledSources.map(\.compositeKey), [disabledSourceKey])
+
+        await harness.syncCoordinator.cleanupRemovedSourcesIfPresent(result.disabledSources)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keptFileURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keptSidecarURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removedFileURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removedSidecarURL.path))
+        let keptDownloadCount = try await harness.downloadManager.countDownloads(forSourceCompositeKey: enabledSourceKey)
+        let removedDownloadCount = try await harness.downloadManager.countDownloads(forSourceCompositeKey: disabledSourceKey)
+        let targetSourceKeys = Set(try await harness.targetRepository.fetchTargets().compactMap(\.sourceCompositeKey))
+        let cachedSourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
+        let trackSourceKeys = Set(try await harness.libraryRepository.fetchTracks().compactMap(\.sourceCompositeKey))
+        XCTAssertEqual(keptDownloadCount, 1)
+        XCTAssertEqual(removedDownloadCount, 0)
+        XCTAssertEqual(targetSourceKeys, [enabledSourceKey])
+        XCTAssertEqual(cachedSourceKeys, [enabledSourceKey])
+        XCTAssertEqual(trackSourceKeys, [enabledSourceKey])
+    }
+
     func testCacheManagerClearAllCachesUsesSourceCleanupWorker() async throws {
         let harness = makeHarness(clearAllLyricsCaches: { 3 })
         try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
@@ -535,6 +597,10 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
                 )
             ]
         )
+    }
+
+    private func makeFlagsData(_ flags: [String: Bool]) throws -> Data {
+        try JSONEncoder().encode(flags)
     }
 
     private func seedSourceAndTrack(repository: LibraryRepository, sourceKey: String) async throws {

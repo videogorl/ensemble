@@ -317,7 +317,7 @@ public struct ProfileView: View {
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.paintPalette,
-                    title: "Clear Artwork Cache...",
+                    title: "Clear Artwork Cache…",
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
@@ -644,7 +644,7 @@ public struct ProfileView: View {
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.paintPalette,
-                    title: "Clear Artwork Cache...",
+                    title: "Clear Artwork Cache…",
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
