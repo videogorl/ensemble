@@ -27,7 +27,9 @@ public struct QualitySizeEstimates {
         case "high": return MediaFormatters.bytes(highBytes)
         case "medium": return MediaFormatters.bytes(mediumBytes)
         case "low": return MediaFormatters.bytes(lowBytes)
-        case "original": return "> \(MediaFormatters.bytes(highBytes))"
+        case "original":
+            let highEstimate = MediaFormatters.bytes(highBytes)
+            return highBytes > 0 ? "> \(highEstimate)" : highEstimate
         default: return MediaFormatters.bytes(actualBytes)
         }
     }

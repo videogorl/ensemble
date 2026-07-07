@@ -49,6 +49,24 @@ final class MediaFormattersTests: XCTestCase {
         XCTAssertTrue(value.localizedCaseInsensitiveContains("MB"))
     }
 
+    func testQualitySizeEstimateOriginalDoesNotPrefixZero() {
+        let emptyEstimate = QualitySizeEstimates(
+            actualBytes: 0,
+            highBytes: 0,
+            mediumBytes: 0,
+            lowBytes: 0
+        )
+        XCTAssertEqual(emptyEstimate.formattedSize(for: "original"), "Zero KB")
+
+        let nonEmptyEstimate = QualitySizeEstimates(
+            actualBytes: 0,
+            highBytes: 1_048_576,
+            mediumBytes: 786_432,
+            lowBytes: 524_288
+        )
+        XCTAssertEqual(nonEmptyEstimate.formattedSize(for: "original"), "> 1 MB")
+    }
+
     func testSpecializedByteFormattersKeepExpectedUnits() {
         XCTAssertFalse(MediaFormatters.fileBytes(512).isEmpty)
         XCTAssertTrue(MediaFormatters.logBytes(1_024).localizedCaseInsensitiveContains("KB"))

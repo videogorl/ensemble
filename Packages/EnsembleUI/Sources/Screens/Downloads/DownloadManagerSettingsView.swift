@@ -49,7 +49,7 @@ public struct DownloadManagerSettingsView: View {
             if let estimates = viewModel.sizeEstimates {
                 Section {
                     sizeRow(label: "Current on disk", size: estimates.actualBytes)
-                    sizeRow(label: "Original", size: estimates.highBytes, note: "> \(MediaFormatters.bytes(estimates.highBytes))")
+                    sizeRow(label: "Original", size: estimates.highBytes, note: estimates.formattedSize(for: "original"))
                     sizeRow(label: "High (320 kbps)", size: estimates.highBytes)
                     sizeRow(label: "Medium (192 kbps)", size: estimates.mediumBytes)
                     sizeRow(label: "Low (128 kbps)", size: estimates.lowBytes)
