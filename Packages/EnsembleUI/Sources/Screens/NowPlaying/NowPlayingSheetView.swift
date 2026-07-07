@@ -37,6 +37,7 @@ public struct NowPlayingSheetView: View {
                         NowPlayingWidePanelLayout(
                             viewModel: viewModel,
                             currentPage: currentPageBinding,
+                            dismissAction: handleDismiss,
                             centersContentInAvailableSpace: true
                         )
                     } else {
