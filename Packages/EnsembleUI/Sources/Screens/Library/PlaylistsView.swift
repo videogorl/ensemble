@@ -1392,7 +1392,7 @@ private struct CreatePlaylistView: View {
             } header: {
                 Text("Servers")
             } footer: {
-                Text("Select which servers to create this playlist on.")
+                Text(serverSelectionFooter)
             }
         }
     }
@@ -1408,11 +1408,15 @@ private struct CreatePlaylistView: View {
         if serverOptions.count > 1 {
             EnsembleUtilityCardSection(
                 "Servers",
-                footer: "Select which servers to create this playlist on."
+                footer: serverSelectionFooter
             ) {
                 serverSelectionRows(cardRows: true)
             }
         }
+    }
+
+    private var serverSelectionFooter: String {
+        "\(selectedServerIDs.count) of \(serverOptions.count) servers selected. Selected servers will receive the new playlist."
     }
 
     private var playlistNameField: some View {
@@ -1448,8 +1452,10 @@ private struct CreatePlaylistView: View {
     }
 
     private func serverSelectionButton(for option: PlaylistServerOption) -> some View {
-        Button {
-            if selectedServerIDs.contains(option.id) {
+        let isSelected = selectedServerIDs.contains(option.id)
+
+        return Button {
+            if isSelected {
                 selectedServerIDs.remove(option.id)
             } else {
                 selectedServerIDs.insert(option.id)
@@ -1459,12 +1465,19 @@ private struct CreatePlaylistView: View {
                 Text(option.name)
                     .foregroundColor(EnsembleDesign.Color.primaryText)
                 Spacer()
-                if selectedServerIDs.contains(option.id) {
+                if isSelected {
+                    Text("Selected")
+                        .font(.caption)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                     Image(systemName: EnsembleDesign.Icon.selectionCheckmark)
                         .foregroundColor(EnsembleDesign.Color.accent)
                 }
             }
         }
+        .accessibilityLabel(option.name)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityHint("Toggles whether this server receives the new playlist.")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func submit() {
