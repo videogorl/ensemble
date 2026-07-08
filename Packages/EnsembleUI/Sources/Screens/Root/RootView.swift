@@ -25,6 +25,7 @@ public struct RootView: View {
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var isSoftwareKeyboardVisible = false
     @State private var hasLoggedAutomationLaunchOptions = false
+    @State private var hasAppliedAutomationNetworkState = false
     @State private var hasAppliedAutomationLaunchRoute = false
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
@@ -85,6 +86,7 @@ public struct RootView: View {
             updateAppearance()
             DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
             logAutomationLaunchOptionsIfNeeded()
+            applyAutomationNetworkStateIfNeeded()
             applyAutomationLaunchRouteIfNeeded()
         }
         .onDisappear {
@@ -146,6 +148,20 @@ public struct RootView: View {
         guard !hasLoggedAutomationLaunchOptions else { return }
         hasLoggedAutomationLaunchOptions = true
         AutomationLaunchOptions.current.logLaunchIfNeeded()
+    }
+
+    private func applyAutomationNetworkStateIfNeeded() {
+        guard !hasAppliedAutomationNetworkState else { return }
+        hasAppliedAutomationNetworkState = true
+
+        let options = AutomationLaunchOptions.current
+        guard options.simulateOffline else { return }
+
+        #if DEBUG
+        DependencyContainer.shared.networkMonitor.simulateOffline(true)
+        #else
+        EnsembleLogger.info("Automation offline simulation requested in a non-debug build; ignoring")
+        #endif
     }
 
     private func applyAutomationLaunchRouteIfNeeded() {

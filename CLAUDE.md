@@ -113,6 +113,12 @@ swift test --package-path Packages/EnsembleUI
 swift test --package-path Packages/EnsembleSiriShared
 ```
 
+Automation launch arguments:
+- `-EnsembleAutomationMode YES` enables automation logging and debug deep links.
+- `-EnsembleAutomationStartSurface <home|songs|artists|albums|genres|playlists|favorites|search|downloads|settings|profile|profile-storage>` routes to a surface through the same navigation path as taps.
+- `-EnsembleAutomationDisableAnimations YES` disables SwiftUI animations for stable screenshots and taps.
+- `-EnsembleAutomationSimulateOffline YES` forces the debug network monitor offline at launch and logs `simulateOffline=true`; omit it on the reconnect launch to drain queued mutations.
+
 The independent watch app builds with the `EnsembleWatch` scheme. The iOS `Ensemble` scheme does not embed the watch app during simulator builds.
 
 ## Architecture Summary

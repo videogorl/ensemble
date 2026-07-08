@@ -11,6 +11,8 @@ final class AutomationSupportTests: XCTestCase {
                 AutomationLaunchOptions.startSurfaceArgument,
                 "profile-storage",
                 AutomationLaunchOptions.disableAnimationsArgument,
+                "true",
+                AutomationLaunchOptions.simulateOfflineArgument,
                 "true"
             ],
             environment: [:]
@@ -19,6 +21,7 @@ final class AutomationSupportTests: XCTestCase {
         XCTAssertTrue(options.isEnabled)
         XCTAssertEqual(options.startSurface, .profileStorage)
         XCTAssertTrue(options.disableAnimations)
+        XCTAssertTrue(options.simulateOffline)
     }
 
     func testLaunchOptionsStartSurfaceEnablesAutomationMode() {
@@ -35,19 +38,34 @@ final class AutomationSupportTests: XCTestCase {
         XCTAssertEqual(options.startSurface, .downloads)
     }
 
+    func testLaunchOptionsSimulatedOfflineEnablesAutomationMode() {
+        let options = AutomationLaunchOptions.current(
+            arguments: [
+                "Ensemble",
+                AutomationLaunchOptions.simulateOfflineArgument
+            ],
+            environment: [:]
+        )
+
+        XCTAssertTrue(options.isEnabled)
+        XCTAssertTrue(options.simulateOffline)
+    }
+
     func testLaunchOptionsParseEnvironment() {
         let options = AutomationLaunchOptions.current(
             arguments: ["Ensemble"],
             environment: [
                 AutomationLaunchOptions.modeEnvironmentKey: "1",
                 AutomationLaunchOptions.startSurfaceEnvironmentKey: "albums",
-                AutomationLaunchOptions.disableAnimationsEnvironmentKey: "on"
+                AutomationLaunchOptions.disableAnimationsEnvironmentKey: "on",
+                AutomationLaunchOptions.simulateOfflineEnvironmentKey: "yes"
             ]
         )
 
         XCTAssertTrue(options.isEnabled)
         XCTAssertEqual(options.startSurface, .albums)
         XCTAssertTrue(options.disableAnimations)
+        XCTAssertTrue(options.simulateOffline)
     }
 
     func testAutomationIdentifiersSanitizeDynamicComponents() {

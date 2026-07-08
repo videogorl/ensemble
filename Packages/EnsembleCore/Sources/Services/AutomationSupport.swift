@@ -6,22 +6,27 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
     public static let modeArgument = "-EnsembleAutomationMode"
     public static let startSurfaceArgument = "-EnsembleAutomationStartSurface"
     public static let disableAnimationsArgument = "-EnsembleAutomationDisableAnimations"
+    public static let simulateOfflineArgument = "-EnsembleAutomationSimulateOffline"
     public static let modeEnvironmentKey = "ENSEMBLE_AUTOMATION_MODE"
     public static let startSurfaceEnvironmentKey = "ENSEMBLE_AUTOMATION_START_SURFACE"
     public static let disableAnimationsEnvironmentKey = "ENSEMBLE_AUTOMATION_DISABLE_ANIMATIONS"
+    public static let simulateOfflineEnvironmentKey = "ENSEMBLE_AUTOMATION_SIMULATE_OFFLINE"
 
     public let isEnabled: Bool
     public let startSurface: AutomationSurface?
     public let disableAnimations: Bool
+    public let simulateOffline: Bool
 
     public init(
         isEnabled: Bool,
         startSurface: AutomationSurface? = nil,
-        disableAnimations: Bool = false
+        disableAnimations: Bool = false,
+        simulateOffline: Bool = false
     ) {
         self.isEnabled = isEnabled
         self.startSurface = startSurface
         self.disableAnimations = disableAnimations
+        self.simulateOffline = simulateOffline
     }
 
     public static var current: AutomationLaunchOptions {
@@ -51,11 +56,17 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
             in: arguments,
             environmentValue: environment[disableAnimationsEnvironmentKey]
         )
+        let simulateOffline = boolValue(
+            after: simulateOfflineArgument,
+            in: arguments,
+            environmentValue: environment[simulateOfflineEnvironmentKey]
+        )
 
         return AutomationLaunchOptions(
-            isEnabled: isEnabled,
+            isEnabled: isEnabled || simulateOffline,
             startSurface: startSurface,
-            disableAnimations: disableAnimations
+            disableAnimations: disableAnimations,
+            simulateOffline: simulateOffline
         )
     }
 
@@ -67,7 +78,8 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
             event: "launchOptions",
             details: [
                 "startSurface": startSurface?.rawValue ?? "none",
-                "disableAnimations": disableAnimations ? "true" : "false"
+                "disableAnimations": disableAnimations ? "true" : "false",
+                "simulateOffline": simulateOffline ? "true" : "false"
             ]
         )
     }
