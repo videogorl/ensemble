@@ -1366,6 +1366,13 @@ public struct SidebarView: View {
     private func setActiveDetailPath(_ newPath: [NavigationCoordinator.Destination]) {
         switch selection {
         case .library(let tab):
+            let currentPath = navigationCoordinator.pathSnapshot(for: tab)
+            if newPath.isEmpty,
+               !currentPath.isEmpty,
+               navigationCoordinator.isRouteTransitionActive(for: tab)
+            {
+                return
+            }
             navigationCoordinator.setPath(newPath, for: tab)
         case .playlist, .mergedPlaylist:
             navigationCoordinator.setPath(newPath, for: .playlists)

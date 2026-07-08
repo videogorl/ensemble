@@ -94,6 +94,9 @@ public struct RootView: View {
         .onReceive(powerStateMonitor.$isLowPowerMode) { newValue in
             isLowPowerMode = newValue
         }
+        .onReceive(navigationCoordinator.$selectedTab) { tab in
+            syncSidebarSelection(to: tab)
+        }
         #if canImport(UIKit)
         .onReceive(Self.softwareKeyboardVisibilityPublisher) { newValue in
             if newValue != isSoftwareKeyboardVisible {
@@ -320,6 +323,18 @@ public struct RootView: View {
         }
         if supportsViewportNowPlayingPresentation {
             completeNowPlayingDismissal()
+        }
+    }
+
+    private func syncSidebarSelection(to tab: TabItem) {
+        guard usesSidebarRootNavigationShell else { return }
+        guard sidebarSelection?.correspondingTab != tab else { return }
+
+        switch tab {
+        case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
+            sidebarSelection = .library(tab)
+        case .downloads, .settings:
+            return
         }
     }
 

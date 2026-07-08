@@ -195,6 +195,17 @@ public struct SearchView: View {
         collapseSearchPresentation()
     }
 
+    private func routeSearchResult(to destination: NavigationCoordinator.Destination) {
+        if EnsemblePlatformFeaturePolicy.currentRootNavigationShell == .sidebar {
+            handleSearchResultNavigation()
+            navigationCoordinator.navigateFromExternalSearch(to: destination)
+        } else {
+            navigationCoordinator.beginRouteTransition(in: .search)
+            navigationCoordinator.push(destination, in: .search)
+            handleSearchResultNavigation()
+        }
+    }
+
     private func collapseSearchPresentation() {
         dismissSearch()
         if #available(iOS 18.0, macOS 15.0, *) {
@@ -708,13 +719,12 @@ public struct SearchView: View {
                     count: viewModel.displayArtistResults.count,
                     items: Array(viewModel.displayArtistResults.prefix(5))
                 ) { displayArtist in
-                    navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id)) {
+                    Button {
+                        routeSearchResult(to: .displayArtist(id: displayArtist.id))
+                    } label: {
                         CompactArtistRow(displayArtist: displayArtist)
                     }
                     .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        handleSearchResultNavigation()
-                    })
                     .contextMenu {
                         ArtistActionsContextMenu(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
                     }
@@ -728,13 +738,12 @@ public struct SearchView: View {
                     count: viewModel.albumResults.count,
                     items: Array(viewModel.albumResults.prefix(5))
                 ) { album in
-                    navigationCoordinator.routeLink(to: .albumDetail(album)) {
+                    Button {
+                        routeSearchResult(to: .albumDetail(album))
+                    } label: {
                         CompactAlbumRow(album: album)
                     }
                     .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        handleSearchResultNavigation()
-                    })
                     .contextMenu {
                         albumContextMenu(for: album)
                     }
@@ -748,15 +757,12 @@ public struct SearchView: View {
                     count: viewModel.playlistResults.count,
                     items: Array(viewModel.playlistResults.prefix(5))
                 ) { playlist in
-                    navigationCoordinator.routeLink(
-                        to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-                    ) {
+                    Button {
+                        routeSearchResult(to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey))
+                    } label: {
                         CompactPlaylistRow(playlist: playlist)
                     }
                     .buttonStyle(.plain)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        handleSearchResultNavigation()
-                    })
                     .contextMenu {
                         PlaylistActionsContextMenu(
                             playlist: playlist,

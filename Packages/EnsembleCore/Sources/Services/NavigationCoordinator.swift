@@ -329,6 +329,7 @@ public final class NavigationCoordinator: ObservableObject {
             return
         }
 
+        beginRouteTransition(in: targetTab)
         popToRoot(tab: targetTab)
         selectedTab = targetTab
 
