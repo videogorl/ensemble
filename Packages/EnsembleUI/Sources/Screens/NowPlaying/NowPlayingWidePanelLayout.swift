@@ -13,6 +13,7 @@ struct NowPlayingWidePanelLayout: View {
     private let headerTrailingPadding: CGFloat
     private let centersContentInAvailableSpace: Bool
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @ObservedObject private var queueProjection: NowPlayingQueueProjection
 
     init(
         viewModel: NowPlayingViewModel,
@@ -27,6 +28,7 @@ struct NowPlayingWidePanelLayout: View {
     ) {
         self.viewModel = viewModel
         self._currentPage = currentPage
+        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         self.dismissAction = dismissAction
         self.topPadding = topPadding
         self.maxContentWidth = maxContentWidth
@@ -80,6 +82,7 @@ struct NowPlayingWidePanelLayout: View {
             NowPlayingPanelSelector(
                 selection: panelSelection,
                 options: [.queue, .lyrics, .info],
+                showsHistory: queueProjection.showHistory,
                 width: EnsembleScaffold.NowPlaying.viewportPickerWidth
             )
 
@@ -133,6 +136,7 @@ struct NowPlayingWidePanelLayout: View {
 struct NowPlayingPanelSelector: View {
     @Binding var selection: Int
     let options: [NowPlayingPanelPage]
+    let showsHistory: Bool
     let width: CGFloat
 
     var body: some View {
@@ -151,13 +155,14 @@ struct NowPlayingPanelSelector: View {
 
     private func panelButton(for option: NowPlayingPanelPage) -> some View {
         let selected = selection == option.rawValue
+        let title = option.title(showsHistory: showsHistory)
 
         return Button {
             withAnimation(.easeInOut(duration: EnsembleDesign.Animation.standardDuration)) {
                 selection = option.rawValue
             }
         } label: {
-            Text(option.title)
+            Text(title)
                 .font(EnsembleDesign.Typography.stateMessage.weight(selected ? .semibold : .regular))
                 .foregroundColor(selected ? EnsembleDesign.Color.primaryText : EnsembleDesign.Color.secondaryText)
                 .frame(maxWidth: .infinity, minHeight: 32)
@@ -171,16 +176,16 @@ struct NowPlayingPanelSelector: View {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
         .contentShape(Capsule())
-        .accessibilityLabel(option.title)
+        .accessibilityLabel(title)
         .accessibilityValue(selected ? "Selected" : "")
     }
 }
 
-private extension NowPlayingPanelPage {
-    var title: String {
+extension NowPlayingPanelPage {
+    func title(showsHistory: Bool = false) -> String {
         switch self {
         case .queue:
-            return "Queue"
+            return showsHistory ? "History" : "Queue"
         case .controls:
             return "Controls"
         case .lyrics:

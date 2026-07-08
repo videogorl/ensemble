@@ -47,6 +47,13 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(layout.artworkSize, 360)
     }
 
+    func testNowPlayingWidePanelQueueTitleReflectsHistoryMode() {
+        XCTAssertEqual(NowPlayingPanelPage.queue.title(showsHistory: false), "Queue")
+        XCTAssertEqual(NowPlayingPanelPage.queue.title(showsHistory: true), "History")
+        XCTAssertEqual(NowPlayingPanelPage.lyrics.title(showsHistory: true), "Lyrics")
+        XCTAssertEqual(NowPlayingPanelPage.info.title(showsHistory: true), "Info")
+    }
+
     func testChordIconFallsBackForOlderSymbolSets() {
         XCTAssertEqual(
             EnsembleDesign.Icon.chordIconName(modernSymbolSetAvailable: false),

@@ -84,6 +84,7 @@ struct NowPlayingViewportRoot: View {
 
     @ObservedObject var viewModel: NowPlayingViewModel
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
+    @ObservedObject private var queueProjection: NowPlayingQueueProjection
 
     private let dismissAction: () -> Void
     private var auroraActiveContentMaxWidth: CGFloat? {
@@ -95,6 +96,7 @@ struct NowPlayingViewportRoot: View {
         dismissAction: @escaping () -> Void
     ) {
         self.viewModel = viewModel
+        self._queueProjection = ObservedObject(wrappedValue: viewModel.queueProjection)
         self.dismissAction = dismissAction
     }
 
@@ -143,6 +145,7 @@ struct NowPlayingViewportRoot: View {
             NowPlayingPanelSelector(
                 selection: panelSelection,
                 options: NowPlayingPanelPage.allCases,
+                showsHistory: queueProjection.showHistory,
                 width: EnsembleScaffold.NowPlaying.viewportSinglePickerWidth
             )
 
