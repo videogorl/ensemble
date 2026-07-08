@@ -168,8 +168,24 @@ public struct PlaylistsView: View {
 
     private func refreshCachedDisplayedPlaylists() {
         let next = filteredDisplayedPlaylists(viewModel.displayPlaylists)
-        if cachedDisplayedPlaylists != next {
-            cachedDisplayedPlaylists = next
+        updateDisplayedPlaylists(next)
+    }
+
+    private func updateDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) {
+        if cachedDisplayedPlaylists != displayPlaylists {
+            cachedDisplayedPlaylists = displayPlaylists
+        }
+        reconcileSelectedPlaylist(with: displayPlaylists)
+    }
+
+    private func reconcileSelectedPlaylist(with displayPlaylists: [DisplayPlaylist]) {
+        guard let selectedPlaylist else { return }
+        if let refreshedSelection = displayPlaylists.first(where: { $0.id == selectedPlaylist.id }) {
+            if refreshedSelection != selectedPlaylist {
+                setSelectedPlaylist(refreshedSelection)
+            }
+        } else {
+            setSelectedPlaylist(nil)
         }
     }
 
@@ -321,9 +337,7 @@ public struct PlaylistsView: View {
                 guard !viewModel.isRefreshingFromServer else { return }
 
                 let next = filteredDisplayedPlaylists(displayPlaylists)
-                if cachedDisplayedPlaylists != next {
-                    cachedDisplayedPlaylists = next
-                }
+                updateDisplayedPlaylists(next)
             }
             // When refresh completes, catch up immediately rather than waiting for the
             // Combine pipeline's 150ms debounce to produce the next displayPlaylists emission.
