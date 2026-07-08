@@ -138,6 +138,10 @@ public final class HomeViewModel: ObservableObject {
             self.appReadinessCoordinator?.markBootstrapSettled()
             EnsembleLogger.debug("🏠 Home initial load safety timeout — unblocking auto-refresh")
         }
+
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            self?.handleLibraryDataCleared()
+        }
     }
     
     deinit {
@@ -784,6 +788,17 @@ public final class HomeViewModel: ObservableObject {
         editableHubs = []
         isEditingOrder = false
         pendingAutoRefreshReasons.removeAll()
+    }
+
+    private func handleLibraryDataCleared() {
+        cachedSnapshotRestoreTask?.cancel()
+        cachedSnapshotRestoreTask = nil
+        appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)
+        currentSourceKey = nil
+        currentSourceName = ""
+        initialLoadCompleted = true
+        hubLoader.clearFailedHubKeys()
+        clearHubContentForUnavailableSources()
     }
 
     private func clearHubContentIfUnavailableSourcesAreSettled() {

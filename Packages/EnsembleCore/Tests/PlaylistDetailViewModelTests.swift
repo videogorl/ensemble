@@ -356,6 +356,21 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         return cdPlaylist
     }
 
+    private func waitForPlaylistIDs(
+        viewModel: PlaylistViewModel,
+        expectedIDs: [String]
+    ) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if viewModel.playlists.map(\.id) == expectedIDs {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        XCTAssertEqual(viewModel.playlists.map(\.id), expectedIDs)
+    }
+
     private func makePendingPlaylistAddMutation(
         id: String,
         playlistRatingKey: String,
@@ -478,6 +493,41 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
         XCTAssertNil(viewModel.error)
+    }
+
+    func testPlaylistViewModelClearsVisiblePlaylistsAfterLibraryDataClearNotification() async throws {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(makePlaylistAccount(libraryEnabled: true))
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road", sourceCompositeKey: "plex:account-1:server-1")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager
+        )
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+
+        playlistRepository.playlists.removeAll()
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+
+        NotificationCenter.default.post(name: CacheManager.libraryDataDidClear, object: nil)
+        try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: [])
+
+        XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
+        XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
     func testPlaylistViewModelKeepsCompletedDeleteHiddenWhenCacheReloadIsStale() async {

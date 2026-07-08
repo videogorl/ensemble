@@ -500,6 +500,9 @@ public final class LibraryViewModel: ObservableObject {
         ViewModelNotificationObserver.observeDownloadAndMetadataChanges(storingIn: &cancellables) { [weak self] in
             await self?.loadLibrary()
         }
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            self?.handleLibraryDataCleared()
+        }
     }
 
     private func setupVisibilityObservation() {
@@ -654,6 +657,14 @@ public final class LibraryViewModel: ObservableObject {
         if !availableTrackGenres.isEmpty { availableTrackGenres = [] }
         if !availableArtistGenres.isEmpty { availableArtistGenres = [] }
         commitEmptyBrowseSnapshots()
+    }
+
+    private func handleLibraryDataCleared() {
+        cancelCachedSourceCleanup()
+        isLoading = false
+        error = nil
+        clearInMemoryLibrary()
+        appReadinessCoordinator?.updateCachedLibraryReadiness(hasContent: false)
     }
 
     private static func isEnabledSource(_ sourceCompositeKey: String?, enabledSourceKeys: Set<String>) -> Bool {

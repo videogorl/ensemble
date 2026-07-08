@@ -150,6 +150,9 @@ public final class PlaylistViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            self?.handleLibraryDataCleared()
+        }
     }
     
     private func setupFilterPersistence() {
@@ -546,6 +549,15 @@ public final class PlaylistViewModel: ObservableObject {
             await self.loadPlaylists()
             self.coalescedReloadTask = nil
         }
+    }
+
+    private func handleLibraryDataCleared() {
+        coalescedReloadTask?.cancel()
+        coalescedReloadTask = nil
+        error = nil
+        isLoading = false
+        isRefreshingFromServer = false
+        clearLocalPlaylistCache(resetLastGoodSnapshot: true)
     }
 
     private func awaitCreatedPlaylistMaterialization(title: String, serverSourceKey: String) async {

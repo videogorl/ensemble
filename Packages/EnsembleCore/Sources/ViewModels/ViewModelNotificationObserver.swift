@@ -47,6 +47,18 @@ enum ViewModelNotificationObserver {
         )
     }
 
+    static func observeLibraryDataCleared(
+        storingIn cancellables: inout Set<AnyCancellable>,
+        action: @escaping @MainActor () async -> Void
+    ) {
+        observe(
+            CacheManager.libraryDataDidClear,
+            debounce: .milliseconds(100),
+            storingIn: &cancellables,
+            action: action
+        )
+    }
+
     static func observe(
         _ name: Notification.Name,
         debounce: DispatchQueue.SchedulerTimeType.Stride,

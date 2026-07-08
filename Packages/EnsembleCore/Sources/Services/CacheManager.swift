@@ -54,6 +54,8 @@ public struct CacheCleanupSnapshot: Sendable, Equatable {
 /// Coordinates all cache management across the app
 @MainActor
 public final class CacheManager: ObservableObject {
+    public static let libraryDataDidClear = Notification.Name("CacheManagerLibraryDataDidClear")
+
     @Published public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
     @Published public private(set) var isRefreshing = false
     @Published public private(set) var totalCacheSize: Int64 = 0
@@ -144,6 +146,7 @@ public final class CacheManager: ObservableObject {
     public func clearCache(type: CacheType) async throws {
         let before = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearing \(type.rawValue) (before: \(before.logDescription))")
+        let clearsLibraryData = type == .libraryMetadata
 
         switch type {
         case .libraryMetadata:
@@ -161,6 +164,9 @@ public final class CacheManager: ObservableObject {
         await refreshCacheInfo()
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: cleared \(type.rawValue) (after: \(after.logDescription))")
+        if clearsLibraryData {
+            notifyLibraryDataDidClear()
+        }
     }
 
     /// Clear artwork-only caches without deleting library metadata, downloads, lyrics, or account state.
@@ -199,6 +205,7 @@ public final class CacheManager: ObservableObject {
 
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearAllCaches finished (after: \(after.logDescription))")
+        notifyLibraryDataDidClear()
     }
 
     /// Captures cache counts and file sizes for verification logs and tests.
@@ -236,6 +243,10 @@ public final class CacheManager: ObservableObject {
 
     private func invalidateArtworkCacheConsumers() {
         artworkCacheInvalidationGeneration &+= 1
+    }
+
+    private func notifyLibraryDataDidClear() {
+        NotificationCenter.default.post(name: Self.libraryDataDidClear, object: self)
     }
     
     private func getLibraryItemCount() async throws -> Int {

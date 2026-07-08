@@ -620,6 +620,7 @@ public struct SidebarView: View {
     // re-evaluation issues on macOS where NavigationSplitView can swallow updates.
     @State private var cachedSmartPlaylists: [SidebarPlaylistItem] = []
     @State private var cachedRegularPlaylists: [SidebarPlaylistItem] = []
+    @State private var isApplyingAuthoritativePlaylistClear = false
 
     @MainActor
     public init(nowPlayingVM: NowPlayingViewModel, selection: Binding<SidebarSelection?>) {
@@ -692,8 +693,19 @@ public struct SidebarView: View {
     /// re-layouts on macOS that can drop computed property changes.
     private func rebuildCachedSidebarPlaylists() {
         guard libraryVM.hasEnabledLibraries || libraryVM.isRestoringCloudSources else {
+            isApplyingAuthoritativePlaylistClear = false
             cachedSmartPlaylists = []
             cachedRegularPlaylists = []
+            return
+        }
+
+        if isApplyingAuthoritativePlaylistClear {
+            cachedSmartPlaylists = []
+            cachedRegularPlaylists = []
+            if playlistsVM.playlists.isEmpty,
+               playlistsVM.sortedDisplayPlaylists.isEmpty {
+                isApplyingAuthoritativePlaylistClear = false
+            }
             return
         }
 
@@ -1252,6 +1264,11 @@ public struct SidebarView: View {
         // re-layouts on macOS that can swallow computed property changes.
         .onReceive(sidebarPlaylistCacheInvalidations) { _ in
             rebuildCachedSidebarPlaylists()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CacheManager.libraryDataDidClear)) { _ in
+            isApplyingAuthoritativePlaylistClear = true
+            cachedSmartPlaylists = []
+            cachedRegularPlaylists = []
         }
         .onAppear {
             rebuildCachedSidebarPlaylists()

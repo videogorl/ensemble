@@ -441,6 +441,31 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarURL.path))
     }
 
+    func testCacheManagerClearAllCachesPostsLibraryDataClearNotification() async throws {
+        let harness = makeHarness()
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
+        let cacheManager = CacheManager(
+            libraryRepository: harness.libraryRepository,
+            artworkDownloadManager: ArtworkDownloadManager(),
+            downloadManager: harness.downloadManager,
+            lyricsService: LyricsService(syncCoordinator: harness.syncCoordinator)
+        )
+        cacheManager.sourceCacheCleanupService = harness.sourceCacheCleanupService
+        let notification = expectation(description: "library data clear notification")
+        let observer = NotificationCenter.default.addObserver(
+            forName: CacheManager.libraryDataDidClear,
+            object: cacheManager,
+            queue: nil
+        ) { _ in
+            notification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        try await cacheManager.clearAllCaches()
+
+        await fulfillment(of: [notification], timeout: 1)
+    }
+
     func testCacheManagerClearArtworkCachesPreservesLibraryAndDownloadState() async throws {
         let harness = makeHarness()
         let sourceKey = "plex:account-1:server-1:lib-1"
@@ -471,6 +496,32 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(targets.count, 1)
         XCTAssertEqual(artworkDownloadManager.clearArtworkCacheCallCount, 1)
         XCTAssertEqual(cacheManager.artworkCacheInvalidationGeneration, 1)
+    }
+
+    func testCacheManagerClearArtworkCachesDoesNotPostLibraryDataClearNotification() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+        let cacheManager = CacheManager(
+            libraryRepository: harness.libraryRepository,
+            artworkDownloadManager: RecordingArtworkDownloadManager(),
+            downloadManager: harness.downloadManager,
+            lyricsService: LyricsService(syncCoordinator: harness.syncCoordinator)
+        )
+        let notification = expectation(description: "library data clear notification should not fire")
+        notification.isInverted = true
+        let observer = NotificationCenter.default.addObserver(
+            forName: CacheManager.libraryDataDidClear,
+            object: cacheManager,
+            queue: nil
+        ) { _ in
+            notification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        try await cacheManager.clearArtworkCaches()
+
+        await fulfillment(of: [notification], timeout: 0.2)
     }
 
     private struct Harness {
