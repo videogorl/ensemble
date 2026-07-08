@@ -19,12 +19,14 @@ public struct ProfileView: View {
     @State private var showingNameEditor = false
     @State private var accountToDelete: PlexAccountConfig?
     @State private var isAutoplayEnabled = DependencyContainer.shared.playbackService.isAutoplayEnabled
+    @State private var hasAppliedAutomationScroll = false
 
     #if DEBUG
     @AppStorage("debugSimulateOffline") private var debugSimulateOffline = false
     #endif
 
     private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
+    private static let storageScrollTarget = "profile-storage-section"
 
     public init() {}
 
@@ -110,53 +112,80 @@ public struct ProfileView: View {
         #if os(macOS)
         macOSProfileContent
         #else
-        List {
-            // Profile header — image + name
-            Section {
-                ProfileHeaderView(
-                    profileStore: profileStore,
-                    onEditName: { showingNameEditor = true }
-                )
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-            }
-
-            // Music Sources
-            sourcesSection
-
-            // iCloud Sync
-            Section {
-                NavigationLink {
-                    SyncSettingsView()
-                } label: {
-                    EnsembleUtilityRowLabel(
-                        iconSystemName: EnsembleDesign.Icon.cloud,
-                        title: "iCloud Sync",
-                        iconColor: EnsembleDesign.Color.primaryText
+        ScrollViewReader { scrollProxy in
+            List {
+                // Profile header — image + name
+                Section {
+                    ProfileHeaderView(
+                        profileStore: profileStore,
+                        onEditName: { showingNameEditor = true }
                     )
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                 }
+
+                // Music Sources
+                sourcesSection
+
+                // iCloud Sync
+                Section {
+                    NavigationLink {
+                        SyncSettingsView()
+                    } label: {
+                        EnsembleUtilityRowLabel(
+                            iconSystemName: EnsembleDesign.Icon.cloud,
+                            title: "iCloud Sync",
+                            iconColor: EnsembleDesign.Color.primaryText
+                        )
+                    }
+                }
+
+                // Appearance
+                appearanceSection
+
+                // Playback
+                playbackSection
+
+                // Storage
+                storageSection
+                    .id(Self.storageScrollTarget)
+
+                // Reset
+                resetSection
+
+                // Developer
+                developerSection
+
+                // About
+                aboutSection
             }
-
-            // Appearance
-            appearanceSection
-
-            // Playback
-            playbackSection
-
-            // Storage
-            storageSection
-
-            // Reset
-            resetSection
-
-            // Developer
-            developerSection
-
-            // About
-            aboutSection
+            .listStyle(.insetGrouped)
+            .onAppear {
+                applyAutomationScrollIfNeeded(scrollProxy)
+            }
         }
-        .listStyle(.insetGrouped)
         #endif
+    }
+
+    private func applyAutomationScrollIfNeeded(_ scrollProxy: ScrollViewProxy) {
+        guard !hasAppliedAutomationScroll,
+              AutomationLaunchOptions.current.startSurface == .profileStorage
+        else { return }
+
+        hasAppliedAutomationScroll = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                scrollProxy.scrollTo(Self.storageScrollTarget, anchor: .top)
+            }
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "profileScroll",
+                details: ["target": "storage"]
+            )
+        }
     }
 
     // MARK: - Music Sources
