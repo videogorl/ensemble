@@ -1183,21 +1183,28 @@ public struct SidebarView: View {
         List(selection: sidebarSelectionBinding) {
             // Search always appears first
             Label("Search", systemImage: EnsembleDesign.Icon.search)
+                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.search)
                 .tag(SidebarSelection.library(.search))
 
             // Library section (non-collapsible)
             Section("Library") {
                 Label("Home", systemImage: EnsembleDesign.Icon.home)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.home))
                     .tag(SidebarSelection.library(.home))
                 Label("Songs", systemImage: EnsembleDesign.Icon.musicNote)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.songs))
                     .tag(SidebarSelection.library(.songs))
                 Label("Artists", systemImage: EnsembleDesign.Icon.artist)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.artists))
                     .tag(SidebarSelection.library(.artists))
                 Label("Albums", systemImage: EnsembleDesign.Icon.album)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.albums))
                     .tag(SidebarSelection.library(.albums))
                 Label("Genres", systemImage: EnsembleDesign.Icon.genreEmpty)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.genres))
                     .tag(SidebarSelection.library(.genres))
                 Label("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.favorites))
                     .tag(SidebarSelection.library(.favorites))
             }
 
@@ -1225,6 +1232,7 @@ public struct SidebarView: View {
             // Playlists section (collapsible)
             collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
                 Label("All Playlists", systemImage: EnsembleDesign.Icon.playlist)
+                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.allPlaylists)
                     .tag(SidebarSelection.library(.playlists))
 
                 ForEach(cachedRegularPlaylists) { playlist in
@@ -1255,6 +1263,7 @@ public struct SidebarView: View {
                 Button { navigationCoordinator.openDownloads() } label: {
                     Image(systemName: EnsembleDesign.Icon.download)
                 }
+                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
                 .help("Downloads")
                 ProfileToolbarButton()
             }
@@ -1593,6 +1602,11 @@ public struct SidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
+                id: pinnedItem.id,
+                sourceKey: pinnedItem.sourceCompositeKey,
+                type: pinnedItem.type.rawValue
+            ))
             .contextMenu {
                 ArtistActionsContextMenu(
                     artist: artist,
@@ -1623,6 +1637,11 @@ public struct SidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
+                id: pinnedItem.id,
+                sourceKey: pinnedItem.sourceCompositeKey,
+                type: pinnedItem.type.rawValue
+            ))
             .contextMenu {
                 AlbumActionsContextMenu(
                     album: album,
@@ -1667,6 +1686,11 @@ public struct SidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
+                id: pinnedItem.id,
+                sourceKey: pinnedItem.sourceCompositeKey,
+                type: pinnedItem.type.rawValue
+            ))
             .contextMenu {
                 PlaylistActionsContextMenu(
                     playlist: playlist,
@@ -1718,6 +1742,11 @@ public struct SidebarView: View {
                 id: pinnedItems[0].id,
                 sourceKey: pinnedItems[0].sourceCompositeKey,
                 type: pinnedItems[0].type
+            ))
+            .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
+                id: pinnedItems[0].id,
+                sourceKey: pinnedItems[0].sourceCompositeKey,
+                type: pinnedItems[0].type.rawValue
             ))
             .contextMenu {
                 MergedPlaylistActionsContextMenu(
@@ -1802,6 +1831,12 @@ public struct SidebarView: View {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
+                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.playlist(
+                    id: playlist.playlistID,
+                    sourceKey: playlist.sourceKey,
+                    isSmart: playlist.isSmart,
+                    isMerged: playlist.isMerged
+                ))
                 .background(dropTargetBackground)
                 .onDrop(of: MediaDragPayload.contentTypes, isTargeted: $isDropTargeted) { providers in
                     handleSidebarPlaylistDrop(providers, onto: playlist)

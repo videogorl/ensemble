@@ -53,6 +53,15 @@ Runner rules:
 - Inspect likely source files only enough to identify owner and hypothesis; do not patch.
 - Return a concise Markdown report and `platform-report.json` with completed surfaces, blocked surfaces, findings, and artifact paths.
 
+Before coordinate-based tapping, use Ensemble's built-in automation hooks:
+- Launch with `-EnsembleAutomationMode YES -EnsembleAutomationStartSurface <surface>` for a clean entry point.
+- Use `xcrun simctl openurl booted 'ensemble://debug/open?surface=<surface>'` to switch surfaces while preserving `USER_JOURNEY` navigation logs.
+- Prefer stable accessibility identifiers such as `sidebar.library.albums`, `sidebar.playlists.all`, `sidebar.toolbar.downloads`, `sidebar.toolbar.profile`, `profile.storage.clearArtworkCache`, `profile.storage.clearAllLibraryData`, and `profile.reset.removeAllAccounts`.
+- Dynamic sidebar rows are exposed as `sidebar.playlist.<playlist-id>.source.<source-key>`, `sidebar.smartPlaylist.<playlist-id>.source.<source-key>`, `sidebar.mergedPlaylist.<playlist-id>.source.<source-key>`, or `sidebar.pin.<type>.<id>.source.<source-key>` with non-alphanumeric characters replaced by `_`.
+- Save filtered log excerpts for `USER_JOURNEY context=automation` next to navigation findings so fixing agents can replay the exact route.
+
+Supported automation surfaces: `home`, `songs`, `artists`, `albums`, `genres`, `playlists`, `favorites`, `search`, `downloads`, `settings`, `profile`, `profile-storage`.
+
 Required finding fields in `platform-report.json`:
 - `id`, `severity`, `confidence`, `platform`, `device`, `surface`, `summary`,
 - `starting_state`, `repro_steps`, `expected`, `actual`,

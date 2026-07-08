@@ -21,6 +21,7 @@ public struct ProfileToolbarButton: View {
             profileImage
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(AutomationIdentifiers.Sidebar.profileToolbar)
         .help("Profile")
     }
 

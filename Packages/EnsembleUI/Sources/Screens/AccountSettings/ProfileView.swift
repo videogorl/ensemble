@@ -321,6 +321,7 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearArtworkCache)
 
             Button(role: .destructive) {
                 showingClearDataAlert = true
@@ -332,6 +333,7 @@ public struct ProfileView: View {
                 )
                 .foregroundColor(EnsembleDesign.Color.destructive)
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearAllLibraryData)
         }
     }
 
@@ -349,6 +351,7 @@ public struct ProfileView: View {
                 )
                 .foregroundColor(EnsembleDesign.Color.destructive)
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.removeAllAccounts)
         }
     }
 
@@ -648,6 +651,7 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearArtworkCache)
 
             EnsembleUtilityCardDivider()
 
@@ -660,6 +664,7 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.destructive
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.clearAllLibraryData)
         }
     }
 
@@ -674,6 +679,7 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.destructive
                 )
             }
+            .accessibilityIdentifier(AutomationIdentifiers.Profile.removeAllAccounts)
         }
     }
 

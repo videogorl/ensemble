@@ -24,6 +24,8 @@ public struct RootView: View {
     @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
     @State private var isLowPowerMode = DependencyContainer.shared.powerStateMonitor.isLowPowerMode
     @State private var isSoftwareKeyboardVisible = false
+    @State private var hasLoggedAutomationLaunchOptions = false
+    @State private var hasAppliedAutomationLaunchRoute = false
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
@@ -72,11 +74,18 @@ public struct RootView: View {
         .environment(\.artistDetailArtworkContinuity, artistDetailArtworkContinuity)
         .environmentObject(navigationCoordinator)
         .accentColor(settingsManager.accentColor.color)
+        .transaction { transaction in
+            guard AutomationLaunchOptions.current.disableAnimations else { return }
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
         .onAppear {
             NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
             NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
             updateAppearance()
             DependencyContainer.shared.activeNowPlayingViewModel = nowPlayingVM
+            logAutomationLaunchOptionsIfNeeded()
+            applyAutomationLaunchRouteIfNeeded()
         }
         .onDisappear {
             NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
@@ -86,6 +95,7 @@ public struct RootView: View {
             if phase == .active {
                 NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
                 NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
+                applyAutomationLaunchRouteIfNeeded()
             }
         }
         .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
@@ -130,6 +140,21 @@ public struct RootView: View {
         }
         .macRootWindowMinimumFrame()
         .macViewportNowPlayingWindowChromeHidden(isNowPlayingPresented)
+    }
+
+    private func logAutomationLaunchOptionsIfNeeded() {
+        guard !hasLoggedAutomationLaunchOptions else { return }
+        hasLoggedAutomationLaunchOptions = true
+        AutomationLaunchOptions.current.logLaunchIfNeeded()
+    }
+
+    private func applyAutomationLaunchRouteIfNeeded() {
+        guard !hasAppliedAutomationLaunchRoute,
+              let startSurface = AutomationLaunchOptions.current.startSurface
+        else { return }
+
+        hasAppliedAutomationLaunchRoute = true
+        _ = navigationCoordinator.routeAutomationSurface(startSurface, source: "launchArgument")
     }
 
     private func logRootTaskStart() {

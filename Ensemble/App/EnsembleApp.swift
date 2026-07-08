@@ -50,7 +50,10 @@ struct EnsembleApp: App {
                 }
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
-                    _ = DependencyContainer.shared.navigationCoordinator.handleDeepLink(url)
+                    _ = NavigationCoordinator.handleDeepLinkInActiveScene(
+                        url,
+                        fallback: DependencyContainer.shared.navigationCoordinator
+                    )
                 }
                 .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
                     handleSpotlightActivity(userActivity)

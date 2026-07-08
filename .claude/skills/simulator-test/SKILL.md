@@ -18,6 +18,83 @@ For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.s
 
 ---
 
+## Ensemble Automation Hooks
+
+Use these hooks before falling back to coordinate tapping. They route through `NavigationCoordinator`, so ordinary `USER_JOURNEY` navigation/profile/download breadcrumbs still appear.
+
+Launch arguments:
+
+```bash
+xcrun simctl launch booted com.videogorl.ensemble \
+  -EnsembleAutomationMode YES \
+  -EnsembleAutomationStartSurface profile-storage \
+  -EnsembleAutomationDisableAnimations YES
+```
+
+Environment alternatives:
+
+```bash
+ENSEMBLE_AUTOMATION_MODE=1
+ENSEMBLE_AUTOMATION_START_SURFACE=profile-storage
+ENSEMBLE_AUTOMATION_DISABLE_ANIMATIONS=1
+```
+
+Supported start surfaces: `home`, `songs`, `artists`, `albums`, `genres`, `playlists`, `favorites`, `search`, `downloads`, `settings`, `profile`, `profile-storage`.
+
+Debug navigation deep links:
+
+```bash
+xcrun simctl openurl booted 'ensemble://debug/open?surface=profile-storage'
+xcrun simctl openurl booted 'ensemble://debug/open?surface=playlists'
+```
+
+Media deep links:
+
+```bash
+xcrun simctl openurl booted 'ensemble://artist/<artist-id>?sourceKey=<url-encoded-source-key>'
+xcrun simctl openurl booted 'ensemble://album/<album-id>?sourceKey=<url-encoded-source-key>'
+xcrun simctl openurl booted 'ensemble://playlist/<playlist-id>?sourceKey=<url-encoded-source-key>'
+```
+
+Expected logs:
+
+```text
+USER_JOURNEY context=automation event=launchOptions ...
+USER_JOURNEY context=automation event=deepLinkAccepted ...
+USER_JOURNEY context=automation event=routeRequested ...
+USER_JOURNEY context=navigation event=tabChanged ...
+USER_JOURNEY context=navigation event=auxiliaryPresentation ...
+```
+
+Stable accessibility identifiers to prefer in UI automation:
+
+```text
+sidebar.search
+sidebar.library.home
+sidebar.library.songs
+sidebar.library.artists
+sidebar.library.albums
+sidebar.library.genres
+sidebar.library.favorites
+sidebar.playlists.all
+sidebar.toolbar.downloads
+sidebar.toolbar.profile
+profile.storage.clearArtworkCache
+profile.storage.clearAllLibraryData
+profile.reset.removeAllAccounts
+```
+
+Dynamic sidebar rows use sanitized identifiers:
+
+```text
+sidebar.playlist.<playlist-id>.source.<source-key>
+sidebar.smartPlaylist.<playlist-id>.source.<source-key>
+sidebar.mergedPlaylist.<playlist-id>.source.<source-key>
+sidebar.pin.<artist|album|playlist>.<id>.source.<source-key>
+```
+
+---
+
 ## MCP-First Workflow
 
 Use the iOS Simulator MCP server for interaction and state inspection:
@@ -178,6 +255,14 @@ For launches with specific arguments or environment variables:
 
 ```bash
 xcrun simctl launch booted com.videogorl.ensemble --argument1 value1
+```
+
+Prefer the Ensemble automation arguments for repeatable surface entry:
+
+```bash
+xcrun simctl launch booted com.videogorl.ensemble \
+  -EnsembleAutomationMode YES \
+  -EnsembleAutomationStartSurface downloads
 ```
 
 ### 7. Wait for the Phase Under Test

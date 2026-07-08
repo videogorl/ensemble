@@ -195,6 +195,16 @@ public final class NavigationCoordinator: ObservableObject {
     }
 
     @discardableResult
+    public static func handleDeepLinkInActiveScene(
+        _ url: URL,
+        fallback: NavigationCoordinator,
+        automationOptions: AutomationLaunchOptions = .current
+    ) -> Bool {
+        let coordinator = activeAuxiliaryCommandCoordinator ?? activeSceneCoordinator ?? fallback
+        return coordinator.handleDeepLink(url, automationOptions: automationOptions)
+    }
+
+    @discardableResult
     public static func routeExternalSearchInActiveScene(to destination: Destination) -> Bool {
         guard let coordinator = activeSceneCoordinator ?? activeAuxiliaryCommandCoordinator else {
             pendingExternalSearchDestination = destination
@@ -353,38 +363,35 @@ public final class NavigationCoordinator: ObservableObject {
         pendingNavigation = PendingNavigation(tab: targetTab, destination: destination)
     }
     
-    /// Handle deep links by popping to root of the first visible tab and pushing the new destination
-    public func handleDeepLink(_ url: URL) -> Bool {
+    /// Handle app and automation deep links through the same navigation paths used by taps.
+    public func handleDeepLink(
+        _ url: URL,
+        automationOptions: AutomationLaunchOptions = .current
+    ) -> Bool {
         guard url.scheme == "ensemble" else { return false }
-        
-        let components = url.pathComponents.filter { $0 != "/" }
-        guard components.count >= 2 else { return false }
-        
-        let type = components[0]
-        let id = components[1]
-        
-        let destination: Destination
-        switch type {
-        case "artist":
-            destination = .artist(id: id, sourceKey: nil)
-        case "album":
-            destination = .album(id: id, sourceKey: nil)
-        case "playlist":
-            destination = .playlist(id: id, sourceKey: nil)
-        default:
+
+        if handleAutomationDeepLink(url, automationOptions: automationOptions) {
+            return true
+        }
+
+        guard let destination = Self.mediaDestination(from: url) else {
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkRejected",
+                details: ["route": Self.routeLogDescription(from: url), "reason": "unsupportedRoute"]
+            )
             return false
         }
-        
-        // Deep links always go to the first visible tab
-        let targetTab = visibleTabs.first ?? .home
 
-        // Pop to root of the target tab first for a clean state
-        popToRoot(tab: targetTab)
-
-        // Switch tab and push
-        selectedTab = targetTab
-        push(destination, in: targetTab)
-        
+        UserJourneyLogger.log(
+            context: "automation",
+            event: "deepLinkAccepted",
+            details: [
+                "route": Self.routeLogDescription(from: url),
+                "destination": destination.journeyLogDescription
+            ]
+        )
+        navigateFromExternalSearch(to: destination)
         return true
     }
 
@@ -395,6 +402,30 @@ public final class NavigationCoordinator: ObservableObject {
 
     public func openDownloads() {
         requestAuxiliaryPresentation(.downloads)
+    }
+
+    @discardableResult
+    public func routeAutomationSurface(_ surface: AutomationSurface, source: String) -> Bool {
+        UserJourneyLogger.log(
+            context: "automation",
+            event: "routeRequested",
+            details: ["surface": surface.rawValue, "source": source]
+        )
+
+        switch surface {
+        case .profile, .profileStorage:
+            openProfile()
+            return true
+        case .downloads:
+            openDownloads()
+            return true
+        case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search, .settings:
+            guard let tab = surface.tab else { return false }
+            beginRouteTransition(in: tab)
+            popToRoot(tab: tab)
+            selectedTab = tab
+            return true
+        }
     }
 
     public func dismissAuxiliaryPresentation() {
@@ -447,6 +478,51 @@ public final class NavigationCoordinator: ObservableObject {
         return selectedTab
     }
 
+    private func handleAutomationDeepLink(
+        _ url: URL,
+        automationOptions: AutomationLaunchOptions
+    ) -> Bool {
+        let routeComponents = Self.routeComponents(from: url)
+        guard routeComponents.first == "debug" else { return false }
+
+        guard automationOptions.isEnabled || _isDebugAssertConfiguration() else {
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkRejected",
+                details: [
+                    "route": Self.routeLogDescription(from: url),
+                    "reason": "automationDisabled"
+                ]
+            )
+            return true
+        }
+
+        guard routeComponents.dropFirst().first == "open",
+              let surfaceValue = Self.queryValue("surface", from: url),
+              let surface = AutomationSurface(rawValue: surfaceValue)
+        else {
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "deepLinkRejected",
+                details: [
+                    "route": Self.routeLogDescription(from: url),
+                    "reason": "unsupportedDebugRoute"
+                ]
+            )
+            return true
+        }
+
+        UserJourneyLogger.log(
+            context: "automation",
+            event: "deepLinkAccepted",
+            details: [
+                "route": Self.routeLogDescription(from: url),
+                "surface": surface.rawValue
+            ]
+        )
+        return routeAutomationSurface(surface, source: "deepLink")
+    }
+
     private func shouldRouteExternalSearchThroughMore(targetTab: TabItem) -> Bool {
         routesHiddenTabsThroughMore &&
             targetTab != .settings &&
@@ -479,5 +555,43 @@ public final class NavigationCoordinator: ObservableObject {
         case .downloads: return downloadsPath
         case .settings: return settingsPath
         }
+    }
+
+    private static func mediaDestination(from url: URL) -> Destination? {
+        let components = routeComponents(from: url)
+        guard components.count >= 2 else { return nil }
+
+        let sourceKey = queryValue("sourceKey", from: url)
+        switch components[0] {
+        case "artist":
+            return .artist(id: components[1], sourceKey: sourceKey)
+        case "album":
+            return .album(id: components[1], sourceKey: sourceKey)
+        case "playlist":
+            return .playlist(id: components[1], sourceKey: sourceKey)
+        default:
+            return nil
+        }
+    }
+
+    private static func routeComponents(from url: URL) -> [String] {
+        var components: [String] = []
+        if let host = url.host, !host.isEmpty {
+            components.append(host)
+        }
+        components.append(contentsOf: url.pathComponents.filter { $0 != "/" })
+        return components
+    }
+
+    private static func routeLogDescription(from url: URL) -> String {
+        let path = routeComponents(from: url).joined(separator: "/")
+        return path.isEmpty ? "root" : path
+    }
+
+    private static func queryValue(_ name: String, from url: URL) -> String? {
+        URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first { $0.name == name }?
+            .value
     }
 }

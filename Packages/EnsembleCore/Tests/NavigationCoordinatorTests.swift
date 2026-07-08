@@ -175,6 +175,55 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testHandleMediaDeepLinkRoutesThroughOwningTab() throws {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .home
+        coordinator.albumsPath = [.artist(id: "stale", sourceKey: nil)]
+        let url = try XCTUnwrap(URL(string: "ensemble://album/album-1?sourceKey=server%2Flibrary"))
+
+        XCTAssertTrue(coordinator.handleDeepLink(url))
+
+        XCTAssertEqual(coordinator.selectedTab, .albums)
+        XCTAssertEqual(
+            coordinator.pathSnapshot(for: .albums),
+            [.album(id: "album-1", sourceKey: "server/library")]
+        )
+    }
+
+    @MainActor
+    func testAutomationDeepLinkRoutesKnownSurface() throws {
+        let coordinator = NavigationCoordinator()
+        coordinator.selectedTab = .albums
+        coordinator.songsPath = [.album(id: "stale", sourceKey: nil)]
+        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=songs"))
+
+        XCTAssertTrue(
+            coordinator.handleDeepLink(
+                url,
+                automationOptions: AutomationLaunchOptions(isEnabled: true)
+            )
+        )
+
+        XCTAssertEqual(coordinator.selectedTab, .songs)
+        XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
+    }
+
+    @MainActor
+    func testAutomationDeepLinkOpensProfilePresentation() throws {
+        let coordinator = NavigationCoordinator()
+        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=profile-storage"))
+
+        XCTAssertTrue(
+            coordinator.handleDeepLink(
+                url,
+                automationOptions: AutomationLaunchOptions(isEnabled: true)
+            )
+        )
+
+        XCTAssertEqual(coordinator.activeAuxiliaryPresentation, .profile)
+    }
+
+    @MainActor
     func testNavigateFromExternalSearchRoutesHiddenDetailThroughMore() {
         let coordinator = NavigationCoordinator()
         coordinator.selectedTab = .home
