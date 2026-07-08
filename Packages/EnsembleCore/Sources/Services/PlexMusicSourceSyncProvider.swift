@@ -512,7 +512,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: timestampKey)
         UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
         UserDefaults.standard.removeObject(forKey: Self.playlistOrphanCheckForceKey(for: serverSourceKey))
-        try await recordFullPlaylistSync(scopeKey: serverSourceKey, at: completedAt)
+        try await syncCursorRepository?.recordFullSync(
+            scopeKey: serverSourceKey,
+            scopeType: .serverPlaylists,
+            at: completedAt
+        )
 
         EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists), removed=\(removedPlaylists))")
         progressHandler(1.0)
@@ -533,7 +537,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let orphanTimestampKey = Self.playlistOrphanCheckKey(for: serverSourceKey)
         let forceOrphanCheckKey = Self.playlistOrphanCheckForceKey(for: serverSourceKey)
 
-        let cursor = try await playlistSyncCursor(scopeKey: serverSourceKey)
+        let cursor = try await syncCursorRepository?.fetchCursor(
+            scopeKey: serverSourceKey,
+            scopeType: .serverPlaylists
+        )
         let legacySyncTimestamp = UserDefaults.standard.double(forKey: timestampKey)
         let lastSyncTimestamp = cursor?.lastIncrementalSyncAt?.timeIntervalSince1970
             ?? cursor?.lastFullSyncAt?.timeIntervalSince1970
@@ -605,7 +612,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let inventorySyncedAt = Date()
             UserDefaults.standard.set(inventorySyncedAt.timeIntervalSince1970, forKey: orphanTimestampKey)
             UserDefaults.standard.removeObject(forKey: forceOrphanCheckKey)
-            try await recordPlaylistInventorySync(scopeKey: serverSourceKey, at: inventorySyncedAt)
+            try await syncCursorRepository?.recordInventorySync(
+                scopeKey: serverSourceKey,
+                scopeType: .serverPlaylists,
+                at: inventorySyncedAt
+            )
             if removedPlaylists > 0 {
                 EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
             } else {
@@ -621,7 +632,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         let completedAt = Date()
         UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: timestampKey)
-        try await recordIncrementalPlaylistSync(scopeKey: serverSourceKey, at: completedAt)
+        try await syncCursorRepository?.recordIncrementalSync(
+            scopeKey: serverSourceKey,
+            scopeType: .serverPlaylists,
+            at: completedAt
+        )
 
         EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
 
@@ -680,37 +695,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             sourceCompositeKey: sourceCompositeKey
-        )
-    }
-
-    private func playlistSyncCursor(scopeKey: String) async throws -> SyncCursorRecord? {
-        try await syncCursorRepository?.fetchCursor(
-            scopeKey: scopeKey,
-            scopeType: .serverPlaylists
-        )
-    }
-
-    private func recordIncrementalPlaylistSync(scopeKey: String, at date: Date) async throws {
-        try await syncCursorRepository?.recordIncrementalSync(
-            scopeKey: scopeKey,
-            scopeType: .serverPlaylists,
-            at: date
-        )
-    }
-
-    private func recordPlaylistInventorySync(scopeKey: String, at date: Date) async throws {
-        try await syncCursorRepository?.recordInventorySync(
-            scopeKey: scopeKey,
-            scopeType: .serverPlaylists,
-            at: date
-        )
-    }
-
-    private func recordFullPlaylistSync(scopeKey: String, at date: Date) async throws {
-        try await syncCursorRepository?.recordFullSync(
-            scopeKey: scopeKey,
-            scopeType: .serverPlaylists,
-            at: date
         )
     }
 

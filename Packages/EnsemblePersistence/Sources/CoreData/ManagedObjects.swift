@@ -54,9 +54,6 @@ public class CDSyncCursor: NSManagedObject {
     @NSManaged public var lastInventorySyncAt: Date?
     @NSManaged public var lastFullSyncAt: Date?
     @NSManaged public var lastSuccessfulSyncAt: Date?
-    @NSManaged public var lastError: String?
-    @NSManaged public var needsAuthoritativeReconcile: Bool
-    @NSManaged public var serverGeneration: String?
     @NSManaged public var updatedAt: Date?
 }
 

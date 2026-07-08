@@ -61,7 +61,7 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 - `LibraryRepository` / `PlaylistRepository` -- Protocol-based repository pattern; `LibraryRepository` keeps its protocol/initializer in the main file while focused behavior lives in extensions such as `LibraryRepository+Artists.swift`, `LibraryRepository+Albums.swift`, `LibraryRepository+Tracks.swift`, `LibraryRepository+Genres.swift`, `LibraryRepository+Search.swift`, and `LibraryRepository+SyncMetadata.swift`
 - `DownloadManager` -- Offline track file management (source-aware, quality-aware)
 - `OfflineDownloadTargetRepository` -- Offline target metadata and target->track membership persistence
-- `SyncCursorRepository` -- Durable scoped sync cursor/freshness/error persistence used by sync planners and reconcilers for source, server-playlist, mutation, download, and health scopes
+- `SyncCursorRepository` -- Durable server-playlist cursor/freshness persistence used by playlist reconciliation
 - `ArtworkDownloadManager` -- Persistent artwork caching to local filesystem
 
 ### EnsembleSiriShared (Siri Shared Rules)
@@ -167,7 +167,7 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 - `PeriodicSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns foreground periodic-sync timer scheduling and WebSocket-aware polling interval changes while `SyncCoordinator` keeps the actual sync policy
 - `PlaylistRefreshController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns server-scoped playlist refresh resolution (incremental vs fallback full sync), refreshed-provider result routing, and per-server playlist-only dedupe for mutation refreshes, playlist-only sync, and WebSocket-triggered playlist updates
 - `WebSocketSyncController` (@MainActor) -- Internal sync seam extracted from `SyncCoordinator`; owns WebSocket-triggered section resolution and server playlist refresh routing so the coordinator does not inline provider lookup logic
-- `SyncCursorRepository` -- Persistence boundary for durable scope cursors used by playlist/server reconciliation and future sync-planner scopes
+- `SyncCursorRepository` -- Persistence boundary for durable server-playlist cursors used by playlist/server reconciliation
 - `ServerHealthChecker` -- Concurrent health checks for all configured servers with automatic failover
 - `ServerConnectionController` (@MainActor) -- Internal network seam extracted from `SyncCoordinator`; owns registry-driven API-client URL updates, playback connection readiness checks, source-key API-client lookup, explicit endpoint refresh fan-out/fallback reset callbacks, failure-message lookup, and post-sync connection-state URL resolution while `SyncCoordinator` remains the façade
 - `SyncProviderResolver` -- Internal provider-lookup seam extracted from `SyncCoordinator`; owns exact-source and fallback provider routing for playback/download/reporting calls so source-key policy stays consistent

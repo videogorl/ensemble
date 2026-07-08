@@ -19,29 +19,25 @@ final class SyncCursorRepositoryTests: XCTestCase {
         XCTAssertEqual(cursor?.lastFullSyncAt, date)
         XCTAssertEqual(cursor?.lastInventorySyncAt, date)
         XCTAssertEqual(cursor?.lastSuccessfulSyncAt, date)
-        XCTAssertEqual(cursor?.needsAuthoritativeReconcile, false)
     }
 
-    func testInventorySyncClearsAuthoritativeReconcileFlag() async throws {
+    func testRecordInventorySyncUpdatesDurableCursor() async throws {
         let repository = SyncCursorRepository(coreDataStack: .inMemory())
         let scopeKey = "plex:account:server"
+        let date = Date(timeIntervalSince1970: 2_000)
 
-        try await repository.markNeedsAuthoritativeReconcile(
-            scopeKey: scopeKey,
-            scopeType: .serverPlaylists
-        )
         try await repository.recordInventorySync(
             scopeKey: scopeKey,
             scopeType: .serverPlaylists,
-            at: Date(timeIntervalSince1970: 2_000)
+            at: date
         )
 
         let cursor = try await repository.fetchCursor(
             scopeKey: scopeKey,
             scopeType: .serverPlaylists
         )
-        XCTAssertEqual(cursor?.needsAuthoritativeReconcile, false)
-        XCTAssertEqual(cursor?.lastInventorySyncAt, Date(timeIntervalSince1970: 2_000))
+        XCTAssertEqual(cursor?.lastInventorySyncAt, date)
+        XCTAssertEqual(cursor?.lastSuccessfulSyncAt, date)
     }
 
     func testDeleteCursorRemovesOnlyMatchingScope() async throws {

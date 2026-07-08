@@ -76,7 +76,7 @@ Dependency flow is one-way:
 - Source identity must include account/server/library scope where applicable. Plex library section keys are per-server integers and are not globally unique.
 - Feed and library surfaces should use stale-while-revalidate behavior: show cached/last-good committed snapshots first, then refresh in background.
 - Empty or failed network results must not overwrite last-good Feed snapshots.
-- Durable sync state belongs in `SyncCursorRepository`/`CDSyncCursor` with explicit scope keys and scope types. Sync triggers should ask or update this scoped state instead of adding new independent timestamp flags.
+- Durable server-playlist sync state belongs in `SyncCursorRepository`/`CDSyncCursor`. Playlist sync triggers should ask or update this scoped state instead of adding new independent timestamp flags.
 - Destructive source cleanup belongs in `SourceCacheCleanupService` or the relevant persistence/offline owner, not in UI ViewModels.
 
 ## Playback And Plex Rules
