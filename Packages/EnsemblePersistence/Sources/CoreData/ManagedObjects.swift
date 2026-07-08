@@ -44,6 +44,28 @@ extension CDServer {
     }
 }
 
+// MARK: - CDSyncCursor
+
+@objc(CDSyncCursor)
+public class CDSyncCursor: NSManagedObject {
+    @NSManaged public var scopeKey: String
+    @NSManaged public var scopeType: String
+    @NSManaged public var lastIncrementalSyncAt: Date?
+    @NSManaged public var lastInventorySyncAt: Date?
+    @NSManaged public var lastFullSyncAt: Date?
+    @NSManaged public var lastSuccessfulSyncAt: Date?
+    @NSManaged public var lastError: String?
+    @NSManaged public var needsAuthoritativeReconcile: Bool
+    @NSManaged public var serverGeneration: String?
+    @NSManaged public var updatedAt: Date?
+}
+
+extension CDSyncCursor {
+    @nonobjc public class func fetchRequest() -> NSFetchRequest<CDSyncCursor> {
+        return NSFetchRequest<CDSyncCursor>(entityName: "CDSyncCursor")
+    }
+}
+
 // MARK: - CDArtist
 
 @objc(CDArtist)

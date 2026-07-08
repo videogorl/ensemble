@@ -15,6 +15,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - WebSocket library/update/download events accelerate refresh and sync. Debounce, in-flight guards, cooldowns, polling timers, and foreground refresh remain fallback paths.
 - Source cleanup is destructive and must stay outside UI view models. Removed/disabled sources should clean caches, lyrics, artwork, offline targets, downloads, and stale rows through the owning cleanup services.
 - Sync should pre-cache detail-grade album, artist, and playlist artwork before users navigate into artwork-backed detail surfaces. Existing persistent artwork should only skip sync caching when it satisfies the full-size detail requirement; undersized thumbnails remain fallback files and should be replaced during sync while the server is available.
+- Scope freshness, inventory, and reconcile state should be durable. `SyncCursorRepository` owns `CDSyncCursor` rows for sync scopes such as server playlists, library sources, mutation outbox, download targets, and server health. New sync paths should prefer scoped cursor state over scattered `UserDefaults`; legacy defaults may remain only as migration/backward-compatibility fallbacks.
 - Incremental playlist sync should fetch added/updated playlists each run, but full playlist inventory for orphan removal should run only after playlist changes, first/full sync, or a periodic cleanup window. Startup sync must avoid repeating inventory-only orphan checks when Plex reports no playlist changes and a recent cleanup exists.
 - Full/manual playlist sync should refresh playlist inventory metadata, then fetch playlist track lists only for new, server-updated, or locally bodyless playlists where the server reports tracks. Keep this repair path so destructive cache clears or cross-device source changes can rebuild playlist bodies without forcing every unchanged playlist to re-download on every sync.
 - If Plex returns source artwork below the requested detail size, the successful detail-size fetch attempt should be recorded with the persistent artwork identity so future syncs do not re-download the same server-limited image until the source path or modified date changes.
@@ -31,6 +32,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - `AppReadinessCoordinator` owns launch/source/cache readiness snapshots consumed by browse surfaces.
 - `ForegroundWorkScheduler` owns idle gating for nonessential refresh-adjacent indexing and retry work.
 - `SourceCacheCleanupService` owns destructive source/all-library cache eviction.
+- `SyncCursorRepository` owns durable scoped sync cursor/freshness/error state.
 - `PlexWebSocketCoordinator` owns coalesced WebSocket event routing into sync/download/health flows.
 
 ## Implementation Hooks
@@ -42,6 +44,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Filter cached source rows against enabled sources before publishing browse state.
 - Mood browse rows are display categories keyed by normalized title. Plex mood keys are library-local, so merge duplicate mood titles across sources for display and carry per-source mood keys when available. Mood detail pages should use the cached per-source key first and only refetch/resolve the current library's mood key when cached metadata is missing or stale.
 - Keep WebSocket event handling idempotent and safe to miss.
+- Use `SyncCursorRepository` for new scoped sync freshness decisions. Server playlist inventory reconciliation should record full/inventory/incremental completion there and clear the cursor when server-scoped playlist rows are purged.
 - `SyncCoordinator` owns full-size persistent artwork pre-caching through `cacheAlbumArtwork`, `cacheArtistArtwork`, and `cachePlaylistArtwork`; detail views should treat sync output as the durable cache source and use visible loading only as a recovery path.
 - `ArtworkIdentity.requestedPixelDimension` records the largest persistent artwork request already attempted for the current source identity; `ArtworkDownloadManager.localArtworkExists` uses it to distinguish stale thumbnails from server-limited detail responses.
 

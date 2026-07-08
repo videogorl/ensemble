@@ -91,6 +91,7 @@ public final class SyncCoordinator: ObservableObject {
     public let connectionRegistry: ServerConnectionRegistry?
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let syncCursorRepository: SyncCursorRepositoryProtocol?
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let refreshOrchestrator: RefreshOrchestrator
     private let serverConnectionController: ServerConnectionController
@@ -158,6 +159,7 @@ public final class SyncCoordinator: ObservableObject {
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
+        syncCursorRepository: SyncCursorRepositoryProtocol? = nil,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         networkMonitor: NetworkMonitor,
         serverHealthChecker: ServerHealthChecker,
@@ -166,6 +168,7 @@ public final class SyncCoordinator: ObservableObject {
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.syncCursorRepository = syncCursorRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
@@ -211,7 +214,8 @@ public final class SyncCoordinator: ObservableObject {
                     let provider = PlexMusicSourceSyncProvider(
                         sourceIdentifier: sourceId,
                         apiClient: apiClient,
-                        sectionKey: library.key
+                        sectionKey: library.key,
+                        syncCursorRepository: syncCursorRepository
                     )
 
                     syncProviders[sourceId.compositeKey] = provider
@@ -1091,6 +1095,12 @@ public final class SyncCoordinator: ObservableObject {
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
             UserDefaults.standard.removeObject(forKey: timestampKey)
+            UserDefaults.standard.removeObject(forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey))
+            UserDefaults.standard.removeObject(forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey))
+            try await syncCursorRepository?.deleteCursor(
+                scopeKey: serverSourceKey,
+                scopeType: .serverPlaylists
+            )
 
             // Delete cached playlist artwork files
             if !playlistKeys.isEmpty {

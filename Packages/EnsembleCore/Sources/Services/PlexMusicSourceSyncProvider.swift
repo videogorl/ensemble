@@ -8,6 +8,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
+    private let syncCursorRepository: SyncCursorRepositoryProtocol?
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
 
@@ -17,11 +18,13 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     public init(
         sourceIdentifier: MusicSourceIdentifier,
         apiClient: PlexAPIClient,
-        sectionKey: String
+        sectionKey: String,
+        syncCursorRepository: SyncCursorRepositoryProtocol? = nil
     ) {
         self.sourceIdentifier = sourceIdentifier
         self.apiClient = apiClient
         self.sectionKey = sectionKey
+        self.syncCursorRepository = syncCursorRepository
     }
 
     public func syncLibraryIncremental(
@@ -495,14 +498,28 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             fetchedTrackLists += 1
         }
 
-        // Update last playlist sync timestamp
-        let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
+        let validPlaylistKeys = Set(playlists.map(\.ratingKey))
+        let removedPlaylists = try await repository.removeOrphanedPlaylists(
+            notIn: validPlaylistKeys,
+            forSource: serverSourceKey
+        )
+        if removedPlaylists > 0 {
+            EnsembleLogger.debug("🧹 Full playlist sync removed \(removedPlaylists) orphaned playlists")
+        }
 
-        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists))")
+        let completedAt = Date()
+        let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
+        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: timestampKey)
+        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
+        UserDefaults.standard.removeObject(forKey: Self.playlistOrphanCheckForceKey(for: serverSourceKey))
+        try await recordFullPlaylistSync(scopeKey: serverSourceKey, at: completedAt)
+
+        EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists), removed=\(removedPlaylists))")
         progressHandler(1.0)
-        return PlaylistSyncResult(changedPlaylists: fetchedTrackLists)
+        return PlaylistSyncResult(
+            changedPlaylists: fetchedTrackLists,
+            removedPlaylists: removedPlaylists
+        )
     }
 
     /// Sync only playlists that changed since last sync (incremental)
@@ -514,9 +531,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
         let orphanTimestampKey = Self.playlistOrphanCheckKey(for: serverSourceKey)
+        let forceOrphanCheckKey = Self.playlistOrphanCheckForceKey(for: serverSourceKey)
 
-        // Get last sync timestamp
-        let lastSyncTimestamp = UserDefaults.standard.double(forKey: timestampKey)
+        let cursor = try await playlistSyncCursor(scopeKey: serverSourceKey)
+        let legacySyncTimestamp = UserDefaults.standard.double(forKey: timestampKey)
+        let lastSyncTimestamp = cursor?.lastIncrementalSyncAt?.timeIntervalSince1970
+            ?? cursor?.lastFullSyncAt?.timeIntervalSince1970
+            ?? cursor?.lastSuccessfulSyncAt?.timeIntervalSince1970
+            ?? legacySyncTimestamp
 
         // If never synced, fall back to full sync
         guard lastSyncTimestamp > 0 else {
@@ -565,7 +587,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(0.7)
         let shouldCheckOrphans = Self.shouldCheckPlaylistOrphans(
             changedPlaylistCount: changedPlaylists.count,
-            lastCheckedAt: UserDefaults.standard.double(forKey: orphanTimestampKey),
+            lastCheckedAt: UserDefaults.standard.bool(forKey: forceOrphanCheckKey)
+                ? 0
+                : cursor?.lastInventorySyncAt?.timeIntervalSince1970
+                    ?? UserDefaults.standard.double(forKey: orphanTimestampKey),
             now: Date()
         )
         let removedPlaylists: Int
@@ -577,7 +602,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             progressHandler(0.85)
 
             removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
-            UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: orphanTimestampKey)
+            let inventorySyncedAt = Date()
+            UserDefaults.standard.set(inventorySyncedAt.timeIntervalSince1970, forKey: orphanTimestampKey)
+            UserDefaults.standard.removeObject(forKey: forceOrphanCheckKey)
+            try await recordPlaylistInventorySync(scopeKey: serverSourceKey, at: inventorySyncedAt)
             if removedPlaylists > 0 {
                 EnsembleLogger.debug("🧹 Removed \(removedPlaylists) orphaned playlists")
             } else {
@@ -591,8 +619,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             EnsembleLogger.debug("⏭️ Incremental playlist orphan check skipped; no playlist changes and recent cleanup exists")
         }
 
-        // Update last playlist sync timestamp
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: timestampKey)
+        let completedAt = Date()
+        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: timestampKey)
+        try await recordIncrementalPlaylistSync(scopeKey: serverSourceKey, at: completedAt)
 
         EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
 
@@ -654,12 +683,48 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
     }
 
+    private func playlistSyncCursor(scopeKey: String) async throws -> SyncCursorRecord? {
+        try await syncCursorRepository?.fetchCursor(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists
+        )
+    }
+
+    private func recordIncrementalPlaylistSync(scopeKey: String, at date: Date) async throws {
+        try await syncCursorRepository?.recordIncrementalSync(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists,
+            at: date
+        )
+    }
+
+    private func recordPlaylistInventorySync(scopeKey: String, at date: Date) async throws {
+        try await syncCursorRepository?.recordInventorySync(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists,
+            at: date
+        )
+    }
+
+    private func recordFullPlaylistSync(scopeKey: String, at date: Date) async throws {
+        try await syncCursorRepository?.recordFullSync(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists,
+            at: date
+        )
+    }
+
     static func resetPlaylistOrphanCheckTimestamp(for serverSourceKey: String) {
         UserDefaults.standard.removeObject(forKey: playlistOrphanCheckKey(for: serverSourceKey))
+        UserDefaults.standard.set(true, forKey: playlistOrphanCheckForceKey(for: serverSourceKey))
     }
 
     static func playlistOrphanCheckKey(for serverSourceKey: String) -> String {
         "lastPlaylistOrphanCheckAt_\(serverSourceKey)"
+    }
+
+    static func playlistOrphanCheckForceKey(for serverSourceKey: String) -> String {
+        "forcePlaylistOrphanCheck_\(serverSourceKey)"
     }
 
 public func getStreamURL(

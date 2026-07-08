@@ -25,6 +25,7 @@ public final class DependencyContainer: @unchecked Sendable {
 
     public let libraryRepository: LibraryRepositoryProtocol
     public let playlistRepository: PlaylistRepositoryProtocol
+    public let syncCursorRepository: SyncCursorRepositoryProtocol
     public let hubRepository: HubRepositoryProtocol
     public let moodRepository: MoodRepository
     public let downloadManager: DownloadManagerProtocol
@@ -117,6 +118,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let authService: PlexAuthService
         let libraryRepository: LibraryRepositoryProtocol
         let playlistRepository: PlaylistRepositoryProtocol
+        let syncCursorRepository: SyncCursorRepositoryProtocol
         let hubRepository: HubRepositoryProtocol
         let moodRepository: MoodRepository
         let downloadManager: DownloadManagerProtocol
@@ -221,6 +223,7 @@ public final class DependencyContainer: @unchecked Sendable {
         authService = core.authService
         libraryRepository = core.libraryRepository
         playlistRepository = core.playlistRepository
+        syncCursorRepository = core.syncCursorRepository
         hubRepository = core.hubRepository
         moodRepository = core.moodRepository
         downloadManager = core.downloadManager
@@ -370,6 +373,7 @@ public final class DependencyContainer: @unchecked Sendable {
             authService: PlexAuthService(keychain: keychain),
             libraryRepository: LibraryRepository(coreDataStack: coreDataStack),
             playlistRepository: PlaylistRepository(coreDataStack: coreDataStack),
+            syncCursorRepository: SyncCursorRepository(coreDataStack: coreDataStack),
             hubRepository: HubRepository(),
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
@@ -452,6 +456,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 accountManager: network.accountManager,
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
+                syncCursorRepository: core.syncCursorRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 networkMonitor: network.networkMonitor,
                 serverHealthChecker: network.serverHealthChecker,

@@ -68,6 +68,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 - Root scene layering, chrome geometry registration, and mini-player overlay helpers live in `Packages/EnsembleUI/Sources/Screens/Root/`.
 - Library item Get Info UI lives in `Packages/EnsembleUI/Sources/Screens/Library/`; its request model lives in `Packages/EnsembleCore/Sources/Models/` and its ViewModel in `Packages/EnsembleCore/Sources/ViewModels/`.
 - New CoreData entity: `Packages/EnsemblePersistence/Sources/CoreData/`
+- New CoreData repository: `Packages/EnsemblePersistence/Sources/Repositories/`
 - New API endpoint logic: the matching `PlexAPIClient+*.swift` file in `Packages/EnsembleAPI/Sources/Client/`.
 - New test: the owning package's `Tests/` directory.
 - New app UI test: `EnsembleUITests/`.

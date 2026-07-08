@@ -96,9 +96,12 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverSourceKey = "plex:account-1:server-1"
         let orphanCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+        let forceCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey)
+        UserDefaults.standard.removeObject(forKey: forceCheckKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: orphanCheckKey)
         defer {
             UserDefaults.standard.removeObject(forKey: orphanCheckKey)
+            UserDefaults.standard.removeObject(forKey: forceCheckKey)
         }
 
         _ = try await controller.refreshServer(
@@ -110,6 +113,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(UserDefaults.standard.double(forKey: orphanCheckKey), 0)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: forceCheckKey))
     }
 
     func testPlaylistOnlyRefreshForcesPlaylistOrphanCheck() async throws {
@@ -117,9 +121,12 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverSourceKey = "plex:account-1:server-1"
         let orphanCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+        let forceCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey)
+        UserDefaults.standard.removeObject(forKey: forceCheckKey)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: orphanCheckKey)
         defer {
             UserDefaults.standard.removeObject(forKey: orphanCheckKey)
+            UserDefaults.standard.removeObject(forKey: forceCheckKey)
         }
 
         _ = try await controller.refreshServer(
@@ -131,6 +138,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(UserDefaults.standard.double(forKey: orphanCheckKey), 0)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: forceCheckKey))
     }
 
     func testWebSocketRefreshDoesNotForcePlaylistOrphanCheck() async throws {
@@ -138,10 +146,13 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverSourceKey = "plex:account-1:server-1"
         let orphanCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+        let forceCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey)
         let timestamp = Date().timeIntervalSince1970
+        UserDefaults.standard.removeObject(forKey: forceCheckKey)
         UserDefaults.standard.set(timestamp, forKey: orphanCheckKey)
         defer {
             UserDefaults.standard.removeObject(forKey: orphanCheckKey)
+            UserDefaults.standard.removeObject(forKey: forceCheckKey)
         }
 
         _ = try await controller.refreshServer(
@@ -153,6 +164,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(UserDefaults.standard.double(forKey: orphanCheckKey), timestamp)
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: forceCheckKey))
     }
 
     func testRefreshServerReturnsNilWhenIncrementalFailsWithoutFallback() async throws {
