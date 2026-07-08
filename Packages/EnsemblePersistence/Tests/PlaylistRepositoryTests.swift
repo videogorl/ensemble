@@ -390,13 +390,53 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(playlist.tracksArray.map(\.title), ["Right Account"])
     }
 
+    func testFetchPlaylistLocalTrackStatesReportsLinkedTrackCount() async throws {
+        let stack = CoreDataStack.inMemory()
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistSource = "plex:account-1:server-1"
+        let trackSource = "plex:account-1:server-1:library-1"
+        let modifiedAt = Date(timeIntervalSince1970: 123)
+
+        try await seedTrack(
+            ratingKey: "track-1",
+            title: "Track One",
+            sourceCompositeKey: trackSource,
+            repository: libraryRepository
+        )
+        _ = try await upsertPlaylist(
+            in: playlistRepository,
+            ratingKey: "playlist-1",
+            compositePath: nil,
+            dateModified: modifiedAt,
+            sourceCompositeKey: playlistSource,
+            trackCount: 2
+        )
+
+        var states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
+        XCTAssertEqual(states["playlist-1"]?.trackCount, 2)
+        XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 0)
+        XCTAssertEqual(states["playlist-1"]?.modifiedAt, modifiedAt)
+
+        try await playlistRepository.setPlaylistTracks(
+            ["track-1"],
+            forPlaylist: "playlist-1",
+            sourceCompositeKey: playlistSource
+        )
+
+        states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
+        XCTAssertEqual(states["playlist-1"]?.trackCount, 1)
+        XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 1)
+    }
+
     @discardableResult
     private func upsertPlaylist(
         in repository: PlaylistRepository,
         ratingKey: String = "playlist-1",
         compositePath: String?,
         dateModified: Date?,
-        sourceCompositeKey: String = "plex/account/server"
+        sourceCompositeKey: String = "plex/account/server",
+        trackCount: Int = 0
     ) async throws -> CDPlaylist {
         try await repository.upsertPlaylist(
             ratingKey: ratingKey,
@@ -406,7 +446,7 @@ final class PlaylistRepositoryTests: XCTestCase {
             compositePath: compositePath,
             isSmart: false,
             duration: nil,
-            trackCount: 0,
+            trackCount: trackCount,
             dateAdded: nil,
             dateModified: dateModified,
             lastPlayed: nil,

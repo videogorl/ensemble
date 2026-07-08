@@ -461,6 +461,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         let playlistSyncStart = CFAbsoluteTimeGetCurrent()
         progressHandler(0.1)
         let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
+        let localTrackStates = try await repository.fetchPlaylistLocalTrackStates(forSource: serverSourceKey)
         let playlists = try await apiClient.getPlaylists()
         EnsembleLogger.debug("⏱️ Playlist sync: fetched \(playlists.count) playlists in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s")
 
@@ -472,6 +473,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let shouldFetchTracks = Self.shouldFetchPlaylistTracks(
                 serverUpdatedAt: playlist.updatedAt,
                 existingModifiedAt: existingTimestamps[playlist.ratingKey]
+            ) || Self.shouldRepairPlaylistTracks(
+                serverTrackCount: playlist.leafCount,
+                localLinkedTrackCount: localTrackStates[playlist.ratingKey]?.linkedTrackCount
             )
 
             try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
@@ -606,6 +610,15 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         guard let existingModifiedAt else { return true }
         guard let serverUpdatedAt else { return false }
         return serverUpdatedAt != Int(existingModifiedAt.timeIntervalSince1970)
+    }
+
+    static func shouldRepairPlaylistTracks(
+        serverTrackCount: Int?,
+        localLinkedTrackCount: Int?
+    ) -> Bool {
+        guard let localLinkedTrackCount, localLinkedTrackCount == 0 else { return false }
+        guard let serverTrackCount, serverTrackCount > 0 else { return false }
+        return true
     }
 
     static func shouldCheckPlaylistOrphans(

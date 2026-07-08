@@ -248,4 +248,31 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             )
         )
     }
+
+    func testPlaylistTrackSyncRepairsEmptyLocalBodyWhenServerHasTracks() {
+        XCTAssertTrue(
+            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+                serverTrackCount: 12,
+                localLinkedTrackCount: 0
+            )
+        )
+    }
+
+    func testPlaylistTrackSyncDoesNotRepairPopulatedLocalBody() {
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+                serverTrackCount: 12,
+                localLinkedTrackCount: 3
+            )
+        )
+    }
+
+    func testPlaylistTrackSyncDoesNotRepairIntentionallyEmptyPlaylist() {
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+                serverTrackCount: 0,
+                localLinkedTrackCount: 0
+            )
+        )
+    }
 }

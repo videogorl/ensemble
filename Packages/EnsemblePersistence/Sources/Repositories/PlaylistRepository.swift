@@ -1,6 +1,18 @@
 import CoreData
 import Foundation
 
+public struct PlaylistLocalTrackState: Sendable, Equatable {
+    public let modifiedAt: Date?
+    public let trackCount: Int
+    public let linkedTrackCount: Int
+
+    public init(modifiedAt: Date?, trackCount: Int, linkedTrackCount: Int) {
+        self.modifiedAt = modifiedAt
+        self.trackCount = trackCount
+        self.linkedTrackCount = linkedTrackCount
+    }
+}
+
 public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylists() async throws -> [CDPlaylist]
     func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist]
@@ -33,6 +45,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
 
     // Bulk timestamp lookup (for incremental sync change detection)
     func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
+    func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState]
 
     /// Returns and clears artwork invalidations accumulated during playlist upserts.
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo]
@@ -50,6 +63,20 @@ public extension PlaylistRepositoryProtocol {
     }
 
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
+
+    func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState] {
+        let playlists = try await fetchPlaylists(sourceCompositeKey: sourceKey)
+        var states: [String: PlaylistLocalTrackState] = [:]
+        states.reserveCapacity(playlists.count)
+        for playlist in playlists {
+            states[playlist.ratingKey] = PlaylistLocalTrackState(
+                modifiedAt: playlist.dateModified,
+                trackCount: Int(playlist.trackCount),
+                linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count ?? 0
+            )
+        }
+        return states
+    }
 
     func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
         guard !references.isEmpty else { return [:] }
@@ -171,6 +198,26 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    public func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState] {
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDPlaylist.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.relationshipKeyPathsForPrefetching = ["playlistTracks"]
+
+            let playlists = try context.fetch(request)
+            var states: [String: PlaylistLocalTrackState] = [:]
+            states.reserveCapacity(playlists.count)
+            for playlist in playlists {
+                states[playlist.ratingKey] = PlaylistLocalTrackState(
+                    modifiedAt: playlist.dateModified,
+                    trackCount: Int(playlist.trackCount),
+                    linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count ?? 0
+                )
+            }
+            return states
         }
     }
 
