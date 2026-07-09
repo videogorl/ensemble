@@ -79,6 +79,7 @@ public protocol MusicSourceSyncProvider: Sendable {
     /// Sync only playlists added or updated since last sync (incremental)
     func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
+        forceOrphanCheck: Bool,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult
 

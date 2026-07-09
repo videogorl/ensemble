@@ -13,6 +13,8 @@ final class AutomationSupportTests: XCTestCase {
                 AutomationLaunchOptions.disableAnimationsArgument,
                 "true",
                 AutomationLaunchOptions.simulateOfflineArgument,
+                "true",
+                AutomationLaunchOptions.refreshPlaylistsArgument,
                 "true"
             ],
             environment: [:]
@@ -22,6 +24,7 @@ final class AutomationSupportTests: XCTestCase {
         XCTAssertEqual(options.startSurface, .profileStorage)
         XCTAssertTrue(options.disableAnimations)
         XCTAssertTrue(options.simulateOffline)
+        XCTAssertTrue(options.refreshPlaylists)
     }
 
     func testLaunchOptionsStartSurfaceEnablesAutomationMode() {
@@ -51,6 +54,19 @@ final class AutomationSupportTests: XCTestCase {
         XCTAssertTrue(options.simulateOffline)
     }
 
+    func testLaunchOptionsRefreshPlaylistsEnablesAutomationMode() {
+        let options = AutomationLaunchOptions.current(
+            arguments: [
+                "Ensemble",
+                AutomationLaunchOptions.refreshPlaylistsArgument
+            ],
+            environment: [:]
+        )
+
+        XCTAssertTrue(options.isEnabled)
+        XCTAssertTrue(options.refreshPlaylists)
+    }
+
     func testLaunchOptionsParseEnvironment() {
         let options = AutomationLaunchOptions.current(
             arguments: ["Ensemble"],
@@ -58,7 +74,8 @@ final class AutomationSupportTests: XCTestCase {
                 AutomationLaunchOptions.modeEnvironmentKey: "1",
                 AutomationLaunchOptions.startSurfaceEnvironmentKey: "albums",
                 AutomationLaunchOptions.disableAnimationsEnvironmentKey: "on",
-                AutomationLaunchOptions.simulateOfflineEnvironmentKey: "yes"
+                AutomationLaunchOptions.simulateOfflineEnvironmentKey: "yes",
+                AutomationLaunchOptions.refreshPlaylistsEnvironmentKey: "true"
             ]
         )
 
@@ -66,6 +83,7 @@ final class AutomationSupportTests: XCTestCase {
         XCTAssertEqual(options.startSurface, .albums)
         XCTAssertTrue(options.disableAnimations)
         XCTAssertTrue(options.simulateOffline)
+        XCTAssertTrue(options.refreshPlaylists)
     }
 
     func testAutomationIdentifiersSanitizeDynamicComponents() {

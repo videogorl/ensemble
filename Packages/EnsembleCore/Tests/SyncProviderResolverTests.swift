@@ -11,7 +11,7 @@ final class SyncProviderResolverTests: XCTestCase {
         func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
-        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
+        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
         func getStreamURL(for trackRatingKey: String, trackStreamKey: String?, quality: StreamingQuality, metadataDurationSeconds: Double?) async throws -> StreamResolution { throw PlexAPIError.noServerSelected }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
         func rateTrack(ratingKey: String, rating: Int?) async throws {}

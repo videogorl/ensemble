@@ -92,12 +92,9 @@ final class PlaylistRefreshController {
             let sourceId = provider.sourceIdentifier
 
             do {
-                if trigger.forcesPlaylistOrphanCheck {
-                    PlexMusicSourceSyncProvider.resetPlaylistOrphanCheckTimestamp(for: serverSourceKey)
-                }
-
                 let playlistResult = try await provider.syncPlaylistsIncremental(
                     to: playlistRepository,
+                    forceOrphanCheck: trigger.forcesPlaylistOrphanCheck,
                     progressHandler: { _ in }
                 )
                 return RefreshResult(

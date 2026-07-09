@@ -133,6 +133,7 @@ private final class MockWebSocketProvider: MusicSourceSyncProvider, @unchecked S
 
     func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult {
         incrementalPlaylistResult

@@ -110,6 +110,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
 
         func syncPlaylistsIncremental(
             to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> PlaylistSyncResult {
             progressHandler(1.0)

@@ -165,6 +165,11 @@ public final class CoreDataStack: @unchecked Sendable {
         guard trackEntity.propertiesByName["streamId"] != nil else {
             return false
         }
+        guard let cursorEntity = model.entitiesByName["CDSyncCursor"],
+              cursorEntity.propertiesByName["scopeKey"] != nil,
+              cursorEntity.propertiesByName["scopeType"] != nil else {
+            return false
+        }
         return model.entitiesByName["CDHomeFeedSnapshot"]?.propertiesByName["hubs"] != nil
     }
 }

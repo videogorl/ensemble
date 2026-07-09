@@ -18,14 +18,7 @@ extension PlexAPIClient {
 
     /// Get playlist inventory (just ratingKeys) for orphan detection
     public func getPlaylistInventory() async throws -> [PlexInventoryItem] {
-        return try await mediaContainerItems(
-            path: "/playlists",
-            query: [
-                "playlistType": "audio",
-                "includeFields": "ratingKey",
-                "excludeElements": "Media"
-            ]
-        )
+        try await getPlaylists().map { PlexInventoryItem(ratingKey: $0.ratingKey) }
     }
 
     /// Get playlists added after a specific timestamp (incremental sync)

@@ -20,18 +20,30 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         func fetchPlaylistTimestamps(forSource sourceKey: String) async throws -> [String: Date] { [:] }
     }
 
-    private struct MockProvider: MusicSourceSyncProvider, @unchecked Sendable {
+    private final class MockProvider: MusicSourceSyncProvider, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var incrementalResult: Result<PlaylistSyncResult, Error>
         var fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        private(set) var lastForceOrphanCheck = false
+
+        init(
+            sourceIdentifier: MusicSourceIdentifier,
+            incrementalResult: Result<PlaylistSyncResult, Error>,
+            fullResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        ) {
+            self.sourceIdentifier = sourceIdentifier
+            self.incrementalResult = incrementalResult
+            self.fullResult = fullResult
+        }
 
         func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
         func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
             try fullResult.get()
         }
-        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
-            try incrementalResult.get()
+        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult {
+            lastForceOrphanCheck = forceOrphanCheck
+            return try incrementalResult.get()
         }
         func getStreamURL(for trackRatingKey: String, trackStreamKey: String?, quality: StreamingQuality, metadataDurationSeconds: Double?) async throws -> StreamResolution { throw TestError.unimplemented }
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
@@ -95,76 +107,51 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         let controller = PlaylistRefreshController()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverSourceKey = "plex:account-1:server-1"
-        let orphanCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
-        let forceCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey)
-        UserDefaults.standard.removeObject(forKey: forceCheckKey)
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: orphanCheckKey)
-        defer {
-            UserDefaults.standard.removeObject(forKey: orphanCheckKey)
-            UserDefaults.standard.removeObject(forKey: forceCheckKey)
-        }
+        let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
 
         _ = try await controller.refreshServer(
             serverSourceKey: serverSourceKey,
-            providers: [source.compositeKey: MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))],
+            providers: [source.compositeKey: provider],
             playlistRepository: MockPlaylistRepository(),
             trigger: .mutationRefresh,
             allowFullFallback: false
         )
 
-        XCTAssertEqual(UserDefaults.standard.double(forKey: orphanCheckKey), 0)
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: forceCheckKey))
+        XCTAssertTrue(provider.lastForceOrphanCheck)
     }
 
     func testPlaylistOnlyRefreshForcesPlaylistOrphanCheck() async throws {
         let controller = PlaylistRefreshController()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverSourceKey = "plex:account-1:server-1"
-        let orphanCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
-        let forceCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey)
-        UserDefaults.standard.removeObject(forKey: forceCheckKey)
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: orphanCheckKey)
-        defer {
-            UserDefaults.standard.removeObject(forKey: orphanCheckKey)
-            UserDefaults.standard.removeObject(forKey: forceCheckKey)
-        }
+        let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
 
         _ = try await controller.refreshServer(
             serverSourceKey: serverSourceKey,
-            providers: [source.compositeKey: MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))],
+            providers: [source.compositeKey: provider],
             playlistRepository: MockPlaylistRepository(),
             trigger: .playlistOnly,
             allowFullFallback: false
         )
 
-        XCTAssertEqual(UserDefaults.standard.double(forKey: orphanCheckKey), 0)
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: forceCheckKey))
+        XCTAssertTrue(provider.lastForceOrphanCheck)
     }
 
     func testWebSocketRefreshDoesNotForcePlaylistOrphanCheck() async throws {
         let controller = PlaylistRefreshController()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let serverSourceKey = "plex:account-1:server-1"
-        let orphanCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
-        let forceCheckKey = PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey)
-        let timestamp = Date().timeIntervalSince1970
-        UserDefaults.standard.removeObject(forKey: forceCheckKey)
-        UserDefaults.standard.set(timestamp, forKey: orphanCheckKey)
-        defer {
-            UserDefaults.standard.removeObject(forKey: orphanCheckKey)
-            UserDefaults.standard.removeObject(forKey: forceCheckKey)
-        }
+        let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
 
         _ = try await controller.refreshServer(
             serverSourceKey: serverSourceKey,
-            providers: [source.compositeKey: MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))],
+            providers: [source.compositeKey: provider],
             playlistRepository: MockPlaylistRepository(),
             trigger: .webSocket,
             allowFullFallback: false
         )
 
-        XCTAssertEqual(UserDefaults.standard.double(forKey: orphanCheckKey), timestamp)
-        XCTAssertFalse(UserDefaults.standard.bool(forKey: forceCheckKey))
+        XCTAssertFalse(provider.lastForceOrphanCheck)
     }
 
     func testRefreshServerReturnsNilWhenIncrementalFailsWithoutFallback() async throws {

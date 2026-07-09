@@ -27,6 +27,7 @@ public struct RootView: View {
     @State private var hasLoggedAutomationLaunchOptions = false
     @State private var hasAppliedAutomationNetworkState = false
     @State private var hasAppliedAutomationLaunchRoute = false
+    @State private var hasAppliedAutomationPlaylistRefresh = false
     @Namespace private var playerNamespace
     private let artworkAnimationID = "nowPlayingArtwork"
 
@@ -88,6 +89,7 @@ public struct RootView: View {
             logAutomationLaunchOptionsIfNeeded()
             applyAutomationNetworkStateIfNeeded()
             applyAutomationLaunchRouteIfNeeded()
+            applyAutomationPlaylistRefreshIfNeeded()
         }
         .onDisappear {
             NavigationCoordinator.clearActiveSceneCoordinator(navigationCoordinator)
@@ -98,6 +100,7 @@ public struct RootView: View {
                 NavigationCoordinator.setActiveSceneCoordinator(navigationCoordinator)
                 NavigationCoordinator.setActiveAuxiliaryCommandCoordinator(navigationCoordinator)
                 applyAutomationLaunchRouteIfNeeded()
+                applyAutomationPlaylistRefreshIfNeeded()
             }
         }
         .onChange(of: settingsManager.auroraVisualizationEnabled) { _ in
@@ -171,6 +174,27 @@ public struct RootView: View {
 
         hasAppliedAutomationLaunchRoute = true
         _ = navigationCoordinator.routeAutomationSurface(startSurface, source: "launchArgument")
+    }
+
+    private func applyAutomationPlaylistRefreshIfNeeded() {
+        guard !hasAppliedAutomationPlaylistRefresh,
+              AutomationLaunchOptions.current.refreshPlaylists
+        else { return }
+
+        hasAppliedAutomationPlaylistRefresh = true
+        Task {
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "playlistRefreshRequested",
+                details: ["source": "launchArgument"]
+            )
+            await DependencyContainer.shared.syncCoordinator.syncPlaylistsOnly()
+            UserJourneyLogger.log(
+                context: "automation",
+                event: "playlistRefreshCompleted",
+                details: ["source": "launchArgument"]
+            )
+        }
     }
 
     private func logRootTaskStart() {

@@ -150,6 +150,7 @@ private final class RecordingReportingProvider: MusicSourceSyncProvider, @unchec
 
     func syncPlaylistsIncremental(
         to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult {
         throw PlexAPIError.noServerSelected

@@ -7,26 +7,31 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
     public static let startSurfaceArgument = "-EnsembleAutomationStartSurface"
     public static let disableAnimationsArgument = "-EnsembleAutomationDisableAnimations"
     public static let simulateOfflineArgument = "-EnsembleAutomationSimulateOffline"
+    public static let refreshPlaylistsArgument = "-EnsembleAutomationRefreshPlaylists"
     public static let modeEnvironmentKey = "ENSEMBLE_AUTOMATION_MODE"
     public static let startSurfaceEnvironmentKey = "ENSEMBLE_AUTOMATION_START_SURFACE"
     public static let disableAnimationsEnvironmentKey = "ENSEMBLE_AUTOMATION_DISABLE_ANIMATIONS"
     public static let simulateOfflineEnvironmentKey = "ENSEMBLE_AUTOMATION_SIMULATE_OFFLINE"
+    public static let refreshPlaylistsEnvironmentKey = "ENSEMBLE_AUTOMATION_REFRESH_PLAYLISTS"
 
     public let isEnabled: Bool
     public let startSurface: AutomationSurface?
     public let disableAnimations: Bool
     public let simulateOffline: Bool
+    public let refreshPlaylists: Bool
 
     public init(
         isEnabled: Bool,
         startSurface: AutomationSurface? = nil,
         disableAnimations: Bool = false,
-        simulateOffline: Bool = false
+        simulateOffline: Bool = false,
+        refreshPlaylists: Bool = false
     ) {
         self.isEnabled = isEnabled
         self.startSurface = startSurface
         self.disableAnimations = disableAnimations
         self.simulateOffline = simulateOffline
+        self.refreshPlaylists = refreshPlaylists
     }
 
     public static var current: AutomationLaunchOptions {
@@ -61,12 +66,18 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
             in: arguments,
             environmentValue: environment[simulateOfflineEnvironmentKey]
         )
+        let refreshPlaylists = boolValue(
+            after: refreshPlaylistsArgument,
+            in: arguments,
+            environmentValue: environment[refreshPlaylistsEnvironmentKey]
+        )
 
         return AutomationLaunchOptions(
-            isEnabled: isEnabled || simulateOffline,
+            isEnabled: isEnabled || simulateOffline || refreshPlaylists,
             startSurface: startSurface,
             disableAnimations: disableAnimations,
-            simulateOffline: simulateOffline
+            simulateOffline: simulateOffline,
+            refreshPlaylists: refreshPlaylists
         )
     }
 
@@ -79,7 +90,8 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
             details: [
                 "startSurface": startSurface?.rawValue ?? "none",
                 "disableAnimations": disableAnimations ? "true" : "false",
-                "simulateOffline": simulateOffline ? "true" : "false"
+                "simulateOffline": simulateOffline ? "true" : "false",
+                "refreshPlaylists": refreshPlaylists ? "true" : "false"
             ]
         )
     }

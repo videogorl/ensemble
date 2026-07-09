@@ -469,6 +469,7 @@ final class SyncExecutionController {
         if incremental {
             return try await provider.syncPlaylistsIncremental(
                 to: dependencies.playlistRepository,
+                forceOrphanCheck: false,
                 progressHandler: { [dependencies] progress in
                     Task { @MainActor in
                         dependencies.publishProgress(source, progressBase + (progress * progressWeight))

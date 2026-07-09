@@ -1096,7 +1096,6 @@ public final class SyncCoordinator: ObservableObject {
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
             UserDefaults.standard.removeObject(forKey: timestampKey)
             UserDefaults.standard.removeObject(forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey))
-            UserDefaults.standard.removeObject(forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckForceKey(for: serverSourceKey))
             try await syncCursorRepository?.deleteCursor(
                 scopeKey: serverSourceKey,
                 scopeType: .serverPlaylists
