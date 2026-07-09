@@ -120,6 +120,8 @@ Automation launch arguments:
 - `-EnsembleAutomationSimulateOffline YES` forces the debug network monitor offline at launch and logs `simulateOffline=true`; omit it on the reconnect launch to drain queued mutations.
 - `-EnsembleAutomationRefreshPlaylists YES` runs the existing playlist-only refresh path once after launch and logs `playlistRefreshRequested`/`playlistRefreshCompleted`; use with `-EnsembleAutomationStartSurface playlists` to verify stale playlist cleanup without fragile pull-to-refresh gestures.
 
+For landscape iPad sheets, prefer semantic element refs for visible controls. If a native `List` row is below the sheet viewport, Computer Use exposes `Scroll Down` / `Scroll Up` secondary actions on the sheet's scroll container; invoke that action, refresh the app state, then resume with a fresh Xcode `snapshot_ui` ref. Raw `ios-simulator-mcp` coordinates are orientation-sensitive in this configuration and can hit the presenting view, so do not classify an out-of-frame accessibility row as clipped until the native scroll action has been tried.
+
 The independent watch app builds with the `EnsembleWatch` scheme. The iOS `Ensemble` scheme does not embed the watch app during simulator builds.
 
 ## Architecture Summary
