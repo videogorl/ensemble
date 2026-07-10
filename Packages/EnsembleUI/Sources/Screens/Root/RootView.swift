@@ -69,6 +69,7 @@ public struct RootView: View {
         ) {
             mainContentView
         }
+        .auxiliaryPresentationSheets()
         .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
         .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)

@@ -167,7 +167,6 @@ public struct MainTabView: View {
             .onReceive(settingsManager.objectWillChange) { _ in
                 updateSettingsSnapshot()
             }
-            .auxiliaryPresentationSheets(accentColor: accentColor)
             .addAccountPresentationSheet()
             rootView
                 .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
@@ -982,7 +981,6 @@ public struct SidebarView: View {
 
     public var body: some View {
         splitNavigationView
-        .auxiliaryPresentationSheets(accentColor: accentColor)
         .onReceive(settingsManager.objectWillChange) { _ in
             updateSettingsSnapshot()
         }

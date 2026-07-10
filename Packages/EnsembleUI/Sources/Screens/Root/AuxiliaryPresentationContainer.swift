@@ -74,26 +74,16 @@ public struct DownloadsPresentationContainer: View {
 
 private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    let accentColor: AppAccentColor
 
-    private var profileSheetBinding: Binding<Bool> {
+    private var presentationBinding: Binding<NavigationCoordinator.AuxiliaryPresentation?> {
         Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .profile },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .profile else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
-            }
-        )
-    }
-
-    private var downloadsSheetBinding: Binding<Bool> {
-        Binding(
-            get: { navigationCoordinator.activeAuxiliaryPresentation == .downloads },
-            set: { isPresented in
-                guard !isPresented,
-                      navigationCoordinator.activeAuxiliaryPresentation == .downloads else { return }
-                navigationCoordinator.dismissAuxiliaryPresentation()
+            get: { navigationCoordinator.activeAuxiliaryPresentation },
+            set: { presentation in
+                if let presentation {
+                    navigationCoordinator.activeAuxiliaryPresentation = presentation
+                } else {
+                    navigationCoordinator.dismissAuxiliaryPresentation()
+                }
             }
         )
     }
@@ -101,13 +91,13 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
     func body(content: Content) -> some View {
         #if os(iOS)
         content
-            .sheet(isPresented: profileSheetBinding) {
-                ProfilePresentationContainer()
-                    .accentColor(accentColor.color)
-            }
-            .sheet(isPresented: downloadsSheetBinding) {
-                DownloadsPresentationContainer()
-                    .accentColor(accentColor.color)
+            .sheet(item: presentationBinding) { presentation in
+                switch presentation {
+                case .profile:
+                    ProfilePresentationContainer()
+                case .downloads:
+                    DownloadsPresentationContainer()
+                }
             }
         #else
         content
@@ -116,9 +106,9 @@ private struct AuxiliaryPresentationSheetsModifier: ViewModifier {
 }
 
 public extension View {
-    /// Presents root auxiliary profile/download sheets from the active root shell.
-    func auxiliaryPresentationSheets(accentColor: AppAccentColor) -> some View {
-        modifier(AuxiliaryPresentationSheetsModifier(accentColor: accentColor))
+    /// Presents root auxiliary profile/download sheets from the scene owner.
+    func auxiliaryPresentationSheets() -> some View {
+        modifier(AuxiliaryPresentationSheetsModifier())
     }
 }
 
