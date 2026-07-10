@@ -174,6 +174,13 @@ public struct RootView: View {
         else { return }
 
         hasAppliedAutomationLaunchRoute = true
+
+        // Sidebar shells expose app settings through the Profile presentation.
+        if usesSidebarRootNavigationShell, startSurface == .settings {
+            _ = navigationCoordinator.routeAutomationSurface(.profile, source: "launchArgument.settingsAlias")
+            return
+        }
+
         _ = navigationCoordinator.routeAutomationSurface(startSurface, source: "launchArgument")
     }
 

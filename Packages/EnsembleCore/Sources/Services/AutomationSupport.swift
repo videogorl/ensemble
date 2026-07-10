@@ -37,7 +37,8 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
     public static var current: AutomationLaunchOptions {
         current(
             arguments: ProcessInfo.processInfo.arguments,
-            environment: ProcessInfo.processInfo.environment
+            environment: ProcessInfo.processInfo.environment,
+            userDefaults: .standard
         )
     }
 
@@ -45,32 +46,41 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
         arguments: [String],
         environment: [String: String]
     ) -> AutomationLaunchOptions {
+        current(arguments: arguments, environment: environment, userDefaults: nil)
+    }
+
+    static func current(
+        arguments: [String],
+        environment: [String: String],
+        userDefaults: UserDefaults?
+    ) -> AutomationLaunchOptions {
         let startSurfaceValue = stringValue(
             after: startSurfaceArgument,
             in: arguments
         ) ?? environment[startSurfaceEnvironmentKey]
+            ?? userDefaults?.string(forKey: userDefaultsKey(for: startSurfaceArgument))
 
         let startSurface = startSurfaceValue.flatMap(AutomationSurface.init(rawValue:))
         let isEnabled = boolValue(
             after: modeArgument,
             in: arguments,
             environmentValue: environment[modeEnvironmentKey]
-        ) || startSurface != nil
+        ) || boolUserDefault(userDefaults, for: modeArgument) || startSurface != nil
         let disableAnimations = boolValue(
             after: disableAnimationsArgument,
             in: arguments,
             environmentValue: environment[disableAnimationsEnvironmentKey]
-        )
+        ) || boolUserDefault(userDefaults, for: disableAnimationsArgument)
         let simulateOffline = boolValue(
             after: simulateOfflineArgument,
             in: arguments,
             environmentValue: environment[simulateOfflineEnvironmentKey]
-        )
+        ) || boolUserDefault(userDefaults, for: simulateOfflineArgument)
         let refreshPlaylists = boolValue(
             after: refreshPlaylistsArgument,
             in: arguments,
             environmentValue: environment[refreshPlaylistsEnvironmentKey]
-        )
+        ) || boolUserDefault(userDefaults, for: refreshPlaylistsArgument)
 
         return AutomationLaunchOptions(
             isEnabled: isEnabled || simulateOffline || refreshPlaylists,
@@ -117,6 +127,24 @@ public struct AutomationLaunchOptions: Equatable, Sendable {
         let valueIndex = arguments.index(after: index)
         guard valueIndex < arguments.endIndex else { return nil }
         return arguments[valueIndex]
+    }
+
+    private static func boolUserDefault(_ userDefaults: UserDefaults?, for argument: String) -> Bool {
+        guard let value = userDefaults?.object(forKey: userDefaultsKey(for: argument)) else {
+            return false
+        }
+
+        if let stringValue = value as? String {
+            return stringValue.isTruthyAutomationValue
+        }
+        if let numberValue = value as? NSNumber {
+            return numberValue.boolValue
+        }
+        return false
+    }
+
+    private static func userDefaultsKey(for argument: String) -> String {
+        argument.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 }
 

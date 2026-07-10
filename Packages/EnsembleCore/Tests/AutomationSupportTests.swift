@@ -86,6 +86,31 @@ final class AutomationSupportTests: XCTestCase {
         XCTAssertTrue(options.refreshPlaylists)
     }
 
+    func testLaunchOptionsParseUserDefaultsFallback() {
+        let suiteName = "AutomationSupportTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("Expected isolated UserDefaults suite")
+        }
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+
+        userDefaults.set("downloads", forKey: "EnsembleAutomationStartSurface")
+        userDefaults.set("YES", forKey: "EnsembleAutomationDisableAnimations")
+        userDefaults.set(true, forKey: "EnsembleAutomationSimulateOffline")
+        userDefaults.set(true, forKey: "EnsembleAutomationRefreshPlaylists")
+
+        let options = AutomationLaunchOptions.current(
+            arguments: ["Ensemble"],
+            environment: [:],
+            userDefaults: userDefaults
+        )
+
+        XCTAssertTrue(options.isEnabled)
+        XCTAssertEqual(options.startSurface, .downloads)
+        XCTAssertTrue(options.disableAnimations)
+        XCTAssertTrue(options.simulateOffline)
+        XCTAssertTrue(options.refreshPlaylists)
+    }
+
     func testAutomationIdentifiersSanitizeDynamicComponents() {
         XCTAssertEqual(
             AutomationIdentifiers.Sidebar.playlist(
