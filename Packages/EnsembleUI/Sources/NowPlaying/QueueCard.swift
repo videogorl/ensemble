@@ -497,6 +497,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(playbackProjection.isShuffleEnabled ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
+            .accessibilityLabel("Shuffle")
+            .accessibilityValue(playbackProjection.isShuffleEnabled ? "On" : "Off")
 
             // Repeat
             Button(action: viewModel.cycleRepeatMode) {
@@ -504,6 +506,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(playbackProjection.repeatMode.isActive ? EnsembleDesign.Color.accent : EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity))
             }
+            .accessibilityLabel("Repeat")
+            .accessibilityValue(repeatAccessibilityValue)
 
             // SmartMix
             Button(action: viewModel.toggleSmartMix) {
@@ -511,6 +515,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(smartMixColor)
             }
+            .accessibilityLabel("Smart Mix")
+            .accessibilityValue(queueProjection.isSmartMixEnabled ? "On" : "Off")
 
             // Autoplay — dimmed and non-interactive when offline (no network for recommendations)
             Button(action: viewModel.toggleAutoplay) {
@@ -518,6 +524,8 @@ public struct QueueCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(autoplayColor)
             }
+            .accessibilityLabel("Autoplay")
+            .accessibilityValue(queueProjection.isAutoplayEnabled ? "On" : "Off")
             .disabled(!deps.networkMonitor.isConnected)
             .opacity(!deps.networkMonitor.isConnected ? EnsembleScaffold.NowPlaying.offlineControlOpacity : 1.0)
         }
@@ -529,6 +537,14 @@ public struct QueueCard: View {
 
     private var autoplayIcon: String {
         EnsembleDesign.Icon.infinity
+    }
+
+    private var repeatAccessibilityValue: String {
+        switch playbackProjection.repeatMode {
+        case .off: return "Off"
+        case .all: return "All"
+        case .one: return "One"
+        }
     }
 
     private var autoplayColor: Color {
