@@ -19,18 +19,20 @@ public struct ProfileHeaderView: View {
 
     public var body: some View {
         VStack(spacing: EnsembleScaffold.ProfileHeader.contentSpacing) {
-            // Profile image — tappable to change
-            profileImageView
-                .onTapGesture {
-                    showingImageSourcePicker = true
-                }
+            Button {
+                showingImageSourcePicker = true
+            } label: {
+                profileImageView
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Change Profile Photo")
+            .accessibilityHint("Choose or remove your profile photo")
 
-            // Name + edit affordance — navigation is owned by the parent screen
-            // so the push originates from the profile root instead of the list row.
-            nameView
-                .onTapGesture {
-                    onEditName()
-                }
+            Button(action: onEditName) {
+                nameView
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Edit your profile name")
         }
         .padding(.vertical, EnsembleScaffold.ProfileHeader.verticalPadding)
         .frame(maxWidth: .infinity)
