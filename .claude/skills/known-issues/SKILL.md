@@ -44,6 +44,12 @@ No unresolved critical issues are currently documented.
 - **Status:** Repeated CoreHaptics errors from UIKit keyboard haptics are simulator noise, not Ensemble haptics.
 - **Rule:** Ignore this in simulator logs unless accompanied by an app-owned haptics regression.
 
+### iOS 26.5 Simulator Automation Gaps
+
+- **Area:** `ios-simulator-mcp`/Homebrew `idb-companion`, XcodeBuildMCP list reordering and custom drag controls.
+- **Status:** Homebrew `idb-companion` 1.1.8 can connect to the iOS 26.5 simulator but crashes while serializing its accessibility tree (`NSJSONSerialization` / connection lost). XcodeBuildMCP can capture and tap the runtime semantic tree, but its drag transport currently fails with `FBSimulatorHIDEvent does not support touch move events`.
+- **Rule:** Do not repeatedly retry either route for a failed semantic tree or native `List.onMove` drag. Use Xcode runtime snapshots/taps, `EnsembleAutomationStartSurface`, `ensemble://` deep links, runtime journey logs, and read-only simulator SQLite checks instead. Treat exposed reorder controls plus focused mutation tests as evidence of wiring; reserve a real drag proof for a toolchain that supports touch-move events.
+
 ### macOS Instrumental Mode Quality Gap
 
 - **Area:** `AudioPlaybackEngine` instrumental/vocal attenuation path.
