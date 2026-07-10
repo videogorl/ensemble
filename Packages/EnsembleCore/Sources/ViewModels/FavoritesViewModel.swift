@@ -84,6 +84,8 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         error = nil
 
         do {
+            // Favorites can reopen while the view context still holds stale sync placeholders.
+            await libraryRepository.refreshContext()
             let favoriteTracks = try await libraryRepository.fetchFavoriteTracks()
             let nextTracks = favoriteTracks.map { Track(from: $0) }
             publishTracksIfChanged(nextTracks)

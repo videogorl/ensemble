@@ -9,8 +9,11 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         var favoriteTracks: [CDTrack] = []
+        var refreshContextCallCount = 0
 
-        func refreshContext() async {}
+        func refreshContext() async {
+            refreshContextCallCount += 1
+        }
         func fetchArtists() async throws -> [CDArtist] { [] }
         func fetchArtist(ratingKey: String) async throws -> CDArtist? { nil }
         func fetchAlbums() async throws -> [CDAlbum] { [] }
@@ -726,6 +729,23 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-a"])
         XCTAssertEqual(viewModel.filteredTracks.map(\.id), ["track-a"])
         XCTAssertFalse(viewModel.isLoading)
+    }
+
+    func testFavoritesViewModelRefreshesBeforeMappingFavoriteMetadata() async {
+        FavoritesViewModel.resetLastGoodSnapshotForTesting()
+        let libraryRepository = MockLibraryRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        libraryRepository.favoriteTracks = [
+            makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: context)
+        ]
+
+        let viewModel = FavoritesViewModel(libraryRepository: libraryRepository)
+        await viewModel.loadTracks()
+
+        XCTAssertGreaterThanOrEqual(libraryRepository.refreshContextCallCount, 1)
+        XCTAssertEqual(viewModel.tracks.first?.title, "Favorite A")
+        XCTAssertEqual(viewModel.tracks.first?.artistName, "Artist")
+        XCTAssertEqual(viewModel.tracks.first?.duration, 100)
     }
 
     func testPlaylistDetailPreservesTracksDuringIntermediateEmptyRelationshipReload() async {
