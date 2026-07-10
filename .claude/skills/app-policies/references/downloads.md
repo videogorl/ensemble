@@ -6,6 +6,7 @@ Load this reference for offline download targets, download queue behavior, trans
 
 - `OfflineDownloadService` is the target and queue source of truth. Platform lifecycle events route through offline coordinators and then into the service.
 - Downloads are target-based. Library, album, artist, playlist, and favorites targets resolve memberships, enqueue missing tracks, and clean up shared tracks by reference count.
+- Removing the final target reference for a track must evict its audio file, frequency sidecar, and offline lyrics/chord caches. Preserve those artifacts while another target still references the same source-scoped track.
 - Download lookup, persistence, and deletion must be source-aware: use `ratingKey + sourceCompositeKey` so libraries and servers do not collide.
 - Queue policy is Wi-Fi/wired only by default. Active downloads pause on cellular or offline network state unless settings explicitly allow the path.
 - User pause, Low Power Mode, app backgrounding, and iOS continued-processing windows all feed the same scheduler. The queue should pause aggressively on constrained devices without losing resumability.

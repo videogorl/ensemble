@@ -78,6 +78,7 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
         downloadManager.completedDownloads = [retained, orphaned, trackless]
 
         let targetRepository = TargetRepositoryMock()
+        var clearedLyricsReferences: [OfflineTrackReference] = []
         targetRepository.membershipCounts[
             OfflineTrackReference(trackRatingKey: "keep-track", trackSourceCompositeKey: "source-a")
         ] = 2
@@ -88,7 +89,15 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
         let coordinator = OfflineDownloadCleanupCoordinator(
             dependencies: .init(
                 downloadManager: downloadManager,
-                targetRepository: targetRepository
+                targetRepository: targetRepository,
+                clearLyricsCache: { ratingKey, sourceCompositeKey in
+                    clearedLyricsReferences.append(
+                        OfflineTrackReference(
+                            trackRatingKey: ratingKey,
+                            trackSourceCompositeKey: sourceCompositeKey
+                        )
+                    )
+                }
             )
         )
 
@@ -97,6 +106,10 @@ final class OfflineDownloadCleanupCoordinatorTests: XCTestCase {
         XCTAssertEqual(removedCount, 1)
         XCTAssertEqual(
             downloadManager.deletedReferences,
+            [OfflineTrackReference(trackRatingKey: "drop-track", trackSourceCompositeKey: "source-a")]
+        )
+        XCTAssertEqual(
+            clearedLyricsReferences,
             [OfflineTrackReference(trackRatingKey: "drop-track", trackSourceCompositeKey: "source-a")]
         )
         XCTAssertEqual(downloadManager.removeOrphanedDownloadFilesCallCount, 1)

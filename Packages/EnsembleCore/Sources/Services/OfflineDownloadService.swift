@@ -182,7 +182,13 @@ public final class OfflineDownloadService: ObservableObject {
     private lazy var cleanupCoordinator = OfflineDownloadCleanupCoordinator(
         dependencies: .init(
             downloadManager: downloadManager,
-            targetRepository: targetRepository
+            targetRepository: targetRepository,
+            clearLyricsCache: { [lyricsService] ratingKey, sourceCompositeKey in
+                lyricsService.clearCache(
+                    forTrackRatingKey: ratingKey,
+                    sourceCompositeKey: sourceCompositeKey
+                )
+            }
         )
     )
     private lazy var notificationBridge = OfflineDownloadNotificationBridge(
@@ -759,6 +765,10 @@ public final class OfflineDownloadService: ObservableObject {
             for (index, reference) in previousReferences.enumerated() {
                 if orphanedReferences.contains(reference) {
                     try await downloadManager.deleteDownload(
+                        forTrackRatingKey: reference.trackRatingKey,
+                        sourceCompositeKey: reference.trackSourceCompositeKey
+                    )
+                    lyricsService.clearCache(
                         forTrackRatingKey: reference.trackRatingKey,
                         sourceCompositeKey: reference.trackSourceCompositeKey
                     )

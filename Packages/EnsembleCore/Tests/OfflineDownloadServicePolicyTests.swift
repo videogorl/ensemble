@@ -1,4 +1,5 @@
 import Combine
+import Foundation
 import XCTest
 @testable import EnsembleCore
 import EnsembleAPI
@@ -77,6 +78,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         private var _statusUpdates: [([CDDownload.Status], CDDownload.Status)] = []
         private var _fetchDownloadsCount = 0
         private var _fetchCompletedDownloadsCount = 0
+        private var _deletedReferences: [OfflineTrackReference] = []
 
         var statusUpdates: [([CDDownload.Status], CDDownload.Status)] {
             lock.withLock { _statusUpdates }
@@ -88,6 +90,10 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         var fetchCompletedDownloadsCount: Int {
             lock.withLock { _fetchCompletedDownloadsCount }
+        }
+
+        var deletedReferences: [OfflineTrackReference] {
+            lock.withLock { _deletedReferences }
         }
 
         func resetStatusUpdates() {
@@ -122,7 +128,17 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
         func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {}
+        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {
+            guard let sourceCompositeKey else { return }
+            lock.withLock {
+                _deletedReferences.append(
+                    OfflineTrackReference(
+                        trackRatingKey: trackRatingKey,
+                        trackSourceCompositeKey: sourceCompositeKey
+                    )
+                )
+            }
+        }
         func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
         func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
@@ -131,18 +147,26 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
     }
 
     private final class MockTargetRepository: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
+        var referencesByTarget: [String: [OfflineTrackReference]] = [:]
+        var membershipCounts: [OfflineTrackReference: Int] = [:]
+        var deletedTargetKeys: [String] = []
+
         func fetchTargets() async throws -> [CDOfflineDownloadTarget] { [] }
         func fetchTarget(key: String) async throws -> CDOfflineDownloadTarget? { nil }
         func upsertTarget(key: String, kind: CDOfflineDownloadTarget.Kind, ratingKey: String?, sourceCompositeKey: String?, displayName: String?) async throws -> CDOfflineDownloadTarget { throw MockError.unimplemented }
         func updateTarget(key: String, status: CDOfflineDownloadTarget.Status, totalTrackCount: Int, completedTrackCount: Int, progress: Float, lastError: String?) async throws {}
-        func deleteTarget(key: String) async throws {}
+        func deleteTarget(key: String) async throws { deletedTargetKeys.append(key) }
         func deleteTargets(forSourceCompositeKey sourceKey: String) async throws {}
         func deleteAllTargets() async throws {}
         func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership] { [] }
-        func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference] { [] }
+        func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference] {
+            referencesByTarget[targetKey] ?? []
+        }
         func replaceMemberships(targetKey: String, trackReferences: [OfflineTrackReference]) async throws {}
         func hasAnyMembership(for reference: OfflineTrackReference) async throws -> Bool { false }
-        func membershipCount(for reference: OfflineTrackReference) async throws -> Int { 0 }
+        func membershipCount(for reference: OfflineTrackReference) async throws -> Int {
+            membershipCounts[reference] ?? 0
+        }
         func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String] { [] }
         func totalTrackDurationMs() async throws -> Int64 { 0 }
     }
@@ -186,6 +210,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
     private func makeService(
         downloadManager: MockDownloadManager = MockDownloadManager(),
+        targetRepository: MockTargetRepository = MockTargetRepository(),
         backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil,
         launchRecoveryStartedAt: Date = Date()
     ) async -> OfflineDownloadService {
@@ -210,7 +235,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         let service = OfflineDownloadService(
             downloadManager: downloadManager,
-            targetRepository: MockTargetRepository(),
+            targetRepository: targetRepository,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
@@ -224,6 +249,62 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await Task.yield()
         return service
+    }
+
+    func testRemovingTargetClearsLyricsOnlyForLastReferencedDownload() async throws {
+        let sourceKey = "plex:test-account:test-server:test-library"
+        let orphaned = OfflineTrackReference(
+            trackRatingKey: "orphaned-\(UUID().uuidString)",
+            trackSourceCompositeKey: sourceKey
+        )
+        let shared = OfflineTrackReference(
+            trackRatingKey: "shared-\(UUID().uuidString)",
+            trackSourceCompositeKey: sourceKey
+        )
+        let targetKey = "offline:test-target"
+        let targetRepository = MockTargetRepository()
+        targetRepository.referencesByTarget[targetKey] = [orphaned, shared]
+        targetRepository.membershipCounts[orphaned] = 1
+        targetRepository.membershipCounts[shared] = 2
+
+        let cacheDirectory = try XCTUnwrap(
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        ).appendingPathComponent("Ensemble/LyricsCache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        let orphanedCacheURL = cacheDirectory.appendingPathComponent(
+            lyricsCacheFilenamePrefix(for: orphaned) + "lyrics_test.json"
+        )
+        let sharedCacheURL = cacheDirectory.appendingPathComponent(
+            lyricsCacheFilenamePrefix(for: shared) + "lyrics_test.json"
+        )
+        try Data([0x01]).write(to: orphanedCacheURL)
+        try Data([0x02]).write(to: sharedCacheURL)
+        defer {
+            try? FileManager.default.removeItem(at: orphanedCacheURL)
+            try? FileManager.default.removeItem(at: sharedCacheURL)
+        }
+
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            targetRepository: targetRepository
+        )
+
+        await service.removeTarget(key: targetKey)
+
+        XCTAssertEqual(targetRepository.deletedTargetKeys, [targetKey])
+        XCTAssertEqual(downloadManager.deletedReferences, [orphaned])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanedCacheURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sharedCacheURL.path))
+    }
+
+    private func lyricsCacheFilenamePrefix(for reference: OfflineTrackReference) -> String {
+        "\(reference.trackRatingKey):\(reference.trackSourceCompositeKey):"
+            .replacingOccurrences(
+                of: "[^a-zA-Z0-9_-]",
+                with: "_",
+                options: .regularExpression
+            )
     }
 
     func testPlaybackStateSwitchesWorkMode() async {

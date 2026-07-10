@@ -9,6 +9,7 @@ final class OfflineDownloadCleanupCoordinator {
     struct Dependencies {
         let downloadManager: DownloadManagerProtocol
         let targetRepository: OfflineDownloadTargetRepositoryProtocol
+        let clearLyricsCache: (_ ratingKey: String, _ sourceCompositeKey: String) -> Void
     }
 
     private let dependencies: Dependencies
@@ -41,6 +42,10 @@ final class OfflineDownloadCleanupCoordinator {
             try await dependencies.downloadManager.deleteDownload(
                 forTrackRatingKey: reference.trackRatingKey,
                 sourceCompositeKey: reference.trackSourceCompositeKey
+            )
+            dependencies.clearLyricsCache(
+                reference.trackRatingKey,
+                reference.trackSourceCompositeKey
             )
             removedCount += 1
         }
