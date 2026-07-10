@@ -9,10 +9,14 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         var favoriteTracks: [CDTrack] = []
+        var refreshedFavoriteTracks: [CDTrack]?
         var refreshContextCallCount = 0
 
         func refreshContext() async {
             refreshContextCallCount += 1
+            if let refreshedFavoriteTracks {
+                favoriteTracks = refreshedFavoriteTracks
+            }
         }
         func fetchArtists() async throws -> [CDArtist] { [] }
         func fetchArtist(ratingKey: String) async throws -> CDArtist? { nil }
@@ -736,6 +740,9 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let libraryRepository = MockLibraryRepository()
         let context = CoreDataStack.inMemory().viewContext
         libraryRepository.favoriteTracks = [
+            makeCachedFavoriteTrack(id: "stale-track", title: "Stale placeholder", context: context)
+        ]
+        libraryRepository.refreshedFavoriteTracks = [
             makeCachedFavoriteTrack(id: "track-a", title: "Favorite A", context: context)
         ]
 
