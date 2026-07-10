@@ -826,6 +826,47 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result.removedItemCount, 0)
     }
 
+    func testAutoplayLookaheadTrimmingPreservesManualQueueItems() {
+        let current = QueueItem(
+            id: "current",
+            track: makeTrack(id: "current", title: "Current", artist: "Artist", duration: 180),
+            source: .continuePlaying
+        )
+        let manualItems = (1 ... 10).map { index in
+            QueueItem(
+                id: "manual-\(index)",
+                track: makeTrack(
+                    id: "manual-\(index)",
+                    title: "Manual \(index)",
+                    artist: "Artist",
+                    duration: 180
+                ),
+                source: .continuePlaying
+            )
+        }
+        let autoplayItems = (1 ... 7).map { index in
+            QueueItem(
+                id: "autoplay-\(index)",
+                track: makeTrack(
+                    id: "autoplay-\(index)",
+                    title: "Autoplay \(index)",
+                    artist: "Artist",
+                    duration: 180
+                ),
+                source: .autoplay
+            )
+        }
+        let queue = [current] + manualItems + autoplayItems
+
+        let indices = PlaybackService.excessFutureAutoplayIndices(
+            queue: queue,
+            currentQueueIndex: 0,
+            maximumCount: 5
+        )
+
+        XCTAssertEqual(indices.map { queue[$0].id }, ["autoplay-6", "autoplay-7"])
+    }
+
     // MARK: - Queue pruning
 
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
