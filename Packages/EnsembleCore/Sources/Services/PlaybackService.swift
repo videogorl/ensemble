@@ -2439,7 +2439,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let isDeviceOffline = await MainActor.run {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
-            playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
+            playbackState = .failed(Self.noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -2573,7 +2573,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let isDeviceOffline = await MainActor.run {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
-            playbackState = .failed(noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
+            playbackState = .failed(Self.noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -3137,9 +3137,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         await self.playCurrentQueueItem(caller: "next()-repeatAll")
                         guard !Task.isCancelled else { return }
                         self.savePlaybackState()
-                    } else {
+                    } else if !self.reportUnavailableNextTrackIfNeeded(after: self.currentQueueIndex) {
                         self.stop()
                     }
+                } else if self.reportUnavailableNextTrackIfNeeded(after: self.currentQueueIndex) {
+                    return
                 } else if self.isAutoplayEnabled {
                     EnsembleLogger.debug("[next] Queue ended, autoplay enabled, refreshing...")
                     await self.refreshAutoplayQueue()
@@ -3341,6 +3343,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   let wrappedIndex = findNextPlayableTrackIndex(after: -1) {
             recordCurrentAndSkippedTracksBeforeJump(to: wrappedIndex)
             selectQueueItemWhilePaused(at: wrappedIndex, caller: "next-paused-repeatAll")
+        } else {
+            _ = reportUnavailableNextTrackIfNeeded(after: currentQueueIndex)
         }
     }
 
@@ -5415,11 +5419,46 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Returns an appropriate error message when no tracks are playable.
     /// Distinguishes between device-offline and server-offline scenarios.
-    private func noPlayableTracksMessage(isDeviceOffline: Bool) -> String {
+    static func noPlayableTracksMessage(isDeviceOffline: Bool) -> String {
         if isDeviceOffline {
             return "No downloaded tracks available offline"
         }
         return "No playable tracks available — server is unreachable"
+    }
+
+    /// Surfaces a manual next action that can only reach known-unavailable items.
+    @MainActor
+    private func reportUnavailableNextTrackIfNeeded(after startIndex: Int) -> Bool {
+        let nextIndex = startIndex + 1
+        guard nextIndex < queue.count else { return false }
+
+        let hasKnownUnavailableNextTrack = queue[nextIndex...].contains { item in
+            !item.track.isDownloaded && !syncCoordinator.isServerPossiblyAvailable(sourceKey: item.track.sourceCompositeKey)
+        }
+        guard hasKnownUnavailableNextTrack else { return false }
+
+        let isDeviceOffline = !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+        let message = isDeviceOffline
+            ? "Next item is not available offline"
+            : Self.noPlayableTracksMessage(isDeviceOffline: false)
+        playbackState = .failed(message)
+        isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
+
+        EnsembleLogger.playback(
+            "QUEUE_NEXT_BLOCKED: offline=\(isDeviceOffline), idx=\(currentQueueIndex)/\(queue.count), message='\(message)'"
+        )
+        UserJourneyLogger.log(
+            context: "playback",
+            event: "nextBlocked",
+            details: [
+                "offline": "\(isDeviceOffline)",
+                "queueIndex": "\(currentQueueIndex)",
+                "queueCount": "\(queue.count)",
+                "reason": "knownUnavailableTrack"
+            ]
+        )
+        return true
     }
 
     /// Scan the queue after `startIndex` for the next playable track.

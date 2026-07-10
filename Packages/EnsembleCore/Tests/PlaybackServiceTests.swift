@@ -867,6 +867,17 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(indices.map { queue[$0].id }, ["autoplay-6", "autoplay-7"])
     }
 
+    func testNoPlayableTracksMessageDistinguishesDeviceAndServerAvailability() {
+        XCTAssertEqual(
+            PlaybackService.noPlayableTracksMessage(isDeviceOffline: true),
+            "No downloaded tracks available offline"
+        )
+        XCTAssertEqual(
+            PlaybackService.noPlayableTracksMessage(isDeviceOffline: false),
+            "No playable tracks available — server is unreachable"
+        )
+    }
+
     // MARK: - Queue pruning
 
     func testPruneQueueKeepsCurrentIndexWhenCurrentSourceStillEnabled() {
