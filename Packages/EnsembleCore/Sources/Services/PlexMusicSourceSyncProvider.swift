@@ -460,6 +460,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     ) async throws -> PlaylistSyncResult {
         // Use server-level identifier for playlists (not library-specific)
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
+        let queryStartedAt = Date()
 
         let playlistSyncStart = CFAbsoluteTimeGetCurrent()
         progressHandler(0.1)
@@ -509,12 +510,12 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         let completedAt = Date()
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
-        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: timestampKey)
+        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
         UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: Self.playlistOrphanCheckKey(for: serverSourceKey))
         try await syncCursorRepository?.recordFullSync(
             scopeKey: serverSourceKey,
             scopeType: .serverPlaylists,
-            at: completedAt
+            at: queryStartedAt
         )
 
         EnsembleLogger.debug("⏱️ Playlist sync: full sync total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - playlistSyncStart))s (\(playlists.count) playlists, fetchedTracks=\(fetchedTrackLists), skippedTracks=\(skippedTrackLists), removed=\(removedPlaylists))")
@@ -532,6 +533,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult {
         let syncStart = CFAbsoluteTimeGetCurrent()
+        let queryStartedAt = Date()
         let serverSourceKey = "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)"
         let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
         let orphanTimestampKey = Self.playlistOrphanCheckKey(for: serverSourceKey)
@@ -628,12 +630,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             EnsembleLogger.debug("⏭️ Incremental playlist orphan check skipped; no playlist changes and recent cleanup exists")
         }
 
-        let completedAt = Date()
-        UserDefaults.standard.set(completedAt.timeIntervalSince1970, forKey: timestampKey)
+        UserDefaults.standard.set(queryStartedAt.timeIntervalSince1970, forKey: timestampKey)
         try await syncCursorRepository?.recordIncrementalSync(
             scopeKey: serverSourceKey,
             scopeType: .serverPlaylists,
-            at: completedAt
+            at: queryStartedAt
         )
 
         EnsembleLogger.debug("⏱️ Incremental playlist sync complete — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")

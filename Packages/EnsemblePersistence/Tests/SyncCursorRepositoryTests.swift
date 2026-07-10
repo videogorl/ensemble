@@ -69,4 +69,30 @@ final class SyncCursorRepositoryTests: XCTestCase {
         XCTAssertNil(removed)
         XCTAssertEqual(retained?.lastIncrementalSyncAt, Date(timeIntervalSince1970: 2))
     }
+
+    func testOlderCompletionDoesNotRegressCursor() async throws {
+        let repository = SyncCursorRepository(coreDataStack: .inMemory())
+        let scopeKey = "plex:account:server"
+        let newerDate = Date(timeIntervalSince1970: 2_000)
+
+        try await repository.recordIncrementalSync(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists,
+            at: newerDate
+        )
+        try await repository.recordFullSync(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists,
+            at: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let cursor = try await repository.fetchCursor(
+            scopeKey: scopeKey,
+            scopeType: .serverPlaylists
+        )
+        XCTAssertEqual(cursor?.lastIncrementalSyncAt, newerDate)
+        XCTAssertEqual(cursor?.lastInventorySyncAt, Date(timeIntervalSince1970: 1_000))
+        XCTAssertEqual(cursor?.lastSuccessfulSyncAt, newerDate)
+        XCTAssertEqual(cursor?.updatedAt, newerDate)
+    }
 }

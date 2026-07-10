@@ -56,23 +56,23 @@ public final class SyncCursorRepository: SyncCursorRepositoryProtocol, @unchecke
 
     public func recordIncrementalSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
         try await updateCursor(scopeKey: scopeKey, scopeType: scopeType, at: date) { cursor in
-            cursor.lastIncrementalSyncAt = date
-            cursor.lastSuccessfulSyncAt = date
+            cursor.lastIncrementalSyncAt = max(cursor.lastIncrementalSyncAt ?? .distantPast, date)
+            cursor.lastSuccessfulSyncAt = max(cursor.lastSuccessfulSyncAt ?? .distantPast, date)
         }
     }
 
     public func recordInventorySync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
         try await updateCursor(scopeKey: scopeKey, scopeType: scopeType, at: date) { cursor in
-            cursor.lastInventorySyncAt = date
-            cursor.lastSuccessfulSyncAt = date
+            cursor.lastInventorySyncAt = max(cursor.lastInventorySyncAt ?? .distantPast, date)
+            cursor.lastSuccessfulSyncAt = max(cursor.lastSuccessfulSyncAt ?? .distantPast, date)
         }
     }
 
     public func recordFullSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws {
         try await updateCursor(scopeKey: scopeKey, scopeType: scopeType, at: date) { cursor in
-            cursor.lastFullSyncAt = date
-            cursor.lastInventorySyncAt = date
-            cursor.lastSuccessfulSyncAt = date
+            cursor.lastFullSyncAt = max(cursor.lastFullSyncAt ?? .distantPast, date)
+            cursor.lastInventorySyncAt = max(cursor.lastInventorySyncAt ?? .distantPast, date)
+            cursor.lastSuccessfulSyncAt = max(cursor.lastSuccessfulSyncAt ?? .distantPast, date)
         }
     }
 
@@ -94,7 +94,7 @@ public final class SyncCursorRepository: SyncCursorRepositoryProtocol, @unchecke
         try await coreDataStack.performBackgroundContext { context in
             let cursor = try Self.fetchOrCreateCursor(scopeKey: scopeKey, scopeType: scopeType, in: context)
             update(cursor)
-            cursor.updatedAt = date
+            cursor.updatedAt = max(cursor.updatedAt ?? .distantPast, date)
             try context.save()
         }
     }
@@ -111,7 +111,6 @@ public final class SyncCursorRepository: SyncCursorRepositoryProtocol, @unchecke
         let cursor = CDSyncCursor(context: context)
         cursor.scopeKey = scopeKey
         cursor.scopeType = scopeType.rawValue
-        cursor.updatedAt = Date()
         return cursor
     }
 
