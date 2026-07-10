@@ -361,6 +361,13 @@ public struct ControlsCard: View {
                     sliderWidth = geometry.size.width
                 }
                 .gesture(scrubberGesture(width: geometry.size.width))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Playback position")
+                .accessibilityValue(MediaFormatters.trackClock(accessibilityScrubberProgress * displayDuration))
+                .accessibilityHint("Swipe up or down to seek")
+                .accessibilityAdjustableAction { direction in
+                    adjustScrubber(for: direction)
+                }
             }
             .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
 
@@ -400,6 +407,28 @@ public struct ControlsCard: View {
 
     private var displayDuration: TimeInterval {
         max(0, playbackDuration)
+    }
+
+    private var accessibilityScrubberProgress: Double {
+        isDraggingSlider ? localProgress : playbackProgress
+    }
+
+    private func adjustScrubber(for direction: AccessibilityAdjustmentDirection) {
+        guard displayDuration > 0 else { return }
+
+        let step = 0.05
+        let adjustedProgress: Double
+        switch direction {
+        case .increment:
+            adjustedProgress = min(1, accessibilityScrubberProgress + step)
+        case .decrement:
+            adjustedProgress = max(0, accessibilityScrubberProgress - step)
+        @unknown default:
+            return
+        }
+
+        localProgress = adjustedProgress
+        viewModel.seekToProgress(adjustedProgress)
     }
 
     private func scrubberGesture(width: CGFloat) -> some Gesture {
