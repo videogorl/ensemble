@@ -57,20 +57,20 @@ final class LibraryItemInfoViewModelTests: XCTestCase {
         )
     }
 
-    func testResolvedAlbumTrackCountPrefersFetchedTracksWhenAvailable() {
+    func testResolvedTrackCountPrefersFetchedTracksWhenAvailable() {
         XCTAssertEqual(
-            LibraryItemInfoViewModel.resolvedAlbumTrackCount(
-                albumTrackCount: 0,
+            LibraryItemInfoViewModel.resolvedTrackCount(
+                metadataTrackCount: 0,
                 fetchedTrackCount: 9
             ),
             9
         )
     }
 
-    func testResolvedAlbumTrackCountFallsBackToAlbumMetadata() {
+    func testResolvedTrackCountFallsBackToMetadata() {
         XCTAssertEqual(
-            LibraryItemInfoViewModel.resolvedAlbumTrackCount(
-                albumTrackCount: 12,
+            LibraryItemInfoViewModel.resolvedTrackCount(
+                metadataTrackCount: 12,
                 fetchedTrackCount: nil
             ),
             12

@@ -173,20 +173,21 @@ public final class LibraryItemInfoViewModel: ObservableObject {
                     artworkRatingKey: nil
                 )
             }
-            let duration = cdPlaylist.tracksArray.reduce(TimeInterval(0)) {
+            let tracks = cdPlaylist.tracksArray
+            let duration = tracks.reduce(TimeInterval(0)) {
                 $0 + Self.persistedTrackDurationSeconds($1.duration)
             }
             return AggregateMetadata(
                 duration: duration > 0 ? duration : (playlist.duration > 0 ? playlist.duration : nil),
-                trackCount: nil,
+                trackCount: tracks.count,
                 artworkPath: nil,
                 artworkRatingKey: nil
             )
         }
     }
 
-    public static func resolvedAlbumTrackCount(albumTrackCount: Int, fetchedTrackCount: Int?) -> Int {
-        fetchedTrackCount ?? albumTrackCount
+    public static func resolvedTrackCount(metadataTrackCount: Int, fetchedTrackCount: Int?) -> Int {
+        fetchedTrackCount ?? metadataTrackCount
     }
 
     public static func resolvedAlbumArtworkPath(

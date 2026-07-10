@@ -129,7 +129,7 @@ public struct LibraryItemInfoView: View {
             case .playlist(let playlist):
                 infoRow(label: "Title", value: playlist.title)
                 infoRow(label: "Type", value: playlist.isSmart ? "Smart Playlist" : "Playlist")
-                infoRow(label: "Tracks", value: String(playlist.trackCount))
+                infoRow(label: "Tracks", value: String(playlistTrackCount(for: playlist)))
                 optionalRow(label: "Duration", value: formatDuration(viewModel.aggregateDuration ?? playlist.duration))
                 optionalRow(label: "Added", value: formatDate(playlist.dateAdded))
             }
@@ -201,8 +201,15 @@ public struct LibraryItemInfoView: View {
     }
 
     private func albumTrackCount(for album: Album) -> Int {
-        LibraryItemInfoViewModel.resolvedAlbumTrackCount(
-            albumTrackCount: album.trackCount,
+        LibraryItemInfoViewModel.resolvedTrackCount(
+            metadataTrackCount: album.trackCount,
+            fetchedTrackCount: viewModel.aggregateTrackCount
+        )
+    }
+
+    private func playlistTrackCount(for playlist: Playlist) -> Int {
+        LibraryItemInfoViewModel.resolvedTrackCount(
+            metadataTrackCount: playlist.trackCount,
             fetchedTrackCount: viewModel.aggregateTrackCount
         )
     }
