@@ -50,6 +50,22 @@ final class PlaylistActionServiceTests: XCTestCase {
         XCTAssertTrue(service.tracks(tracks, compatibleWithServerSourceKey: nil).isEmpty)
     }
 
+    func testExcludingExistingTracksUsesSourceScopedIdentity() {
+        let tracks = [
+            makeTrack(id: "already-present", sourceCompositeKey: "plex:account:server:library-a"),
+            makeTrack(id: "same-id-other-source", sourceCompositeKey: "plex:account:server:library-a"),
+            makeTrack(id: "new", sourceCompositeKey: "plex:account:server:library-a")
+        ]
+        let existingTracks = [
+            makeTrack(id: "already-present", sourceCompositeKey: "plex:account:server:library-a"),
+            makeTrack(id: "same-id-other-source", sourceCompositeKey: "plex:account:other:library")
+        ]
+
+        let remaining = service.tracks(tracks, excluding: existingTracks)
+
+        XCTAssertEqual(remaining.map(\.id), ["same-id-other-source", "new"])
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,

@@ -58,6 +58,12 @@ public struct PlaylistActionService {
 
         return filtered
     }
+
+    /// Preserves order while removing tracks already present in the selected playlist.
+    public func tracks(_ tracks: [Track], excluding existingTracks: [Track]) -> [Track] {
+        let existingIDs = Set(existingTracks.map(\.sourceScopedID))
+        return tracks.filter { !existingIDs.contains($0.sourceScopedID) }
+    }
 }
 
 private extension Track {

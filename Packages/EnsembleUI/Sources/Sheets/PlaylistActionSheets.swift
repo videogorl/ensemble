@@ -239,10 +239,29 @@ public struct PlaylistPickerSheet: View {
             )
             return
         }
-        dismiss()
         Task {
             do {
-                _ = try await nowPlayingVM.addTracksOptimistically(compatibleTracks, to: playlist)
+                let existingTracks = try await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                )?.tracksArray.map { Track(from: $0) } ?? []
+                let tracksToAdd = PlaylistActionService().tracks(compatibleTracks, excluding: existingTracks)
+                guard !tracksToAdd.isEmpty else {
+                    dismiss()
+                    deps.toastCenter.show(
+                        ToastPayload(
+                            style: .warning,
+                            iconSystemName: "exclamationmark.triangle.fill",
+                            title: "Already in \(playlist.title)",
+                            message: "Selected tracks are already in this playlist.",
+                            dedupeKey: "playlist-add-duplicate-\(playlist.id)"
+                        )
+                    )
+                    return
+                }
+
+                dismiss()
+                _ = try await nowPlayingVM.addTracksOptimistically(tracksToAdd, to: playlist)
             } catch {
                 deps.toastCenter.show(
                     ToastPayload(
