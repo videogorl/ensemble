@@ -469,9 +469,16 @@ public struct DownloadsView: View {
         DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
     }
 
-    /// Whether any items have non-completed tracks (pending/downloading/paused)
-    private var hasActiveDownloads: Bool {
-        viewModel.items.contains { $0.status != .completed }
+    /// Whether any targets can be advanced by resuming the queue.
+    private var hasResumableDownloads: Bool {
+        viewModel.items.contains { item in
+            switch item.status {
+            case .pending, .downloading, .paused:
+                return true
+            case .completed, .failed:
+                return false
+            }
+        }
     }
 
     /// Toolbar button that switches between pause and resume states.
@@ -484,7 +491,7 @@ public struct DownloadsView: View {
                 } label: {
                     Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
                 }
-            } else if hasActiveDownloads {
+            } else if hasResumableDownloads {
                 Button {
                     Task { await viewModel.resumeQueue() }
                 } label: {
