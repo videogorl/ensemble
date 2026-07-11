@@ -1176,30 +1176,16 @@ public struct SidebarView: View {
     private var sidebarColumn: some View {
         List(selection: sidebarSelectionBinding) {
             // Search always appears first
-            Label("Search", systemImage: EnsembleDesign.Icon.search)
-                .accessibilityIdentifier(AutomationIdentifiers.Sidebar.search)
-                .tag(SidebarSelection.library(.search))
+            sidebarLibraryRow("Search", systemImage: EnsembleDesign.Icon.search, tab: .search)
 
             // Library section (non-collapsible)
             Section("Library") {
-                Label("Home", systemImage: EnsembleDesign.Icon.home)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.home))
-                    .tag(SidebarSelection.library(.home))
-                Label("Songs", systemImage: EnsembleDesign.Icon.musicNote)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.songs))
-                    .tag(SidebarSelection.library(.songs))
-                Label("Artists", systemImage: EnsembleDesign.Icon.artist)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.artists))
-                    .tag(SidebarSelection.library(.artists))
-                Label("Albums", systemImage: EnsembleDesign.Icon.album)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.albums))
-                    .tag(SidebarSelection.library(.albums))
-                Label("Genres", systemImage: EnsembleDesign.Icon.genreEmpty)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.genres))
-                    .tag(SidebarSelection.library(.genres))
-                Label("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.library(.favorites))
-                    .tag(SidebarSelection.library(.favorites))
+                sidebarLibraryRow("Home", systemImage: EnsembleDesign.Icon.home, tab: .home)
+                sidebarLibraryRow("Songs", systemImage: EnsembleDesign.Icon.musicNote, tab: .songs)
+                sidebarLibraryRow("Artists", systemImage: EnsembleDesign.Icon.artist, tab: .artists)
+                sidebarLibraryRow("Albums", systemImage: EnsembleDesign.Icon.album, tab: .albums)
+                sidebarLibraryRow("Genres", systemImage: EnsembleDesign.Icon.genreEmpty, tab: .genres)
+                sidebarLibraryRow("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled, tab: .favorites)
             }
 
             // Pins section (collapsible — native Section header style)
@@ -1225,9 +1211,7 @@ public struct SidebarView: View {
 
             // Playlists section (collapsible)
             collapsibleSidebarSection("Playlists", isExpanded: $isPlaylistsExpanded) {
-                Label("All Playlists", systemImage: EnsembleDesign.Icon.playlist)
-                    .accessibilityIdentifier(AutomationIdentifiers.Sidebar.allPlaylists)
-                    .tag(SidebarSelection.library(.playlists))
+                sidebarLibraryRow("All Playlists", systemImage: EnsembleDesign.Icon.playlist, tab: .playlists)
 
                 ForEach(cachedRegularPlaylists) { playlist in
                     sidebarPlaylistRow(playlist)
@@ -1291,6 +1275,21 @@ public struct SidebarView: View {
                     }
             }
         }
+    }
+
+    private func sidebarLibraryRow(_ title: String, systemImage: String, tab: TabItem) -> some View {
+        Label(title, systemImage: systemImage)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(
+                tab == .search
+                    ? AutomationIdentifiers.Sidebar.search
+                    : AutomationIdentifiers.Sidebar.library(tab)
+            )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                selectSidebar(.library(tab))
+            }
+            .tag(SidebarSelection.library(tab))
     }
 
     /// Collapsible sidebar section using native Section(isExpanded:) on iOS 17+/macOS 14+,
@@ -1596,6 +1595,9 @@ public struct SidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .sidebarAccessibilityAction {
+                selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            }
             .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
                 id: pinnedItem.id,
                 sourceKey: pinnedItem.sourceCompositeKey,
@@ -1631,6 +1633,9 @@ public struct SidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .sidebarAccessibilityAction {
+                selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            }
             .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
                 id: pinnedItem.id,
                 sourceKey: pinnedItem.sourceCompositeKey,
@@ -1680,6 +1685,9 @@ public struct SidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             }
             .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .sidebarAccessibilityAction {
+                selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            }
             .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
                 id: pinnedItem.id,
                 sourceKey: pinnedItem.sourceCompositeKey,
@@ -1737,6 +1745,13 @@ public struct SidebarView: View {
                 sourceKey: pinnedItems[0].sourceCompositeKey,
                 type: pinnedItems[0].type
             ))
+            .sidebarAccessibilityAction {
+                selectSidebar(.pin(
+                    id: pinnedItems[0].id,
+                    sourceKey: pinnedItems[0].sourceCompositeKey,
+                    type: pinnedItems[0].type
+                ))
+            }
             .accessibilityIdentifier(AutomationIdentifiers.Sidebar.pin(
                 id: pinnedItems[0].id,
                 sourceKey: pinnedItems[0].sourceCompositeKey,
@@ -1793,9 +1808,15 @@ public struct SidebarView: View {
         if playlist.isMerged {
             sidebarPlaylistDropDestination(artworkLabel, playlist: playlist)
                 .tag(SidebarSelection.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart))
+                .sidebarAccessibilityAction {
+                    selectSidebar(.mergedPlaylist(title: playlist.title, isSmart: playlist.isSmart))
+                }
         } else {
             sidebarPlaylistDropDestination(artworkLabel, playlist: playlist)
                 .tag(SidebarSelection.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey))
+                .sidebarAccessibilityAction {
+                    selectSidebar(.playlist(id: playlist.playlistID, sourceKey: playlist.sourceKey))
+                }
         }
     }
 
@@ -2038,5 +2059,15 @@ public struct SidebarView: View {
             searchVM: searchVM,
             pinnedVM: pinnedVM
         )
+    }
+}
+
+private extension View {
+    func sidebarAccessibilityAction(_ action: @escaping () -> Void) -> some View {
+        accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction {
+                action()
+            }
     }
 }
