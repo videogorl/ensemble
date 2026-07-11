@@ -169,6 +169,8 @@ public struct MainTabView: View {
             }
             .addAccountPresentationSheet()
             rootView
+                .allowsHitTesting(!isShowingNowPlaying)
+                .accessibilityHidden(isShowingNowPlaying)
                 .stageFlowRotationSupport(isEnabled: selectedTabSupportsStageFlow)
                 .background(
                     RootChromeFrameRegistrationView(

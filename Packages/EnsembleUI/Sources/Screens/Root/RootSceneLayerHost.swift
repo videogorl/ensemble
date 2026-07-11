@@ -67,6 +67,8 @@ struct RootSceneLayerHost<Content: View>: View {
         GeometryReader { proxy in
             ZStack {
                 content
+                    .allowsHitTesting(!isViewportNowPlayingActive)
+                    .accessibilityHidden(isViewportNowPlayingActive)
                     .zIndex(1)
 
                 if isAuroraEnabled && !isNowPlayingPresented {
@@ -104,6 +106,10 @@ struct RootSceneLayerHost<Content: View>: View {
                 rootMiniPlayerLayer(layout: layout)
             }
         }
+    }
+
+    private var isViewportNowPlayingActive: Bool {
+        supportsViewportNowPlayingPresentation && isNowPlayingPresented
     }
 
     private func updateSidebarChromeRegistration(
