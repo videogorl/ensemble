@@ -1295,6 +1295,8 @@ public final class DependencyContainer: @unchecked Sendable {
             return "iCloud storage is full for profile sync."
         case .rateLimited:
             return "CloudKit rate-limited the profile sync. Try again shortly."
+        case .unavailable:
+            return "Profile sync is unavailable in this build."
         case .error:
             return "Profile sync could not confirm iCloud status right now."
         }

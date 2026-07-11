@@ -363,6 +363,8 @@ public struct SyncSettingsView: View {
             return "Quota Exceeded"
         case .rateLimited:
             return "Rate Limited"
+        case .unavailable:
+            return "Unavailable"
         case .error:
             return "Error"
         }
@@ -376,7 +378,7 @@ public struct SyncSettingsView: View {
             return EnsembleDesign.Color.secondaryText
         case .notAuthenticated, .networkUnavailable, .rateLimited:
             return EnsembleDesign.Color.warning
-        case .quotaExceeded, .error:
+        case .quotaExceeded, .unavailable, .error:
             return EnsembleDesign.Color.destructive
         }
     }

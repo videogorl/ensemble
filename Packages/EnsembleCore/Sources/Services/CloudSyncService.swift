@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import Security
 
 /// Manages CloudKit synchronization for user profile data.
 /// Uses the private database in the app's iCloud container.
@@ -12,13 +13,14 @@ public actor CloudSyncService {
         case networkUnavailable
         case quotaExceeded
         case rateLimited
+        case unavailable
         case error
     }
 
     // MARK: - CloudKit Configuration
 
-    private let container: CKContainer
-    private let database: CKDatabase
+    private let container: CKContainer?
+    private let database: CKDatabase?
     private static let profileSubscriptionID = "profile-changes"
 
     /// CloudKit record type for user profile
@@ -47,8 +49,23 @@ public actor CloudSyncService {
 
     // MARK: - Initialization
 
-    public init(containerIdentifier: String = "iCloud.com.videogorl.ensemble") {
-        container = CKContainer(identifier: containerIdentifier)
+    public init(
+        containerIdentifier: String = "iCloud.com.videogorl.ensemble",
+        isCloudKitAvailable: Bool? = nil
+    ) {
+        let isAvailable = isCloudKitAvailable ?? Self.hasContainerEntitlement(containerIdentifier)
+        guard isAvailable else {
+            container = nil
+            database = nil
+            profileTransportState = .unavailable
+            EnsembleLogger.error(
+                "CloudKit disabled because the app lacks the \(containerIdentifier) container entitlement"
+            )
+            return
+        }
+
+        let container = CKContainer(identifier: containerIdentifier)
+        self.container = container
         database = container.privateCloudDatabase
     }
 
@@ -64,6 +81,7 @@ public actor CloudSyncService {
     /// Probe the user's iCloud account availability so callers can distinguish
     /// authentication failures from transient CloudKit fetch issues.
     public func currentAccountStatus() async -> CKAccountStatus {
+        guard let container else { return .couldNotDetermine }
         do {
             return try await container.accountStatus()
         } catch {
@@ -76,6 +94,7 @@ public actor CloudSyncService {
 
     /// Push the local profile to CloudKit
     public func pushProfile(_ profile: UserProfile, imageData: Data?) async {
+        guard let database else { return }
         do {
             // Fetch existing record or create new one
             let record: CKRecord
@@ -127,6 +146,7 @@ public actor CloudSyncService {
 
     /// Pull the latest profile from CloudKit
     public func pullProfile() async -> (profile: UserProfile, imageData: Data?)? {
+        guard database != nil else { return nil }
         if let nextAllowed = nextProfilePullAllowedAt, nextAllowed > Date() {
             // Preserve auth-related states during local cooldown windows so
             // iOS 15 devices don't flap between "Sign In Required" and
@@ -160,6 +180,7 @@ public actor CloudSyncService {
     }
 
     private func performProfilePullRequest() async -> (profile: UserProfile, imageData: Data?)? {
+        guard let database else { return nil }
         do {
             let record = try await database.record(for: Self.profileRecordID)
             profileTransportState = .available
@@ -180,6 +201,7 @@ public actor CloudSyncService {
 
     /// Subscribe to remote profile changes via silent push notifications
     public func subscribeToChanges() async {
+        guard let database else { return }
         guard !isSubscribed else { return }
 
         do {
@@ -342,6 +364,7 @@ public actor CloudSyncService {
     }
 
     private func accountStatusForTransportDecision() async -> CKAccountStatus {
+        guard let container else { return .couldNotDetermine }
         do {
             return try await container.accountStatus()
         } catch {
@@ -364,5 +387,17 @@ public actor CloudSyncService {
         @unknown default:
             return "unknown"
         }
+    }
+
+    private static func hasContainerEntitlement(_ containerIdentifier: String) -> Bool {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let identifiers = SecTaskCopyValueForEntitlement(
+                  task,
+                  "com.apple.developer.icloud-container-identifiers" as CFString,
+                  nil
+              ) as? [String] else {
+            return false
+        }
+        return identifiers.contains(containerIdentifier)
     }
 }
