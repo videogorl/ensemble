@@ -421,6 +421,10 @@ public final class NavigationCoordinator: ObservableObject {
             return true
         case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search, .settings:
             guard let tab = surface.tab else { return false }
+            if shouldRouteExternalSearchThroughMore(targetTab: tab) {
+                routeExternalSearchThroughMore(.view(tab), targetTab: tab)
+                return true
+            }
             beginRouteTransition(in: tab)
             popToRoot(tab: tab)
             selectedTab = tab

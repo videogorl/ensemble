@@ -209,6 +209,25 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAutomationDeepLinkRoutesHiddenSurfaceThroughMore() throws {
+        let coordinator = NavigationCoordinator()
+        coordinator.visibleTabs = [.home, .artists, .playlists, .search]
+        coordinator.routesHiddenTabsThroughMore = true
+        let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=songs"))
+
+        XCTAssertTrue(
+            coordinator.handleDeepLink(
+                url,
+                automationOptions: AutomationLaunchOptions(isEnabled: true)
+            )
+        )
+
+        XCTAssertEqual(coordinator.selectedTab, .settings)
+        XCTAssertEqual(coordinator.pathSnapshot(for: .settings), [.view(.songs)])
+        XCTAssertTrue(coordinator.pathSnapshot(for: .songs).isEmpty)
+    }
+
+    @MainActor
     func testAutomationDeepLinkOpensProfilePresentation() throws {
         let coordinator = NavigationCoordinator()
         let url = try XCTUnwrap(URL(string: "ensemble://debug/open?surface=profile-storage"))

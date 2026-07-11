@@ -546,10 +546,6 @@ enum MainTabInitialSelectionPolicy {
             return .preserve
         }
 
-        guard !selectedPath.isEmpty else {
-            return .select(barTabs.first ?? .home)
-        }
-
         return .routeThroughMore(selectedTab)
     }
 }

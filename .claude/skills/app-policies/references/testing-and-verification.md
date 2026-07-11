@@ -10,6 +10,7 @@ Load this reference when choosing verification for policy-changing work or chang
 - Plex streaming or playback transport changes require live PMS endpoint checks with `.env` credentials before code changes and targeted playback verification afterward.
 - CoreData model changes require recompiling the SwiftPM model bundle and running persistence plus dependent package tests.
 - Skill or agent workflow changes require skill validation and static discoverability checks.
+- Automation launch surfaces and debug deep links must follow the same platform navigation path as user taps, including routing hidden iPhone tabs through More.
 - If verification is skipped, blocked, or narrowed, document the exact blocker and residual risk in the final handoff.
 
 ## Owners
@@ -32,7 +33,7 @@ Load this reference when choosing verification for policy-changing work or chang
 ## Verification
 
 - For policy-skill edits, run:
-  - `/Users/felicity/.claude/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/app-policies`
+  - `python3 /Users/felicity/.codex/skills/.system/skill-creator/scripts/quick_validate.py .claude/skills/app-policies`
   - `rg "app-policies|Policy-First|offline|downloads|queue|refresh" CLAUDE.md .claude/skills/app-policies`
 - Confirm every policy reference is linked from `SKILL.md`.
 - No Swift build is required for documentation-only policy changes unless Swift code also changes.

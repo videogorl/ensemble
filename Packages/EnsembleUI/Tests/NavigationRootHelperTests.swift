@@ -238,6 +238,19 @@ final class NavigationRootHelperTests: XCTestCase {
         )
     }
 
+    func testInitialSelectionPolicyRoutesHiddenLaunchSurfaceThroughMore() {
+        let barTabs: [TabItem] = [.home, .artists, .playlists, .search]
+
+        XCTAssertEqual(
+            MainTabInitialSelectionPolicy.initialResolution(
+                selectedTab: .songs,
+                selectedPath: [],
+                barTabs: barTabs
+            ),
+            .routeThroughMore(.songs)
+        )
+    }
+
     @MainActor
     func testNavigationCoordinatorPathBindingWritesThroughToCoordinator() {
         let coordinator = NavigationCoordinator()
