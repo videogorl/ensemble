@@ -552,7 +552,8 @@ public final class DependencyContainer: @unchecked Sendable {
             MutationCoordinator(
                 repository: core.pendingMutationRepository,
                 networkMonitor: network.networkMonitor,
-                syncCoordinator: sync.syncCoordinator
+                syncCoordinator: sync.syncCoordinator,
+                playlistRepository: core.playlistRepository
             )
         }
         let downloadMutationWorkflow = MainActor.assumeIsolated {

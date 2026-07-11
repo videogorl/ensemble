@@ -109,6 +109,7 @@ public final class MutationCoordinator: ObservableObject {
     private static let maxRetries: Int16 = 3
 
     private let repository: PendingMutationRepositoryProtocol
+    private let playlistRepository: PlaylistRepositoryProtocol?
     private let networkMonitor: NetworkMonitor
     private let syncCoordinator: SyncCoordinator
     private var cancellables = Set<AnyCancellable>()
@@ -120,11 +121,13 @@ public final class MutationCoordinator: ObservableObject {
     public init(
         repository: PendingMutationRepositoryProtocol,
         networkMonitor: NetworkMonitor,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        playlistRepository: PlaylistRepositoryProtocol? = nil
     ) {
         self.repository = repository
         self.networkMonitor = networkMonitor
         self.syncCoordinator = syncCoordinator
+        self.playlistRepository = playlistRepository
 
         // Drain queue when connectivity is restored
         networkMonitor.$isConnected
@@ -243,18 +246,40 @@ public final class MutationCoordinator: ObservableObject {
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
             await enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey)
+            await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
             return .queued
         }
 
         do {
             try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
+            await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
             return .completed
         } catch where isConnectionFailure(error) {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
             await enqueueMutation(type: .playlistRename, payload: payload, sourceCompositeKey: sourceKey)
+            await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
             return .queued
+        }
+    }
+
+    private func persistPlaylistRename(_ playlist: Playlist, title: String, sourceKey: String) async {
+        guard let playlistRepository else { return }
+        do {
+            try await playlistRepository.updatePlaylistTitle(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey,
+                title: title,
+                dateModified: Date()
+            )
+            NotificationCenter.default.post(
+                name: SyncCoordinator.playlistsDidRefresh,
+                object: nil,
+                userInfo: ["serverSourceKey": sourceKey]
+            )
+        } catch {
+            EnsembleLogger.debug("Playlist rename succeeded but local cache update failed: \(error.localizedDescription)")
         }
     }
 

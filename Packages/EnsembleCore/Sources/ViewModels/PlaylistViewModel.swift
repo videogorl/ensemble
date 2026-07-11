@@ -908,11 +908,9 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         error = nil
 
         do {
-            let outcome = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
-            if outcome == .completed {
-                await loadTracks()
-            }
-            // If queued, keep the optimistic rename and it will sync when back online
+            _ = try await mutationCoordinator.renamePlaylist(playlist, to: trimmed)
+            // Keep the optimistic title. MutationCoordinator persists it and emits
+            // a refresh notification after the cache update succeeds.
             return true
         } catch {
             playlist = previousPlaylist
@@ -950,9 +948,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 trimmedTitle: trimmed,
                 scope: scope
             )
-            if result.outcome == .completed {
-                await loadTracks()
-            }
+            // Keep the optimistic title until the persisted refresh arrives.
             return result
         } catch {
             playlist = previousPlaylist

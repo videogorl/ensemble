@@ -37,6 +37,12 @@ public protocol PlaylistRepositoryProtocol: Sendable {
         lastPlayed: Date?,
         sourceCompositeKey: String?
     ) async throws -> CDPlaylist
+    func updatePlaylistTitle(
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        title: String,
+        dateModified: Date
+    ) async throws
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylist(ratingKey: String) async throws
     func deletePlaylists(sourceCompositeKey: String) async throws
@@ -52,6 +58,32 @@ public protocol PlaylistRepositoryProtocol: Sendable {
 }
 
 public extension PlaylistRepositoryProtocol {
+    func updatePlaylistTitle(
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        title: String,
+        dateModified: Date
+    ) async throws {
+        guard let playlist = try await fetchPlaylist(
+            ratingKey: ratingKey,
+            sourceCompositeKey: sourceCompositeKey
+        ) else { return }
+        _ = try await upsertPlaylist(
+            ratingKey: ratingKey,
+            key: playlist.key,
+            title: title,
+            summary: playlist.summary,
+            compositePath: playlist.compositePath,
+            isSmart: playlist.isSmart,
+            duration: Int(playlist.duration),
+            trackCount: Int(playlist.trackCount),
+            dateAdded: playlist.dateAdded,
+            dateModified: dateModified,
+            lastPlayed: playlist.lastPlayed,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
     func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int {
         let playlists = try await fetchPlaylists()
         guard let sourceCompositeKeys else { return playlists.count }
@@ -451,6 +483,33 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    public func updatePlaylistTitle(
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        title: String,
+        dateModified: Date
+    ) async throws {
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDPlaylist.fetchRequest()
+            request.predicate = RepositoryPredicates.ratingKey(
+                ratingKey,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            guard let playlist = try context.fetch(request).first else {
+                throw NSError(
+                    domain: "PlaylistRepository",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "Playlist not found in local cache."]
+                )
+            }
+
+            playlist.title = title
+            playlist.dateModified = dateModified
+            playlist.updatedAt = Date()
+            try context.save()
         }
     }
 

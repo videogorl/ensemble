@@ -429,6 +429,49 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 1)
     }
 
+    func testUpdatePlaylistTitlePreservesTrackRelationships() async throws {
+        let stack = CoreDataStack.inMemory()
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let sourceKey = "plex/account/server/library"
+
+        try await seedTrack(
+            ratingKey: "track-1",
+            title: "Track One",
+            sourceCompositeKey: sourceKey,
+            repository: libraryRepository
+        )
+        _ = try await upsertPlaylist(
+            in: playlistRepository,
+            compositePath: "/playlists/playlist-1/composite",
+            dateModified: Date(timeIntervalSince1970: 100),
+            sourceCompositeKey: sourceKey,
+            trackCount: 1
+        )
+        try await playlistRepository.setPlaylistTracks(
+            ["track-1"],
+            forPlaylist: "playlist-1",
+            sourceCompositeKey: sourceKey
+        )
+
+        try await playlistRepository.updatePlaylistTitle(
+            ratingKey: "playlist-1",
+            sourceCompositeKey: sourceKey,
+            title: "Renamed Playlist",
+            dateModified: Date(timeIntervalSince1970: 200)
+        )
+
+        let fetchedPlaylist = try await playlistRepository.fetchPlaylist(
+            ratingKey: "playlist-1",
+            sourceCompositeKey: sourceKey
+        )
+        let playlist = try XCTUnwrap(fetchedPlaylist)
+        XCTAssertEqual(playlist.title, "Renamed Playlist")
+        XCTAssertEqual(playlist.trackCount, 1)
+        XCTAssertEqual(playlist.tracksArray.map(\.ratingKey), ["track-1"])
+        XCTAssertEqual(playlist.compositePath, "/playlists/playlist-1/composite")
+    }
+
     @discardableResult
     private func upsertPlaylist(
         in repository: PlaylistRepository,

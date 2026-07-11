@@ -564,21 +564,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 Divider()
 
                 Button {
-                    let playlist = Playlist(
-                        id: ratingKey,
-                        key: headerData.ratingKey ?? ratingKey,
-                        title: headerData.title,
-                        isSmart: false,
-                        trackCount: 0,
-                        duration: 0,
-                        sourceCompositeKey: sourceKey
-                    )
-                    libraryItemInfoRequest = .playlist(playlist)
-                } label: {
-                    MediaActionLabel(kind: .getInfo)
-                }
-
-                Button {
                     playlistMenuActions.onRename()
                 } label: {
                     MediaActionLabel(kind: .rename)
