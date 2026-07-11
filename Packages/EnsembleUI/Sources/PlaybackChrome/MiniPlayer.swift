@@ -459,6 +459,7 @@ private struct MiniPlayerControls: View {
                     Image(systemName: EnsembleDesign.Icon.previous)
                         .font(EnsembleDesign.Typography.detailSubtitle)
                 }
+                .accessibilityLabel("Previous")
             }
 
             Button(action: viewModel.togglePlayPause) {
@@ -481,11 +482,13 @@ private struct MiniPlayerControls: View {
             // Disable play when track not yet confirmed playable (e.g. pending health check)
             .disabled(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable)
             .opacity(!playbackProjection.isPlaying && !playbackProjection.isCurrentTrackPlayable ? EnsembleScaffold.MiniPlayer.unavailableControlOpacity : 1.0)
+            .accessibilityLabel(playbackProjection.isPlaying ? "Pause" : "Play")
 
             Button(action: viewModel.next) {
                 Image(systemName: EnsembleDesign.Icon.next)
                     .font(EnsembleDesign.Typography.detailSubtitle)
             }
+            .accessibilityLabel("Next")
 
             if showsActionsMenu {
                 MiniPlayerActionsMenuButton(
