@@ -1,6 +1,8 @@
 import CloudKit
 import Foundation
+#if os(macOS)
 import Security
+#endif
 
 /// Manages CloudKit synchronization for user profile data.
 /// Uses the private database in the app's iCloud container.
@@ -390,6 +392,7 @@ public actor CloudSyncService {
     }
 
     private static func hasContainerEntitlement(_ containerIdentifier: String) -> Bool {
+#if os(macOS)
         guard let task = SecTaskCreateFromSelf(nil),
               let identifiers = SecTaskCopyValueForEntitlement(
                   task,
@@ -399,5 +402,8 @@ public actor CloudSyncService {
             return false
         }
         return identifiers.contains(containerIdentifier)
+#else
+        return true
+#endif
     }
 }
