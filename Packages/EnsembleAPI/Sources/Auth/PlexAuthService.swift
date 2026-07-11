@@ -44,11 +44,13 @@ public actor PlexAuthService {
     private let deviceName: String
 
     private static let plexTVBaseURL = "https://plex.tv"
+    private static let clientIdentifierDefaultsKey = "plex_client_identifier"
     // Hardcoded link URL — safe to force-unwrap as a named constant (literal cannot fail)
     private static let plexLinkURL = URL(string: "https://plex.tv/link")!
 
     public init(
-        keychain: KeychainServiceProtocol = KeychainService.shared,
+        keychain _: KeychainServiceProtocol = KeychainService.shared,
+        userDefaults: UserDefaults = .standard,
         productName: String = "Ensemble",
         productVersion: String = "1.0",
         deviceName: String? = nil
@@ -58,21 +60,23 @@ public actor PlexAuthService {
 
         self.deviceName = deviceName ?? PlexClientDeviceInfo.defaultDeviceName()
 
-        // Get or create client identifier
-        if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
-            self.clientIdentifier = existingId
-        } else {
-            let newId = UUID().uuidString
-            // try? is unavoidable in init (can't throw); log if it fails so we notice in debug builds
-            if (try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)) == nil {
-                EnsembleLogger.debug("[PlexAuthService] Failed to persist client identifier to keychain")
-            }
-            self.clientIdentifier = newId
-        }
+        // The Plex device identifier is not a credential. Keeping it in defaults
+        // avoids a blocking Keychain round trip during dependency bootstrap.
+        self.clientIdentifier = Self.storedClientIdentifier(userDefaults: userDefaults)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15  // Reduced from 30s for better responsiveness
         self.session = URLSession(configuration: config)
+    }
+
+    public static func storedClientIdentifier(userDefaults: UserDefaults = .standard) -> String {
+        if let existing = userDefaults.string(forKey: clientIdentifierDefaultsKey), !existing.isEmpty {
+            return existing
+        }
+
+        let identifier = UUID().uuidString
+        userDefaults.set(identifier, forKey: clientIdentifierDefaultsKey)
+        return identifier
     }
 
     // MARK: - Public Methods

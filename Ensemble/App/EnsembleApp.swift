@@ -301,8 +301,8 @@ struct EnsembleApp: App {
 
                         let dependencyContainer = await MainActor.run { DependencyContainer.shared }
 
+                        await dependencyContainer.accountManager.loadAccountsAsync()
                         await MainActor.run {
-                            dependencyContainer.accountManager.loadAccounts()
                             dependencyContainer.serverHealthChecker.prepopulateUnknownStates()
                             dependencyContainer.syncCoordinator.refreshProviders()
                         }

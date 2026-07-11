@@ -2,6 +2,18 @@ import XCTest
 @testable import EnsembleAPI
 
 final class PlexAuthTokenLifecycleTests: XCTestCase {
+    func testClientIdentifierPersistsInDefaults() throws {
+        let suiteName = "PlexAuthTokenLifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let first = PlexAuthService.storedClientIdentifier(userDefaults: defaults)
+        let second = PlexAuthService.storedClientIdentifier(userDefaults: defaults)
+
+        XCTAssertFalse(first.isEmpty)
+        XCTAssertEqual(second, first)
+    }
+
     func testTokenMetadataParsesIatAndExpFromJWTPayload() {
         let token = makeJWT(iat: 1_700_000_000, exp: 1_800_000_000)
         let metadata = PlexAuthService.tokenMetadata(from: token)

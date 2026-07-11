@@ -5,6 +5,12 @@ import Foundation
 /// Manages connected music source accounts (Plex, future Apple Music, etc.)
 @MainActor
 public final class AccountManager: ObservableObject {
+    private struct AccountLoadResult: Sendable {
+        let json: String?
+        let migrationWasApplied: Bool
+        let wasFreshInstall: Bool
+    }
+
     private struct LibraryFlagEntry: Codable, Equatable, Sendable {
         let key: String
         let isEnabled: Bool
@@ -60,8 +66,9 @@ public final class AccountManager: ObservableObject {
     private var apiClientCache: [String: PlexAPIClient] = [:]  // Cache by "accountId:serverId"
     private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
     private var libraryFlagModifiedAt: [String: TimeInterval]
-    private static let authMigrationVersionKey = "plex_auth_migration_version"
-    private static let authMigrationVersion = 2
+    private var accountLoadTask: Task<AccountLoadResult, Never>?
+    nonisolated private static let authMigrationVersionKey = "plex_auth_migration_version"
+    nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
 
     public init(
@@ -78,11 +85,46 @@ public final class AccountManager: ObservableObject {
     // MARK: - Load / Save
 
     public func loadAccounts() {
-        if applyAuthMigrationIfNeeded() {
+        applyAccountLoadResult(Self.readAccountLoadResult(keychain: keychain))
+    }
+
+    /// macOS startup path. Keychain Services can block while the login keychain
+    /// is locked or awaiting authorization, so never perform this read on the UI thread.
+    public func loadAccountsAsync() async {
+        let task: Task<AccountLoadResult, Never>
+        if let accountLoadTask {
+            task = accountLoadTask
+        } else {
+            let keychain = self.keychain
+            task = Task.detached(priority: .userInitiated) {
+                Self.readAccountLoadResult(keychain: keychain)
+            }
+            accountLoadTask = task
+        }
+
+        let result = await task.value
+        accountLoadTask = nil
+        applyAccountLoadResult(result)
+    }
+
+    private func applyAccountLoadResult(_ result: AccountLoadResult) {
+        if result.migrationWasApplied {
+            plexAccounts = []
+            clearAPIClientCache()
+            UserDefaults.standard.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
+            if result.wasFreshInstall {
+                EnsembleLogger.debug(
+                    "🔐 AccountManager: Marked auth migration v\(Self.authMigrationVersion) complete on fresh install"
+                )
+            } else {
+                EnsembleLogger.debug(
+                    "🔐 AccountManager: Applied auth migration v\(Self.authMigrationVersion); forcing re-login"
+                )
+            }
             return
         }
 
-        guard let json = try? keychain.get(KeychainKey.plexAccounts),
+        guard let json = result.json,
               let data = json.data(using: .utf8) else {
             plexAccounts = []
             return
@@ -90,6 +132,25 @@ public final class AccountManager: ObservableObject {
 
         plexAccounts = (try? JSONDecoder().decode([PlexAccountConfig].self, from: data)) ?? []
         _ = enforceAuthTokenPolicy()
+    }
+
+    private nonisolated static func readAccountLoadResult(
+        keychain: KeychainServiceProtocol
+    ) -> AccountLoadResult {
+        let defaults = UserDefaults.standard
+        let hasStoredMigrationVersion = defaults.object(forKey: authMigrationVersionKey) != nil
+        let previousVersion = defaults.integer(forKey: authMigrationVersionKey)
+        let json = try? keychain.get(KeychainKey.plexAccounts)
+
+        guard previousVersion < authMigrationVersion else {
+            return AccountLoadResult(json: json, migrationWasApplied: false, wasFreshInstall: false)
+        }
+
+        let isFreshInstall = !hasStoredMigrationVersion && json == nil
+        if !isFreshInstall {
+            try? keychain.delete(KeychainKey.plexAccounts)
+        }
+        return AccountLoadResult(json: nil, migrationWasApplied: true, wasFreshInstall: isFreshInstall)
     }
 
     /// Tracks whether first-connect source hydration is still waiting on iCloud.
@@ -729,36 +790,6 @@ public final class AccountManager: ObservableObject {
             return connections
         }
         return filtered
-    }
-
-    private func applyAuthMigrationIfNeeded() -> Bool {
-        let defaults = UserDefaults.standard
-        let hasStoredMigrationVersion = defaults.object(forKey: Self.authMigrationVersionKey) != nil
-        let previousVersion = defaults.integer(forKey: Self.authMigrationVersionKey)
-        guard previousVersion < Self.authMigrationVersion else {
-            return false
-        }
-
-        // A true fresh install has no stored account payload yet. In that case
-        // there is nothing to migrate, so mark the migration as satisfied and
-        // let iCloud-synced accounts hydrate normally.
-        if !hasStoredMigrationVersion,
-           (try? keychain.get(KeychainKey.plexAccounts)) == nil {
-            defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
-            EnsembleLogger.debug(
-                "🔐 AccountManager: Marked auth migration v\(Self.authMigrationVersion) complete on fresh install"
-            )
-            return false
-        }
-
-        EnsembleLogger.debug(
-            "🔐 AccountManager: Applying auth migration v\(Self.authMigrationVersion) (previous: \(previousVersion)); forcing re-login"
-        )
-        try? keychain.delete(KeychainKey.plexAccounts)
-        plexAccounts = []
-        clearAPIClientCache()
-        defaults.set(Self.authMigrationVersion, forKey: Self.authMigrationVersionKey)
-        return true
     }
 
     private func libraryFlagKey(accountId: String, serverId: String, libraryKey: String) -> String {

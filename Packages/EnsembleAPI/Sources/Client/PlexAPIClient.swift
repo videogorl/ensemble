@@ -266,7 +266,8 @@ public actor PlexAPIClient {
     public init(
         connection: PlexServerConnection,
         librarySelection: PlexLibrarySelection? = nil,
-        keychain: KeychainServiceProtocol = KeychainService.shared,
+        keychain _: KeychainServiceProtocol = KeychainService.shared,
+        userDefaults: UserDefaults = .standard,
         failoverManager: ConnectionFailoverManager = ConnectionFailoverManager(),
         connectionRegistry: ServerConnectionRegistry? = nil,
         serverKey: String? = nil,
@@ -286,16 +287,7 @@ public actor PlexAPIClient {
         self.platformName = PlexClientDeviceInfo.platformName
         self.deviceName = PlexClientDeviceInfo.defaultDeviceName()
 
-        if let existingId = try? keychain.get(KeychainKey.plexClientIdentifier) {
-            self.clientIdentifier = existingId
-        } else {
-            let newId = UUID().uuidString
-            // try? is unavoidable in init (can't throw); log if it fails so we notice in debug builds
-            if (try? keychain.save(newId, forKey: KeychainKey.plexClientIdentifier)) == nil {
-                EnsembleLogger.debug("⚠️ [PlexAPIClient] Failed to persist client identifier to keychain")
-            }
-            self.clientIdentifier = newId
-        }
+        self.clientIdentifier = PlexAuthService.storedClientIdentifier(userDefaults: userDefaults)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15  // Reduced from 30s for faster failover on remote networks

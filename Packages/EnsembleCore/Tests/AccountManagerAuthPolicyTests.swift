@@ -46,6 +46,24 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         XCTAssertEqual(UserDefaults.standard.integer(forKey: migrationDefaultsKey), 2)
     }
 
+    func testLoadAccountsAsyncHydratesStoredAccounts() async throws {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        let existing = PlexAccountConfig(
+            id: "account-1",
+            displayTitle: "tester",
+            authToken: "token",
+            servers: []
+        )
+        let encoded = try JSONEncoder().encode([existing])
+        try keychain.save(String(data: encoded, encoding: .utf8)!, forKey: KeychainKey.plexAccounts)
+        let manager = AccountManager(keychain: keychain)
+
+        await manager.loadAccountsAsync()
+
+        XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
+    }
+
     func testExpiredAccountIsRemovedDuringPolicyEnforcement() {
         UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
 

@@ -419,7 +419,7 @@ public final class DependencyContainer: @unchecked Sendable {
             )
         }
 
-        let plexClientId = (try? core.keychain.get(KeychainKey.plexClientIdentifier)) ?? UUID().uuidString
+        let plexClientId = PlexAuthService.storedClientIdentifier()
         let webSocketCoordinator = MainActor.assumeIsolated {
             PlexWebSocketCoordinator(
                 accountManager: accountManager,

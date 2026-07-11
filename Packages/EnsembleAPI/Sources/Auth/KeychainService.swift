@@ -73,5 +73,4 @@ public enum KeychainKey {
     public static let plexAccountsSync = "plex_accounts_sync"
 
     // Shared client identifier
-    public static let plexClientIdentifier = "plex_client_identifier"
 }

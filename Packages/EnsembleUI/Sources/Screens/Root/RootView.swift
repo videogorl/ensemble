@@ -134,7 +134,11 @@ public struct RootView: View {
         .task {
             let deps = DependencyContainer.shared
             logRootTaskStart()
+            #if os(macOS)
+            await deps.accountManager.loadAccountsAsync()
+            #else
             deps.accountManager.loadAccounts()
+            #endif
             // Pre-populate server health states so tracks from unchecked servers
             // are dimmed until health checks confirm reachability.
             deps.serverHealthChecker.prepopulateUnknownStates()
