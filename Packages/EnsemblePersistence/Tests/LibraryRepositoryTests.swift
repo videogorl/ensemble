@@ -17,6 +17,29 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(tracks.isEmpty)
     }
 
+    func testRefreshContextPreservesRegisteredObjects() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let sourceKey = "plex/account/server/library"
+
+        try await repository.batchUpsertTracks(
+            [makeTrackInput(ratingKey: "held-track")],
+            sourceCompositeKey: sourceKey
+        )
+        let fetchedTrack = try await repository.fetchTrack(
+            ratingKey: "held-track",
+            sourceCompositeKey: sourceKey
+        )
+        let heldTrack = try XCTUnwrap(fetchedTrack)
+
+        for _ in 0..<20 {
+            await repository.refreshContext()
+        }
+
+        XCTAssertEqual(heldTrack.ratingKey, "held-track")
+        XCTAssertNotNil(heldTrack.managedObjectContext)
+    }
+
     func testBatchUpsertTracksPersistsStreamId() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)

@@ -603,9 +603,9 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         await withCheckedContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
-                context.stalenessInterval = 0
-                context.reset()
-                context.stalenessInterval = 5.0
+                // Background saves are merged automatically. Drain those merges
+                // without invalidating objects still retained by visible views.
+                context.processPendingChanges()
                 continuation.resume()
             }
         }
