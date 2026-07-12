@@ -3539,10 +3539,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         playLast(tracks)
     }
 
-    /// Insert a track to play immediately after the current track (Up Next section)
+    /// Add a track after the existing Up Next items, ahead of the original queue.
     public func playNext(_ track: Track) {
         let item = makeQueueItem(track: track, source: .upNext)
-        let insertIndex = currentQueueIndex + 1
+        let insertIndex = queueController.playNextInsertionIndex(
+            in: queue,
+            currentQueueIndex: currentQueueIndex
+        )
         if insertIndex <= queue.count {
             queue.insert(item, at: insertIndex)
             // If inserted among autoplay items, flatten preceding autoplay
@@ -3553,11 +3556,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Keep originalQueue in sync for shuffle restore
         if isShuffleEnabled {
-            // Find current track in originalQueue and insert after it
+            // Keep repeated Play Next actions ordered in the restored queue too.
             if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
                let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id })
             {
-                originalQueue.insert(item, at: originalIdx + 1)
+                let originalInsertIndex = queueController.playNextInsertionIndex(
+                    in: originalQueue,
+                    currentQueueIndex: originalIdx
+                )
+                originalQueue.insert(item, at: originalInsertIndex)
             } else {
                 originalQueue.append(item)
             }
@@ -3567,11 +3574,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         invalidateGaplessSchedule(thenRefreshAutoplay: true)
     }
 
-    /// Insert multiple tracks to play immediately after the current track, preserving order
+    /// Add tracks after the existing Up Next items, preserving action and track order.
     public func playNext(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
         let items = tracks.map { makeQueueItem(track: $0, source: .upNext) }
-        let insertIndex = currentQueueIndex + 1
+        let insertIndex = queueController.playNextInsertionIndex(
+            in: queue,
+            currentQueueIndex: currentQueueIndex
+        )
         if insertIndex <= queue.count {
             queue.insert(contentsOf: items, at: insertIndex)
             // If inserted among autoplay items, flatten preceding autoplay
@@ -3582,11 +3592,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Keep originalQueue in sync for shuffle restore
         if isShuffleEnabled {
-            // Find current track in originalQueue and insert after it
+            // Keep repeated Play Next actions ordered in the restored queue too.
             if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
                let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id })
             {
-                originalQueue.insert(contentsOf: items, at: originalIdx + 1)
+                let originalInsertIndex = queueController.playNextInsertionIndex(
+                    in: originalQueue,
+                    currentQueueIndex: originalIdx
+                )
+                originalQueue.insert(contentsOf: items, at: originalInsertIndex)
             } else {
                 originalQueue.append(contentsOf: items)
             }
