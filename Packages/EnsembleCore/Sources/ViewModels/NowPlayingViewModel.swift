@@ -345,6 +345,13 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        playbackService.smartMixTransitionActivePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isActive in
+                self?.playbackProjection.updateSmartMixTransitionActive(isActive)
+            }
+            .store(in: &cancellables)
+
         playbackService.autoplayTracksPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] tracks in

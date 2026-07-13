@@ -387,6 +387,11 @@ public struct ControlsCard: View {
 
                 if isDraggingSlider {
                     scrubIndicator
+                } else if playbackProjection.isSmartMixTransitionActive {
+                    Text("Mixing")
+                        .font(EnsembleDesign.Typography.statusBadgeIcon)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .transition(.opacity)
                 }
 
                 Spacer()

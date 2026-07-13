@@ -20,6 +20,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private let waveformSubject = CurrentValueSubject<[Double], Never>([])
         private let autoplayEnabledSubject = CurrentValueSubject<Bool, Never>(false)
         private let smartMixEnabledSubject = CurrentValueSubject<Bool, Never>(false)
+        private let smartMixDisabledForAlbumsSubject = CurrentValueSubject<Bool, Never>(true)
+        private let smartMixTransitionActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let autoplayTracksSubject = CurrentValueSubject<[Track], Never>([])
         private let autoplayActiveSubject = CurrentValueSubject<Bool, Never>(false)
         private let radioModeSubject = CurrentValueSubject<RadioMode, Never>(.off)
@@ -99,6 +101,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         var isSmartMixEnabled: Bool {
             smartMixEnabledSubject.value
+        }
+
+        var isSmartMixDisabledForAlbums: Bool {
+            smartMixDisabledForAlbumsSubject.value
+        }
+
+        var isSmartMixTransitionActive: Bool {
+            smartMixTransitionActiveSubject.value
         }
 
         var autoplayTracks: [Track] {
@@ -185,6 +195,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             smartMixEnabledSubject.eraseToAnyPublisher()
         }
 
+        var smartMixDisabledForAlbumsPublisher: AnyPublisher<Bool, Never> {
+            smartMixDisabledForAlbumsSubject.eraseToAnyPublisher()
+        }
+
+        var smartMixTransitionActivePublisher: AnyPublisher<Bool, Never> {
+            smartMixTransitionActiveSubject.eraseToAnyPublisher()
+        }
+
         var autoplayTracksPublisher: AnyPublisher<[Track], Never> {
             autoplayTracksSubject.eraseToAnyPublisher()
         }
@@ -236,6 +254,14 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func setSmartMixEnabled(_ isEnabled: Bool) {
             smartMixEnabledSubject.send(isEnabled)
+        }
+
+        func setSmartMixDisabledForAlbums(_ disabled: Bool) {
+            smartMixDisabledForAlbumsSubject.send(disabled)
+        }
+
+        func setSmartMixTransitionActive(_ isActive: Bool) {
+            smartMixTransitionActiveSubject.send(isActive)
         }
 
         func setCurrentTime(_ time: TimeInterval) {
@@ -1190,6 +1216,24 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         XCTAssertFalse(viewModel.isSmartMixEnabled)
         XCTAssertFalse(viewModel.queueProjection.isSmartMixEnabled)
+    }
+
+    func testPlaybackProjectionTracksSmartMixTransitionState() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+
+        XCTAssertFalse(viewModel.playbackProjection.isSmartMixTransitionActive)
+
+        playback.setSmartMixTransitionActive(true)
+        await waitForProjectionPropagation()
+
+        XCTAssertTrue(viewModel.playbackProjection.isSmartMixTransitionActive)
+
+        playback.setSmartMixTransitionActive(false)
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.playbackProjection.isSmartMixTransitionActive)
     }
 
     func testRatingProjectionTracksOptimisticFavoriteState() async {

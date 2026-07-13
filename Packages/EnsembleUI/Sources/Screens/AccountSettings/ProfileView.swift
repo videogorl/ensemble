@@ -296,6 +296,16 @@ public struct ProfileView: View {
                 playbackService.toggleAutoplay()
             }
 
+            NavigationLink {
+                SmartMixSettingsView()
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.smartMix,
+                    title: "SmartMix",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
+            }
+
             Toggle(isOn: $settingsManager.scrobblingEnabled) {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.scrobble,
@@ -585,6 +595,18 @@ public struct ProfileView: View {
                             }
                     }
                 }
+            }
+
+            EnsembleUtilityCardDivider()
+
+            macNavigationRow {
+                SmartMixSettingsView()
+            } label: {
+                EnsembleUtilityRowLabel(
+                    iconSystemName: EnsembleDesign.Icon.smartMix,
+                    title: "SmartMix",
+                    iconColor: EnsembleDesign.Color.primaryText
+                )
             }
 
             EnsembleUtilityCardDivider()

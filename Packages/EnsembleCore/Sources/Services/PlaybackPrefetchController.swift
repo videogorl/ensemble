@@ -59,6 +59,22 @@ final class PlaybackPrefetchController {
         return max(0, duration - currentTime) <= leadTime
     }
 
+    static func shouldUseSmartMix(
+        outgoingTrack: Track,
+        incomingTrack: Track,
+        isDisabledForAlbums: Bool
+    ) -> Bool {
+        guard isDisabledForAlbums,
+              let outgoingAlbumID = outgoingTrack.albumRatingKey,
+              let incomingAlbumID = incomingTrack.albumRatingKey
+        else {
+            return true
+        }
+
+        return outgoingAlbumID != incomingAlbumID
+            || outgoingTrack.sourceCompositeKey != incomingTrack.sourceCompositeKey
+    }
+
     func shouldInvalidateScheduledTracks(
         scheduledTrackIDs: [String],
         queue: [QueueItem],

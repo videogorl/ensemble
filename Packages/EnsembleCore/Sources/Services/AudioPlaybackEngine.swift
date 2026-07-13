@@ -199,6 +199,8 @@ public final class AudioPlaybackEngine {
     var onTrackAdvance: ((_ newTrackId: String) -> Void)?
     /// Fires when SmartMix crosses the transition midpoint and app metadata should promote.
     var onSmartMixPromote: ((_ newTrackId: String) -> Void)?
+    /// Fires when a SmartMix overlap starts or finishes for lightweight UI status.
+    var onSmartMixTransitionActiveChanged: ((_ isActive: Bool) -> Void)?
     /// Fires after the render path has produced PCM for the current track.
     var onFirstAudibleRender: ((_ trackId: String) -> Void)?
     /// Fires as streaming decode advances far enough to draw loaded waveform regions.
@@ -1334,6 +1336,7 @@ public final class AudioPlaybackEngine {
             generation: myGeneration,
             startedAtWallTime: CACurrentMediaTime()
         )
+        onSmartMixTransitionActiveChanged?(true)
         startSmartMixFadeTimer()
 
         EnsembleLogger.debug(
@@ -1376,6 +1379,7 @@ public final class AudioPlaybackEngine {
         }
         resetSmartMixEffects()
         smartMixTransition = nil
+        onSmartMixTransitionActiveChanged?(false)
         EnsembleLogger.debug("[AudioEngine] SmartMix cancelled")
     }
 
@@ -1483,6 +1487,7 @@ public final class AudioPlaybackEngine {
         resetTimePitch(for: transition.outgoingDeck)
         resetTimePitch(for: transition.incomingDeck)
         smartMixTransition = nil
+        onSmartMixTransitionActiveChanged?(false)
 
         wasPlaying = true
         startTimeUpdates(from: clampedPosition)

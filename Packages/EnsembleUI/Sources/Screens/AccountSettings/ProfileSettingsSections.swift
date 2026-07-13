@@ -84,6 +84,79 @@ struct AudioQualitySettingsView: View {
     }
 }
 
+// MARK: - SmartMix Settings
+
+struct SmartMixSettingsView: View {
+    private let playbackService = DependencyContainer.shared.playbackService
+    @State private var isSmartMixEnabled = DependencyContainer.shared.playbackService.isSmartMixEnabled
+    @State private var isSmartMixDisabledForAlbums = DependencyContainer.shared.playbackService.isSmartMixDisabledForAlbums
+
+    var body: some View {
+        EnsembleAdaptiveUtilityScaffold(title: "SmartMix") {
+            List {
+                Section {
+                    smartMixToggle
+                }
+
+                Section {
+                    albumToggle
+                } footer: {
+                    Text("Keep consecutive tracks from the same album gapless.")
+                }
+            }
+        } regularContent: {
+            EnsembleUtilityCardSection(nil) {
+                EnsembleUtilityCardRow {
+                    smartMixToggle
+                }
+
+                EnsembleUtilityCardDivider()
+
+                EnsembleUtilityCardRow {
+                    albumToggle
+                }
+            }
+        }
+        .onReceive(playbackService.smartMixEnabledPublisher) { isEnabled in
+            guard isSmartMixEnabled != isEnabled else { return }
+            isSmartMixEnabled = isEnabled
+        }
+        .onReceive(playbackService.smartMixDisabledForAlbumsPublisher) { isDisabled in
+            guard isSmartMixDisabledForAlbums != isDisabled else { return }
+            isSmartMixDisabledForAlbums = isDisabled
+        }
+    }
+
+    private var smartMixToggle: some View {
+        Toggle(isOn: Binding(
+            get: { isSmartMixEnabled },
+            set: playbackService.setSmartMixEnabled
+        )) {
+            EnsembleUtilityRowLabel(
+                iconSystemName: EnsembleDesign.Icon.smartMix,
+                title: "SmartMix",
+                subtitle: "Blend compatible tracks together",
+                iconColor: EnsembleDesign.Color.primaryText
+            )
+        }
+    }
+
+    private var albumToggle: some View {
+        Toggle(isOn: Binding(
+            get: { isSmartMixDisabledForAlbums },
+            set: playbackService.setSmartMixDisabledForAlbums
+        )) {
+            EnsembleUtilityRowLabel(
+                iconSystemName: "opticaldisc",
+                title: "Disable for Albums",
+                subtitle: "Don't mix consecutive tracks from the same album",
+                iconColor: EnsembleDesign.Color.primaryText
+            )
+        }
+        .disabled(!isSmartMixEnabled)
+    }
+}
+
 // MARK: - Connection Policy Settings
 
 struct ConnectionPolicySettingsView: View {

@@ -101,6 +101,58 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         )
     }
 
+    func testSmartMixSkipsConsecutiveTracksFromSameSourceAlbumWhenEnabled() {
+        let outgoing = Track(id: "1", key: "/library/metadata/1", title: "One", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
+        let incoming = Track(id: "2", key: "/library/metadata/2", title: "Two", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
+
+        XCTAssertFalse(
+            PlaybackPrefetchController.shouldUseSmartMix(
+                outgoingTrack: outgoing,
+                incomingTrack: incoming,
+                isDisabledForAlbums: true
+            )
+        )
+    }
+
+    func testSmartMixAllowsSameAlbumWhenAlbumProtectionIsDisabled() {
+        let outgoing = Track(id: "1", key: "/library/metadata/1", title: "One", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
+        let incoming = Track(id: "2", key: "/library/metadata/2", title: "Two", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
+
+        XCTAssertTrue(
+            PlaybackPrefetchController.shouldUseSmartMix(
+                outgoingTrack: outgoing,
+                incomingTrack: incoming,
+                isDisabledForAlbums: false
+            )
+        )
+    }
+
+    func testSmartMixAllowsMatchingAlbumKeysFromDifferentSources() {
+        let outgoing = Track(id: "1", key: "/library/metadata/1", title: "One", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
+        let incoming = Track(id: "2", key: "/library/metadata/2", title: "Two", albumRatingKey: "album-1", sourceCompositeKey: "source-b")
+
+        XCTAssertTrue(
+            PlaybackPrefetchController.shouldUseSmartMix(
+                outgoingTrack: outgoing,
+                incomingTrack: incoming,
+                isDisabledForAlbums: true
+            )
+        )
+    }
+
+    func testSmartMixAllowsTracksWithoutAlbumIdentity() {
+        let outgoing = Track(id: "1", key: "/library/metadata/1", title: "One", sourceCompositeKey: "source-a")
+        let incoming = Track(id: "2", key: "/library/metadata/2", title: "Two", sourceCompositeKey: "source-a")
+
+        XCTAssertTrue(
+            PlaybackPrefetchController.shouldUseSmartMix(
+                outgoingTrack: outgoing,
+                incomingTrack: incoming,
+                isDisabledForAlbums: true
+            )
+        )
+    }
+
     func testScheduledTracksStayValidWhenQueueAppendLeavesNextTrackUnchanged() {
         let controller = PlaybackPrefetchController()
         let queue = makeQueue(["current", "next", "later", "appended"])

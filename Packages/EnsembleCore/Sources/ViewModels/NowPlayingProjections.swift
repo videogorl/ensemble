@@ -9,6 +9,7 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
     @Published public private(set) var isCurrentTrackPlayable = false
     @Published public private(set) var isShuffleEnabled = false
     @Published public private(set) var repeatMode: RepeatMode = .off
+    @Published public private(set) var isSmartMixTransitionActive = false
 
     private let progressSubject = CurrentValueSubject<Double, Never>(0)
     private let bufferedProgressSubject = CurrentValueSubject<Double, Never>(0)
@@ -105,6 +106,11 @@ public final class NowPlayingPlaybackProjection: ObservableObject {
     func updateRepeatMode(_ mode: RepeatMode) {
         guard repeatMode != mode else { return }
         repeatMode = mode
+    }
+
+    func updateSmartMixTransitionActive(_ isActive: Bool) {
+        guard isSmartMixTransitionActive != isActive else { return }
+        isSmartMixTransitionActive = isActive
     }
 
     func updateProgress(_ progress: Double, bufferedProgress: Double, currentTime: TimeInterval) {
