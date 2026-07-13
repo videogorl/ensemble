@@ -46,7 +46,7 @@ final class PlaybackStartupCoordinator {
             return nil
         }
 
-        let pruneResult = PlaybackService.pruneDuplicateFutureAutoplayItems(
+        let pruneResult = PlaybackQueueController.pruneDuplicateFutureAutoplayItems(
             queue: snapshot.queue,
             currentQueueIndex: snapshot.currentIndex
         )

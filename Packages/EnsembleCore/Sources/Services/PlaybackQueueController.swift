@@ -14,6 +14,18 @@ struct PlaybackQueueMoveResult: Equatable {
     let destinationIndex: Int
 }
 
+enum PlaybackPreviousNavigationTarget: Equatable {
+    case seekToZero
+    case queueIndex(Int)
+    case historyIndex(Int)
+}
+
+struct PlaybackFutureAutoplayPruneResult: Equatable {
+    let queue: [QueueItem]
+    let removedTrackIds: Set<String>
+    let removedItemCount: Int
+}
+
 /// Owns queue snapshot persistence plus lightweight queue/history mutations that
 /// do not need access to playback launch or engine state.
 final class PlaybackQueueController {
@@ -39,6 +51,73 @@ final class PlaybackQueueController {
         }
     }
 
+    func recordCurrentAndSkippedItems(
+        before targetIndex: Int,
+        queue: [QueueItem],
+        currentQueueIndex: Int,
+        playbackHistory: inout [QueueItem]
+    ) {
+        guard queue.indices.contains(currentQueueIndex) else { return }
+        recordToHistory(queue[currentQueueIndex], playbackHistory: &playbackHistory)
+
+        guard targetIndex > currentQueueIndex + 1 else { return }
+        for index in (currentQueueIndex + 1) ..< targetIndex where queue.indices.contains(index) {
+            recordToHistory(queue[index], playbackHistory: &playbackHistory)
+        }
+    }
+
+    func previousNavigationTarget(
+        currentTime: TimeInterval,
+        currentQueueIndex: Int,
+        playbackHistoryCount: Int,
+        restartThreshold: TimeInterval
+    ) -> PlaybackPreviousNavigationTarget {
+        if currentTime > restartThreshold {
+            return .seekToZero
+        }
+        if currentQueueIndex > 0 {
+            return .queueIndex(currentQueueIndex - 1)
+        }
+        if playbackHistoryCount > 0 {
+            return .historyIndex(playbackHistoryCount - 1)
+        }
+        return .seekToZero
+    }
+
+    func nextPlayableIndex(
+        in queue: [QueueItem],
+        after startIndex: Int,
+        isPlayable: (Track) -> Bool
+    ) -> Int? {
+        let searchStart = startIndex + 1
+        guard searchStart < queue.count else { return nil }
+
+        return queue.indices.first {
+            $0 >= searchStart && isPlayable(queue[$0].track)
+        }
+    }
+
+    func restorePreviousHistoryItem(
+        at historyIndex: Int,
+        queue: inout [QueueItem],
+        playbackHistory: inout [QueueItem],
+        currentQueueIndex: Int
+    ) -> Int? {
+        guard playbackHistory.indices.contains(historyIndex) else { return nil }
+
+        let historyItem = playbackHistory[historyIndex]
+        let trackIdentity = historyItem.track.playbackIdentity
+        if let existingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == trackIdentity }) {
+            playbackHistory.removeSubrange(historyIndex...)
+            return existingIndex
+        }
+
+        playbackHistory.remove(at: historyIndex)
+        let insertPosition = max(0, currentQueueIndex)
+        queue.insert(historyItem, at: insertPosition)
+        return insertPosition
+    }
+
     func flattenAutoplayItemsBeforeIndex(
         _ index: Int,
         currentQueueIndex: Int,
@@ -58,6 +137,48 @@ final class PlaybackQueueController {
             $0 >= firstUpcomingIndex && queue[$0].source == .upNext
         }
         return lastUpNextIndex.map { $0 + 1 } ?? firstUpcomingIndex
+    }
+
+    func enableShuffle(
+        queue: inout [QueueItem],
+        originalQueue: inout [QueueItem],
+        currentQueueIndex: inout Int,
+        playbackHistory: [QueueItem],
+        shuffleCandidates: (inout [QueueItem]) -> Void = { $0.shuffle() }
+    ) {
+        originalQueue = queue
+        let currentItem = queue.indices.contains(currentQueueIndex)
+            ? queue[currentQueueIndex]
+            : nil
+        let historyIds = Set(playbackHistory.map(\.track.playbackIdentity))
+        var candidates = queue.filter {
+            $0.id != currentItem?.id
+                && $0.source != .autoplay
+                && !historyIds.contains($0.track.playbackIdentity)
+        }
+        shuffleCandidates(&candidates)
+
+        let autoplayItems = queue.filter { $0.source == .autoplay }
+        queue = currentItem.map { [$0] } ?? []
+        queue.append(contentsOf: candidates)
+        queue.append(contentsOf: autoplayItems)
+        currentQueueIndex = currentItem == nil ? -1 : 0
+    }
+
+    func disableShuffle(
+        queue: inout [QueueItem],
+        originalQueue: [QueueItem],
+        currentQueueIndex: inout Int
+    ) {
+        let currentItem = queue.indices.contains(currentQueueIndex)
+            ? queue[currentQueueIndex]
+            : nil
+        queue = originalQueue
+
+        if let currentItem,
+           let restoredIndex = queue.firstIndex(where: { $0.id == currentItem.id }) {
+            currentQueueIndex = restoredIndex
+        }
     }
 
     func insertUpNext(
@@ -205,6 +326,106 @@ final class PlaybackQueueController {
         return queue.indices.first {
             $0 >= firstUpcomingIndex && queue[$0].source == .autoplay
         } ?? queue.count
+    }
+
+    static func pruneDuplicateFutureAutoplayItems(
+        queue: [QueueItem],
+        currentQueueIndex: Int
+    ) -> PlaybackFutureAutoplayPruneResult {
+        guard !queue.isEmpty else {
+            return PlaybackFutureAutoplayPruneResult(
+                queue: [],
+                removedTrackIds: [],
+                removedItemCount: 0
+            )
+        }
+
+        let clampedCurrentIndex = min(max(currentQueueIndex, -1), queue.count - 1)
+        let futureStartIndex = max(0, clampedCurrentIndex + 1)
+        var seenTrackIdentities = Set<String>()
+        var seenVisibleIdentities = Set<AutoplayVisibleTrackIdentity>()
+        var prunedQueue = [QueueItem]()
+        var removedTrackIds = Set<String>()
+        var removedItemCount = 0
+
+        func remember(_ item: QueueItem) {
+            seenTrackIdentities.insert(item.track.playbackIdentity)
+            if let identity = autoplayVisibleTrackIdentity(for: item.track) {
+                seenVisibleIdentities.insert(identity)
+            }
+        }
+
+        if futureStartIndex > 0 {
+            for item in queue[..<futureStartIndex] {
+                prunedQueue.append(item)
+                remember(item)
+            }
+        }
+
+        if futureStartIndex < queue.count {
+            for item in queue[futureStartIndex...] {
+                let isDuplicateAutoplay = item.source == .autoplay && (
+                    seenTrackIdentities.contains(item.track.playbackIdentity)
+                        || autoplayVisibleTrackIdentity(for: item.track).map(seenVisibleIdentities.contains) == true
+                )
+
+                if isDuplicateAutoplay {
+                    removedTrackIds.insert(item.track.playbackIdentity)
+                    removedItemCount += 1
+                } else {
+                    prunedQueue.append(item)
+                    remember(item)
+                }
+            }
+        }
+
+        return PlaybackFutureAutoplayPruneResult(
+            queue: prunedQueue,
+            removedTrackIds: removedTrackIds,
+            removedItemCount: removedItemCount
+        )
+    }
+
+    func excessFutureAutoplayIndices(
+        queue: [QueueItem],
+        currentQueueIndex: Int,
+        maximumCount: Int
+    ) -> [Int] {
+        guard !queue.isEmpty else { return [] }
+
+        let clampedCurrentIndex = min(max(currentQueueIndex, -1), queue.count - 1)
+        let futureStartIndex = max(0, clampedCurrentIndex + 1)
+        let autoplayIndices = queue.indices.dropFirst(futureStartIndex).filter {
+            queue[$0].source == .autoplay
+        }
+        return Array(autoplayIndices.dropFirst(max(0, maximumCount)))
+    }
+
+    private struct AutoplayVisibleTrackIdentity: Hashable {
+        let normalizedTitle: String
+        let normalizedArtist: String
+        let durationBucket: Int
+    }
+
+    private static func autoplayVisibleTrackIdentity(for track: Track) -> AutoplayVisibleTrackIdentity? {
+        let normalizedTitle = normalizedAutoplayDuplicateComponent(track.title)
+        let normalizedArtist = normalizedAutoplayDuplicateComponent(track.artistName ?? track.albumArtistName)
+        guard !normalizedTitle.isEmpty, !normalizedArtist.isEmpty else { return nil }
+
+        return AutoplayVisibleTrackIdentity(
+            normalizedTitle: normalizedTitle,
+            normalizedArtist: normalizedArtist,
+            durationBucket: Int((max(track.duration, 0) / 2).rounded())
+        )
+    }
+
+    private static func normalizedAutoplayDuplicateComponent(_ value: String?) -> String {
+        let folded = (value ?? "")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return folded
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 
     func clearAutoGeneratedTrackIds() {

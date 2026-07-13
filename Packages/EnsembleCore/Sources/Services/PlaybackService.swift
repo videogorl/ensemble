@@ -242,12 +242,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         case airPlay
     }
 
-    enum PreviousNavigationTarget: Equatable {
-        case seekToZero
-        case queueIndex(Int)
-        case historyIndex(Int)
-    }
-
     struct NetworkTransitionDecision: Equatable {
         let shouldRefreshConnection: Bool
         let shouldAutoHealQueue: Bool
@@ -258,23 +252,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static let previousRestartThreshold: TimeInterval = 3
     private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
-
-    static func previousNavigationTarget(
-        currentTime: TimeInterval,
-        currentQueueIndex: Int,
-        playbackHistoryCount: Int
-    ) -> PreviousNavigationTarget {
-        if currentTime > previousRestartThreshold {
-            return .seekToZero
-        }
-        if currentQueueIndex > 0 {
-            return .queueIndex(currentQueueIndex - 1)
-        }
-        if playbackHistoryCount > 0 {
-            return .historyIndex(playbackHistoryCount - 1)
-        }
-        return .seekToZero
-    }
 
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
@@ -449,117 +426,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         lhs.id == rhs.id && lhs.sourceCompositeKey == rhs.sourceCompositeKey
     }
 
-    struct FutureAutoplayPruneResult: Equatable {
-        let queue: [QueueItem]
-        let removedTrackIds: Set<String>
-        let removedItemCount: Int
-    }
-
     private enum PlaybackPreferenceKey {
         static let shuffleEnabled = "isShuffleEnabled"
         static let repeatMode = "repeatMode"
         static let autoplayEnabled = "isAutoplayEnabled"
         static let smartMixEnabled = "isSmartMixEnabled"
-    }
-
-    private struct AutoplayVisibleTrackIdentity: Hashable {
-        let normalizedTitle: String
-        let normalizedArtist: String
-        let durationBucket: Int
-    }
-
-    private static func autoplayVisibleTrackIdentity(for track: Track) -> AutoplayVisibleTrackIdentity? {
-        let normalizedTitle = normalizedAutoplayDuplicateComponent(track.title)
-        let normalizedArtist = normalizedAutoplayDuplicateComponent(track.artistName ?? track.albumArtistName)
-
-        guard !normalizedTitle.isEmpty, !normalizedArtist.isEmpty else {
-            return nil
-        }
-
-        return AutoplayVisibleTrackIdentity(
-            normalizedTitle: normalizedTitle,
-            normalizedArtist: normalizedArtist,
-            durationBucket: Int((max(track.duration, 0) / 2.0).rounded())
-        )
-    }
-
-    private static func normalizedAutoplayDuplicateComponent(_ value: String?) -> String {
-        let folded = (value ?? "")
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        let tokens = folded
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-        return tokens.joined(separator: " ")
-    }
-
-    static func pruneDuplicateFutureAutoplayItems(
-        queue: [QueueItem],
-        currentQueueIndex: Int
-    ) -> FutureAutoplayPruneResult {
-        guard !queue.isEmpty else {
-            return FutureAutoplayPruneResult(queue: [], removedTrackIds: [], removedItemCount: 0)
-        }
-
-        let clampedCurrentIndex = min(max(currentQueueIndex, -1), queue.count - 1)
-        let futureStartIndex = max(0, clampedCurrentIndex + 1)
-        var seenTrackIdentities = Set<String>()
-        var seenVisibleIdentities = Set<AutoplayVisibleTrackIdentity>()
-        var prunedQueue: [QueueItem] = []
-        var removedTrackIds = Set<String>()
-        var removedItemCount = 0
-
-        func remember(_ item: QueueItem) {
-            seenTrackIdentities.insert(item.track.playbackIdentity)
-            if let identity = autoplayVisibleTrackIdentity(for: item.track) {
-                seenVisibleIdentities.insert(identity)
-            }
-        }
-
-        if futureStartIndex > 0 {
-            for item in queue[..<futureStartIndex] {
-                prunedQueue.append(item)
-                remember(item)
-            }
-        }
-
-        if futureStartIndex < queue.count {
-            for item in queue[futureStartIndex...] {
-                let isDuplicateAutoplay = item.source == .autoplay && (
-                    seenTrackIdentities.contains(item.track.playbackIdentity)
-                        || autoplayVisibleTrackIdentity(for: item.track).map(seenVisibleIdentities.contains) == true
-                )
-
-                if isDuplicateAutoplay {
-                    removedTrackIds.insert(item.track.playbackIdentity)
-                    removedItemCount += 1
-                    continue
-                }
-
-                prunedQueue.append(item)
-                remember(item)
-            }
-        }
-
-        return FutureAutoplayPruneResult(
-            queue: prunedQueue,
-            removedTrackIds: removedTrackIds,
-            removedItemCount: removedItemCount
-        )
-    }
-
-    static func excessFutureAutoplayIndices(
-        queue: [QueueItem],
-        currentQueueIndex: Int,
-        maximumCount: Int
-    ) -> [Int] {
-        guard !queue.isEmpty else { return [] }
-
-        let clampedCurrentIndex = min(max(currentQueueIndex, -1), queue.count - 1)
-        let futureStartIndex = max(0, clampedCurrentIndex + 1)
-        let autoplayIndices = queue.indices.dropFirst(futureStartIndex).filter {
-            queue[$0].source == .autoplay
-        }
-        return Array(autoplayIndices.dropFirst(max(0, maximumCount)))
     }
 
     static func pruneQueueForEnabledSources(
@@ -3204,10 +3075,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func previous() {
-        let target = Self.previousNavigationTarget(
+        let target = queueController.previousNavigationTarget(
             currentTime: currentTime,
             currentQueueIndex: currentQueueIndex,
-            playbackHistoryCount: playbackHistory.count
+            playbackHistoryCount: playbackHistory.count,
+            restartThreshold: Self.previousRestartThreshold
         )
 
         if playbackState == .paused {
@@ -3287,18 +3159,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioEngine?.pause()
         playbackState = .loading
 
-        let historyItem = playbackHistory[historyIndex]
-        let trackId = historyItem.track.playbackIdentity
-        if let existingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) {
-            playbackHistory.removeSubrange(historyIndex...)
-            currentQueueIndex = existingIndex
-        } else {
-            playbackHistory.remove(at: historyIndex)
-            let insertPosition = max(0, currentQueueIndex)
-            queue.insert(historyItem, at: insertPosition)
-            currentQueueIndex = insertPosition
-        }
-
+        guard let targetIndex = queueController.restorePreviousHistoryItem(
+            at: historyIndex,
+            queue: &queue,
+            playbackHistory: &playbackHistory,
+            currentQueueIndex: currentQueueIndex
+        ) else { return }
+        currentQueueIndex = targetIndex
         isNavigatingBackward = true
         currentTrack = queue[currentQueueIndex].track
         updatePlaybackTimes(rawTime: 0)
@@ -3329,7 +3196,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
-    private func navigateToPreviousItemWhilePaused(_ target: PreviousNavigationTarget) {
+    private func navigateToPreviousItemWhilePaused(_ target: PlaybackPreviousNavigationTarget) {
         switch target {
         case .seekToZero:
             seek(to: 0)
@@ -3358,17 +3225,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
         resetHandoffForUserPlaybackIntent()
 
-        let historyItem = playbackHistory[historyIndex]
-        let trackId = historyItem.track.playbackIdentity
-        let targetIndex: Int
-        if let existingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) {
-            playbackHistory.removeSubrange(historyIndex...)
-            targetIndex = existingIndex
-        } else {
-            playbackHistory.remove(at: historyIndex)
-            targetIndex = max(0, currentQueueIndex)
-            queue.insert(historyItem, at: targetIndex)
-        }
+        guard let targetIndex = queueController.restorePreviousHistoryItem(
+            at: historyIndex,
+            queue: &queue,
+            playbackHistory: &playbackHistory,
+            currentQueueIndex: currentQueueIndex
+        ) else { return }
 
         isNavigatingBackward = true
         selectQueueItemWhilePaused(at: targetIndex, caller: "previous-history-paused")
@@ -3376,13 +3238,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @MainActor
     private func recordCurrentAndSkippedTracksBeforeJump(to targetIndex: Int) {
-        guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return }
-        recordToHistory(queue[currentQueueIndex])
-
-        guard targetIndex > currentQueueIndex + 1 else { return }
-        for index in (currentQueueIndex + 1) ..< targetIndex where queue.indices.contains(index) {
-            recordToHistory(queue[index])
-        }
+        queueController.recordCurrentAndSkippedItems(
+            before: targetIndex,
+            queue: queue,
+            currentQueueIndex: currentQueueIndex,
+            playbackHistory: &playbackHistory
+        )
     }
 
     @MainActor
@@ -3665,57 +3526,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         UserDefaults.standard.set(isShuffleEnabled, forKey: PlaybackPreferenceKey.shuffleEnabled)
 
         if isShuffleEnabled {
-            // Save original queue for restore
-            originalQueue = queue
-
-            let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count)
-                ? queue[currentQueueIndex] : nil
-
-            // Candidates for shuffling: everything except current track and autoplay
-            var candidates = queue.filter { item in
-                let isCurrent = (item.id == currentItem?.id)
-                let isAutoplay = (item.source == .autoplay)
-                return !isCurrent && !isAutoplay
-            }
-
-            // Filter out candidates that are already in history (actually played/skipped)
-            let historyIds = Set(playbackHistory.map { $0.track.playbackIdentity })
-            candidates.removeAll { historyIds.contains($0.track.playbackIdentity) }
-
-            candidates.shuffle()
-
-            // Autoplay items are kept at the very end
-            let autoplayItems = queue.filter { $0.source == .autoplay }
-
-            // Rebuild: [current] [shuffled candidates] [autoplay]
-            var newQueue: [QueueItem] = []
-            if let current = currentItem {
-                newQueue.append(current)
-            }
-            newQueue.append(contentsOf: candidates)
-            newQueue.append(contentsOf: autoplayItems)
-
-            queue = newQueue
-            currentQueueIndex = currentItem != nil ? 0 : -1
+            queueController.enableShuffle(
+                queue: &queue,
+                originalQueue: &originalQueue,
+                currentQueueIndex: &currentQueueIndex,
+                playbackHistory: playbackHistory
+            )
         } else {
-            // Restore original queue order
-            let currentItem = currentQueueIndex >= 0 && currentQueueIndex < queue.count
-                ? queue[currentQueueIndex] : nil
-
-            // When restoring, we use the originalQueue.
-            // We need to find where our current track is in that original order.
-            queue = originalQueue
-
-            if let item = currentItem, let index = queue.firstIndex(where: { $0.id == item.id }) {
-                currentQueueIndex = index
-            }
+            queueController.disableShuffle(
+                queue: &queue,
+                originalQueue: originalQueue,
+                currentQueueIndex: &currentQueueIndex
+            )
         }
 
-        savePlaybackState()
-
-        // Clear gapless schedule — it's from the old order.
-        // Re-prefetch based on the new queue order, and rebuild autoplay.
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        commitQueueMutation()
         updateNowPlayingInfo()
     }
 
@@ -3783,11 +3608,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     @discardableResult
     private func removeDuplicateFutureAutoplayItemsIfNeeded(shouldInvalidateGaplessSchedule: Bool) -> Int {
-        let queuePruneResult = Self.pruneDuplicateFutureAutoplayItems(
+        let queuePruneResult = PlaybackQueueController.pruneDuplicateFutureAutoplayItems(
             queue: queue,
             currentQueueIndex: currentQueueIndex
         )
-        let originalQueuePruneResult = Self.pruneDuplicateFutureAutoplayItems(
+        let originalQueuePruneResult = PlaybackQueueController.pruneDuplicateFutureAutoplayItems(
             queue: originalQueue,
             currentQueueIndex: currentQueueIndex
         )
@@ -3845,7 +3670,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Trims auto-generated tracks from queue if it exceeds maxQueueLookahead
     /// Removes excess tracks from the end to maintain the limit
     private func trimAutoplayQueue() {
-        let indicesToRemove = Self.excessFutureAutoplayIndices(
+        let indicesToRemove = queueController.excessFutureAutoplayIndices(
             queue: queue,
             currentQueueIndex: currentQueueIndex,
             maximumCount: maxQueueLookahead
@@ -5364,17 +5189,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Used by the circuit breaker to skip over unavailable tracks.
     @MainActor
     private func findNextPlayableTrackIndex(after startIndex: Int) -> Int? {
-        let searchStart = startIndex + 1
-        guard searchStart < queue.count else { return nil }
-
-        for i in searchStart ..< queue.count {
-            let track = queue[i].track
-            // Accept downloaded tracks or tracks from servers that are not known-offline.
-            if track.isDownloaded || syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey) {
-                return i
-            }
+        queueController.nextPlayableIndex(in: queue, after: startIndex) { track in
+            track.isDownloaded
+                || syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
         }
-        return nil
     }
 
     /// Bridge pre-computed frequency bands from the analyzer to the published property.
