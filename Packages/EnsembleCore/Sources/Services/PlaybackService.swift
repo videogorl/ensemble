@@ -1151,16 +1151,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Section Boundary Helpers
 
-    /// Index of the first autoplay item after currentQueueIndex, or queue.count if none
-    private var autoplayStartIndex: Int {
-        for i in (currentQueueIndex + 1) ..< queue.count {
-            if queue[i].source == .autoplay {
-                return i
-            }
-        }
-        return queue.count
-    }
-
     /// Index of the last non-autoplay item in the queue (for autoplay seed selection)
     private var lastRealTrackIndex: Int? {
         for i in stride(from: queue.count - 1, through: 0, by: -1) {
@@ -1174,16 +1164,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Records the currently playing item to history before advancing
     private func recordToHistory(_ item: QueueItem) {
         queueController.recordToHistory(item, playbackHistory: &playbackHistory)
-    }
-
-    /// Flattens autoplay items that appear before the given index to .continuePlaying.
-    /// Called when a user inserts or moves a non-autoplay item among autoplay items.
-    private func flattenAutoplayItemsBeforeIndex(_ index: Int) {
-        queueController.flattenAutoplayItemsBeforeIndex(
-            index,
-            currentQueueIndex: currentQueueIndex,
-            queue: &queue
-        )
     }
 
     // MARK: - Initialization
@@ -3542,201 +3522,105 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Add a track after the existing Up Next items, ahead of the original queue.
     public func playNext(_ track: Track) {
         let item = makeQueueItem(track: track, source: .upNext)
-        let insertIndex = queueController.playNextInsertionIndex(
-            in: queue,
-            currentQueueIndex: currentQueueIndex
+        queueController.insertUpNext(
+            [item],
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: currentQueueIndex,
+            shuffleEnabled: isShuffleEnabled
         )
-        if insertIndex <= queue.count {
-            queue.insert(item, at: insertIndex)
-            // If inserted among autoplay items, flatten preceding autoplay
-            flattenAutoplayItemsBeforeIndex(insertIndex)
-        } else {
-            queue.append(item)
-        }
-
-        // Keep originalQueue in sync for shuffle restore
-        if isShuffleEnabled {
-            // Keep repeated Play Next actions ordered in the restored queue too.
-            if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
-               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id })
-            {
-                let originalInsertIndex = queueController.playNextInsertionIndex(
-                    in: originalQueue,
-                    currentQueueIndex: originalIdx
-                )
-                originalQueue.insert(item, at: originalInsertIndex)
-            } else {
-                originalQueue.append(item)
-            }
-        }
-
-        savePlaybackState()
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        commitQueueMutation()
     }
 
     /// Add tracks after the existing Up Next items, preserving action and track order.
     public func playNext(_ tracks: [Track]) {
         guard !tracks.isEmpty else { return }
         let items = tracks.map { makeQueueItem(track: $0, source: .upNext) }
-        let insertIndex = queueController.playNextInsertionIndex(
-            in: queue,
-            currentQueueIndex: currentQueueIndex
+        queueController.insertUpNext(
+            items,
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: currentQueueIndex,
+            shuffleEnabled: isShuffleEnabled
         )
-        if insertIndex <= queue.count {
-            queue.insert(contentsOf: items, at: insertIndex)
-            // If inserted among autoplay items, flatten preceding autoplay
-            flattenAutoplayItemsBeforeIndex(insertIndex)
-        } else {
-            queue.append(contentsOf: items)
-        }
-
-        // Keep originalQueue in sync for shuffle restore
-        if isShuffleEnabled {
-            // Keep repeated Play Next actions ordered in the restored queue too.
-            if let currentItem = (currentQueueIndex >= 0 && currentQueueIndex < queue.count) ? queue[currentQueueIndex] : nil,
-               let originalIdx = originalQueue.firstIndex(where: { $0.id == currentItem.id })
-            {
-                let originalInsertIndex = queueController.playNextInsertionIndex(
-                    in: originalQueue,
-                    currentQueueIndex: originalIdx
-                )
-                originalQueue.insert(contentsOf: items, at: originalInsertIndex)
-            } else {
-                originalQueue.append(contentsOf: items)
-            }
-        }
-
-        savePlaybackState()
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        commitQueueMutation()
     }
 
     /// Add a track to end of the "real" queue (before autoplay tracks)
     public func playLast(_ track: Track) {
         let item = makeQueueItem(track: track, source: .continuePlaying)
-        let insertIndex = autoplayStartIndex
-        queue.insert(item, at: insertIndex)
-        // Flatten any autoplay items that now precede this track
-        flattenAutoplayItemsBeforeIndex(insertIndex)
-
-        // Keep originalQueue in sync for shuffle restore
-        if isShuffleEnabled {
-            // Add before autoplay in original queue
-            let originalAutoplayStart = originalQueue.firstIndex(where: { $0.source == .autoplay }) ?? originalQueue.count
-            originalQueue.insert(item, at: originalAutoplayStart)
-        }
-
-        savePlaybackState()
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        queueController.insertAtEndOfManualQueue(
+            [item],
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: currentQueueIndex,
+            shuffleEnabled: isShuffleEnabled
+        )
+        commitQueueMutation()
     }
 
     /// Add tracks to end of the "real" queue (before autoplay tracks)
     public func playLast(_ tracks: [Track]) {
         let items = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
-        let insertIndex = autoplayStartIndex
-        queue.insert(contentsOf: items, at: insertIndex)
-        flattenAutoplayItemsBeforeIndex(insertIndex)
-
-        // Keep originalQueue in sync for shuffle restore
-        if isShuffleEnabled {
-            let originalAutoplayStart = originalQueue.firstIndex(where: { $0.source == .autoplay }) ?? originalQueue.count
-            originalQueue.insert(contentsOf: items, at: originalAutoplayStart)
-        }
-
-        savePlaybackState()
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        queueController.insertAtEndOfManualQueue(
+            items,
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: currentQueueIndex,
+            shuffleEnabled: isShuffleEnabled
+        )
+        commitQueueMutation()
     }
 
     public func removeFromQueue(at index: Int) {
-        guard index >= 0, index < queue.count else { return }
+        guard queueController.removeItem(
+            at: index,
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: &currentQueueIndex,
+            shuffleEnabled: isShuffleEnabled
+        ) != nil else { return }
 
-        // Don't allow removing currently playing track
-        guard index != currentQueueIndex else { return }
-
-        let item = queue.remove(at: index)
-
-        // Keep originalQueue in sync for shuffle restore
-        if isShuffleEnabled {
-            originalQueue.removeAll { $0.id == item.id }
-        }
-
-        // Adjust current index if needed
-        if index < currentQueueIndex {
-            currentQueueIndex -= 1
-        }
-
-        savePlaybackState()
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        commitQueueMutation()
     }
 
     public func clearQueue() {
-        let currentItem = currentQueueIndex >= 0 && currentQueueIndex < queue.count ? queue[currentQueueIndex] : nil
-
-        if let item = currentItem {
-            queue = [item]
-            currentQueueIndex = 0
-        } else {
-            queue = []
-            currentQueueIndex = -1
-        }
-
-        originalQueue = queue
-        playbackHistory.removeAll()
-        savePlaybackState()
-        invalidateGaplessSchedule(thenRefreshAutoplay: true)
+        queueController.clear(
+            queue: &queue,
+            originalQueue: &originalQueue,
+            playbackHistory: &playbackHistory,
+            currentQueueIndex: &currentQueueIndex
+        )
+        commitQueueMutation()
     }
 
     /// Move a queue item by ID from source position to destination position.
     /// This is the primary method for drag-to-reorder (more robust than index-based).
     /// Both indices are absolute queue positions (not filtered/relative).
     public func moveQueueItem(byId sourceId: String, from sourceIndex: Int, to destinationIndex: Int) {
-        guard sourceIndex >= 0, sourceIndex < queue.count,
-              destinationIndex >= 0, destinationIndex <= queue.count,
-              sourceIndex != destinationIndex else { return }
+        guard let result = queueController.moveItem(
+            byId: sourceId,
+            from: sourceIndex,
+            to: destinationIndex,
+            queue: &queue,
+            currentQueueIndex: &currentQueueIndex
+        ) else { return }
 
-        // Verify the source index actually contains the item with this ID
-        guard sourceIndex < queue.count, queue[sourceIndex].id == sourceId else { return }
-
-        // Remove from source
-        var item = queue.remove(at: sourceIndex)
-
-        // If an autoplay item is moved by the user, flatten it to continuePlaying
-        if item.source == .autoplay {
-            item.source = .continuePlaying
-        }
-
-        // Adjust destination if removing shifted it
-        let adjustedDest = destinationIndex > sourceIndex ? destinationIndex - 1 : destinationIndex
-
-        // Insert at destination
-        queue.insert(item, at: adjustedDest)
-
-        // Update currentQueueIndex if needed (if we moved the current track's position)
-        if sourceIndex == currentQueueIndex {
-            currentQueueIndex = adjustedDest
-        } else if adjustedDest <= currentQueueIndex, sourceIndex > currentQueueIndex {
-            // Item moved forward past current, shift current index backwards
-            currentQueueIndex -= 1
-        } else if adjustedDest > currentQueueIndex, sourceIndex < currentQueueIndex {
-            // Item moved backward past current, shift current index forward
-            currentQueueIndex += 1
-        }
-
-        // Flatten autoplay items that now appear before the moved item
-        flattenAutoplayItemsBeforeIndex(adjustedDest)
-
-        EnsembleLogger.debug("🔄 Moved queue item '\(item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(adjustedDest)")
+        EnsembleLogger.debug("🔄 Moved queue item '\(result.item.track.title)' (ID: \(sourceId)) from \(sourceIndex) to \(result.destinationIndex)")
 
         // Force @Published update by reassigning the queue array
         // (Required because in-place mutations don't trigger Combine notifications)
         queue = queue
 
-        savePlaybackState()
-
-        // Clear stale gapless schedule and re-prefetch for new queue order
-        invalidateGaplessSchedule()
+        commitQueueMutation(refreshAutoplay: false)
     }
 
     // MARK: - Gapless Schedule Invalidation
+
+    private func commitQueueMutation(refreshAutoplay: Bool = true) {
+        savePlaybackState()
+        invalidateGaplessSchedule(thenRefreshAutoplay: refreshAutoplay)
+    }
 
     /// Clear the AudioEngine's gapless schedule and re-prefetch based on new queue order.
     /// Call after any queue mutation that changes what the "next" track should be.

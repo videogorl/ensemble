@@ -109,6 +109,188 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertEqual(controller.playNextInsertionIndex(in: queue, currentQueueIndex: 0), 2)
     }
 
+    func testInsertUpNextPreservesBatchOrderAndShuffleRestoreOrder() {
+        let controller = makeController()
+        var queue = [
+            makeItem(id: "current"),
+            makeItem(id: "generated-before-added", source: .autoplay),
+            makeItem(id: "existing-added", source: .upNext),
+            makeItem(id: "original"),
+        ]
+        var originalQueue = [
+            queue[0],
+            queue[2],
+            queue[3],
+            queue[1],
+        ]
+        let additions = [
+            makeItem(id: "new-1", source: .upNext),
+            makeItem(id: "new-2", source: .upNext),
+        ]
+
+        controller.insertUpNext(
+            additions,
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: 0,
+            shuffleEnabled: true
+        )
+
+        XCTAssertEqual(queue.map(\.track.id), [
+            "current",
+            "generated-before-added",
+            "existing-added",
+            "new-1",
+            "new-2",
+            "original",
+        ])
+        XCTAssertEqual(queue[1].source, .continuePlaying)
+        XCTAssertEqual(originalQueue.map(\.track.id), [
+            "current",
+            "existing-added",
+            "new-1",
+            "new-2",
+            "original",
+            "generated-before-added",
+        ])
+    }
+
+    func testInsertAtEndOfManualQueueStaysBeforeAutoplayInBothOrders() {
+        let controller = makeController()
+        var queue = [
+            makeItem(id: "current"),
+            makeItem(id: "manual"),
+            makeItem(id: "generated", source: .autoplay),
+        ]
+        var originalQueue = queue
+
+        controller.insertAtEndOfManualQueue(
+            [makeItem(id: "added-last")],
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: 0,
+            shuffleEnabled: true
+        )
+
+        XCTAssertEqual(queue.map(\.track.id), ["current", "manual", "added-last", "generated"])
+        XCTAssertEqual(originalQueue.map(\.track.id), ["current", "manual", "added-last", "generated"])
+    }
+
+    func testRemoveItemBeforeCurrentAdjustsIndexAndShuffleRestoreQueue() {
+        let controller = makeController()
+        var queue = [
+            makeItem(id: "before"),
+            makeItem(id: "current"),
+            makeItem(id: "after"),
+        ]
+        var originalQueue = queue
+        var currentQueueIndex = 1
+
+        let removed = controller.removeItem(
+            at: 0,
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: &currentQueueIndex,
+            shuffleEnabled: true
+        )
+
+        XCTAssertEqual(removed?.track.id, "before")
+        XCTAssertEqual(queue.map(\.track.id), ["current", "after"])
+        XCTAssertEqual(originalQueue.map(\.track.id), ["current", "after"])
+        XCTAssertEqual(currentQueueIndex, 0)
+    }
+
+    func testRemoveItemRejectsCurrentTrack() {
+        let controller = makeController()
+        var queue = [makeItem(id: "current"), makeItem(id: "after")]
+        var originalQueue = queue
+        var currentQueueIndex = 0
+
+        let removed = controller.removeItem(
+            at: 0,
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: &currentQueueIndex,
+            shuffleEnabled: false
+        )
+
+        XCTAssertNil(removed)
+        XCTAssertEqual(queue.map(\.track.id), ["current", "after"])
+        XCTAssertEqual(currentQueueIndex, 0)
+    }
+
+    func testClearRetainsCurrentItemAndClearsHistory() {
+        let controller = makeController()
+        var queue = [
+            makeItem(id: "before"),
+            makeItem(id: "current"),
+            makeItem(id: "after"),
+        ]
+        var originalQueue = Array(queue.reversed())
+        var history = [makeItem(id: "history")]
+        var currentQueueIndex = 1
+
+        controller.clear(
+            queue: &queue,
+            originalQueue: &originalQueue,
+            playbackHistory: &history,
+            currentQueueIndex: &currentQueueIndex
+        )
+
+        XCTAssertEqual(queue.map(\.track.id), ["current"])
+        XCTAssertEqual(originalQueue, queue)
+        XCTAssertTrue(history.isEmpty)
+        XCTAssertEqual(currentQueueIndex, 0)
+    }
+
+    func testMoveItemFlattensAutoplayAndTracksCurrentPosition() {
+        let controller = makeController()
+        var queue = [
+            makeItem(id: "current"),
+            makeItem(id: "generated-before", source: .autoplay),
+            makeItem(id: "manual"),
+            makeItem(id: "generated-moved", source: .autoplay),
+        ]
+        var currentQueueIndex = 0
+
+        let result = controller.moveItem(
+            byId: queue[3].id,
+            from: 3,
+            to: 2,
+            queue: &queue,
+            currentQueueIndex: &currentQueueIndex
+        )
+
+        XCTAssertEqual(result?.destinationIndex, 2)
+        XCTAssertEqual(queue.map(\.track.id), [
+            "current",
+            "generated-before",
+            "generated-moved",
+            "manual",
+        ])
+        XCTAssertEqual(queue[1].source, .continuePlaying)
+        XCTAssertEqual(queue[2].source, .continuePlaying)
+        XCTAssertEqual(currentQueueIndex, 0)
+    }
+
+    func testMoveCurrentItemUpdatesCurrentIndex() {
+        let controller = makeController()
+        var queue = [makeItem(id: "before"), makeItem(id: "current"), makeItem(id: "after")]
+        var currentQueueIndex = 1
+
+        let result = controller.moveItem(
+            byId: queue[1].id,
+            from: 1,
+            to: 3,
+            queue: &queue,
+            currentQueueIndex: &currentQueueIndex
+        )
+
+        XCTAssertEqual(result?.destinationIndex, 2)
+        XCTAssertEqual(queue.map(\.track.id), ["before", "after", "current"])
+        XCTAssertEqual(currentQueueIndex, 2)
+    }
+
     func testAutoGeneratedIdentityDistinguishesDuplicateRatingKeys() {
         let controller = makeController()
         let subscriberTrack = makeTrack(id: "7551", sourceCompositeKey: "plex:felicity:server:music")
@@ -302,5 +484,12 @@ final class PlaybackQueueControllerTests: XCTestCase {
             genres: ["Electronic", "Test"],
             sourceCompositeKey: sourceCompositeKey
         )
+    }
+
+    private func makeItem(
+        id: String,
+        source: QueueItemSource = .continuePlaying
+    ) -> QueueItem {
+        QueueItem(id: "queue-\(id)", track: makeTrack(id: id), source: source)
     }
 }

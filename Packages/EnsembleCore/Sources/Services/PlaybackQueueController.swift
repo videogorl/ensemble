@@ -9,6 +9,11 @@ struct PlaybackQueueDownloadRefreshResult: Equatable {
     }
 }
 
+struct PlaybackQueueMoveResult: Equatable {
+    let item: QueueItem
+    let destinationIndex: Int
+}
+
 /// Owns queue snapshot persistence plus lightweight queue/history mutations that
 /// do not need access to playback launch or engine state.
 final class PlaybackQueueController {
@@ -53,6 +58,153 @@ final class PlaybackQueueController {
             $0 >= firstUpcomingIndex && queue[$0].source == .upNext
         }
         return lastUpNextIndex.map { $0 + 1 } ?? firstUpcomingIndex
+    }
+
+    func insertUpNext(
+        _ items: [QueueItem],
+        queue: inout [QueueItem],
+        originalQueue: inout [QueueItem],
+        currentQueueIndex: Int,
+        shuffleEnabled: Bool
+    ) {
+        let insertIndex = playNextInsertionIndex(
+            in: queue,
+            currentQueueIndex: currentQueueIndex
+        )
+        queue.insert(contentsOf: items, at: insertIndex)
+        flattenAutoplayItemsBeforeIndex(
+            insertIndex,
+            currentQueueIndex: currentQueueIndex,
+            queue: &queue
+        )
+
+        guard shuffleEnabled else { return }
+
+        if queue.indices.contains(currentQueueIndex),
+           let originalIndex = originalQueue.firstIndex(where: { $0.id == queue[currentQueueIndex].id }) {
+            let originalInsertIndex = playNextInsertionIndex(
+                in: originalQueue,
+                currentQueueIndex: originalIndex
+            )
+            originalQueue.insert(contentsOf: items, at: originalInsertIndex)
+        } else {
+            originalQueue.append(contentsOf: items)
+        }
+    }
+
+    func insertAtEndOfManualQueue(
+        _ items: [QueueItem],
+        queue: inout [QueueItem],
+        originalQueue: inout [QueueItem],
+        currentQueueIndex: Int,
+        shuffleEnabled: Bool
+    ) {
+        let insertIndex = firstFutureAutoplayIndex(
+            in: queue,
+            currentQueueIndex: currentQueueIndex
+        )
+        queue.insert(contentsOf: items, at: insertIndex)
+        flattenAutoplayItemsBeforeIndex(
+            insertIndex,
+            currentQueueIndex: currentQueueIndex,
+            queue: &queue
+        )
+
+        guard shuffleEnabled else { return }
+
+        let originalInsertIndex = originalQueue.firstIndex { $0.source == .autoplay }
+            ?? originalQueue.count
+        originalQueue.insert(contentsOf: items, at: originalInsertIndex)
+    }
+
+    @discardableResult
+    func removeItem(
+        at index: Int,
+        queue: inout [QueueItem],
+        originalQueue: inout [QueueItem],
+        currentQueueIndex: inout Int,
+        shuffleEnabled: Bool
+    ) -> QueueItem? {
+        guard queue.indices.contains(index), index != currentQueueIndex else { return nil }
+
+        let item = queue.remove(at: index)
+        if shuffleEnabled {
+            originalQueue.removeAll { $0.id == item.id }
+        }
+        if index < currentQueueIndex {
+            currentQueueIndex -= 1
+        }
+        return item
+    }
+
+    func clear(
+        queue: inout [QueueItem],
+        originalQueue: inout [QueueItem],
+        playbackHistory: inout [QueueItem],
+        currentQueueIndex: inout Int
+    ) {
+        if queue.indices.contains(currentQueueIndex) {
+            queue = [queue[currentQueueIndex]]
+            currentQueueIndex = 0
+        } else {
+            queue = []
+            currentQueueIndex = -1
+        }
+
+        originalQueue = queue
+        playbackHistory.removeAll()
+    }
+
+    @discardableResult
+    func moveItem(
+        byId sourceId: String,
+        from sourceIndex: Int,
+        to destinationIndex: Int,
+        queue: inout [QueueItem],
+        currentQueueIndex: inout Int
+    ) -> PlaybackQueueMoveResult? {
+        guard queue.indices.contains(sourceIndex),
+              destinationIndex >= 0,
+              destinationIndex <= queue.count,
+              sourceIndex != destinationIndex,
+              queue[sourceIndex].id == sourceId else {
+            return nil
+        }
+
+        var item = queue.remove(at: sourceIndex)
+        if item.source == .autoplay {
+            item.source = .continuePlaying
+        }
+
+        let adjustedDestination = destinationIndex > sourceIndex
+            ? destinationIndex - 1
+            : destinationIndex
+        queue.insert(item, at: adjustedDestination)
+
+        if sourceIndex == currentQueueIndex {
+            currentQueueIndex = adjustedDestination
+        } else if adjustedDestination <= currentQueueIndex, sourceIndex > currentQueueIndex {
+            currentQueueIndex -= 1
+        } else if adjustedDestination > currentQueueIndex, sourceIndex < currentQueueIndex {
+            currentQueueIndex += 1
+        }
+
+        flattenAutoplayItemsBeforeIndex(
+            adjustedDestination,
+            currentQueueIndex: currentQueueIndex,
+            queue: &queue
+        )
+        return PlaybackQueueMoveResult(item: item, destinationIndex: adjustedDestination)
+    }
+
+    private func firstFutureAutoplayIndex(
+        in queue: [QueueItem],
+        currentQueueIndex: Int
+    ) -> Int {
+        let firstUpcomingIndex = min(max(currentQueueIndex + 1, 0), queue.count)
+        return queue.indices.first {
+            $0 >= firstUpcomingIndex && queue[$0].source == .autoplay
+        } ?? queue.count
     }
 
     func clearAutoGeneratedTrackIds() {
