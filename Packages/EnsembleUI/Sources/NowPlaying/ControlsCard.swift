@@ -215,11 +215,13 @@ public struct ControlsCard: View {
             ZStack {
                 if let outgoingArtworkTrack {
                     artworkView(track: outgoingArtworkTrack, cornerRadius: artworkCornerRadius)
+                        .opacity(isIncomingArtworkVisible ? 0 : 1)
                 }
 
                 artworkView(track: track, cornerRadius: artworkCornerRadius)
                     .opacity(isIncomingArtworkVisible ? 1 : 0)
             }
+                .animation(.easeInOut(duration: 0.55), value: isIncomingArtworkVisible)
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
@@ -814,7 +816,11 @@ public struct ControlsCard: View {
 
         artworkCrossfadeTask?.cancel()
         outgoingArtworkTrack = displayedArtworkTrack
-        isIncomingArtworkVisible = false
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isIncomingArtworkVisible = false
+        }
         artworkCrossfadeTask = Task { @MainActor in
             await Task.yield()
             withAnimation(.easeInOut(duration: 0.55)) {
