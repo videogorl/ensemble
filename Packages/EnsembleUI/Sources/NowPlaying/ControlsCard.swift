@@ -110,7 +110,7 @@ public struct ControlsCard: View {
     @State private var playbackDuration: TimeInterval = 0
     @State private var displayedArtworkTrack: Track?
     @State private var outgoingArtworkTrack: Track?
-    @State private var isArtworkCrossfading = false
+    @State private var isIncomingArtworkVisible = true
     @State private var artworkCrossfadeTask: Task<Void, Never>?
 
     private let namespace: Namespace.ID?
@@ -218,7 +218,7 @@ public struct ControlsCard: View {
                 }
 
                 artworkView(track: track, cornerRadius: artworkCornerRadius)
-                    .opacity(isArtworkCrossfading ? 1 : 0)
+                    .opacity(isIncomingArtworkVisible ? 1 : 0)
             }
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .aspectRatio(1, contentMode: .fit)
@@ -798,7 +798,7 @@ public struct ControlsCard: View {
         guard let incomingTrack = playbackProjection.currentTrack else {
             displayedArtworkTrack = nil
             outgoingArtworkTrack = nil
-            isArtworkCrossfading = true
+            isIncomingArtworkVisible = true
             return
         }
 
@@ -808,17 +808,17 @@ public struct ControlsCard: View {
               playbackProjection.isSmartMixTransitionActive
         else {
             outgoingArtworkTrack = nil
-            isArtworkCrossfading = true
+            isIncomingArtworkVisible = true
             return
         }
 
         artworkCrossfadeTask?.cancel()
         outgoingArtworkTrack = displayedArtworkTrack
-        isArtworkCrossfading = false
+        isIncomingArtworkVisible = false
         artworkCrossfadeTask = Task { @MainActor in
             await Task.yield()
             withAnimation(.easeInOut(duration: 0.55)) {
-                isArtworkCrossfading = true
+                isIncomingArtworkVisible = true
             }
             try? await Task.sleep(nanoseconds: 550_000_000)
             guard !Task.isCancelled else { return }
