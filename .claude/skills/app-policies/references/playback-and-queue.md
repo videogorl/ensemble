@@ -4,7 +4,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 
 ## Policies
 
-- `QueueManager` is the source of truth for queue order, sections, history, shuffle, repeat, and autoplay state.
+- `PlaybackService` holds the single live source of truth for queue order, current index, sections, history, shuffle, repeat, and autoplay state. Queue collaborators operate on values supplied by the service and must not publish or retain a second live queue.
 - Regular play disables shuffle and starts from the requested index. Shuffle play enables shuffle, preserves original order for restore, and starts from the shuffled queue.
 - Toggling shuffle keeps the current item, excludes autoplay items from the shuffle candidates, filters already played history from candidates, and restores original order when disabled.
 - Queue navigation records history before advancing, restarts the current track when Previous is invoked after the configured restart threshold, and wraps only when repeat-all is enabled.
@@ -33,9 +33,9 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 
 ## Owners
 
-- `PlaybackService` remains the playback facade and side-effect boundary for queue mutation and transport retry loops.
-- `QueueManager` owns queue state and pure queue operations.
-- `PlaybackQueueController` owns queue persistence, history normalization, autoplay flattening, and download-state restamping.
+- `PlaybackService` remains the playback facade, owns live queue state, and is the side-effect boundary for queue mutation and transport retry loops.
+- `PlaybackQueueController` owns focused pure queue/history transformations and coordinates snapshot persistence and download-state restamping using state supplied by `PlaybackService`; it does not own a parallel live queue.
+- `PlaybackQueueStore` owns backward-compatible queue/history snapshot serialization.
 - `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `StreamingAudioPipeline`, `StreamingAudioDecoder`, `StreamingPCMBuffer`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
 - `ForegroundWorkScheduler` owns playback-safe budgeting for optional analysis work; it must not block user-initiated playback commands or download transfers.
 - `PlaybackNowPlayingBridge` owns `MPNowPlayingInfoCenter` and remote command writes.
