@@ -24,7 +24,13 @@ final class PlaybackQueueStoreTests: XCTestCase {
         let queue = [QueueItem(track: makeTrack(id: "track-1"))]
         let history = [QueueItem(track: makeTrack(id: "track-2"))]
 
-        store.save(queue: queue, history: history, currentIndex: 0, currentTime: 42)
+        store.save(
+            queue: queue,
+            history: history,
+            currentIndex: 0,
+            currentTime: 42,
+            hasUserQueueEdits: true
+        )
         try await Task.sleep(nanoseconds: 200_000_000)
 
         let snapshot = try XCTUnwrap(store.load())
@@ -32,7 +38,19 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.history, history)
         XCTAssertEqual(snapshot.currentIndex, 0)
         XCTAssertEqual(snapshot.currentTime, 42, accuracy: 0.001)
+        XCTAssertTrue(snapshot.hasUserQueueEdits)
         XCTAssertNotNil(defaults.data(forKey: "com.ensemble.playback.snapshot"))
+    }
+
+    func testLoadSnapshotWithoutQueueEditMarkerDefaultsToUnprotected() throws {
+        let store = PlaybackQueueStore(defaults: defaults)
+        let legacySnapshot = """
+        {"queue":[],"history":[],"currentIndex":-1,"currentTime":0}
+        """
+        defaults.set(Data(legacySnapshot.utf8), forKey: "com.ensemble.playback.snapshot")
+
+        let snapshot = try XCTUnwrap(store.load())
+        XCTAssertFalse(snapshot.hasUserQueueEdits)
     }
 
     func testLoadMigratesLegacyTrackArray() throws {

@@ -109,6 +109,7 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Persists the selected card page (0: Queue, 1: Controls, 2: Lyrics, 3: Info) across sheet dismiss/reopen
     @Published public var currentPage: Int = 1
     @Published public private(set) var isPlaylistMutationInProgress = false
+    @Published public private(set) var isQueueReplacementConfirmationPresented = false
     @Published public var lastPlaylistTarget: LastPlaylistTarget?
     public var lastPlaylistTargetPublisher: AnyPublisher<LastPlaylistTarget?, Never> {
         $lastPlaylistTarget.eraseToAnyPublisher()
@@ -211,6 +212,7 @@ public final class NowPlayingViewModel: ObservableObject {
     // Track if we're currently updating the rating to prevent overwriting
     private var isUpdatingRating = false
     private var favoriteUpdatesInFlight = Set<String>()
+    private var pendingQueueReplacement: QueueReplacementAction?
     var isArtworkLoadingEnabledForTesting = true
     var trackRatingMutationHandlerForTesting: ((Track, Int?) async throws -> Void)?
     var trackRatingStoreHandlerForTesting: ((Track, Int) async throws -> Void)?
@@ -1198,9 +1200,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func play(track: Track, context: PlaybackStartContext) {
         let playableTrack = trackWithDisplayRating(track)
-        Task {
-            await playbackService.play(track: playableTrack, context: context)
-        }
+        requestPlayback(.track(track: playableTrack, context: context))
     }
 
     public func play(tracks: [Track], startingAt index: Int = 0) {
@@ -1209,9 +1209,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func play(tracks: [Track], startingAt index: Int = 0, context: PlaybackStartContext) {
         let playableTracks = tracksWithDisplayRatings(tracks)
-        Task {
-            await playbackService.play(tracks: playableTracks, startingAt: index, context: context)
-        }
+        requestPlayback(.play(tracks: playableTracks, startingAt: index, context: context))
     }
 
     public func shufflePlay(tracks: [Track]) {
@@ -1220,8 +1218,65 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func shufflePlay(tracks: [Track], context: PlaybackStartContext) {
         let playableTracks = tracksWithDisplayRatings(tracks)
+        requestPlayback(.shuffle(tracks: playableTracks, context: context))
+    }
+
+    /// Starts the queued action after the user accepts replacing manual queue edits.
+    public func confirmQueueReplacement() {
+        guard let pendingQueueReplacement else {
+            isQueueReplacementConfirmationPresented = false
+            return
+        }
+
+        self.pendingQueueReplacement = nil
+        isQueueReplacementConfirmationPresented = false
+        performPlayback(pendingQueueReplacement)
+    }
+
+    /// Discards the replacement request and leaves the current queue intact.
+    public func cancelQueueReplacement() {
+        pendingQueueReplacement = nil
+        isQueueReplacementConfirmationPresented = false
+    }
+
+    private enum QueueReplacementAction {
+        case track(track: Track, context: PlaybackStartContext)
+        case play(tracks: [Track], startingAt: Int, context: PlaybackStartContext)
+        case shuffle(tracks: [Track], context: PlaybackStartContext)
+        case radio(tracks: [Track])
+    }
+
+    private func requestPlayback(_ action: QueueReplacementAction) {
+        guard shouldConfirmQueueReplacement(for: action) else {
+            performPlayback(action)
+            return
+        }
+
+        pendingQueueReplacement = action
+        isQueueReplacementConfirmationPresented = true
+    }
+
+    private func shouldConfirmQueueReplacement(for action: QueueReplacementAction) -> Bool {
+        switch action {
+        case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
+            return context.origin == .appUI && playbackService.shouldConfirmQueueReplacement()
+        case .radio:
+            return playbackService.shouldConfirmQueueReplacement()
+        }
+    }
+
+    private func performPlayback(_ action: QueueReplacementAction) {
         Task {
-            await playbackService.shufflePlay(tracks: playableTracks, context: context)
+            switch action {
+            case let .track(track, context):
+                await playbackService.play(track: track, context: context)
+            case let .play(tracks, startingAt, context):
+                await playbackService.play(tracks: tracks, startingAt: startingAt, context: context)
+            case let .shuffle(tracks, context):
+                await playbackService.shufflePlay(tracks: tracks, context: context)
+            case let .radio(tracks):
+                await playbackService.enableRadio(tracks: tracks)
+            }
         }
     }
 
@@ -1531,9 +1586,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func enableRadio(tracks: [Track]) {
         EnsembleLogger.debug("🎙️ NowPlayingViewModel.enableRadio() called with \(tracks.count) tracks")
-        Task {
-            await playbackService.enableRadio(tracks: tracks)
-        }
+        requestPlayback(.radio(tracks: tracks))
     }
 
     // MARK: - Rating Management

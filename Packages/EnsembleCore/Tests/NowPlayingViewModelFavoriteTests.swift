@@ -31,6 +31,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         private(set) var lastQueuedStartIndex: Int?
         private(set) var lastShufflePlayTracks: [Track] = []
         private(set) var appliedRatings: [(trackIdentity: String, rating: Int)] = []
+        var requiresQueueReplacementConfirmation = false
 
         init(initialTrack: Track? = nil) {
             currentTrackSubject.send(initialTrack)
@@ -268,6 +269,10 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func shufflePlay(tracks: [Track], context _: PlaybackStartContext) async {
             lastShufflePlayTracks = tracks
+        }
+
+        func shouldConfirmQueueReplacement() -> Bool {
+            requiresQueueReplacementConfirmation
         }
 
         func playQueueIndex(_: Int) async {}
@@ -868,6 +873,45 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(playback.lastQueuedStartIndex, 1)
         XCTAssertEqual(playback.lastQueuedTracks.map(\.rating), [0, 10])
         XCTAssertEqual(playback.lastPlayedTrack?.id, "2")
+    }
+
+    func testPlayWaitsForConfirmationBeforeReplacingEditedQueue() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playbackService = viewModelTuple.playbackService
+        let track = Track(id: "queue-protection", key: "/library/metadata/queue-protection", title: "Protected")
+        playbackService.requiresQueueReplacementConfirmation = true
+
+        viewModel.play(track: track)
+
+        XCTAssertTrue(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertNil(playbackService.lastPlayedTrack)
+
+        viewModel.cancelQueueReplacement()
+
+        XCTAssertFalse(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertNil(playbackService.lastPlayedTrack)
+
+        viewModel.play(track: track)
+        viewModel.confirmQueueReplacement()
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertEqual(playbackService.lastPlayedTrack?.id, track.id)
+    }
+
+    func testNonAppUIPlaybackStartBypassesQueueReplacementConfirmation() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playbackService = viewModelTuple.playbackService
+        let track = Track(id: "siri-queue-protection", key: "/library/metadata/siri-queue-protection", title: "Siri")
+        playbackService.requiresQueueReplacementConfirmation = true
+
+        viewModel.play(track: track, context: PlaybackStartContext(origin: .siri))
+        await waitForProjectionPropagation()
+
+        XCTAssertFalse(viewModel.isQueueReplacementConfirmationPresented)
+        XCTAssertEqual(playbackService.lastPlayedTrack?.id, track.id)
     }
 
     func testFavoriteStateIsSourceScopedForDuplicateRatingKeys() async {

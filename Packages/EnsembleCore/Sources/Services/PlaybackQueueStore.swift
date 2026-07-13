@@ -5,6 +5,40 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
     let history: [QueueItem]
     let currentIndex: Int
     let currentTime: TimeInterval
+    /// Whether the queue has been manually edited since it was last replaced.
+    /// Older snapshots did not store this value, so they decode as unprotected.
+    let hasUserQueueEdits: Bool
+
+    init(
+        queue: [QueueItem],
+        history: [QueueItem],
+        currentIndex: Int,
+        currentTime: TimeInterval,
+        hasUserQueueEdits: Bool = false
+    ) {
+        self.queue = queue
+        self.history = history
+        self.currentIndex = currentIndex
+        self.currentTime = currentTime
+        self.hasUserQueueEdits = hasUserQueueEdits
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case queue
+        case history
+        case currentIndex
+        case currentTime
+        case hasUserQueueEdits
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        queue = try container.decode([QueueItem].self, forKey: .queue)
+        history = try container.decode([QueueItem].self, forKey: .history)
+        currentIndex = try container.decode(Int.self, forKey: .currentIndex)
+        currentTime = try container.decode(TimeInterval.self, forKey: .currentTime)
+        hasUserQueueEdits = try container.decodeIfPresent(Bool.self, forKey: .hasUserQueueEdits) ?? false
+    }
 }
 
 /// Persists queue/history restoration state outside PlaybackService so the playback
@@ -25,13 +59,15 @@ final class PlaybackQueueStore {
         queue: [QueueItem],
         history: [QueueItem],
         currentIndex: Int,
-        currentTime: TimeInterval
+        currentTime: TimeInterval,
+        hasUserQueueEdits: Bool = false
     ) {
         let snapshot = PlaybackQueueSnapshot(
             queue: queue,
             history: history,
             currentIndex: currentIndex,
-            currentTime: currentTime
+            currentTime: currentTime,
+            hasUserQueueEdits: hasUserQueueEdits
         )
         let defaults = self.defaults
         let snapshotKey = self.snapshotKey

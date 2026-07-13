@@ -10,6 +10,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - Queue navigation records history before advancing, restarts the current track when Previous is invoked after the configured restart threshold, and wraps only when repeat-all is enabled.
 - Autoplay is a separate queue section. It should not be treated as manually queued content or shuffled into the main future queue.
 - The first `Play Next` action inserts immediately after the current item. Later `Play Next` actions append to the existing `upNext` section in action order, before `continuePlaying` and `autoplay` items; multi-track actions preserve their internal order.
+- A queue is protected after a manual `Play Next`, `Play Last`, add-to-queue, removal, or reorder. A direct app-UI Play, Shuffle, or Radio start must confirm before replacing that protected queue; Cancel leaves it untouched. Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery do not present confirmation UI.
 - Autoplay lookahead limits and cleanup apply only to `.autoplay` queue items. Enabling or refreshing Autoplay must never trim `continuePlaying` or `upNext` items, regardless of manual queue length.
 - SmartMix is a per-device playback preference controlled from the Now Playing Queue card. It defaults off, persists in local `UserDefaults`, and does not sync across devices.
 - SmartMix uses bounded local/temp file silence and tempo analysis, equal-power overlapping deck fades, an eased outgoing high-pass sweep, and confidence-gated tempo matching. Very high-confidence matches let the outgoing deck ease toward the incoming track's tempo during the overlap; moderate-confidence close matches may still use incoming-only time stretching. SmartMix automatically falls back to non-stretched overlap when confidence, rate range, or device state is not suitable.
@@ -36,6 +37,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 - `PlaybackService` remains the playback facade, owns live queue state, and is the side-effect boundary for queue mutation and transport retry loops.
 - `PlaybackQueueController` owns focused pure queue/history transformations and coordinates snapshot persistence and download-state restamping using state supplied by `PlaybackService`; it does not own a parallel live queue.
 - `PlaybackQueueStore` owns backward-compatible queue/history snapshot serialization.
+- `NowPlayingViewModel` gates app-UI queue replacements, while `RootView` and `DownloadsPresentationContainer` present the shared native replacement confirmation.
 - `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `StreamingAudioPipeline`, `StreamingAudioDecoder`, `StreamingPCMBuffer`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
 - `ForegroundWorkScheduler` owns playback-safe budgeting for optional analysis work; it must not block user-initiated playback commands or download transfers.
 - `PlaybackNowPlayingBridge` owns `MPNowPlayingInfoCenter` and remote command writes.

@@ -10,7 +10,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
 - **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS
 - **Secure Authentication** — PIN-based OAuth with keychain token storage
-- **Full Playback Controls** — Queue management, shuffle, repeat, background audio, remote controls (lock screen)
+- **Full Playback Controls** — Queue management with accidental-replacement protection, shuffle, repeat, background audio, remote controls (lock screen)
 
 **Content Discovery:**
 - **Hub-Based Home Screen** — Personalized sections: Recently Added, Recently Played, Most Played, etc.

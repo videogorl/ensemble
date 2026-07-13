@@ -512,13 +512,15 @@ final class PlaybackQueueController {
         queue: [QueueItem],
         history: [QueueItem],
         currentIndex: Int,
-        currentTime: TimeInterval
+        currentTime: TimeInterval,
+        hasUserQueueEdits: Bool = false
     ) {
         queueStore.save(
             queue: queue,
             history: history,
             currentIndex: currentIndex,
-            currentTime: currentTime
+            currentTime: currentTime,
+            hasUserQueueEdits: hasUserQueueEdits
         )
     }
 

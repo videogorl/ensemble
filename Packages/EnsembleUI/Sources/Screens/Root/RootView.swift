@@ -70,6 +70,23 @@ public struct RootView: View {
             mainContentView
         }
         .auxiliaryPresentationSheets()
+        .alert("Replace Queue?", isPresented: Binding(
+            get: { nowPlayingVM.isQueueReplacementConfirmationPresented },
+            set: { isPresented in
+                if !isPresented {
+                    nowPlayingVM.cancelQueueReplacement()
+                }
+            }
+        )) {
+            Button("Cancel", role: .cancel) {
+                nowPlayingVM.cancelQueueReplacement()
+            }
+            Button("Clear Queue and Play", role: .destructive) {
+                nowPlayingVM.confirmQueueReplacement()
+            }
+        } message: {
+            Text("This will replace the songs you added to the current queue.")
+        }
         .environment(\.isViewportNowPlayingPresented, isNowPlayingPresented)
         .environment(\.dismissViewportNowPlaying, dismissNowPlaying)
         .environment(\.isSoftwareKeyboardVisible, isSoftwareKeyboardVisible)

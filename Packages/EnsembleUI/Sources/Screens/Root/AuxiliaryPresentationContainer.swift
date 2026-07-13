@@ -63,12 +63,43 @@ public struct DownloadsPresentationContainer: View {
                 .nativeSheetNavigationContainer()
         }
         .accentColor(settingsManager.accentColor.color)
+        .alert("Replace Queue?", isPresented: queueReplacementConfirmationBinding) {
+            Button("Cancel", role: .cancel) {
+                nowPlayingVM.cancelQueueReplacement()
+            }
+            Button("Clear Queue and Play", role: .destructive) {
+                nowPlayingVM.confirmQueueReplacement()
+            }
+        } message: {
+            Text("This will replace the songs you added to the current queue.")
+        }
         #else
         DownloadsView(nowPlayingVM: nowPlayingVM)
             .modifier(AuxiliaryDismissToolbarModifier())
             .nativeSheetNavigationContainer()
             .accentColor(settingsManager.accentColor.color)
+            .alert("Replace Queue?", isPresented: queueReplacementConfirmationBinding) {
+                Button("Cancel", role: .cancel) {
+                    nowPlayingVM.cancelQueueReplacement()
+                }
+                Button("Clear Queue and Play", role: .destructive) {
+                    nowPlayingVM.confirmQueueReplacement()
+                }
+            } message: {
+                Text("This will replace the songs you added to the current queue.")
+            }
         #endif
+    }
+
+    private var queueReplacementConfirmationBinding: Binding<Bool> {
+        Binding(
+            get: { nowPlayingVM.isQueueReplacementConfirmationPresented },
+            set: { isPresented in
+                if !isPresented {
+                    nowPlayingVM.cancelQueueReplacement()
+                }
+            }
+        )
     }
 }
 
