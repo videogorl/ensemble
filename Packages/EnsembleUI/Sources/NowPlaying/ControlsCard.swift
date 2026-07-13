@@ -108,6 +108,10 @@ public struct ControlsCard: View {
     @State private var bufferedProgress: Double = 0
     @State private var playbackCurrentTime: TimeInterval = 0
     @State private var playbackDuration: TimeInterval = 0
+    @State private var displayedArtworkTrack: Track?
+    @State private var outgoingArtworkTrack: Track?
+    @State private var isArtworkCrossfading = false
+    @State private var artworkCrossfadeTask: Task<Void, Never>?
 
     private let namespace: Namespace.ID?
     private let animationID: String?
@@ -162,6 +166,10 @@ public struct ControlsCard: View {
         )
         .onAppear {
             syncPlaybackSnapshot()
+            displayedArtworkTrack = playbackProjection.currentTrack
+        }
+        .onDisappear {
+            artworkCrossfadeTask?.cancel()
         }
         .onChange(of: currentPage) { newPage in
             let isRenderable = NowPlayingPanelPage.controls.shouldRenderContent(
@@ -191,6 +199,9 @@ public struct ControlsCard: View {
             guard isActivePage || isAlwaysVisible, abs(playbackDuration - duration) > 0.001 else { return }
             playbackDuration = duration
         }
+        .onChange(of: playbackProjection.currentTrack?.sourceScopedID) { _ in
+            updateArtworkTransition()
+        }
     }
 
     // MARK: - Content View
@@ -201,7 +212,14 @@ public struct ControlsCard: View {
             let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
 
             // Artwork
-            ArtworkView(track: track, size: .medium, cornerRadius: artworkCornerRadius, isResponsive: true)
+            ZStack {
+                if let outgoingArtworkTrack {
+                    artworkView(track: outgoingArtworkTrack, cornerRadius: artworkCornerRadius)
+                }
+
+                artworkView(track: track, cornerRadius: artworkCornerRadius)
+                    .opacity(isArtworkCrossfading ? 1 : 0)
+            }
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
@@ -301,6 +319,10 @@ public struct ControlsCard: View {
             }
             .padding(.bottom, layout.secondaryControlsBottomPadding)
         }
+    }
+
+    private func artworkView(track: Track, cornerRadius: CGFloat) -> some View {
+        ArtworkView(track: track, size: .medium, cornerRadius: cornerRadius, isResponsive: true)
     }
 
     // MARK: - Track Metadata
@@ -763,6 +785,39 @@ public struct ControlsCard: View {
         bufferedProgress = playbackProjection.bufferedProgress
         playbackCurrentTime = playbackProjection.currentTime
         playbackDuration = playbackProjection.scrubberDuration
+    }
+
+    @MainActor
+    private func updateArtworkTransition() {
+        guard let incomingTrack = playbackProjection.currentTrack else {
+            displayedArtworkTrack = nil
+            outgoingArtworkTrack = nil
+            isArtworkCrossfading = true
+            return
+        }
+
+        defer { displayedArtworkTrack = incomingTrack }
+        guard let displayedArtworkTrack,
+              displayedArtworkTrack.sourceScopedID != incomingTrack.sourceScopedID,
+              playbackProjection.isSmartMixTransitionActive
+        else {
+            outgoingArtworkTrack = nil
+            isArtworkCrossfading = true
+            return
+        }
+
+        artworkCrossfadeTask?.cancel()
+        outgoingArtworkTrack = displayedArtworkTrack
+        isArtworkCrossfading = false
+        artworkCrossfadeTask = Task { @MainActor in
+            await Task.yield()
+            withAnimation(.easeInOut(duration: 0.55)) {
+                isArtworkCrossfading = true
+            }
+            try? await Task.sleep(nanoseconds: 550_000_000)
+            guard !Task.isCancelled else { return }
+            outgoingArtworkTrack = nil
+        }
     }
 
     @MainActor

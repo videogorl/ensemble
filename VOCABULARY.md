@@ -111,6 +111,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | SmartMix button | control | Toggle per-device silence-aware, tempo-assisted DJ-style overlap between adjacent tracks | `circle.dotted.and.circle` (`sparkles` fallback), `isSmartMixEnabled` |
 | SmartMix settings | settings page | Profile playback settings for the shared SmartMix toggle and same-album protection | `SmartMixSettingsView`, `isSmartMixDisabledForAlbums` |
 | Mixing indicator | status | Centered Now Playing scrubber status shown while a SmartMix overlap is active; scrubbing temporarily replaces it | `isSmartMixTransitionActive` |
+| SmartMix artwork dissolve | animation | Now Playing album art dissolves from the outgoing track to the incoming track at a SmartMix transition midpoint | `ControlsCard` |
 | Autoplay button | control | Toggle autoplay with cross-through when offline | `play.circle.fill`, `play.circle` |
 | Secondary controls region | region | Bottom row with shuffle/repeat/SmartMix/autoplay | `secondaryControlsView` |
 | Page indicator | indicator | Below secondary controls on Queue card | `PageIndicator` |

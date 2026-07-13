@@ -38,7 +38,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
 - **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
-- **SmartMix** — Optional playback mode with Profile settings, silence-aware DJ-style overlaps, same-album protection by default, an eased outgoing high-pass sweep, and tempo matching when analysis confidence is high
+- **SmartMix** — Optional playback mode with Profile settings, silence-aware DJ-style overlaps, crossfading Now Playing artwork, same-album protection by default, an eased outgoing high-pass sweep, and tempo matching when analysis confidence is high
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
 - **Siri Voice Playback (In-App-First + Fallback)** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`; album/playlist App Shortcuts fallback phrases are also registered when SiriKit media-domain routing misses
 - **AirPlay Support** — Stream to AirPlay devices with native picker
