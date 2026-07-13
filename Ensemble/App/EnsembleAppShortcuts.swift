@@ -22,6 +22,10 @@ private enum SiriIndexLookup {
         SiriMediaIndexResolver.items(in: loadIndex(), kind: kind)
     }
 
+    static func fetchItems() -> [SiriMediaIndexItem] {
+        loadIndex()?.items ?? []
+    }
+
     static func findItems(kind: SiriMediaKind, matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
         let results = SiriMediaIndexResolver.findItems(
             in: loadIndex(),
@@ -33,6 +37,16 @@ private enum SiriIndexLookup {
             "SIRI_SHORTCUT: findItems kind=\(kind.rawValue, privacy: .public) raw='\(rawQuery, privacy: .private)' matches=\(results.count, privacy: .public)"
         )
         return results
+    }
+
+    static func findItems(matching rawQuery: String, limit: Int = 10) -> [SiriMediaIndexItem] {
+        let ranked = SiriMediaIndexResolver.rankCandidates(
+            for: rawQuery,
+            requestedKinds: nil,
+            index: loadIndex(),
+            minimumScore: SiriMediaIndexResolver.defaultMinimumMatchScore
+        )
+        return Array(SiriMediaIndexResolver.deduplicateEquivalentItems(ranked.map(\.item)).prefix(limit))
     }
 
     private static func loadIndex() -> SiriMediaIndex? {
@@ -478,6 +492,144 @@ struct ShuffleEnsemblePlaylistIntent: AppIntent {
     }
 }
 
+@available(iOS 16.0, *)
+struct EnsembleMediaEntity: AppEntity {
+    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Ensemble Media")
+    static var defaultQuery = EnsembleMediaEntityQuery()
+
+    let id: String
+    let kindRawValue: String
+    let ratingKey: String
+    let title: String
+    let sourceCompositeKey: String?
+    let artistName: String?
+    let albumTitle: String?
+    let duration: TimeInterval?
+    let trackNumber: Int?
+    let discNumber: Int?
+    let isSmartPlaylist: Bool?
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(
+            title: "\(title)",
+            subtitle: "\(kind.displayName)"
+        )
+    }
+
+    var kind: SiriMediaKind {
+        SiriMediaKind(rawValue: kindRawValue) ?? .track
+    }
+
+    var permalink: EnsemblePermalink {
+        EnsemblePermalink(
+            kind: kind,
+            title: title,
+            artistName: artistName,
+            albumTitle: albumTitle,
+            duration: duration,
+            trackNumber: trackNumber,
+            discNumber: discNumber,
+            isSmartPlaylist: isSmartPlaylist
+        )
+    }
+
+    init(item: SiriMediaIndexItem) {
+        id = item.reference.sourceScopedIdentifier
+        kindRawValue = item.kind.rawValue
+        ratingKey = item.id
+        title = item.displayName
+        sourceCompositeKey = item.sourceCompositeKey
+        artistName = item.artistName ?? item.secondaryText
+        albumTitle = item.albumTitle
+        duration = item.duration
+        trackNumber = item.trackNumber
+        discNumber = item.discNumber
+        isSmartPlaylist = item.isSmartPlaylist
+    }
+}
+
+@available(iOS 16.0, *)
+struct EnsembleMediaEntityQuery: EntityStringQuery {
+    func entities(for identifiers: [EnsembleMediaEntity.ID]) async throws -> [EnsembleMediaEntity] {
+        let wanted = Set(identifiers)
+        return SiriIndexLookup.fetchItems()
+            .map(EnsembleMediaEntity.init(item:))
+            .filter { wanted.contains($0.id) }
+    }
+
+    func entities(matching string: String) async throws -> [EnsembleMediaEntity] {
+        SiriIndexLookup.findItems(matching: string).map(EnsembleMediaEntity.init(item:))
+    }
+
+    func suggestedEntities() async throws -> [EnsembleMediaEntity] {
+        []
+    }
+}
+
+@available(iOS 16.0, *)
+private extension SiriMediaKind {
+    var displayName: String {
+        switch self {
+        case .track: return "Song"
+        case .album: return "Album"
+        case .artist: return "Artist"
+        case .playlist: return "Playlist"
+        }
+    }
+}
+
+/// Opens a selected local media item without starting playback.
+@available(iOS 16.0, *)
+struct OpenEnsembleMediaIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Media in Ensemble"
+    static var description = IntentDescription("Opens a song, artist, album, or playlist in Ensemble without playing it.")
+    static var openAppWhenRun = true
+
+    @Parameter(title: "Media")
+    var media: EnsembleMediaEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$media) in Ensemble")
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let reference = SystemMediaReference(
+            kind: media.kind,
+            id: media.ratingKey,
+            sourceCompositeKey: media.sourceCompositeKey,
+            displayName: media.title
+        )
+        if let destination = NavigationCoordinator.systemMediaDestination(
+            fromSourceScopedIdentifier: reference.sourceScopedIdentifier
+        ) {
+            _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+        }
+        return .result(dialog: IntentDialog("Opening \(media.title) in Ensemble."))
+    }
+}
+
+/// Produces the same portable URL used by the in-app Share Ensemble Link action.
+@available(iOS 16.0, *)
+struct GetEnsembleLinkIntent: AppIntent {
+    static var title: LocalizedStringResource = "Get Ensemble Link"
+    static var description = IntentDescription("Creates a library-independent Ensemble link for selected media.")
+
+    @Parameter(title: "Media")
+    var media: EnsembleMediaEntity
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Get an Ensemble link for \(\.$media)")
+    }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<URL> & ProvidesDialog {
+        guard let url = media.permalink.url else {
+            throw CocoaError(.fileWriteInvalidFileName)
+        }
+        return .result(value: url, dialog: IntentDialog("Created an Ensemble link for \(media.title)."))
+    }
+}
+
 /// Registers explicit Siri phrases so Ensemble can be invoked even when media-domain parsing fails.
 @available(iOS 16.0, *)
 struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
@@ -523,6 +675,15 @@ struct EnsembleAppShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Play Playlist",
             systemImageName: "music.note.list"
+        )
+
+        AppShortcut(
+            intent: OpenEnsembleMediaIntent(),
+            phrases: [
+                "Open \(\.$media) in \(.applicationName)"
+            ],
+            shortTitle: "Open Media",
+            systemImageName: "arrow.up.forward.app"
         )
 
     }

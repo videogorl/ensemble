@@ -333,9 +333,10 @@ public struct MergedPlaylistDetailLoader: View {
     }
 
     private func findDisplayPlaylist() -> DisplayPlaylist? {
+        let normalizedTitle = DisplayPlaylist.normalizedTitle(title)
         // Check displayPlaylists (merge-aware) — authoritative source once pipeline has fired
         if let dp = playlistsVM.displayPlaylists.first(where: {
-            $0.title == title && $0.isSmart == isSmart
+            DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle && $0.isSmart == isSmart
         }) {
             return dp
         }
@@ -347,10 +348,11 @@ public struct MergedPlaylistDetailLoader: View {
         }
         // displayPlaylists is populated but no match — merge state may have changed
         // since navigation. Fall back to raw playlists wrapped as single.
-        if let playlist = playlistsVM.playlists.first(where: {
-            $0.title == title && $0.isSmart == isSmart
-        }) {
-            return .single(playlist)
+        let matches = playlistsVM.playlists.filter {
+            DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle && $0.isSmart == isSmart
+        }
+        if !matches.isEmpty {
+            return DisplayPlaylist.group(matches, merge: true).first
         }
         return nil
     }

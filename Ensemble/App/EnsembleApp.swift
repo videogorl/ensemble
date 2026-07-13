@@ -50,10 +50,7 @@ struct EnsembleApp: App {
                 }
                 .onOpenURL { url in
                     AppLogger.info("SIRI_APP: onOpenURL called with: \(url.absoluteString)")
-                    _ = NavigationCoordinator.handleDeepLinkInActiveScene(
-                        url,
-                        fallback: DependencyContainer.shared.navigationCoordinator
-                    )
+                    handleIncomingURL(url)
                 }
                 .onContinueUserActivity(SystemMediaSpotlightRouter.activityType) { userActivity in
                     handleSpotlightActivity(userActivity)
@@ -165,6 +162,43 @@ struct EnsembleApp: App {
             .windowResizability(.contentSize)
         }
         #endif
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard let permalink = EnsemblePermalink(url: url) else {
+            _ = NavigationCoordinator.handleDeepLinkInActiveScene(
+                url,
+                fallback: DependencyContainer.shared.navigationCoordinator
+            )
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                if let destination = try await DependencyContainer.shared.ensemblePermalinkResolver.resolve(permalink) {
+                    _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: destination)
+                } else {
+                    showPermalinkNotFound(permalink)
+                }
+            } catch {
+                AppLogger.error("PERMALINK: resolution failed kind=\(permalink.kind.rawValue): \(error.localizedDescription)")
+                showPermalinkNotFound(permalink)
+            }
+        }
+    }
+
+    @MainActor
+    private func showPermalinkNotFound(_ permalink: EnsemblePermalink) {
+        DependencyContainer.shared.toastCenter.show(
+            ToastPayload(
+                style: .warning,
+                iconSystemName: "magnifyingglass",
+                title: "Couldn't find \(permalink.title)",
+                message: "Search your library for another version.",
+                dedupeKey: "permalink-not-found-\(permalink.kind.rawValue)-\(permalink.title)"
+            )
+        )
+        _ = NavigationCoordinator.routeExternalSearchInActiveScene(to: .view(.search))
     }
 
     private func startPersistentLogSessionIfNeeded() {

@@ -92,12 +92,12 @@ public struct DisplayPlaylist: Identifiable, Equatable {
             return playlists.map { .single($0) }
         }
 
-        // Group by exact (title, isSmart) key, preserving insertion order
+        // Group by normalized (title, isSmart) key, preserving insertion order.
         var groups: [(key: String, title: String, isSmart: Bool, playlists: [Playlist])] = []
         var keyIndex: [String: Int] = [:]
 
         for playlist in playlists {
-            let groupKey = "\(playlist.title)\u{0}\(playlist.isSmart)"
+            let groupKey = "\(normalizedTitle(playlist.title))\u{0}\(playlist.isSmart)"
             if let index = keyIndex[groupKey] {
                 groups[index].playlists.append(playlist)
             } else {
@@ -119,22 +119,32 @@ public struct DisplayPlaylist: Identifiable, Equatable {
     /// Returns a set of titles that have name collisions.
     public static func detectNameCollisions(_ playlists: [Playlist]) -> Set<String> {
         // Group by (title, isSmart), then check if any group has 2+ distinct source keys
-        var groups: [String: Set<String>] = [:]  // groupKey -> set of sourceCompositeKeys
+        var groups: [String: (title: String, sourceKeys: Set<String>)] = [:]
 
         for playlist in playlists {
-            let groupKey = "\(playlist.title)\u{0}\(playlist.isSmart)"
+            let groupKey = "\(normalizedTitle(playlist.title))\u{0}\(playlist.isSmart)"
             let sourceKey = playlist.sourceCompositeKey ?? ""
-            groups[groupKey, default: []].insert(sourceKey)
+            if groups[groupKey] == nil {
+                groups[groupKey] = (playlist.title, [])
+            }
+            groups[groupKey]?.sourceKeys.insert(sourceKey)
         }
 
         var collisionTitles = Set<String>()
-        for (groupKey, sourceKeys) in groups where sourceKeys.count > 1 {
-            // Extract title from group key (everything before the null separator)
-            if let separatorIndex = groupKey.firstIndex(of: "\u{0}") {
-                collisionTitles.insert(String(groupKey[groupKey.startIndex..<separatorIndex]))
-            }
+        for group in groups.values where group.sourceKeys.count > 1 {
+            collisionTitles.insert(group.title)
         }
         return collisionTitles
+    }
+
+    /// Case-, diacritic-, width-, and whitespace-insensitive playlist identity.
+    public static func normalizedTitle(_ title: String) -> String {
+        title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .lowercased()
     }
 
     /// Round-robin interleaves tracks from multiple playlists.

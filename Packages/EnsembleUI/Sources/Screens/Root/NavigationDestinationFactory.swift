@@ -58,6 +58,8 @@ struct NavigationDestinationFactory {
             return AnyView(AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .albumDetail(let album):
             return AnyView(AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM))
+        case .song(let id, let sourceKey):
+            return AnyView(SongPermalinkLoader(songId: id, songSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlist(let id, let sourceKey):
             return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlistDetail(let playlist):

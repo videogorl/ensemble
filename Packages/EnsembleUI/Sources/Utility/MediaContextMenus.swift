@@ -118,6 +118,9 @@ struct TrackActionsContextMenu: View {
                         )
                     }
                 },
+                shareEnsembleLink: {
+                    ShareActions.shareEnsembleLink(track, deps: deps)
+                },
                 shareLink: {
                     ShareActions.shareTrackLink(track, deps: deps)
                 },
@@ -247,6 +250,9 @@ struct AlbumActionsContextMenu: View {
                             isPinned: isPinned
                         )
                     }
+                },
+                shareEnsembleLink: {
+                    ShareActions.shareEnsembleLink(album, deps: deps)
                 },
                 shareLink: {
                     ShareActions.shareAlbumLink(album, deps: deps)
@@ -410,6 +416,9 @@ struct ArtistActionsContextMenu: View {
                             isPinned: isPinned
                         )
                     }
+                },
+                shareEnsembleLink: {
+                    ShareActions.shareEnsembleLink(artist, deps: deps)
                 }
             )
         )
@@ -539,6 +548,9 @@ struct PlaylistActionsContextMenu: View {
                         )
                     }
                 },
+                shareEnsembleLink: {
+                    ShareActions.shareEnsembleLink(playlist, deps: deps)
+                },
                 deletePlaylist: onDelete
             )
         )
@@ -657,6 +669,9 @@ struct MergedPlaylistActionsContextMenu: View {
                 downloadAll: downloadAll,
                 removeDownloads: removeDownloads,
                 unpinAll: onUnpinAll,
+                shareEnsembleLink: {
+                    ShareActions.shareEnsembleLink(displayPlaylist, deps: deps)
+                },
                 deleteAll: onDelete
             )
         )

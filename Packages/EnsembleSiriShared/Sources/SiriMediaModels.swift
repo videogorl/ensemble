@@ -104,7 +104,7 @@ public struct SystemMediaReference: Codable, Sendable, Equatable, Hashable, Iden
 
 /// Compact searchable index consumed by Siri, App Shortcuts, Spotlight, and media donations.
 public struct SiriMediaIndex: Codable, Sendable, Equatable {
-    public static let currentSchemaVersion = 3
+    public static let currentSchemaVersion = 4
 
     public let schemaVersion: Int
     public let generatedAt: Date
@@ -137,6 +137,7 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
     public let duration: TimeInterval?
     public let trackNumber: Int?
     public let discNumber: Int?
+    public let isSmartPlaylist: Bool?
     public let artworkPath: String?
     public let artworkCacheKey: String?
     public let artworkCacheType: SiriMediaArtworkCacheType?
@@ -178,6 +179,7 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         duration: TimeInterval? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
+        isSmartPlaylist: Bool? = nil,
         artworkPath: String? = nil,
         artworkCacheKey: String? = nil,
         artworkCacheType: SiriMediaArtworkCacheType? = nil
@@ -196,6 +198,7 @@ public struct SiriMediaIndexItem: Codable, Sendable, Equatable, Hashable, Identi
         self.duration = duration
         self.trackNumber = trackNumber
         self.discNumber = discNumber
+        self.isSmartPlaylist = isSmartPlaylist
         self.artworkPath = artworkPath
         self.artworkCacheKey = artworkCacheKey
         self.artworkCacheType = artworkCacheType

@@ -58,6 +58,7 @@ Dependency flow is one-way:
 - `PlaybackNowPlayingBridge` owns app writes to `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. Keep MediaPlayer singleton mutation out of `PlaybackService`, engines, ViewModels, and UI.
 - `SystemMediaIntegrationService` owns user-initiated playback donations, Core Spotlight indexing/deletion, and media user context refresh. Playback callers pass `PlaybackStartContext`; Siri, App Shortcuts, remote commands, autoplay, restoration, and background recovery must not donate starts.
 - `EnsembleSiriShared.SiriMediaIndexResolver` is the shared resolver for SiriKit, App Shortcuts, and Spotlight-backed media identity. Do not duplicate query normalization, kind inference, source matching, ranking, or playlist lookup in the app target or Siri extension.
+- `EnsembleSiriShared.EnsemblePermalink` owns the versioned library-independent URL payload. `EnsemblePermalinkResolver` resolves it against enabled local repositories and returns typed `NavigationCoordinator` destinations; permalink opening must not enter playback services.
 - App Group Siri index schema must remain backward compatible. Add optional fields for new system surfaces, and allow old files to decode until the next rebuild overwrites them.
 - Core Spotlight deletion must stay source/domain scoped. Do not call global Spotlight delete APIs for Ensemble media.
 

@@ -25,6 +25,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Search** — Fast search across your entire library with compact result layouts
 - **Gesture Actions (iOS/iPadOS)** — Mail-style track swipe actions (`Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle) across library and search track lists
 - **Long-Press Menus** — Album, artist, and playlist cards expose context actions that match detail-view capabilities
+- **Share Ensemble Links** — Share portable song, artist, album, or playlist links that resolve against another user's own enabled libraries without exposing Plex server IDs; existing streaming-link and audio-file sharing remain separate options
 
 **Advanced Features:**
 - **Advanced Filtering** — Multi-select genres/artists, year ranges, sort options with persistence
@@ -40,7 +41,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
 - **SmartMix** — Optional playback mode with Profile settings, silence-aware DJ-style overlaps, crossfading Now Playing artwork, same-album protection by default, an eased outgoing high-pass sweep, and tempo matching when analysis confidence is high
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
-- **Siri Voice Playback (In-App-First + Fallback)** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`; album/playlist App Shortcuts fallback phrases are also registered when SiriKit media-domain routing misses
+- **Siri Voice Playback + App Intents** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`; App Intents also expose non-playing media navigation and portable Ensemble-link creation
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen

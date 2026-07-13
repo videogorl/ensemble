@@ -50,7 +50,7 @@ final class NavigationCoordinatorTests: XCTestCase {
             NavigationCoordinator.systemMediaDestination(
                 fromSourceScopedIdentifier: "track||track-1||plex://server.one/library"
             ),
-            .view(.songs)
+            .song(id: "track-1", sourceKey: "plex://server.one/library")
         )
     }
 

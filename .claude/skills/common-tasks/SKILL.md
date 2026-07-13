@@ -104,6 +104,7 @@ Use this for SiriKit/App Shortcuts/Spotlight/Now Playing changes:
 5. Donate only direct `.appUI` playback starts. Siri, App Shortcuts, remote commands, autoplay, queue restoration, and background recovery should pass a non-donating origin.
 6. Use source-scoped identifiers (`sourceCompositeKey` plus media id/kind) for Now Playing external IDs, donations, Spotlight identifiers, and artwork cache identity.
 7. For Spotlight cleanup, delete explicit identifiers or source/domain-scoped identifiers only. Do not use global delete-all APIs.
+8. Portable shared links use `EnsemblePermalink` in SiriShared, `EnsemblePermalinkResolver` in Core, and scene-local `NavigationCoordinator` destinations. Keep Plex source IDs out of shared URLs and expose the same descriptor through `Share Ensemble Link…` and `Get Ensemble Link` App Intent.
 
 ## Adding a New CoreData Entity
 

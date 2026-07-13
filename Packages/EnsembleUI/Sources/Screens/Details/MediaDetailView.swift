@@ -378,6 +378,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         sourceCompositeKey: sourceKey ?? ""
                     )
                     Button {
+                        ShareActions.shareEnsembleLink(album, deps: deps)
+                    } label: {
+                        MediaActionLabel(kind: .shareEnsembleLink)
+                    }
+
+                    Button {
                         ShareActions.shareAlbumLink(album, deps: deps)
                     } label: {
                         MediaActionLabel(kind: .shareLink)
@@ -1217,6 +1223,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             },
             onEditMetadata: { track in
                 presentTrackMetadataEditor(track)
+            },
+            onShareEnsembleLink: { track in
+                ShareActions.shareEnsembleLink(track, deps: deps)
             },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)

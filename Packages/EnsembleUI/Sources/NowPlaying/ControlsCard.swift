@@ -701,6 +701,12 @@ public struct ControlsCard: View {
                 if let currentTrack = playbackProjection.currentTrack {
                     Section {
                         Button {
+                            ShareActions.shareEnsembleLink(currentTrack, deps: deps)
+                        } label: {
+                            MediaActionLabel(kind: .shareEnsembleLink)
+                        }
+
+                        Button {
                             ShareActions.shareTrackLink(currentTrack, deps: deps)
                         } label: {
                             MediaActionLabel(kind: .shareLink)

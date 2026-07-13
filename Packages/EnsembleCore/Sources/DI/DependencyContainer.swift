@@ -45,6 +45,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let homeHubLoader: HomeHubLoaderProtocol
     public let backgroundRefreshCoordinator: BackgroundRefreshCoordinator
     public let navigationCoordinator: NavigationCoordinator
+    public let ensemblePermalinkResolver: EnsemblePermalinkResolver
     public let appReadinessCoordinator: AppReadinessCoordinator
     public let foregroundWorkScheduler: ForegroundWorkScheduler
     public let hubOrderManager: HubOrderManager
@@ -231,6 +232,13 @@ public final class DependencyContainer: @unchecked Sendable {
         artworkDownloadManager = core.artworkDownloadManager
         settingsManager = core.settingsManager
         navigationCoordinator = core.navigationCoordinator
+        ensemblePermalinkResolver = MainActor.assumeIsolated {
+            EnsemblePermalinkResolver(
+                accountManager: network.accountManager,
+                libraryRepository: core.libraryRepository,
+                playlistRepository: core.playlistRepository
+            )
+        }
         appReadinessCoordinator = builtAppReadinessCoordinator
         foregroundWorkScheduler = builtForegroundWorkScheduler
         hubOrderManager = core.hubOrderManager

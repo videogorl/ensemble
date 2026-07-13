@@ -1004,7 +1004,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist, .favorite])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
-        XCTAssertEqual(sections.actions(in: .sharing), [.shareLink, .shareAudioFile])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink, .shareAudioFile])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteTrack])
         XCTAssertEqual(sections.role(for: .deleteTrack), .destructive)
     }
@@ -1064,6 +1064,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteAlbum])
         XCTAssertEqual(sections.role(for: .deleteAlbum), .destructive)
@@ -1076,9 +1077,10 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
         XCTAssertNil(sections.first { $0.id == .management })
     }
 
@@ -1089,9 +1091,10 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline, .management])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo])
     }
 
@@ -1186,6 +1189,7 @@ final class EnsembleUITests: XCTestCase {
             onGoToArtist: { _ in },
             onGetInfo: { _ in },
             onEditMetadata: { _ in },
+            onShareEnsembleLink: { _ in },
             onShareLink: { _ in },
             onShareFile: { _ in },
             onDeleteTrack: { _ in },
@@ -1207,6 +1211,7 @@ final class EnsembleUITests: XCTestCase {
                 "Favorite",
                 "Go to Album",
                 "Go to Artist",
+                "Share Ensemble Link…",
                 "Share Link…",
                 "Share Audio File…",
                 "Get Info…",

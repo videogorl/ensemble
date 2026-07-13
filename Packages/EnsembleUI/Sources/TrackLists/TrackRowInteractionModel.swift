@@ -13,6 +13,7 @@ public struct TrackRowInteractionModel {
         public let onGoToArtist: (() -> Void)?
         public let onGetInfo: (() -> Void)?
         public let onEditMetadata: (() -> Void)?
+        public let onShareEnsembleLink: (() -> Void)?
         public let onShareLink: (() -> Void)?
         public let onShareFile: (() -> Void)?
         public let onDeleteTrack: (() -> Void)?
@@ -29,6 +30,7 @@ public struct TrackRowInteractionModel {
             onGoToArtist != nil ||
             onGetInfo != nil ||
             onEditMetadata != nil ||
+            onShareEnsembleLink != nil ||
             onShareLink != nil ||
             onShareFile != nil ||
             onDeleteTrack != nil
@@ -44,6 +46,7 @@ public struct TrackRowInteractionModel {
     public let onGoToArtist: ((Track) -> Void)?
     public let onGetInfo: ((Track) -> Void)?
     public let onEditMetadata: ((Track) -> Void)?
+    public let onShareEnsembleLink: ((Track) -> Void)?
     public let onShareLink: ((Track) -> Void)?
     public let onShareFile: ((Track) -> Void)?
     public let onDeleteTrack: ((Track) -> Void)?
@@ -61,6 +64,7 @@ public struct TrackRowInteractionModel {
         onGoToArtist: ((Track) -> Void)? = nil,
         onGetInfo: ((Track) -> Void)? = nil,
         onEditMetadata: ((Track) -> Void)? = nil,
+        onShareEnsembleLink: ((Track) -> Void)? = nil,
         onShareLink: ((Track) -> Void)? = nil,
         onShareFile: ((Track) -> Void)? = nil,
         onDeleteTrack: ((Track) -> Void)? = nil,
@@ -77,6 +81,7 @@ public struct TrackRowInteractionModel {
         self.onGoToArtist = onGoToArtist
         self.onGetInfo = onGetInfo
         self.onEditMetadata = onEditMetadata
+        self.onShareEnsembleLink = onShareEnsembleLink
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
         self.onDeleteTrack = onDeleteTrack
@@ -101,6 +106,7 @@ public struct TrackRowInteractionModel {
             onGoToArtist != nil ||
             onGetInfo != nil ||
             onEditMetadata != nil ||
+            onShareEnsembleLink != nil ||
             onShareLink != nil ||
             onShareFile != nil ||
             onDeleteTrack != nil
@@ -119,6 +125,7 @@ public struct TrackRowInteractionModel {
             onGoToArtist: onGoToArtist.map { callback in { callback(track) } },
             onGetInfo: onGetInfo.map { callback in { callback(track) } },
             onEditMetadata: onEditMetadata.map { callback in { callback(track) } },
+            onShareEnsembleLink: onShareEnsembleLink.map { callback in { callback(track) } },
             onShareLink: onShareLink.map { callback in { callback(track) } },
             onShareFile: onShareFile.map { callback in { callback(track) } },
             onDeleteTrack: onDeleteTrack.map { callback in { callback(track) } },
@@ -186,6 +193,9 @@ extension TrackRowInteractionModel {
             onGoToAlbum: goToAlbum,
             onGoToArtist: goToArtist,
             onGetInfo: onGetInfo,
+            onShareEnsembleLink: { track in
+                ShareActions.shareEnsembleLink(track, deps: deps)
+            },
             onShareLink: { track in
                 ShareActions.shareTrackLink(track, deps: deps)
             },

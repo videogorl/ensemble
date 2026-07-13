@@ -120,6 +120,7 @@ struct MiniPlayerActionsMenuButton: View {
             goToAlbum: goToAlbum,
             goToArtist: goToArtist,
             favorite: toggleFavorite,
+            shareEnsembleLink: shareEnsembleLink,
             shareLink: shareTrackLink,
             shareAudioFile: shareTrackFile
         )
@@ -181,6 +182,11 @@ struct MiniPlayerActionsMenuButton: View {
     private func shareTrackLink() {
         guard let track = playbackProjection.currentTrack else { return }
         ShareActions.shareTrackLink(track, deps: deps)
+    }
+
+    private func shareEnsembleLink() {
+        guard let track = playbackProjection.currentTrack else { return }
+        ShareActions.shareEnsembleLink(track, deps: deps)
     }
 
     private func shareTrackFile() {

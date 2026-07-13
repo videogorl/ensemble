@@ -27,6 +27,7 @@ struct MediaActionLabel: View {
         case favorite(isFavorited: Bool, usesFilledIcon: Bool)
         case pin(isPinned: Bool)
         case unpinAll
+        case shareEnsembleLink
         case shareLink
         case shareAudioFile
         case removeFromPlaylist
@@ -90,6 +91,8 @@ struct MediaActionLabel: View {
             return isPinned ? "Unpin" : "Pin"
         case .unpinAll:
             return "Unpin All"
+        case .shareEnsembleLink:
+            return "Share Ensemble Link…"
         case .shareLink:
             return "Share Link…"
         case .shareAudioFile:
@@ -156,7 +159,7 @@ struct MediaActionLabel: View {
             return isPinned ? EnsembleDesign.Icon.unpin : EnsembleDesign.Icon.pin
         case .unpinAll:
             return EnsembleDesign.Icon.unpin
-        case .shareLink:
+        case .shareEnsembleLink, .shareLink:
             return EnsembleDesign.Icon.shareLink
         case .shareAudioFile:
             return EnsembleDesign.Icon.shareAudioFile

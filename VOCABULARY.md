@@ -165,6 +165,7 @@ On iPad and AirPlay external display, the layout switches to a shared **side-by-
 | Hub section title | text | Bold title for each hub (e.g., "Recently Added") | `hub.title` |
 | Hub item card | control | Tappable card showing album/artist/track/playlist artwork and info | `HubItemCard` |
 | Hub item context menu | menu | Catalog-backed long-press menu for hub album/artist/playlist/track actions | `AlbumActionsContextMenu`, `ArtistActionsContextMenu`, `PlaylistActionsContextMenu`, `TrackActionsContextMenu` |
+| Share Ensemble Link action | action | Opens the system share sheet with a portable `ensemble://media/v1/...` URL while preserving separate streaming-link and audio-file actions | `Share Ensemble Link…` |
 | Hub item artwork | artwork | Square artwork thumbnail for hub items (140x140) | `ArtworkView` |
 | Hub item title | text | Primary title text on hub cards | `item.title` |
 | Hub item subtitle | text | Secondary text (artist name, year) on hub cards | `item.subtitle` |

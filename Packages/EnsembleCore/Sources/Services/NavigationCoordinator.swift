@@ -42,6 +42,7 @@ public final class NavigationCoordinator: ObservableObject {
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
         case albumDetail(Album)
+        case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
         case playlistDetail(Playlist)
         case mergedPlaylist(title: String, isSmart: Bool)
@@ -54,7 +55,7 @@ public final class NavigationCoordinator: ObservableObject {
                 return "artist"
             case .displayGenre:
                 return "genre"
-            case .album, .albumDetail:
+            case .album, .albumDetail, .song:
                 return "album"
             case .playlist, .playlistDetail:
                 return "playlist"
@@ -137,7 +138,7 @@ public final class NavigationCoordinator: ObservableObject {
             return .genres
         case .artist:
             return .artists
-        case .album, .albumDetail:
+        case .album, .albumDetail, .song:
             return .albums
         case .playlist, .playlistDetail, .mergedPlaylist:
             return .playlists
@@ -163,7 +164,7 @@ public final class NavigationCoordinator: ObservableObject {
         case .playlist:
             return .playlist(id: components.id, sourceKey: components.sourceCompositeKey)
         case .track:
-            return .view(.songs)
+            return .song(id: components.id, sourceKey: components.sourceCompositeKey)
         }
     }
 
@@ -571,6 +572,8 @@ public final class NavigationCoordinator: ObservableObject {
             return .artist(id: components[1], sourceKey: sourceKey)
         case "album":
             return .album(id: components[1], sourceKey: sourceKey)
+        case "song", "track":
+            return .song(id: components[1], sourceKey: sourceKey)
         case "playlist":
             return .playlist(id: components[1], sourceKey: sourceKey)
         default:

@@ -63,6 +63,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 - Shared artwork wash renderer/cache: `Packages/EnsembleCore/Sources/Services/ArtworkBlurRenderer.swift`
 - Shared Foundation-only utility: `Packages/EnsembleSupport/Sources/`
 - New shared Siri/system media identity or resolver logic: `Packages/EnsembleSiriShared/Sources/`
+- Portable-link recipient matching: `Packages/EnsembleCore/Sources/Services/EnsemblePermalinkResolver.swift`; song-to-album navigation loading: `Packages/EnsembleUI/Sources/Screens/Details/SongPermalinkLoader.swift`.
 - New SiriKit intent definition resource: `Ensemble/Resources/*.intentdefinition`, then add it to the app and relevant extension target resources in `Ensemble.xcodeproj`.
 - New UI screen/component: `Packages/EnsembleUI/Sources/Screens/`, `.../Components/`, `.../NowPlaying/`, or an existing feature folder.
 - Root scene layering, chrome geometry registration, and mini-player overlay helpers live in `Packages/EnsembleUI/Sources/Screens/Root/`.

@@ -76,6 +76,7 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case favorite
     case pin
     case unpinAll
+    case shareEnsembleLink
     case shareLink
     case shareAudioFile
     case removeFromPlaylist
@@ -147,6 +148,7 @@ struct MediaMenuHandlers {
     var favorite: (() -> Void)?
     var pin: (() -> Void)?
     var unpinAll: (() -> Void)?
+    var shareEnsembleLink: (() -> Void)?
     var shareLink: (() -> Void)?
     var shareAudioFile: (() -> Void)?
     var removeFromPlaylist: (() -> Void)?
@@ -181,6 +183,7 @@ struct MediaMenuHandlers {
         case .favorite: return favorite
         case .pin: return pin
         case .unpinAll: return unpinAll
+        case .shareEnsembleLink: return shareEnsembleLink
         case .shareLink: return shareLink
         case .shareAudioFile: return shareAudioFile
         case .removeFromPlaylist: return removeFromPlaylist
@@ -201,6 +204,7 @@ struct MediaMenuAvailability: Equatable {
     var canGoToAlbum = false
     var canGoToArtist = false
     var canGetInfo = true
+    var canShareEnsembleLink = true
     var canShareLink = true
     var canShareAudioFile = false
     var canFavorite = true
@@ -219,6 +223,7 @@ struct MediaMenuAvailability: Equatable {
         canGoToAlbum: true,
         canGoToArtist: true,
         canGetInfo: true,
+        canShareEnsembleLink: true,
         canShareLink: true,
         canShareAudioFile: true,
         canFavorite: true,
@@ -305,6 +310,9 @@ enum MediaMenuCatalog {
         sections.append(section(.navigation, navigationActions))
 
         var shareActions: [MediaMenuActionID] = []
+        if availability.canShareEnsembleLink {
+            shareActions.append(.shareEnsembleLink)
+        }
         if availability.canShareLink {
             shareActions.append(.shareLink)
         }
@@ -363,8 +371,15 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.navigation, navigationActions))
 
+        var shareActions: [MediaMenuActionID] = []
+        if availability.canShareEnsembleLink {
+            shareActions.append(.shareEnsembleLink)
+        }
         if availability.canShareLink {
-            sections.append(section(.sharing, [.shareLink]))
+            shareActions.append(.shareLink)
+        }
+        if !shareActions.isEmpty {
+            sections.append(section(.sharing, shareActions))
         }
 
         var offlinePinning: [MediaMenuActionID] = []
@@ -410,6 +425,10 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
+        if availability.canShareEnsembleLink {
+            sections.append(section(.sharing, [.shareEnsembleLink]))
+        }
+
         if context.allowsPlaylistManagement || context.allowsTrackEditing {
             var management: [MediaMenuActionID] = []
             if availability.canEditMetadata {
@@ -438,6 +457,10 @@ enum MediaMenuCatalog {
             offlinePinning.append(.pin)
         }
         sections.append(section(.offline, offlinePinning))
+
+        if availability.canShareEnsembleLink {
+            sections.append(section(.sharing, [.shareEnsembleLink]))
+        }
 
         if availability.canGetInfo || (context.allowsPlaylistManagement && !isSmart) {
             var management: [MediaMenuActionID] = []
@@ -471,6 +494,10 @@ enum MediaMenuCatalog {
 
         if context == .pinned || context == .sidebar {
             sections.append(section(.pinning, [.unpinAll], role: .destructive))
+        }
+
+        if availability.canShareEnsembleLink {
+            sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
         if context.allowsPlaylistManagement, !isSmart {
@@ -573,6 +600,8 @@ extension MediaMenuActionDescriptor {
             )
         case .unpinAll:
             return MediaMenuLabel(title: "Unpin All", systemImage: EnsembleDesign.Icon.unpin)
+        case .shareEnsembleLink:
+            return MediaMenuLabel(title: "Share Ensemble Link…", systemImage: EnsembleDesign.Icon.shareLink)
         case .shareLink:
             return MediaMenuLabel(title: "Share Link…", systemImage: EnsembleDesign.Icon.shareLink)
         case .shareAudioFile:
@@ -619,6 +648,7 @@ extension MediaMenuActionDescriptor {
         case .favorite: return .favorite(isFavorited: state.isFavorited, usesFilledIcon: false)
         case .pin: return .pin(isPinned: state.isPinned)
         case .unpinAll: return .unpinAll
+        case .shareEnsembleLink: return .shareEnsembleLink
         case .shareLink: return .shareLink
         case .shareAudioFile: return .shareAudioFile
         case .removeFromPlaylist: return .removeFromPlaylist

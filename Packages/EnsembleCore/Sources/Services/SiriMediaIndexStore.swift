@@ -179,6 +179,7 @@ public final class SiriMediaIndexStore {
                         playCount: nil,
                         trackCount: Int(playlist.trackCount),
                         duration: TimeInterval(playlist.duration) / 1000.0,
+                        isSmartPlaylist: playlist.isSmart,
                         artworkPath: playlist.compositePath,
                         artworkCacheKey: playlist.ratingKey,
                         artworkCacheType: .playlist
