@@ -594,10 +594,10 @@ public final class HomeViewModel: ObservableObject {
             )
 
             let lookup = try await LocalHubItemLookup(
-                albumsByKey: albumsByKeyTask,
-                artistsByKey: artistsByKeyTask,
-                playlistsByKey: playlistsByKeyTask,
-                tracksByKey: tracksByKeyTask
+                albumsByKey: albumsByKeyTask.mapValues(Album.init(from:)),
+                artistsByKey: artistsByKeyTask.mapValues(Artist.init(from:)),
+                playlistsByKey: playlistsByKeyTask.mapValues(Playlist.init(from:)),
+                tracksByKey: tracksByKeyTask.mapValues(Track.init(from:))
             )
             let filteredHubs = await Self.filterHubsForLocalAvailability(hubs) { item in
                 Self.resolveHubItemFromLocalLibrary(item, lookup: lookup)
@@ -619,10 +619,10 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private struct LocalHubItemLookup {
-        let albumsByKey: [String: CDAlbum]
-        let artistsByKey: [String: CDArtist]
-        let playlistsByKey: [String: CDPlaylist]
-        let tracksByKey: [String: CDTrack]
+        let albumsByKey: [String: Album]
+        let artistsByKey: [String: Artist]
+        let playlistsByKey: [String: Playlist]
+        let tracksByKey: [String: Track]
     }
 
     private nonisolated static func sourceScopedReferences(
@@ -658,8 +658,7 @@ public final class HomeViewModel: ObservableObject {
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
             ).lookupKey
-            guard let cdAlbum = lookup.albumsByKey[lookupKey] else { return nil }
-            let album = Album(from: cdAlbum)
+            guard let album = lookup.albumsByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -678,8 +677,7 @@ public final class HomeViewModel: ObservableObject {
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
             ).lookupKey
-            guard let cdArtist = lookup.artistsByKey[lookupKey] else { return nil }
-            let artist = Artist(from: cdArtist)
+            guard let artist = lookup.artistsByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -698,8 +696,7 @@ public final class HomeViewModel: ObservableObject {
                 ratingKey: item.id,
                 sourceCompositeKey: item.sourceCompositeKey
             ).lookupKey
-            guard let cdPlaylist = lookup.playlistsByKey[lookupKey] else { return nil }
-            let playlist = Playlist(from: cdPlaylist)
+            guard let playlist = lookup.playlistsByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
@@ -718,8 +715,7 @@ public final class HomeViewModel: ObservableObject {
                 trackRatingKey: item.id,
                 trackSourceCompositeKey: item.sourceCompositeKey
             ).membershipID
-            guard let cdTrack = lookup.tracksByKey[lookupKey] else { return nil }
-            let track = Track(from: cdTrack)
+            guard let track = lookup.tracksByKey[lookupKey] else { return nil }
             return HubItem(
                 id: item.id,
                 type: item.type,
