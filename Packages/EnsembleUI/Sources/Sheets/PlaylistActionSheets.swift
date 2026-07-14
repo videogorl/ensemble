@@ -13,6 +13,7 @@ public struct PlaylistPickerSheet: View {
     @State private var inferredServerSourceKey: String?
     @State private var isSubmitting = false
     @State private var searchText = ""
+    @State private var playlistsContainingSelection = Set<String>()
 
     public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
         self.nowPlayingVM = nowPlayingVM
@@ -155,7 +156,7 @@ public struct PlaylistPickerSheet: View {
 
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                     Text(playlist.title)
-                    Text("\(playlist.trackCount) songs")
+                    Text(playlistContainsSelection(playlist) ? "Already added" : "\(playlist.trackCount) songs")
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
@@ -165,6 +166,7 @@ public struct PlaylistPickerSheet: View {
         }
         .disabled(
             isSubmitting ||
+            playlistContainsSelection(playlist) ||
             nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
         )
     }
@@ -201,6 +203,7 @@ public struct PlaylistPickerSheet: View {
 
     private func loadPlaylists() async {
         isLoading = true
+        playlistsContainingSelection = []
         defer { isLoading = false }
         do {
             playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: inferredServerSourceKey)
@@ -208,6 +211,7 @@ public struct PlaylistPickerSheet: View {
                 .sorted { lhs, rhs in
                     (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
                 }
+            await loadCachedPlaylistMembership()
         } catch {
             deps.toastCenter.show(
                 ToastPayload(
@@ -223,6 +227,42 @@ public struct PlaylistPickerSheet: View {
                 )
             )
         }
+    }
+
+    /// Disables a target only when every compatible selected track is already cached in it.
+    /// If cached membership is unavailable, Plex remains the authority at submission time.
+    private func loadCachedPlaylistMembership() async {
+        let actionService = PlaylistActionService()
+        var containingSelection = Set<String>()
+
+        for playlist in playlists {
+            do {
+                guard let cachedPlaylist = try await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.id,
+                    sourceCompositeKey: playlist.sourceCompositeKey
+                ) else {
+                    continue
+                }
+
+                let compatibleTracks = nowPlayingVM.tracks(
+                    tracks,
+                    compatibleWithServerSourceKey: playlist.sourceCompositeKey
+                )
+                let existingTracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+                if !compatibleTracks.isEmpty,
+                   actionService.tracks(compatibleTracks, excluding: existingTracks).isEmpty {
+                    containingSelection.insert(playlist.sourceScopedID)
+                }
+            } catch {
+                continue
+            }
+        }
+
+        playlistsContainingSelection = containingSelection
+    }
+
+    private func playlistContainsSelection(_ playlist: Playlist) -> Bool {
+        playlistsContainingSelection.contains(playlist.sourceScopedID)
     }
 
     private func addToPlaylist(_ playlist: Playlist) {
