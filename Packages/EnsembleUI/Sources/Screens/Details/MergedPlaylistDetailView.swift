@@ -50,7 +50,7 @@ public struct MergedPlaylistDetailView: View {
             ),
             playlistMenuActions: PlaylistDetailMenuActions(
                 canRename: !viewModel.displayPlaylist.isSmart,
-                canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty,
+                canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty && !viewModel.hasUnavailableTracks,
                 canDelete: !viewModel.displayPlaylist.isSmart,
                 onRename: {
                     renamePromptText = viewModel.displayPlaylist.title

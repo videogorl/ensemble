@@ -15,6 +15,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     @Published public private(set) var totalDuration: String = "0 min"
     @Published public private(set) var isLoading = false
     @Published public private(set) var hasLoadedTracks = false
+    @Published public private(set) var hasUnavailableTracks = false
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions {
         didSet { updateDerivedTrackState() }
@@ -112,29 +113,52 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         }
 
         let playlistsByKey = try await playlistRepository.fetchPlaylists(forReferences: references)
-        return displayPlaylist.playlists.map { playlist in
+        var unavailablePlaylistIDs = Set<String>()
+        let trackSets: [[Track]] = displayPlaylist.playlists.map { playlist -> [Track] in
             guard let sourceCompositeKey = playlist.sourceCompositeKey else { return [] }
             let key = SourceScopedArtworkReference(
                 ratingKey: playlist.id,
                 sourceCompositeKey: sourceCompositeKey
             ).lookupKey
-            return playlistsByKey[key]?.tracksArray.map { Track(from: $0) } ?? []
+            guard let cachedPlaylist = playlistsByKey[key] else {
+                if playlist.trackCount > 0 {
+                    unavailablePlaylistIDs.insert(playlist.sourceScopedID)
+                }
+                return []
+            }
+
+            let tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+            if cachedPlaylist.hasUnavailableTracks {
+                unavailablePlaylistIDs.insert(playlist.sourceScopedID)
+            }
+            return tracks
         }
+        hasUnavailableTracks = !unavailablePlaylistIDs.isEmpty
+        return trackSets
     }
 
     private func loadConstituentTrackSetsOneByOne() async throws -> [[Track]] {
         var trackSets: [[Track]] = []
+        var unavailablePlaylistIDs = Set<String>()
         trackSets.reserveCapacity(displayPlaylist.playlists.count)
         for playlist in displayPlaylist.playlists {
             if let cached = try await playlistRepository.fetchPlaylist(
                 ratingKey: playlist.id,
                 sourceCompositeKey: playlist.sourceCompositeKey
             ) {
-                trackSets.append(cached.tracksArray.map { Track(from: $0) })
+                let tracks = cached.tracksArray.map { Track(from: $0) }
+                if cached.hasUnavailableTracks {
+                    unavailablePlaylistIDs.insert(playlist.sourceScopedID)
+                }
+                trackSets.append(tracks)
             } else {
+                if playlist.trackCount > 0 {
+                    unavailablePlaylistIDs.insert(playlist.sourceScopedID)
+                }
                 trackSets.append([])
             }
         }
+        hasUnavailableTracks = !unavailablePlaylistIDs.isEmpty
         return trackSets
     }
 
@@ -167,6 +191,10 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         let selectedTrack = selectedTrack(for: track, displayIndex: displayIndex)
         guard let targetPlaylist = playlistOwningTrack(selectedTrack) else {
             error = "Could not determine which server playlist owns this track."
+            return false
+        }
+        guard !hasUnavailableTracks else {
+            error = PlaylistMutationError.incompletePlaylistContents.localizedDescription
             return false
         }
 

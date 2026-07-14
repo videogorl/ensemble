@@ -531,31 +531,30 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         }
                     }
 
-                    // Add new playlist tracks
+                    // Keep a membership record for every server track. A record can
+                    // intentionally have no cached track when its library is disabled.
                     var foundCount = 0
                     for (index, trackKey) in trackRatingKeys.enumerated() {
                         let trackRequest = CDTrack.fetchRequest()
                         trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
                         let candidates = try context.fetch(trackRequest)
-                        if let track = Self.bestTrackMatch(
+                        let track = Self.bestTrackMatch(
                             from: candidates,
                             playlistSourceCompositeKey: sourceCompositeKey
-                        ) {
+                        )
+                        if track != nil {
                             foundCount += 1
-                            let playlistTrack = CDPlaylistTrack(context: context)
-                            playlistTrack.order = Int32(index)
-                            playlistTrack.playlist = playlist
-                            playlistTrack.track = track
                         }
+                        let playlistTrack = CDPlaylistTrack(context: context)
+                        playlistTrack.order = Int32(index)
+                        playlistTrack.trackRatingKey = trackKey
+                        playlistTrack.trackSourceCompositeKey = track?.sourceCompositeKey
+                        playlistTrack.playlist = playlist
+                        playlistTrack.track = track
                     }
 
-                    // Update trackCount to match what was actually stored locally.
-                    // The Plex API's leafCount (stored at upsert time) can be stale or mismatched
-                    // for smart playlists, and we can only link tracks that exist in the local library.
-                    playlist.trackCount = Int32(foundCount)
-
                     try context.save()
-                    EnsembleLogger.debug("✅ Saved \(foundCount) tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) requested)")
+                    EnsembleLogger.debug("✅ Saved \(foundCount) cached tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) server tracks)")
                     continuation.resume()
                 } catch {
                     EnsembleLogger.debug("❌ Error saving playlist tracks: \(error)")

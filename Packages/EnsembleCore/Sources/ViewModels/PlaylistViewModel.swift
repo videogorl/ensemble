@@ -734,6 +734,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     @Published public private(set) var totalDuration: String = "0 min"
     @Published public private(set) var isLoading = false
     @Published public private(set) var hasLoadedTracks = false
+    @Published public private(set) var hasUnavailableTracks = false
     @Published public private(set) var error: String?
     @Published public var filterOptions: FilterOptions {
         didSet { updateDerivedTrackState() }
@@ -813,6 +814,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 let nextPlaylist = Playlist(from: cachedPlaylist)
                 let nextTracks = loadedTracks.map { Track(from: $0) }
                 playlist = nextPlaylist
+                hasUnavailableTracks = cachedPlaylist.hasUnavailableTracks
                 if shouldPublishTrackSnapshot(nextTracks, cachedTrackCount: Int(cachedPlaylist.trackCount)) {
                     tracks = nextTracks
                 } else {
@@ -821,6 +823,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
                 EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
             } else {
+                hasUnavailableTracks = false
                 if tracks.isEmpty {
                     tracks = []
                 } else {
@@ -968,6 +971,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func applyEditedTracksLocally(_ editedTracks: [Track]) {
+        guard !hasUnavailableTracks else { return }
         applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
     }
 
@@ -975,6 +979,10 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
         guard !playlist.isSmart else {
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
+            return false
+        }
+        guard !hasUnavailableTracks else {
+            error = PlaylistMutationError.incompletePlaylistContents.localizedDescription
             return false
         }
         guard let removalIndex = playlistTrackIndex(for: track, displayIndex: displayIndex) else {
@@ -1046,6 +1054,10 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public func saveEditedTracks(_ editedTracks: [Track]) async {
+        guard !hasUnavailableTracks else {
+            error = PlaylistMutationError.incompletePlaylistContents.localizedDescription
+            return
+        }
         // Apply immediately so playlist detail reflects edits before network roundtrip.
         applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
 

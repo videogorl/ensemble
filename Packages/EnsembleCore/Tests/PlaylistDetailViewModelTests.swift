@@ -323,6 +323,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     private func makeCachedPlaylist(
         _ playlist: Playlist,
         tracks: [Track],
+        serverTrackCount: Int? = nil,
         context: NSManagedObjectContext
     ) -> CDPlaylist {
         let cdPlaylist = CDPlaylist(context: context)
@@ -333,7 +334,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         cdPlaylist.compositePath = playlist.compositePath
         cdPlaylist.isSmart = playlist.isSmart
         cdPlaylist.duration = Int64(playlist.duration * 1000)
-        cdPlaylist.trackCount = Int32(tracks.count)
+        cdPlaylist.trackCount = Int32(serverTrackCount ?? tracks.count)
         cdPlaylist.dateAdded = playlist.dateAdded
         cdPlaylist.dateModified = playlist.dateModified
         cdPlaylist.lastPlayed = playlist.lastPlayed
@@ -815,6 +816,44 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-2"])
         XCTAssertEqual(viewModel.playlist.trackCount, 1)
+    }
+
+    func testRemoveTrackFromPlaylistRejectsIncompleteCachedContents() async {
+        let syncCoordinator = makeSyncCoordinator()
+        var didReplace = false
+        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, _, _ in
+            didReplace = true
+        }
+
+        let playlist = makePlaylist(id: "playlist-a", title: "Mixed Libraries")
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let key = playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        playlistRepository.playlists[key] = makeCachedPlaylist(
+            playlist,
+            tracks: [makeTrack(id: "enabled-track")],
+            serverTrackCount: 2,
+            context: context
+        )
+
+        let viewModel = PlaylistDetailViewModel(
+            playlist: playlist,
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+        await viewModel.loadTracks()
+
+        let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "enabled-track"))
+
+        XCTAssertTrue(viewModel.hasUnavailableTracks)
+        XCTAssertFalse(didRemove)
+        XCTAssertFalse(didReplace)
+        XCTAssertEqual(viewModel.error, PlaylistMutationError.incompletePlaylistContents.localizedDescription)
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["enabled-track"])
     }
 
     func testRemoveTrackFromPlaylistWithoutDisplayIndexUsesSourceScopedIdentity() async {

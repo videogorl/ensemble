@@ -615,12 +615,6 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
 extension LibraryRepository {
     func deleteTrackManagedObject(_ track: CDTrack, in context: NSManagedObjectContext) {
-        if let playlistTracks = track.playlistTracks as? Set<CDPlaylistTrack> {
-            for playlistTrack in playlistTracks {
-                context.delete(playlistTrack)
-            }
-        }
-
         if let memberships = track.offlineMemberships as? Set<CDOfflineDownloadMembership> {
             for membership in memberships {
                 context.delete(membership)

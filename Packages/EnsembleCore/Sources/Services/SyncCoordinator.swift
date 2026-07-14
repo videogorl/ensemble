@@ -50,6 +50,7 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
     case smartPlaylistReadOnly
     case emptySelection
     case duplicateName
+    case incompletePlaylistContents
 
     public var errorDescription: String? {
         switch self {
@@ -63,6 +64,8 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
             return "No compatible tracks were selected."
         case .duplicateName:
             return "A playlist with that name already exists on this server."
+        case .incompletePlaylistContents:
+            return "This playlist contains tracks from disabled libraries. Re-enable them before editing the playlist."
         }
     }
 }

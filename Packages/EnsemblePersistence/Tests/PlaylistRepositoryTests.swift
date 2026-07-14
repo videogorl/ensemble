@@ -425,8 +425,48 @@ final class PlaylistRepositoryTests: XCTestCase {
         )
 
         states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
-        XCTAssertEqual(states["playlist-1"]?.trackCount, 1)
+        XCTAssertEqual(states["playlist-1"]?.trackCount, 2)
         XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 1)
+    }
+
+    func testDisablingTrackLibraryRetainsHiddenPlaylistMembership() async throws {
+        let stack = CoreDataStack.inMemory()
+        let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let playlistSource = "plex:account-1:server-1"
+        let musicSource = "plex:account-1:server-1:music"
+        let christianSource = "plex:account-1:server-1:christian"
+
+        try await seedTrack(ratingKey: "music-track", title: "Music", sourceCompositeKey: musicSource, repository: libraryRepository)
+        try await seedTrack(ratingKey: "christian-track", title: "Christian", sourceCompositeKey: christianSource, repository: libraryRepository)
+        _ = try await upsertPlaylist(
+            in: playlistRepository,
+            ratingKey: "playlist-1",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: playlistSource,
+            trackCount: 2
+        )
+        try await playlistRepository.setPlaylistTracks(
+            ["music-track", "christian-track"],
+            forPlaylist: "playlist-1",
+            sourceCompositeKey: playlistSource
+        )
+
+        try await libraryRepository.deleteAllData(forSourceCompositeKey: christianSource)
+
+        let fetchedPlaylist = try await playlistRepository.fetchPlaylist(
+            ratingKey: "playlist-1",
+            sourceCompositeKey: playlistSource
+        )
+        let playlist = try XCTUnwrap(fetchedPlaylist)
+        let memberships = playlist.playlistTracks as? Set<CDPlaylistTrack> ?? []
+        let hiddenMembership = try XCTUnwrap(memberships.first { $0.trackRatingKey == "christian-track" })
+        XCTAssertEqual(playlist.tracksArray.map(\.ratingKey), ["music-track"])
+        XCTAssertEqual(memberships.count, 2)
+        XCTAssertNil(hiddenMembership.track)
+        XCTAssertEqual(hiddenMembership.trackSourceCompositeKey, christianSource)
+        XCTAssertTrue(playlist.hasUnavailableTracks)
     }
 
     func testUpdatePlaylistTitlePreservesTrackRelationships() async throws {
