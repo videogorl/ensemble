@@ -18,6 +18,7 @@ final class PlaylistMutationController {
         let moveRemotePlaylistItem: (String, String, String?, String) async throws -> Void
         let persistLastPlaylistTarget: (Playlist) -> Void
         let clearLastPlaylistTargetIfNeeded: (Playlist) -> Void
+        let refreshRemotePlaylist: (String, String) async -> Void
         let refreshServerPlaylists: (String) async -> Void
     }
 
@@ -160,7 +161,7 @@ final class PlaylistMutationController {
             )
         }
 
-        await dependencies.refreshServerPlaylists(serverSourceKey)
+        await dependencies.refreshRemotePlaylist(playlist.id, serverSourceKey)
     }
 
     private func mutableServerSourceKey(for playlist: Playlist) throws -> String {

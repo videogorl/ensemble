@@ -459,6 +459,9 @@ public final class SyncCoordinator: ObservableObject {
                 clearLastPlaylistTargetIfNeeded: { [weak self] playlist in
                     self?.clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
                 },
+                refreshRemotePlaylist: { [weak self] playlistID, serverSourceKey in
+                    await self?.refreshRemotePlaylist(playlistID: playlistID, serverSourceKey: serverSourceKey)
+                },
                 refreshServerPlaylists: { [weak self] serverSourceKey in
                     guard let self else { return }
                     if let refreshServerPlaylistsHandlerForTesting {
@@ -1499,6 +1502,34 @@ public final class SyncCoordinator: ObservableObject {
             EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist refresh cancelled for \(serverSourceKey)")
         } catch {
             EnsembleLogger.debug("⚠️ SyncCoordinator: Playlist refresh failed for \(serverSourceKey): \(error.localizedDescription)")
+        }
+    }
+
+    private func refreshRemotePlaylist(playlistID: String, serverSourceKey: String) async {
+        if let refreshServerPlaylistsHandlerForTesting {
+            await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
+            return
+        }
+        do {
+            guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey),
+                  let playlist = try await apiClient.getPlaylists().first(where: { $0.ratingKey == playlistID }) else {
+                return
+            }
+            let tracks = try await apiClient.getPlaylistTracks(playlistKey: playlistID)
+            try await PlexMusicSourceSyncProvider.upsertPlaylist(
+                playlist,
+                to: playlistRepository,
+                sourceCompositeKey: serverSourceKey,
+                trackCount: tracks.count
+            )
+            try await playlistRepository.setPlaylistTrackSnapshots(
+                tracks.map(PlexMusicSourceSyncProvider.playlistTrackSnapshot),
+                forPlaylist: playlistID,
+                sourceCompositeKey: serverSourceKey
+            )
+            notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
+        } catch {
+            EnsembleLogger.error("Failed to refresh playlist \(playlistID) after mutation: \(error.localizedDescription)")
         }
     }
 

@@ -77,6 +77,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                     persistedPlaylist = playlist
                 },
                 clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { _ in
                     refreshExpectation.fulfill()
                 }
@@ -123,6 +124,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                     persistedPlaylist = playlist
                 },
                 clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { _ in
                     refreshExpectation.fulfill()
                 }
@@ -165,6 +167,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { sourceKey in
                     refreshedSourceKey = sourceKey
                 }
@@ -202,6 +205,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 clearLastPlaylistTargetIfNeeded: { playlist in
                     clearedPlaylistID = playlist.id
                 },
+                refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { sourceKey in
                     refreshedSourceKey = sourceKey
                 }
@@ -238,6 +242,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { sourceKey in
                     refreshedSourceKey = sourceKey
                 }
@@ -275,6 +280,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { _ in
                     didRefresh = true
                 }
@@ -325,8 +331,11 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshRemotePlaylist: { playlistID, sourceKey in
+                    events.append("refresh:\(playlistID):\(sourceKey)")
+                },
                 refreshServerPlaylists: { _ in
-                    events.append("refresh")
+                    XCTFail("Item edits must refresh the mutated playlist directly")
                 }
             )
         )
@@ -340,7 +349,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
         XCTAssertEqual(events, [
             "remove:playlist-1:item-b",
             "move:playlist-1:item-c:first",
-            "refresh"
+            "refresh:playlist-1:plex:account-1:server-1"
         ])
     }
 }

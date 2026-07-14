@@ -530,7 +530,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
     }
 
-    private static func playlistTrackSnapshot(_ track: PlexTrack) -> PlaylistTrackSnapshot {
+    static func playlistTrackSnapshot(_ track: PlexTrack) -> PlaylistTrackSnapshot {
         PlaylistTrackSnapshot(
             ratingKey: track.ratingKey,
             playlistItemID: track.playlistItemID,
@@ -713,10 +713,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
     }
 
     @discardableResult
-    private static func upsertPlaylist(
+    static func upsertPlaylist(
         _ playlist: PlexPlaylist,
         to repository: PlaylistRepositoryProtocol,
-        sourceCompositeKey: String
+        sourceCompositeKey: String,
+        trackCount: Int? = nil
     ) async throws -> CDPlaylist {
         try await repository.upsertPlaylist(
             ratingKey: playlist.ratingKey,
@@ -726,7 +727,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             compositePath: playlist.composite,
             isSmart: playlist.smart ?? false,
             duration: playlist.duration,
-            trackCount: playlist.leafCount,
+            trackCount: trackCount ?? playlist.leafCount,
             dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
