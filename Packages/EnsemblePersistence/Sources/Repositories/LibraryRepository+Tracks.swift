@@ -424,6 +424,11 @@ extension LibraryRepository {
                         let sourceRequest = CDMusicSource.fetchRequest()
                         sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceKey)
                         track.source = try context.fetch(sourceRequest).first
+                        try self.relinkPlaylistMemberships(
+                            to: [ratingKey: track],
+                            sourceCompositeKey: sourceKey,
+                            in: context
+                        )
                     }
 
                     try context.save()

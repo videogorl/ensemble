@@ -328,6 +328,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
     public let ratingKey: String
     public let key: String
     public let playlistItemID: String?
+    public let librarySectionID: Int?
     public let parentRatingKey: String?  // Album
     public let grandparentRatingKey: String?  // Artist
     public let title: String
@@ -355,6 +356,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         case ratingKey
         case key
         case playlistItemID
+        case librarySectionID
         case parentRatingKey
         case grandparentRatingKey
         case title
@@ -450,6 +452,7 @@ public struct PlexTrack: Codable, Sendable, Identifiable {
         lastRatedAt = try container.decodeIfPresent(Int.self, forKey: .lastRatedAt)
         userRating = try container.decodeIfPresent(Double.self, forKey: .userRating)
         loudnessTimeline = try container.decodeIfPresent(String.self, forKey: .loudnessTimeline)
+        librarySectionID = try container.decodeIfPresent(Int.self, forKey: .librarySectionID)
 
         if let playlistItemString = try? container.decodeIfPresent(String.self, forKey: .playlistItemID) {
             playlistItemID = playlistItemString

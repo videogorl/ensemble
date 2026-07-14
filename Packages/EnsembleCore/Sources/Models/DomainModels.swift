@@ -81,6 +81,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let playCount: Int
     public let genres: [String]
     public let sourceCompositeKey: String?
+    public let unavailableReason: String?
 
     public init(
         id: String,
@@ -107,7 +108,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         rating: Int = 0,
         playCount: Int = 0,
         genres: [String] = [],
-        sourceCompositeKey: String? = nil
+        sourceCompositeKey: String? = nil,
+        unavailableReason: String? = nil
     ) {
         self.id = id
         self.key = key
@@ -138,10 +140,15 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.playCount = playCount
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
+        self.unavailableReason = unavailableReason
     }
 
     public var isDownloaded: Bool {
         localFilePath != nil
+    }
+
+    public var isLibraryAvailable: Bool {
+        unavailableReason == nil
     }
 
     public var formattedDuration: String {
@@ -235,8 +242,30 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             rating: rating ?? self.rating,
             playCount: playCount,
             genres: genres,
-            sourceCompositeKey: sourceCompositeKey
+            sourceCompositeKey: sourceCompositeKey,
+            unavailableReason: unavailableReason
         )
+    }
+}
+
+/// A stable server playlist membership with an optional locally synced track.
+public struct PlaylistItem: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let playlistItemID: String?
+    public let track: Track
+
+    public init(
+        id: String,
+        playlistItemID: String?,
+        track: Track
+    ) {
+        self.id = id
+        self.playlistItemID = playlistItemID
+        self.track = track
+    }
+
+    public var isAvailable: Bool {
+        track.isLibraryAvailable
     }
 }
 

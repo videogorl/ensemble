@@ -343,6 +343,26 @@ public final class MutationCoordinator: ObservableObject {
         }
     }
 
+    /// Edit playlist items without clearing memberships that are unavailable locally.
+    public func editPlaylistItems(
+        _ playlist: Playlist,
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) async throws {
+        if syncCoordinator.isOffline {
+            throw MutationError.unavailableOffline("Edit playlist tracks")
+        }
+        do {
+            try await syncCoordinator.editPlaylistItems(
+                playlist,
+                originalItems: originalItems,
+                editedItems: editedItems
+            )
+        } catch where isConnectionFailure(error) {
+            throw MutationError.unavailableOffline("Edit playlist tracks")
+        }
+    }
+
     /// Save the current queue as a playlist snapshot. Delegates to addTracksToPlaylist.
     public func saveQueueSnapshot(
         _ tracks: [Track],

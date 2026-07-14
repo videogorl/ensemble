@@ -120,6 +120,8 @@ public final class SyncCoordinator: ObservableObject {
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
     internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
     internal var playlistReplaceContentsHandlerForTesting: ((PlexAPIClient, String, [String], String) async throws -> Void)?
+    internal var playlistRemoveItemHandlerForTesting: ((PlexAPIClient, String, String) async throws -> Void)?
+    internal var playlistMoveItemHandlerForTesting: ((PlexAPIClient, String, String, String?) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
@@ -434,6 +436,23 @@ public final class SyncCoordinator: ObservableObject {
                         serverSourceKey: serverSourceKey
                     )
                 },
+                removeRemotePlaylistItem: { [weak self] playlistID, itemID, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.removeRemotePlaylistItem(
+                        playlistId: playlistID,
+                        itemID: itemID,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
+                moveRemotePlaylistItem: { [weak self] playlistID, itemID, afterItemID, serverSourceKey in
+                    guard let self else { throw PlaylistMutationError.invalidSource }
+                    try await self.moveRemotePlaylistItem(
+                        playlistId: playlistID,
+                        itemID: itemID,
+                        afterItemID: afterItemID,
+                        serverSourceKey: serverSourceKey
+                    )
+                },
                 persistLastPlaylistTarget: { [weak self] playlist in
                     self?.persistLastPlaylistTarget(from: playlist)
                 },
@@ -483,6 +502,19 @@ public final class SyncCoordinator: ObservableObject {
     /// Replace playlist contents in the provided order and refresh local cache.
     public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
         try await playlistMutationController().replacePlaylistContents(playlist, with: orderedTracks)
+    }
+
+    /// Edit playlist memberships using Plex item IDs instead of clearing the playlist.
+    public func editPlaylistItems(
+        _ playlist: Playlist,
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) async throws {
+        try await playlistMutationController().editPlaylistItems(
+            playlist,
+            originalItems: originalItems,
+            editedItems: editedItems
+        )
     }
 
     /// Save queue snapshot tracks to a playlist.
@@ -625,6 +657,41 @@ public final class SyncCoordinator: ObservableObject {
             try await playlistDeleteHandlerForTesting(apiClient, playlistId)
         } else {
             try await apiClient.deletePlaylist(playlistId: playlistId)
+        }
+    }
+
+    private func removeRemotePlaylistItem(
+        playlistId: String,
+        itemID: String,
+        serverSourceKey: String
+    ) async throws {
+        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        if let playlistRemoveItemHandlerForTesting {
+            try await playlistRemoveItemHandlerForTesting(apiClient, playlistId, itemID)
+        } else {
+            try await apiClient.removePlaylistItem(playlistId: playlistId, playlistItemId: itemID)
+        }
+    }
+
+    private func moveRemotePlaylistItem(
+        playlistId: String,
+        itemID: String,
+        afterItemID: String?,
+        serverSourceKey: String
+    ) async throws {
+        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        if let playlistMoveItemHandlerForTesting {
+            try await playlistMoveItemHandlerForTesting(apiClient, playlistId, itemID, afterItemID)
+        } else {
+            try await apiClient.movePlaylistItem(
+                playlistId: playlistId,
+                playlistItemId: itemID,
+                afterItemId: afterItemID
+            )
         }
     }
 

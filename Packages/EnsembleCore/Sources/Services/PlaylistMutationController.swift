@@ -14,6 +14,8 @@ final class PlaylistMutationController {
         let renameRemotePlaylist: (String, String, String) async throws -> Void
         let deleteRemotePlaylist: (String, String) async throws -> Void
         let replaceRemotePlaylistContents: (String, [String], String) async throws -> Void
+        let removeRemotePlaylistItem: (String, String, String) async throws -> Void
+        let moveRemotePlaylistItem: (String, String, String?, String) async throws -> Void
         let persistLastPlaylistTarget: (Playlist) -> Void
         let clearLastPlaylistTargetIfNeeded: (Playlist) -> Void
         let refreshServerPlaylists: (String) async -> Void
@@ -117,6 +119,47 @@ final class PlaylistMutationController {
             throw PlaylistMutationError.emptySelection
         }
         try await dependencies.replaceRemotePlaylistContents(playlist.id, filteredTrackIds, serverSourceKey)
+        await dependencies.refreshServerPlaylists(serverSourceKey)
+    }
+
+    /// Apply removals and moves without rebuilding unaffected playlist memberships.
+    func editPlaylistItems(
+        _ playlist: Playlist,
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) async throws {
+        let serverSourceKey = try mutableServerSourceKey(for: playlist)
+        guard originalItems.allSatisfy({ $0.playlistItemID != nil }),
+              editedItems.allSatisfy({ $0.playlistItemID != nil }) else {
+            throw PlaylistMutationError.incompletePlaylistContents
+        }
+
+        let originalIDs = originalItems.compactMap(\.playlistItemID)
+        let desiredIDs = editedItems.compactMap(\.playlistItemID)
+        guard Set(originalIDs).count == originalIDs.count,
+              Set(desiredIDs).count == desiredIDs.count,
+              Set(desiredIDs).isSubset(of: Set(originalIDs)) else {
+            throw PlaylistMutationError.incompletePlaylistContents
+        }
+
+        let editedIDs = Set(desiredIDs)
+        for itemID in originalIDs where !editedIDs.contains(itemID) {
+            try await dependencies.removeRemotePlaylistItem(playlist.id, itemID, serverSourceKey)
+        }
+
+        var currentIDs = originalIDs.filter(editedIDs.contains)
+        for (targetIndex, itemID) in desiredIDs.enumerated() where currentIDs[targetIndex] != itemID {
+            guard let currentIndex = currentIDs.firstIndex(of: itemID) else { continue }
+            currentIDs.remove(at: currentIndex)
+            currentIDs.insert(itemID, at: targetIndex)
+            try await dependencies.moveRemotePlaylistItem(
+                playlist.id,
+                itemID,
+                targetIndex == 0 ? nil : desiredIDs[targetIndex - 1],
+                serverSourceKey
+            )
+        }
+
         await dependencies.refreshServerPlaylists(serverSourceKey)
     }
 

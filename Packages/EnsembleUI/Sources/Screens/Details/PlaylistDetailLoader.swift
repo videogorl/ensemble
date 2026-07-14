@@ -7,6 +7,7 @@ struct PlaylistDetailLoader: View {
     let nowPlayingVM: NowPlayingViewModel
     @State private var playlist: Playlist?
     @State private var initialTracks: [Track]?
+    @State private var initialItems: [PlaylistItem]?
     @State private var initialArtworkImage: PlatformImage?
     @State private var isLoading = true
     @State private var error: Error?
@@ -26,6 +27,7 @@ struct PlaylistDetailLoader: View {
                     playlist: playlist,
                     nowPlayingVM: nowPlayingVM,
                     initialTracks: initialTracks,
+                    initialItems: initialItems,
                     initialArtworkImage: initialArtworkImage
                 )
             } else if isLoading {
@@ -52,23 +54,22 @@ struct PlaylistDetailLoader: View {
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
             ) else {
-                finishLoading(playlist: nil, initialTracks: nil, initialArtworkImage: nil, error: nil)
+                finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: nil)
                 return
             }
 
             let loadedPlaylist = Playlist(from: cdPlaylist)
-            let loadedTracks = cdPlaylist.tracksArray.map { Track(from: $0) }
+            let loadedItems = cdPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
             let loadedArtworkImage = await loadCachedArtwork(for: loadedPlaylist)
             finishLoading(
                 playlist: loadedPlaylist,
-                // An incomplete membership list must be reloaded by the detail
-                // view model so it can disable destructive playlist edits.
-                initialTracks: cdPlaylist.hasUnavailableTracks || loadedTracks.isEmpty ? nil : loadedTracks,
+                initialTracks: loadedItems.map(\.track),
+                initialItems: loadedItems,
                 initialArtworkImage: loadedArtworkImage,
                 error: nil
             )
         } catch {
-            finishLoading(playlist: nil, initialTracks: nil, initialArtworkImage: nil, error: error)
+            finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: error)
         }
     }
 
@@ -95,6 +96,7 @@ struct PlaylistDetailLoader: View {
     private func finishLoading(
         playlist: Playlist?,
         initialTracks: [Track]?,
+        initialItems: [PlaylistItem]?,
         initialArtworkImage: PlatformImage?,
         error: Error?
     ) {
@@ -106,6 +108,7 @@ struct PlaylistDetailLoader: View {
 
         withTransaction(transaction) {
             self.initialTracks = initialTracks
+            self.initialItems = initialItems
             self.initialArtworkImage = initialArtworkImage
             self.playlist = playlist
             self.error = error

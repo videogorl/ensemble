@@ -12,13 +12,15 @@ public enum TrackAvailability: Sendable, Equatable {
     case unavailableServerOffline(reason: ServerConnectionFailureReason)
     /// Not downloaded and the device has no network connectivity.
     case unavailableNetworkOffline
+    /// Playlist membership exists, but its source library is not synced locally.
+    case unavailableLibraryNotSynced
 
     /// Whether the track can be played right now.
     public var canPlay: Bool {
         switch self {
         case .available, .availableDownloadedOnly:
             return true
-        case .unavailableServerOffline, .unavailableNetworkOffline:
+        case .unavailableServerOffline, .unavailableNetworkOffline, .unavailableLibraryNotSynced:
             return false
         }
     }
@@ -33,6 +35,8 @@ public enum TrackAvailability: Sendable, Equatable {
             return nil
         case .unavailableNetworkOffline:
             return "Not available offline"
+        case .unavailableLibraryNotSynced:
+            return "Library not synced"
         case .unavailableServerOffline(let reason):
             return reason.userMessage
         }
@@ -70,6 +74,10 @@ public final class TrackAvailabilityResolver: ObservableObject {
     /// Determine the current availability of a track.
     /// - Parameter track: The track to check. Must have `sourceCompositeKey` set.
     public func availability(for track: Track) -> TrackAvailability {
+        guard track.isLibraryAvailable else {
+            return .unavailableLibraryNotSynced
+        }
+
         // Downloaded tracks are always playable
         if track.isDownloaded {
             if networkMonitor.isConnected {

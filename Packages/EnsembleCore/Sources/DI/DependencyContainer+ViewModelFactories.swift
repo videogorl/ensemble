@@ -101,13 +101,18 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makePlaylistDetailViewModel(playlist: Playlist, initialTracks: [Track]? = nil) -> PlaylistDetailViewModel {
+    func makePlaylistDetailViewModel(
+        playlist: Playlist,
+        initialTracks: [Track]? = nil,
+        initialItems: [PlaylistItem]? = nil
+    ) -> PlaylistDetailViewModel {
         PlaylistDetailViewModel(
             playlist: playlist,
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
-            initialTracks: initialTracks
+            initialTracks: initialTracks,
+            initialItems: initialItems
         )
     }
 

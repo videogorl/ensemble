@@ -139,6 +139,32 @@ public extension Track {
     }
 }
 
+public extension PlaylistItem {
+    init(from membership: CDPlaylistTrack) {
+        let ratingKey = membership.track?.ratingKey ?? membership.trackRatingKey ?? "unknown"
+        let sourceKey = membership.track?.sourceCompositeKey ?? membership.trackSourceCompositeKey
+        let track = membership.track.map(Track.init(from:)) ?? Track(
+            id: ratingKey,
+            key: membership.trackKey ?? "/library/metadata/\(ratingKey)",
+            title: membership.trackTitle ?? "Unavailable Track",
+            artistName: membership.trackArtistName,
+            albumName: membership.trackAlbumName,
+            duration: membership.trackDuration,
+            thumbPath: membership.trackThumbPath,
+            fallbackThumbPath: membership.trackThumbPath,
+            sourceCompositeKey: sourceKey,
+            unavailableReason: "Library not synced"
+        )
+        let order = Int(membership.order)
+        let itemID = membership.playlistItemID
+        self.init(
+            id: itemID ?? "\(order):\(ratingKey)",
+            playlistItemID: itemID,
+            track: track
+        )
+    }
+}
+
 public extension Album {
     /// Maps a hub metadata item (from /related endpoint) to an Album
     init(from hub: PlexHubMetadata, sourceKey: String? = nil) {

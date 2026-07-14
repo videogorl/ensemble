@@ -548,6 +548,7 @@ extension LibraryRepository {
                 track.updatedAt = now
                 track.sourceCompositeKey = sourceCompositeKey
                 track.source = source
+                tracksByKey[input.ratingKey] = track
 
                 if let albumKey = input.albumRatingKey {
                     // Detect album reparenting for existing tracks
@@ -574,6 +575,11 @@ extension LibraryRepository {
                 }
             }
 
+            try self.relinkPlaylistMemberships(
+                to: tracksByKey,
+                sourceCompositeKey: sourceCompositeKey,
+                in: context
+            )
             try context.save()
         }
     }

@@ -479,7 +479,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 existingModifiedAt: existingTimestamps[playlist.ratingKey]
             ) || Self.shouldRepairPlaylistTracks(
                 serverTrackCount: playlist.leafCount,
-                localLinkedTrackCount: localTrackStates[playlist.ratingKey]?.linkedTrackCount
+                localLinkedTrackCount: localTrackStates[playlist.ratingKey]?.identifiedMembershipCount
             )
 
             try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
@@ -495,7 +495,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             if trackKeys.count > 0 {
                 EnsembleLogger.debug("📋 First track key: \(trackKeys[0])")
             }
-            try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
+            try await repository.setPlaylistTrackSnapshots(
+                playlistTracks.map(Self.playlistTrackSnapshot),
+                forPlaylist: playlist.ratingKey,
+                sourceCompositeKey: serverSourceKey
+            )
             fetchedTrackLists += 1
         }
 
@@ -523,6 +527,20 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         return PlaylistSyncResult(
             changedPlaylists: fetchedTrackLists,
             removedPlaylists: removedPlaylists
+        )
+    }
+
+    private static func playlistTrackSnapshot(_ track: PlexTrack) -> PlaylistTrackSnapshot {
+        PlaylistTrackSnapshot(
+            ratingKey: track.ratingKey,
+            playlistItemID: track.playlistItemID,
+            key: track.key,
+            title: track.title,
+            artistName: track.originalTitle ?? track.grandparentTitle,
+            albumName: track.parentTitle,
+            duration: track.durationSeconds,
+            thumbPath: track.thumb ?? track.parentThumb ?? track.grandparentThumb,
+            librarySectionID: track.librarySectionID.map(String.init)
         )
     }
 
@@ -559,6 +577,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Fetch existing playlist timestamps for change detection
         var phaseStart = CFAbsoluteTimeGetCurrent()
         let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
+        let localTrackStates = try await repository.fetchPlaylistLocalTrackStates(forSource: serverSourceKey)
 
         // Fetch playlists added or updated since last sync
         let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
@@ -586,7 +605,26 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: playlist.ratingKey)
             let trackKeys = playlistTracks.map { $0.ratingKey }
             EnsembleLogger.debug("📋 Incremental sync playlist '\(playlist.title)': \(trackKeys.count) tracks")
-            try await repository.setPlaylistTracks(trackKeys, forPlaylist: playlist.ratingKey, sourceCompositeKey: serverSourceKey)
+            try await repository.setPlaylistTrackSnapshots(
+                playlistTracks.map(Self.playlistTrackSnapshot),
+                forPlaylist: playlist.ratingKey,
+                sourceCompositeKey: serverSourceKey
+            )
+        }
+
+        let changedPlaylistKeys = Set(changedPlaylists.map(\.ratingKey))
+        let repairPlaylistKeys = localTrackStates.compactMap { ratingKey, state in
+            state.identifiedMembershipCount < state.trackCount && !changedPlaylistKeys.contains(ratingKey)
+                ? ratingKey
+                : nil
+        }
+        for ratingKey in repairPlaylistKeys {
+            let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: ratingKey)
+            try await repository.setPlaylistTrackSnapshots(
+                playlistTracks.map(Self.playlistTrackSnapshot),
+                forPlaylist: ratingKey,
+                sourceCompositeKey: serverSourceKey
+            )
         }
 
         EnsembleLogger.debug("⏱️ Incremental playlist upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")

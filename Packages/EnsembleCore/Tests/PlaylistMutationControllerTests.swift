@@ -28,6 +28,21 @@ final class PlaylistMutationControllerTests: XCTestCase {
         )
     }
 
+    private func makeItem(id: String, unavailable: Bool = false) -> PlaylistItem {
+        let track = Track(
+            id: "track-\(id)",
+            key: "/library/metadata/track-\(id)",
+            title: "Track \(id)",
+            sourceCompositeKey: "plex:account-1:server-1:library-1",
+            unavailableReason: unavailable ? "Library not synced" : nil
+        )
+        return PlaylistItem(
+            id: id,
+            playlistItemID: id,
+            track: track
+        )
+    }
+
     func testCreatePlaylistCreatesRemotePersistsTargetAndRefreshes() async throws {
         let refreshExpectation = expectation(description: "refresh")
         var createdTitle: String?
@@ -56,6 +71,8 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 renameRemotePlaylist: { _, _, _ in },
                 deleteRemotePlaylist: { _, _ in },
                 replaceRemotePlaylistContents: { _, _, _ in },
+                removeRemotePlaylistItem: { _, _, _ in },
+                moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { playlist in
                     persistedPlaylist = playlist
                 },
@@ -100,6 +117,8 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 renameRemotePlaylist: { _, _, _ in },
                 deleteRemotePlaylist: { _, _ in },
                 replaceRemotePlaylistContents: { _, _, _ in },
+                removeRemotePlaylistItem: { _, _, _ in },
+                moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { playlist in
                     persistedPlaylist = playlist
                 },
@@ -142,6 +161,8 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 },
                 deleteRemotePlaylist: { _, _ in },
                 replaceRemotePlaylistContents: { _, _, _ in },
+                removeRemotePlaylistItem: { _, _, _ in },
+                moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
                 refreshServerPlaylists: { sourceKey in
@@ -175,6 +196,8 @@ final class PlaylistMutationControllerTests: XCTestCase {
                     deletedPlaylistID = playlistID
                 },
                 replaceRemotePlaylistContents: { _, _, _ in },
+                removeRemotePlaylistItem: { _, _, _ in },
+                moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { playlist in
                     clearedPlaylistID = playlist.id
@@ -211,6 +234,8 @@ final class PlaylistMutationControllerTests: XCTestCase {
                     replacedPlaylistID = playlistID
                     replacedTrackIDs = trackIDs
                 },
+                removeRemotePlaylistItem: { _, _, _ in },
+                moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
                 refreshServerPlaylists: { sourceKey in
@@ -246,6 +271,8 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 replaceRemotePlaylistContents: { _, _, _ in
                     didReplaceRemote = true
                 },
+                removeRemotePlaylistItem: { _, _, _ in },
+                moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
                 refreshServerPlaylists: { _ in
@@ -266,5 +293,54 @@ final class PlaylistMutationControllerTests: XCTestCase {
 
         XCTAssertFalse(didReplaceRemote)
         XCTAssertFalse(didRefresh)
+    }
+
+    func testEditPlaylistItemsRemovesAndMovesUnavailableMembershipWithoutReplacingContents() async throws {
+        var events: [String] = []
+        let original = [
+            makeItem(id: "item-a"),
+            makeItem(id: "item-b", unavailable: true),
+            makeItem(id: "item-c")
+        ]
+        let edited = [original[2], original[0]]
+
+        let controller = PlaylistMutationController(
+            dependencies: .init(
+                validateServerSourceKey: { _ in true },
+                fetchPlaylists: { _ in [] },
+                filteredTrackIDsForServer: { _, _ in [] },
+                createRemotePlaylist: { _, _, _ in },
+                reconcileCreatedPlaylist: { _, _, _, _ in nil },
+                addTracksToRemotePlaylist: { _, _, _ in },
+                renameRemotePlaylist: { _, _, _ in },
+                deleteRemotePlaylist: { _, _ in },
+                replaceRemotePlaylistContents: { _, _, _ in
+                    XCTFail("Item edits must not rebuild playlist contents")
+                },
+                removeRemotePlaylistItem: { playlistID, itemID, _ in
+                    events.append("remove:\(playlistID):\(itemID)")
+                },
+                moveRemotePlaylistItem: { playlistID, itemID, afterID, _ in
+                    events.append("move:\(playlistID):\(itemID):\(afterID ?? "first")")
+                },
+                persistLastPlaylistTarget: { _ in },
+                clearLastPlaylistTargetIfNeeded: { _ in },
+                refreshServerPlaylists: { _ in
+                    events.append("refresh")
+                }
+            )
+        )
+
+        try await controller.editPlaylistItems(
+            makePlaylist(),
+            originalItems: original,
+            editedItems: edited
+        )
+
+        XCTAssertEqual(events, [
+            "remove:playlist-1:item-b",
+            "move:playlist-1:item-c:first",
+            "refresh"
+        ])
     }
 }

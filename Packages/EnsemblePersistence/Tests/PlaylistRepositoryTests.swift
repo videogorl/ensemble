@@ -434,8 +434,8 @@ final class PlaylistRepositoryTests: XCTestCase {
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistSource = "plex:account-1:server-1"
-        let musicSource = "plex:account-1:server-1:music"
-        let christianSource = "plex:account-1:server-1:christian"
+        let musicSource = "plex:account-1:server-1:1"
+        let christianSource = "plex:account-1:server-1:5"
 
         try await seedTrack(ratingKey: "music-track", title: "Music", sourceCompositeKey: musicSource, repository: libraryRepository)
         try await seedTrack(ratingKey: "christian-track", title: "Christian", sourceCompositeKey: christianSource, repository: libraryRepository)
@@ -447,8 +447,31 @@ final class PlaylistRepositoryTests: XCTestCase {
             sourceCompositeKey: playlistSource,
             trackCount: 2
         )
-        try await playlistRepository.setPlaylistTracks(
-            ["music-track", "christian-track"],
+        try await playlistRepository.setPlaylistTrackSnapshots(
+            [
+                PlaylistTrackSnapshot(
+                    ratingKey: "music-track",
+                    playlistItemID: "item-1",
+                    key: "/library/metadata/music-track",
+                    title: "Music",
+                    artistName: "Artist One",
+                    albumName: "Album One",
+                    duration: 100,
+                    thumbPath: "/thumb/1",
+                    librarySectionID: "1"
+                ),
+                PlaylistTrackSnapshot(
+                    ratingKey: "christian-track",
+                    playlistItemID: "item-2",
+                    key: "/library/metadata/christian-track",
+                    title: "Christian",
+                    artistName: "Artist Two",
+                    albumName: "Album Two",
+                    duration: 200,
+                    thumbPath: "/thumb/2",
+                    librarySectionID: "5"
+                )
+            ],
             forPlaylist: "playlist-1",
             sourceCompositeKey: playlistSource
         )
@@ -465,10 +488,35 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(playlist.tracksArray.map(\.ratingKey), ["music-track"])
         XCTAssertEqual(memberships.count, 2)
         XCTAssertNil(hiddenMembership.track)
+        XCTAssertEqual(hiddenMembership.playlistItemID, "item-2")
         XCTAssertEqual(hiddenMembership.trackSourceCompositeKey, christianSource)
+        XCTAssertEqual(hiddenMembership.trackTitle, "Christian")
+        XCTAssertEqual(hiddenMembership.trackArtistName, "Artist Two")
+        XCTAssertEqual(hiddenMembership.trackAlbumName, "Album Two")
+        XCTAssertEqual(hiddenMembership.trackDuration, 200)
+        XCTAssertEqual(hiddenMembership.trackThumbPath, "/thumb/2")
         XCTAssertTrue(playlist.hasUnavailableTracks)
         let localState = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
         XCTAssertEqual(localState["playlist-1"]?.linkedTrackCount, 1)
+        XCTAssertEqual(localState["playlist-1"]?.identifiedMembershipCount, 2)
+
+        try await seedTrack(
+            ratingKey: "christian-track",
+            title: "Christian",
+            sourceCompositeKey: christianSource,
+            repository: libraryRepository
+        )
+
+        let fetchedRestoredPlaylist = try await playlistRepository.fetchPlaylist(
+            ratingKey: "playlist-1",
+            sourceCompositeKey: playlistSource
+        )
+        let restoredPlaylist = try XCTUnwrap(fetchedRestoredPlaylist)
+        let restoredMembership = try XCTUnwrap(
+            restoredPlaylist.playlistItemsArray.first { $0.trackRatingKey == "christian-track" }
+        )
+        XCTAssertEqual(restoredMembership.track?.ratingKey, "christian-track")
+        XCTAssertEqual(restoredMembership.playlistItemID, "item-2")
     }
 
     func testUpdatePlaylistTitlePreservesTrackRelationships() async throws {

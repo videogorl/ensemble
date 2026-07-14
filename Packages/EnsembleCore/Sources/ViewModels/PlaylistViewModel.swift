@@ -729,6 +729,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     @Published public private(set) var tracks: [Track] = [] {
         didSet { updateDerivedTrackState() }
     }
+    @Published public private(set) var playlistItems: [PlaylistItem] = []
     @Published public private(set) var availableGenres: [String] = []
     @Published public private(set) var filteredTracks: [Track] = []
     @Published public private(set) var totalDuration: String = "0 min"
@@ -751,10 +752,16 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         playlistRepository: PlaylistRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
-        initialTracks: [Track]? = nil
+        initialTracks: [Track]? = nil,
+        initialItems: [PlaylistItem]? = nil
     ) {
         self.playlist = playlist
-        if let initialTracks {
+        if let initialItems {
+            self.playlistItems = initialItems
+            self.tracks = initialItems.map(\.track)
+            self.hasUnavailableTracks = initialItems.contains { !$0.isAvailable }
+            self.hasLoadedTracks = true
+        } else if let initialTracks {
             self.tracks = initialTracks
             self.hasLoadedTracks = true
         } else {
@@ -810,18 +817,19 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 sourceCompositeKey: playlist.sourceCompositeKey
             ) {
                 // Refresh playlist metadata from cache so title/count stays current after edits.
-                let loadedTracks = cachedPlaylist.tracksArray
+                let loadedItems = cachedPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
                 let nextPlaylist = Playlist(from: cachedPlaylist)
-                let nextTracks = loadedTracks.map { Track(from: $0) }
+                let nextTracks = loadedItems.map(\.track)
                 playlist = nextPlaylist
                 hasUnavailableTracks = cachedPlaylist.hasUnavailableTracks
                 if shouldPublishTrackSnapshot(nextTracks, cachedTrackCount: Int(cachedPlaylist.trackCount)) {
+                    playlistItems = loadedItems
                     tracks = nextTracks
                 } else {
                     EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks during empty intermediate reload")
                 }
                 let ptCount = (cachedPlaylist.playlistTracks as? Set<AnyHashable>)?.count ?? -1
-                EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), tracksArray=\(loadedTracks.count), tracks=\(tracks.count)")
+                EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), items=\(loadedItems.count), tracks=\(tracks.count)")
             } else {
                 hasUnavailableTracks = false
                 if tracks.isEmpty {
@@ -970,9 +978,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
     }
 
-    public func applyEditedTracksLocally(_ editedTracks: [Track]) {
-        guard !hasUnavailableTracks else { return }
-        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+    public var canEditPlaylistItems: Bool {
+        !playlist.isSmart && !playlistItems.isEmpty && playlistItems.allSatisfy { $0.playlistItemID != nil }
     }
 
     @discardableResult
@@ -981,22 +988,27 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
-        guard !hasUnavailableTracks else {
-            error = PlaylistMutationError.incompletePlaylistContents.localizedDescription
-            return false
-        }
         guard let removalIndex = playlistTrackIndex(for: track, displayIndex: displayIndex) else {
             error = "Track is no longer in this playlist."
             return false
         }
 
-        let previousTracks = tracks
-        var editedTracks = tracks
-        editedTracks.remove(at: removalIndex)
-        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+        guard playlistItems.indices.contains(removalIndex) else {
+            error = "Track is no longer in this playlist."
+            return false
+        }
+        let previousItems = playlistItems
+        let previousHasUnavailableTracks = hasUnavailableTracks
+        var editedItems = playlistItems
+        editedItems.remove(at: removalIndex)
+        applyItemSnapshot(editedItems, skipNextLoadAfterLocalEdit: true)
 
         do {
-            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            try await mutationCoordinator.editPlaylistItems(
+                playlist,
+                originalItems: previousItems,
+                editedItems: editedItems
+            )
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)
@@ -1005,7 +1017,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
             }
             return true
         } catch {
-            applyTrackSnapshot(previousTracks, skipNextLoadAfterLocalEdit: false)
+            applyItemSnapshot(previousItems, skipNextLoadAfterLocalEdit: false)
+            hasUnavailableTracks = previousHasUnavailableTracks
             self.error = error.localizedDescription
             return false
         }
@@ -1053,16 +1066,24 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         )
     }
 
-    public func saveEditedTracks(_ editedTracks: [Track]) async {
-        guard !hasUnavailableTracks else {
-            error = PlaylistMutationError.incompletePlaylistContents.localizedDescription
-            return
-        }
+    private func applyItemSnapshot(_ editedItems: [PlaylistItem], skipNextLoadAfterLocalEdit: Bool) {
+        playlistItems = editedItems
+        hasUnavailableTracks = editedItems.contains { !$0.isAvailable }
+        applyTrackSnapshot(editedItems.map(\.track), skipNextLoadAfterLocalEdit: skipNextLoadAfterLocalEdit)
+    }
+
+    public func saveEditedItems(_ editedItems: [PlaylistItem]) async {
+        let previousItems = playlistItems
+        let previousHasUnavailableTracks = hasUnavailableTracks
         // Apply immediately so playlist detail reflects edits before network roundtrip.
-        applyTrackSnapshot(editedTracks, skipNextLoadAfterLocalEdit: true)
+        applyItemSnapshot(editedItems, skipNextLoadAfterLocalEdit: true)
 
         do {
-            try await mutationCoordinator.replacePlaylistContents(playlist, with: editedTracks)
+            try await mutationCoordinator.editPlaylistItems(
+                playlist,
+                originalItems: previousItems,
+                editedItems: editedItems
+            )
             Task {
                 // Refresh from cache once post-mutation sync catches up.
                 try? await Task.sleep(nanoseconds: 500_000_000)
@@ -1070,6 +1091,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 await self.loadTracks()
             }
         } catch {
+            applyItemSnapshot(previousItems, skipNextLoadAfterLocalEdit: false)
+            hasUnavailableTracks = previousHasUnavailableTracks
             self.error = error.localizedDescription
         }
     }

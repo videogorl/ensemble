@@ -712,6 +712,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         var subtitleParts: [String] = []
         if let artist = track.artistName { subtitleParts.append(artist) }
         if showAlbumName, let album = track.albumName { subtitleParts.append(album) }
+        if let unavailableReason = track.unavailableReason { subtitleParts.append(unavailableReason) }
         subtitleField.stringValue = showsArtist ? "" : subtitleParts.joined(separator: " · ")
         subtitleField.isHidden = showsArtist
 

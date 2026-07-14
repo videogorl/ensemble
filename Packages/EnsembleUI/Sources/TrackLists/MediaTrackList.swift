@@ -304,10 +304,13 @@ public class TrackTableViewCell: UITableViewCell {
         if showAlbumName, let album = track.albumName {
             subtitleParts.append(album)
         }
+        if let unavailableReason = track.unavailableReason {
+            subtitleParts.append(unavailableReason)
+        }
         subtitleLabel.text = showsArtistMetadataColumn ? nil : subtitleParts.joined(separator: " · ")
         subtitleLabel.isHidden = showsArtistMetadataColumn
-        artistMetadataLabel.text = track.artistName ?? "Unknown Artist"
-        albumMetadataLabel.text = track.albumName ?? "Unknown Album"
+        artistMetadataLabel.text = track.unavailableReason ?? track.artistName ?? "Unknown Artist"
+        albumMetadataLabel.text = track.unavailableReason == nil ? track.albumName ?? "Unknown Album" : ""
         
         durationLabel.text = track.formattedDuration
         durationLabel.isHidden = isPlaying

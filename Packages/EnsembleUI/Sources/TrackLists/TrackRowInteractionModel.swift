@@ -95,6 +95,7 @@ public struct TrackRowInteractionModel {
     }
 
     public func hasContextMenu(for track: Track) -> Bool {
+        guard track.isLibraryAvailable else { return false }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
 
         return onPlayNext != nil ||
@@ -113,6 +114,25 @@ public struct TrackRowInteractionModel {
     }
 
     public func resolve(for track: Track) -> ResolvedActions {
+        guard track.isLibraryAvailable else {
+            return ResolvedActions(
+                onPlayNext: nil,
+                onPlayLast: nil,
+                onAddToPlaylist: nil,
+                onAddToRecentPlaylist: nil,
+                onToggleFavorite: nil,
+                onGoToAlbum: nil,
+                onGoToArtist: nil,
+                onGetInfo: nil,
+                onEditMetadata: nil,
+                onShareEnsembleLink: nil,
+                onShareLink: nil,
+                onShareFile: nil,
+                onDeleteTrack: nil,
+                isFavorited: false,
+                recentPlaylistTitle: nil
+            )
+        }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
 
         return ResolvedActions(

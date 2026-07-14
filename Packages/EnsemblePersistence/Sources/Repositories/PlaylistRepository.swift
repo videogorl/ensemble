@@ -5,11 +5,53 @@ public struct PlaylistLocalTrackState: Sendable, Equatable {
     public let modifiedAt: Date?
     public let trackCount: Int
     public let linkedTrackCount: Int
+    public let identifiedMembershipCount: Int
 
-    public init(modifiedAt: Date?, trackCount: Int, linkedTrackCount: Int) {
+    public init(
+        modifiedAt: Date?,
+        trackCount: Int,
+        linkedTrackCount: Int,
+        identifiedMembershipCount: Int
+    ) {
         self.modifiedAt = modifiedAt
         self.trackCount = trackCount
         self.linkedTrackCount = linkedTrackCount
+        self.identifiedMembershipCount = identifiedMembershipCount
+    }
+}
+
+/// Server playlist membership retained even when its library track is not cached.
+public struct PlaylistTrackSnapshot: Sendable, Equatable {
+    public let ratingKey: String
+    public let playlistItemID: String?
+    public let key: String
+    public let title: String
+    public let artistName: String?
+    public let albumName: String?
+    public let duration: TimeInterval
+    public let thumbPath: String?
+    public let librarySectionID: String?
+
+    public init(
+        ratingKey: String,
+        playlistItemID: String? = nil,
+        key: String = "",
+        title: String = "",
+        artistName: String? = nil,
+        albumName: String? = nil,
+        duration: TimeInterval = 0,
+        thumbPath: String? = nil,
+        librarySectionID: String? = nil
+    ) {
+        self.ratingKey = ratingKey
+        self.playlistItemID = playlistItemID
+        self.key = key
+        self.title = title
+        self.artistName = artistName
+        self.albumName = albumName
+        self.duration = duration
+        self.thumbPath = thumbPath
+        self.librarySectionID = librarySectionID
     }
 }
 
@@ -44,6 +86,7 @@ public protocol PlaylistRepositoryProtocol: Sendable {
         dateModified: Date
     ) async throws
     func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
+    func setPlaylistTrackSnapshots(_ snapshots: [PlaylistTrackSnapshot], forPlaylist playlistRatingKey: String, sourceCompositeKey: String?) async throws
     func deletePlaylist(ratingKey: String) async throws
     func deletePlaylists(sourceCompositeKey: String) async throws
     func removeDuplicatePlaylists() async throws
@@ -58,6 +101,18 @@ public protocol PlaylistRepositoryProtocol: Sendable {
 }
 
 public extension PlaylistRepositoryProtocol {
+    func setPlaylistTrackSnapshots(
+        _ snapshots: [PlaylistTrackSnapshot],
+        forPlaylist playlistRatingKey: String,
+        sourceCompositeKey: String?
+    ) async throws {
+        try await setPlaylistTracks(
+            snapshots.map(\.ratingKey),
+            forPlaylist: playlistRatingKey,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
     func updatePlaylistTitle(
         ratingKey: String,
         sourceCompositeKey: String?,
@@ -104,7 +159,8 @@ public extension PlaylistRepositoryProtocol {
             states[playlist.ratingKey] = PlaylistLocalTrackState(
                 modifiedAt: playlist.dateModified,
                 trackCount: Int(playlist.trackCount),
-                linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0
+                linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0,
+                identifiedMembershipCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.playlistItemID != nil }) ?? 0
             )
         }
         return states
@@ -246,7 +302,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 states[playlist.ratingKey] = PlaylistLocalTrackState(
                     modifiedAt: playlist.dateModified,
                     trackCount: Int(playlist.trackCount),
-                    linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0
+                    linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0,
+                    identifiedMembershipCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.playlistItemID != nil }) ?? 0
                 )
             }
             return states
@@ -514,6 +571,18 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     }
 
     public func setPlaylistTracks(_ trackRatingKeys: [String], forPlaylist playlistRatingKey: String, sourceCompositeKey: String? = nil) async throws {
+        try await setPlaylistTrackSnapshots(
+            trackRatingKeys.map { PlaylistTrackSnapshot(ratingKey: $0) },
+            forPlaylist: playlistRatingKey,
+            sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    public func setPlaylistTrackSnapshots(
+        _ snapshots: [PlaylistTrackSnapshot],
+        forPlaylist playlistRatingKey: String,
+        sourceCompositeKey: String? = nil
+    ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             self.coreDataStack.performBackgroundTask { context in
                 do {
@@ -534,9 +603,9 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     // Keep a membership record for every server track. A record can
                     // intentionally have no cached track when its library is disabled.
                     var foundCount = 0
-                    for (index, trackKey) in trackRatingKeys.enumerated() {
+                    for (index, snapshot) in snapshots.enumerated() {
                         let trackRequest = CDTrack.fetchRequest()
-                        trackRequest.predicate = NSPredicate(format: "ratingKey == %@", trackKey)
+                        trackRequest.predicate = NSPredicate(format: "ratingKey == %@", snapshot.ratingKey)
                         let candidates = try context.fetch(trackRequest)
                         let track = Self.bestTrackMatch(
                             from: candidates,
@@ -547,14 +616,24 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         }
                         let playlistTrack = CDPlaylistTrack(context: context)
                         playlistTrack.order = Int32(index)
-                        playlistTrack.trackRatingKey = trackKey
+                        playlistTrack.playlistItemID = snapshot.playlistItemID
+                        playlistTrack.trackRatingKey = snapshot.ratingKey
                         playlistTrack.trackSourceCompositeKey = track?.sourceCompositeKey
+                            ?? snapshot.librarySectionID.flatMap { sectionID in
+                                sourceCompositeKey.map { "\($0):\(sectionID)" }
+                            }
+                        playlistTrack.trackKey = snapshot.key
+                        playlistTrack.trackTitle = snapshot.title
+                        playlistTrack.trackArtistName = snapshot.artistName
+                        playlistTrack.trackAlbumName = snapshot.albumName
+                        playlistTrack.trackDuration = snapshot.duration
+                        playlistTrack.trackThumbPath = snapshot.thumbPath
                         playlistTrack.playlist = playlist
                         playlistTrack.track = track
                     }
 
                     try context.save()
-                    EnsembleLogger.debug("✅ Saved \(foundCount) cached tracks for playlist \(playlistRatingKey) (out of \(trackRatingKeys.count) server tracks)")
+                    EnsembleLogger.debug("✅ Saved \(foundCount) cached tracks for playlist \(playlistRatingKey) (out of \(snapshots.count) server tracks)")
                     continuation.resume()
                 } catch {
                     EnsembleLogger.debug("❌ Error saving playlist tracks: \(error)")

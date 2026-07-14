@@ -246,6 +246,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         viewModel is AlbumDetailViewModel
     }
 
+    private var playableTracks: [Track] {
+        viewModel.filteredTracks.filter(\.isLibraryAvailable)
+    }
+
     private var shouldShowStandaloneFilterButton: Bool {
         showFilter && (mediaType == nil || headerData.ratingKey == nil)
     }
@@ -1085,12 +1089,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         MediaDetailSurface<EmptyView>.PlaybackActionRow(
             horizontalPadding: TrackListLayoutMetrics.rowHorizontalPadding,
             bottomPadding: EnsembleDesign.Spacing.lg,
-            isDisabled: viewModel.filteredTracks.isEmpty,
+            isDisabled: playableTracks.isEmpty,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.play(tracks: playableTracks, context: playbackStartContext)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.shufflePlay(tracks: playableTracks, context: playbackStartContext)
             }
         ) {
             // Radio button (for Artist or Album views)
@@ -1102,13 +1106,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func wideActionButtons(availableWidth: CGFloat) -> some View {
         MediaDetailSurface<EmptyView>.AdaptivePlaybackActionRow(
             availableWidth: availableWidth,
-            isDisabled: viewModel.filteredTracks.isEmpty,
+            isDisabled: playableTracks.isEmpty,
             includesExtraActions: hasRadioButton,
             play: {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.play(tracks: playableTracks, context: playbackStartContext)
             },
             shuffle: {
-                nowPlayingVM.shufflePlay(tracks: viewModel.filteredTracks, context: playbackStartContext)
+                nowPlayingVM.shufflePlay(tracks: playableTracks, context: playbackStartContext)
             }
         ) {
             radioButton
@@ -1277,8 +1281,12 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             interactionModel: trackInteractionModel,
             supplementalMetadataWidth: trackListSupplementalMetadataWidth,
             onRemoveFromPlaylist: playlistTrackRemovalHandler
-        ) { track, index in
-            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+        ) { track, _ in
+            guard track.isLibraryAvailable,
+                  let index = playableTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) else {
+                return
+            }
+            nowPlayingVM.play(tracks: playableTracks, startingAt: index)
         }
         #else
         SongsTrackListHost(
@@ -1310,8 +1318,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
         ) { track, _ in
-            if let index = viewModel.filteredTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
-                nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+            if track.isLibraryAvailable,
+               let index = playableTracks.firstIndex(where: { $0.playbackIdentity == track.playbackIdentity }) {
+                nowPlayingVM.play(tracks: playableTracks, startingAt: index)
             }
         }
         #endif

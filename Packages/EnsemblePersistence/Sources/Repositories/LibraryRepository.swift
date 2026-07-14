@@ -614,6 +614,25 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 }
 
 extension LibraryRepository {
+    func relinkPlaylistMemberships(
+        to tracksByRatingKey: [String: CDTrack],
+        sourceCompositeKey: String,
+        in context: NSManagedObjectContext
+    ) throws {
+        guard !tracksByRatingKey.isEmpty else { return }
+
+        let request = CDPlaylistTrack.fetchRequest()
+        request.predicate = NSPredicate(
+            format: "track == nil AND trackSourceCompositeKey == %@ AND trackRatingKey IN %@",
+            sourceCompositeKey,
+            Array(tracksByRatingKey.keys)
+        )
+        for membership in try context.fetch(request) {
+            guard let ratingKey = membership.trackRatingKey else { continue }
+            membership.track = tracksByRatingKey[ratingKey]
+        }
+    }
+
     func deleteTrackManagedObject(_ track: CDTrack, in context: NSManagedObjectContext) {
         if let memberships = track.offlineMemberships as? Set<CDOfflineDownloadMembership> {
             for membership in memberships {

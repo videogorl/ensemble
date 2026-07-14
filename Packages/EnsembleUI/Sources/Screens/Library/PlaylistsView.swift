@@ -902,7 +902,7 @@ public struct PlaylistDetailView: View {
     @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
     @State private var isEditingPlaylist: Bool
-    @State private var editedTracks: [Track] = []
+    @State private var editedItems: [PlaylistItem] = []
     @State private var isSavingPlaylistEdits = false
     @State private var isDeletingPlaylist = false
     @State private var deletingToastID: UUID?
@@ -917,12 +917,14 @@ public struct PlaylistDetailView: View {
         nowPlayingVM: NowPlayingViewModel,
         startInEditMode: Bool = false,
         initialTracks: [Track]? = nil,
+        initialItems: [PlaylistItem]? = nil,
         initialArtworkImage: PlatformImage? = nil
     ) {
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
                 playlist: playlist,
-                initialTracks: initialTracks
+                initialTracks: initialTracks,
+                initialItems: initialItems
             )
         )
         self.nowPlayingVM = nowPlayingVM
@@ -967,24 +969,24 @@ public struct PlaylistDetailView: View {
                     ),
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
-                        canEdit: !viewModel.playlist.isSmart && !viewModel.tracks.isEmpty && !viewModel.hasUnavailableTracks,
+                        canEdit: viewModel.canEditPlaylistItems,
                         canDelete: !viewModel.playlist.isSmart,
                         onRename: {
                             renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true
                         },
                         onEdit: {
-                            editedTracks = viewModel.tracks
+                            editedItems = viewModel.playlistItems
                             isEditingPlaylist = true
                         },
                         onDelete: {
                             showDeleteConfirmation = true
                         },
                         onPlayNext: {
-                            nowPlayingVM.playNext(viewModel.filteredTracks)
+                            nowPlayingVM.playNext(viewModel.filteredTracks.filter(\.isLibraryAvailable))
                         },
                         onPlayLast: {
-                            nowPlayingVM.playLast(viewModel.filteredTracks)
+                            nowPlayingVM.playLast(viewModel.filteredTracks.filter(\.isLibraryAvailable))
                         }
                     ),
                     initialArtworkImage: initialArtworkImage
@@ -996,13 +998,12 @@ public struct PlaylistDetailView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 if isEditingPlaylist {
                     Button("Save") {
-                        let editedSnapshot = editedTracks
-                        viewModel.applyEditedTracksLocally(editedSnapshot)
+                        let editedSnapshot = editedItems
                         isSavingPlaylistEdits = true
                         isEditingPlaylist = false
-                        editedTracks = []
+                        editedItems = []
                         Task {
-                            await viewModel.saveEditedTracks(editedSnapshot)
+                            await viewModel.saveEditedItems(editedSnapshot)
                             isSavingPlaylistEdits = false
                         }
                     }
@@ -1016,7 +1017,7 @@ public struct PlaylistDetailView: View {
                             dismiss()
                         } else {
                             isEditingPlaylist = false
-                            editedTracks = []
+                            editedItems = []
                         }
                     }
                 }
@@ -1025,13 +1026,12 @@ public struct PlaylistDetailView: View {
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 if isEditingPlaylist {
                     Button("Save") {
-                        let editedSnapshot = editedTracks
-                        viewModel.applyEditedTracksLocally(editedSnapshot)
+                        let editedSnapshot = editedItems
                         isSavingPlaylistEdits = true
                         isEditingPlaylist = false
-                        editedTracks = []
+                        editedItems = []
                         Task {
-                            await viewModel.saveEditedTracks(editedSnapshot)
+                            await viewModel.saveEditedItems(editedSnapshot)
                             isSavingPlaylistEdits = false
                         }
                     }
@@ -1042,7 +1042,7 @@ public struct PlaylistDetailView: View {
                             dismiss()
                         } else {
                             isEditingPlaylist = false
-                            editedTracks = []
+                            editedItems = []
                         }
                     }
                 }
@@ -1122,20 +1122,20 @@ public struct PlaylistDetailView: View {
         // Ensure tracks load even when starting in edit mode (where MediaDetailView
         // isn't mounted and its .task { loadTracks() } never fires).
         .task {
-            if isEditingPlaylist && viewModel.tracks.isEmpty {
+            if isEditingPlaylist && viewModel.playlistItems.isEmpty {
                 await viewModel.loadTracks()
             }
         }
-        // When opened in edit mode (from merged playlist picker), populate editedTracks
-        // once the view model finishes loading tracks.
+        // When opened in edit mode (from merged playlist picker), populate editedItems
+        // once the view model finishes loading playlist memberships.
         .onAppear {
-            if startedInEditMode && editedTracks.isEmpty && !viewModel.tracks.isEmpty {
-                editedTracks = viewModel.tracks
+            if startedInEditMode && editedItems.isEmpty && !viewModel.playlistItems.isEmpty {
+                editedItems = viewModel.playlistItems
             }
         }
-        .onChange(of: viewModel.tracks) { tracks in
-            if startedInEditMode && isEditingPlaylist && editedTracks.isEmpty && !tracks.isEmpty {
-                editedTracks = tracks
+        .onChange(of: viewModel.playlistItems) { items in
+            if startedInEditMode && isEditingPlaylist && editedItems.isEmpty && !items.isEmpty {
+                editedItems = items
             }
         }
         #if os(iOS)
@@ -1224,14 +1224,14 @@ public struct PlaylistDetailView: View {
     private var inlinePlaylistEditor: some View {
         EnsembleAdaptiveUtilityScaffold(title: viewModel.playlist.title) {
             List {
-                ForEach(Array(editedTracks.enumerated()), id: \.offset) { _, track in
-                    editableTrackSummary(track)
+                ForEach(editedItems) { item in
+                    editableTrackSummary(item.track)
                 }
                 .onMove { source, destination in
-                    editedTracks.move(fromOffsets: source, toOffset: destination)
+                    editedItems.move(fromOffsets: source, toOffset: destination)
                 }
                 .onDelete { offsets in
-                    editedTracks.remove(atOffsets: offsets)
+                    editedItems.remove(atOffsets: offsets)
                 }
             }
             .listStyle(.plain)
@@ -1240,18 +1240,18 @@ public struct PlaylistDetailView: View {
             #endif
         } regularContent: {
             EnsembleUtilityCardSection {
-                if editedTracks.isEmpty {
+                if editedItems.isEmpty {
                     EnsembleUtilityCardRow {
                         Text("No tracks in this playlist.")
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 } else {
-                    ForEach(Array(editedTracks.enumerated()), id: \.offset) { index, track in
+                    ForEach(Array(editedItems.enumerated()), id: \.element.id) { index, item in
                         EnsembleUtilityCardRow {
-                            editableTrackCardRow(track, index: index)
+                            editableTrackCardRow(item.track, index: index)
                         }
 
-                        if index < editedTracks.count - 1 {
+                        if index < editedItems.count - 1 {
                             EnsembleUtilityCardDivider()
                         }
                     }
@@ -1266,7 +1266,7 @@ public struct PlaylistDetailView: View {
             ArtworkView(track: track, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(track.title)
-                Text(track.artistName ?? "")
+                Text(track.unavailableReason ?? track.artistName ?? "")
                     .font(EnsembleDesign.Typography.rowSecondary)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
@@ -1289,15 +1289,15 @@ public struct PlaylistDetailView: View {
                 .accessibilityLabel("Move Track Up")
 
                 Button {
-                    moveEditedTrack(from: index, to: min(editedTracks.count - 1, index + 1))
+                    moveEditedTrack(from: index, to: min(editedItems.count - 1, index + 1))
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.chevronDown)
                 }
-                .disabled(index >= editedTracks.count - 1)
+                .disabled(index >= editedItems.count - 1)
                 .accessibilityLabel("Move Track Down")
 
                 Button(role: .destructive) {
-                    editedTracks.remove(at: index)
+                    editedItems.remove(at: index)
                 } label: {
                     Image(systemName: EnsembleDesign.Icon.delete)
                 }
@@ -1308,11 +1308,11 @@ public struct PlaylistDetailView: View {
     }
 
     private func moveEditedTrack(from sourceIndex: Int, to destinationIndex: Int) {
-        guard editedTracks.indices.contains(sourceIndex),
-              editedTracks.indices.contains(destinationIndex),
+        guard editedItems.indices.contains(sourceIndex),
+              editedItems.indices.contains(destinationIndex),
               sourceIndex != destinationIndex else { return }
-        let track = editedTracks.remove(at: sourceIndex)
-        editedTracks.insert(track, at: destinationIndex)
+        let item = editedItems.remove(at: sourceIndex)
+        editedItems.insert(item, at: destinationIndex)
     }
 }
 

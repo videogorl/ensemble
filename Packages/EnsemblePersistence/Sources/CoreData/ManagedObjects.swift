@@ -137,6 +137,7 @@ extension CDAlbum {
             return $0.trackNumber < $1.trackNumber
         }
     }
+
 }
 
 // MARK: - CDTrack
@@ -222,6 +223,11 @@ extension CDPlaylist {
         return result
     }
 
+    public var playlistItemsArray: [CDPlaylistTrack] {
+        let memberships = playlistTracks as? Set<CDPlaylistTrack> ?? []
+        return memberships.sorted { $0.order < $1.order }
+    }
+
     public var hasUnavailableTracks: Bool {
         let memberships = playlistTracks as? Set<CDPlaylistTrack> ?? []
         return memberships.count < Int(trackCount) || memberships.contains { $0.track == nil }
@@ -233,8 +239,15 @@ extension CDPlaylist {
 @objc(CDPlaylistTrack)
 public class CDPlaylistTrack: NSManagedObject {
     @NSManaged public var order: Int32
+    @NSManaged public var playlistItemID: String?
     @NSManaged public var trackRatingKey: String?
     @NSManaged public var trackSourceCompositeKey: String?
+    @NSManaged public var trackKey: String?
+    @NSManaged public var trackTitle: String?
+    @NSManaged public var trackArtistName: String?
+    @NSManaged public var trackAlbumName: String?
+    @NSManaged public var trackDuration: Double
+    @NSManaged public var trackThumbPath: String?
     @NSManaged public var playlist: CDPlaylist?
     @NSManaged public var track: CDTrack?
 }

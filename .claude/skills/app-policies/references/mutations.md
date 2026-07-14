@@ -8,7 +8,7 @@ Load this reference for playlist changes, ratings/favorites, metadata edits/dele
 - Offline-capable mutations should queue through the unified mutation path when the server is unavailable and replay when connectivity returns.
 - Mutation feedback should be centralized in the workflow that owns the mutation, not duplicated per screen.
 - Pin mutations are local reversible preferences and should stay intentionally quiet unless the user action needs explicit feedback.
-- Playlist mutation policy must be source-aware. Reject incompatible sources, smart/merged targets where unsupported, and duplicate tracks according to the shared resolver rules. The add-to-playlist picker disables a cached target that already contains every compatible selected track, and excludes cached source-scoped target members before enqueuing. An all-duplicate selection is a warning/no-op, while an unavailable cache leaves Plex as the authority. A playlist with unavailable cached memberships is read-only for destructive edits; users must re-enable the missing libraries before removing or reordering tracks.
+- Playlist mutation policy must be source-aware. Reject incompatible sources, smart/merged targets where unsupported, and duplicate tracks according to the shared resolver rules. The add-to-playlist picker disables a cached target that already contains every compatible selected track, and excludes cached source-scoped target members before enqueuing. An all-duplicate selection is a warning/no-op, while an unavailable cache leaves Plex as the authority. Persist Plex playlist item IDs, order, and display metadata independently from synced tracks so memberships from disabled libraries remain visible and removable/reorderable. Playback and download are unavailable only for those membership rows. Never rebuild a partially available playlist from its locally synced tracks.
 - Metadata edit/delete flows use shared request construction and success/failure feedback while parent views own editor presentation and post-delete navigation.
 - Rating/favorite changes may update UI optimistically, but server success/failure and queued-state feedback stay in the shared workflow.
 - Scrobbles and playback tracking must remain source-exact and should not cross Plex source boundaries.
@@ -26,6 +26,7 @@ Load this reference for playlist changes, ratings/favorites, metadata edits/dele
 - Keep add-to-playlist follow-up UI in `PlaylistActionPresentationHost` rather than local sheet payloads.
 - Keep destructive confirmations and post-delete navigation in the parent view, but keep mutation success/failure semantics in the workflow.
 - Use source-scoped media references and identities for all Plex-affecting mutations.
+- `PlaylistMutationController.editPlaylistItems` must use Plex item delete/move endpoints for playlist detail edits; `PlaylistDetailView` may optimistically edit the complete cached membership list.
 
 ## Verification
 

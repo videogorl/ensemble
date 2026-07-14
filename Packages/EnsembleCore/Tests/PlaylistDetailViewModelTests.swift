@@ -302,6 +302,14 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
     }
 
+    private func makePlaylistItem(_ track: Track, itemID: String) -> PlaylistItem {
+        PlaylistItem(
+            id: itemID,
+            playlistItemID: itemID,
+            track: track
+        )
+    }
+
     private func makeCachedFavoriteTrack(
         id: String,
         title: String,
@@ -787,32 +795,37 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
     }
 
-    func testRemoveTrackFromPlaylistReplacesContentsWithoutRemovedTrack() async {
+    func testRemoveTrackFromPlaylistDeletesMembershipWithoutReplacingContents() async {
         let syncCoordinator = makeSyncCoordinator()
-        var replacedPlaylistID: String?
-        var replacedTrackIDs: [String] = []
+        var removedPlaylistID: String?
+        var removedItemID: String?
         var refreshedSourceKey: String?
-        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, playlistID, trackIDs, _ in
-            replacedPlaylistID = playlistID
-            replacedTrackIDs = trackIDs
+        syncCoordinator.playlistRemoveItemHandlerForTesting = { _, playlistID, itemID in
+            removedPlaylistID = playlistID
+            removedItemID = itemID
         }
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { sourceKey in
             refreshedSourceKey = sourceKey
         }
 
+        let tracks = [makeTrack(id: "track-1"), makeTrack(id: "track-2")]
+        let items = [
+            makePlaylistItem(tracks[0], itemID: "item-1"),
+            makePlaylistItem(tracks[1], itemID: "item-2")
+        ]
         let viewModel = PlaylistDetailViewModel(
             playlist: makePlaylist(),
             playlistRepository: MockPlaylistRepository(),
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            initialItems: items
         )
-        viewModel.applyEditedTracksLocally([makeTrack(id: "track-1"), makeTrack(id: "track-2")])
 
-        let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "track-1"), displayIndex: 0)
+        let didRemove = await viewModel.removeTrackFromPlaylist(tracks[0], displayIndex: 0)
 
         XCTAssertTrue(didRemove)
-        XCTAssertEqual(replacedPlaylistID, "playlist-1")
-        XCTAssertEqual(replacedTrackIDs, ["track-2"])
+        XCTAssertEqual(removedPlaylistID, "playlist-1")
+        XCTAssertEqual(removedItemID, "item-1")
         XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-2"])
         XCTAssertEqual(viewModel.playlist.trackCount, 1)
@@ -858,18 +871,12 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     func testRemoveTrackFromPlaylistWithoutDisplayIndexUsesSourceScopedIdentity() async {
         let syncCoordinator = makeSyncCoordinator()
-        var replacedTrackIDs: [String] = []
-        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, trackIDs, _ in
-            replacedTrackIDs = trackIDs
+        var removedItemIDs: [String] = []
+        syncCoordinator.playlistRemoveItemHandlerForTesting = { _, _, itemID in
+            removedItemIDs.append(itemID)
         }
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
 
-        let viewModel = PlaylistDetailViewModel(
-            playlist: makePlaylist(),
-            playlistRepository: MockPlaylistRepository(),
-            syncCoordinator: syncCoordinator,
-            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
-        )
         let sharedLibraryTrack = makeTrack(
             id: "7551",
             sourceCompositeKey: "plex:account-1:server-1:lib-1"
@@ -878,13 +885,22 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             id: "7551",
             sourceCompositeKey: "plex:account-1:server-1:lib-2"
         )
-        viewModel.applyEditedTracksLocally([sharedLibraryTrack, testLibraryTrack])
+        let viewModel = PlaylistDetailViewModel(
+            playlist: makePlaylist(),
+            playlistRepository: MockPlaylistRepository(),
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            initialItems: [
+                makePlaylistItem(sharedLibraryTrack, itemID: "item-shared"),
+                makePlaylistItem(testLibraryTrack, itemID: "item-test")
+            ]
+        )
 
         let didRemove = await viewModel.removeTrackFromPlaylist(testLibraryTrack)
 
         XCTAssertTrue(didRemove)
         XCTAssertEqual(viewModel.tracks.map(\.sourceScopedID), [sharedLibraryTrack.sourceScopedID])
-        XCTAssertEqual(replacedTrackIDs, ["7551"])
+        XCTAssertEqual(removedItemIDs, ["item-test"])
     }
 
     func testRemoveTrackFromSmartPlaylistFailsWithoutReplacingContents() async {
@@ -898,9 +914,9 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             playlist: makePlaylist(isSmart: true),
             playlistRepository: MockPlaylistRepository(),
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            initialTracks: [makeTrack(id: "track-1")]
         )
-        viewModel.applyEditedTracksLocally([makeTrack(id: "track-1")])
 
         let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "track-1"), displayIndex: 0)
 

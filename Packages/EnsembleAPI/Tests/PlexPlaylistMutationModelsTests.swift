@@ -8,11 +8,13 @@ final class PlexPlaylistMutationModelsTests: XCTestCase {
             \"ratingKey\": \"123\",
             \"key\": \"/library/metadata/123\",
             \"playlistItemID\": \"9876\",
+            \"librarySectionID\": 5,
             \"title\": \"Song\"
         }
         """
 
         let track = try JSONDecoder().decode(PlexTrack.self, from: Data(json.utf8))
         XCTAssertEqual(track.playlistItemID, "9876")
+        XCTAssertEqual(track.librarySectionID, 5)
     }
 }
