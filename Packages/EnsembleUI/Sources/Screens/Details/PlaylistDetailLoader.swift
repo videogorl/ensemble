@@ -61,7 +61,9 @@ struct PlaylistDetailLoader: View {
             let loadedArtworkImage = await loadCachedArtwork(for: loadedPlaylist)
             finishLoading(
                 playlist: loadedPlaylist,
-                initialTracks: loadedTracks.isEmpty ? nil : loadedTracks,
+                // An incomplete membership list must be reloaded by the detail
+                // view model so it can disable destructive playlist edits.
+                initialTracks: cdPlaylist.hasUnavailableTracks || loadedTracks.isEmpty ? nil : loadedTracks,
                 initialArtworkImage: loadedArtworkImage,
                 error: nil
             )
