@@ -656,10 +656,14 @@ public final class SyncCoordinator: ObservableObject {
             throw PlaylistMutationError.invalidSource
         }
 
-        if let playlistDeleteHandlerForTesting {
-            try await playlistDeleteHandlerForTesting(apiClient, playlistId)
-        } else {
-            try await apiClient.deletePlaylist(playlistId: playlistId)
+        do {
+            if let playlistDeleteHandlerForTesting {
+                try await playlistDeleteHandlerForTesting(apiClient, playlistId)
+            } else {
+                try await apiClient.deletePlaylist(playlistId: playlistId)
+            }
+        } catch PlexAPIError.httpError(statusCode: 404) {
+            EnsembleLogger.debug("Playlist \(playlistId) already absent or inaccessible; converging local deletion")
         }
     }
 

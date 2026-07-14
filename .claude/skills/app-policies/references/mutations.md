@@ -6,6 +6,7 @@ Load this reference for playlist changes, ratings/favorites, metadata edits/dele
 
 - Shared workflows own cross-screen business rules. Views and view models keep presentation, navigation, local optimistic state, and confirmation UI.
 - Offline-capable mutations should queue through the unified mutation path when the server is unavailable and replay when connectivity returns.
+- Playlist deletion treats Plex `404 Not Found` as terminal convergence for that source: clear the queued mutation and local cached playlist through the normal success refresh, while preserving other HTTP failures for retry or user feedback. Plex may also use `404` when the source credentials no longer have access, so diagnostics must describe the playlist as absent or inaccessible rather than claiming confirmed server deletion.
 - Mutation feedback should be centralized in the workflow that owns the mutation, not duplicated per screen.
 - Pin mutations are local reversible preferences and should stay intentionally quiet unless the user action needs explicit feedback.
 - Playlist mutation policy must be source-aware. Reject incompatible sources, smart/merged targets where unsupported, and duplicate tracks according to the shared resolver rules. The add-to-playlist picker disables a cached target that already contains every compatible selected track, and excludes cached source-scoped target members before enqueuing. An all-duplicate selection is a warning/no-op, while an unavailable cache leaves Plex as the authority. Persist Plex playlist item IDs, order, and display metadata independently from synced tracks so memberships from disabled libraries remain visible and removable/reorderable. Playback and download are unavailable only for those membership rows. Never rebuild a partially available playlist from its locally synced tracks.
@@ -16,6 +17,7 @@ Load this reference for playlist changes, ratings/favorites, metadata edits/dele
 ## Owners
 
 - `MutationCoordinator` owns online/offline mutation queuing for ratings, playlist changes, and scrobbles.
+- `SyncCoordinator.deleteRemotePlaylist` owns idempotent Plex playlist-delete convergence before `PlaylistMutationController` refreshes the local server cache.
 - `PlaylistMutationWorkflow`, `TrackRatingMutationWorkflow`, `MetadataMutationWorkflow`, `PinMutationWorkflow`, and `DownloadMutationWorkflow` own their respective business rules and feedback.
 - `PlaylistDropResolver` and `MediaTrackResolver` own drag/drop media expansion, source compatibility, target rejection, and dedupe.
 - `MediaMenuCatalog` owns shared media menu action order, grouping, and destructive/editing gating.

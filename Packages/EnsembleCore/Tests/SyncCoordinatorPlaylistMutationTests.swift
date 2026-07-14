@@ -199,6 +199,28 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         XCTAssertEqual(refreshedServerSourceKey, "plex:account-1:server-1")
     }
 
+    func testDeletePlaylistTreatsNotFoundAsConvergedAndRefreshes() async throws {
+        let coordinator = makeCoordinator()
+        let playlist = Playlist(
+            id: "missing-playlist",
+            key: "/playlists/missing-playlist",
+            title: "Already Deleted",
+            isSmart: false,
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        var refreshedServerSourceKey: String?
+        coordinator.playlistDeleteHandlerForTesting = { _, _ in
+            throw PlexAPIError.httpError(statusCode: 404)
+        }
+        coordinator.refreshServerPlaylistsHandlerForTesting = { sourceKey in
+            refreshedServerSourceKey = sourceKey
+        }
+
+        try await coordinator.deletePlaylist(playlist)
+
+        XCTAssertEqual(refreshedServerSourceKey, "plex:account-1:server-1")
+    }
+
     func testDeletePlaylistClearsMatchingRecentTarget() async throws {
         let coordinator = makeCoordinator()
         let playlist = Playlist(
