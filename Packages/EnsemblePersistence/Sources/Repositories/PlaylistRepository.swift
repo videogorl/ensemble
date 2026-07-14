@@ -104,7 +104,7 @@ public extension PlaylistRepositoryProtocol {
             states[playlist.ratingKey] = PlaylistLocalTrackState(
                 modifiedAt: playlist.dateModified,
                 trackCount: Int(playlist.trackCount),
-                linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count ?? 0
+                linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0
             )
         }
         return states
@@ -246,7 +246,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 states[playlist.ratingKey] = PlaylistLocalTrackState(
                     modifiedAt: playlist.dateModified,
                     trackCount: Int(playlist.trackCount),
-                    linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count ?? 0
+                    linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0
                 )
             }
             return states

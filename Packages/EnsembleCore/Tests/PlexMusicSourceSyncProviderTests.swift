@@ -258,8 +258,8 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
     }
 
-    func testPlaylistTrackSyncDoesNotRepairPopulatedLocalBody() {
-        XCTAssertFalse(
+    func testPlaylistTrackSyncRepairsPartialLocalBody() {
+        XCTAssertTrue(
             PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
                 serverTrackCount: 12,
                 localLinkedTrackCount: 3

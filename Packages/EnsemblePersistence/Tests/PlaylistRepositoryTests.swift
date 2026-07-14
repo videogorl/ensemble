@@ -467,6 +467,8 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertNil(hiddenMembership.track)
         XCTAssertEqual(hiddenMembership.trackSourceCompositeKey, christianSource)
         XCTAssertTrue(playlist.hasUnavailableTracks)
+        let localState = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
+        XCTAssertEqual(localState["playlist-1"]?.linkedTrackCount, 1)
     }
 
     func testUpdatePlaylistTitlePreservesTrackRelationships() async throws {

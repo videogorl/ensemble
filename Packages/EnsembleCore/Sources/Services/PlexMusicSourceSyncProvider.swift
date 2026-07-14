@@ -659,9 +659,8 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         serverTrackCount: Int?,
         localLinkedTrackCount: Int?
     ) -> Bool {
-        guard let localLinkedTrackCount, localLinkedTrackCount == 0 else { return false }
         guard let serverTrackCount, serverTrackCount > 0 else { return false }
-        return true
+        return localLinkedTrackCount.map { $0 < serverTrackCount } ?? true
     }
 
     static func shouldCheckPlaylistOrphans(
