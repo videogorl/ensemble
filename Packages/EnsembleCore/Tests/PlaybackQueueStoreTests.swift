@@ -4,23 +4,28 @@ import XCTest
 final class PlaybackQueueStoreTests: XCTestCase {
     private var defaults: UserDefaults!
     private var suiteName: String!
+    private var progressURL: URL!
 
     override func setUp() {
         super.setUp()
         suiteName = "PlaybackQueueStoreTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
         defaults.removePersistentDomain(forName: suiteName)
+        progressURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PlaybackQueueStoreTests.\(UUID().uuidString).json")
     }
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
+        try? FileManager.default.removeItem(at: progressURL)
         defaults = nil
         suiteName = nil
+        progressURL = nil
         super.tearDown()
     }
 
     func testSaveAndLoadRoundTripUsesSnapshotFormat() async throws {
-        let store = PlaybackQueueStore(defaults: defaults)
+        let store = PlaybackQueueStore(defaults: defaults, progressURL: progressURL)
         let queue = [QueueItem(track: makeTrack(id: "track-1"))]
         let history = [QueueItem(track: makeTrack(id: "track-2"))]
 
@@ -42,8 +47,23 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertNotNil(defaults.data(forKey: "com.ensemble.playback.snapshot"))
     }
 
+    func testProgressSaveDoesNotRewriteQueueSnapshot() async throws {
+        let store = PlaybackQueueStore(defaults: defaults, progressURL: progressURL)
+        let queue = [QueueItem(track: makeTrack(id: "track-1"))]
+        store.save(queue: queue, history: [], currentIndex: 0, currentTime: 10)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let encodedSnapshot = try XCTUnwrap(defaults.data(forKey: "com.ensemble.playback.snapshot"))
+
+        store.saveProgress(42)
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertEqual(defaults.data(forKey: "com.ensemble.playback.snapshot"), encodedSnapshot)
+        let restored = try XCTUnwrap(store.load())
+        XCTAssertEqual(restored.currentTime, 42, accuracy: 0.001)
+    }
+
     func testLoadSnapshotWithoutQueueEditMarkerDefaultsToUnprotected() throws {
-        let store = PlaybackQueueStore(defaults: defaults)
+        let store = PlaybackQueueStore(defaults: defaults, progressURL: progressURL)
         let legacySnapshot = """
         {"queue":[],"history":[],"currentIndex":-1,"currentTime":0}
         """
@@ -54,7 +74,7 @@ final class PlaybackQueueStoreTests: XCTestCase {
     }
 
     func testLoadMigratesLegacyTrackArray() throws {
-        let store = PlaybackQueueStore(defaults: defaults)
+        let store = PlaybackQueueStore(defaults: defaults, progressURL: progressURL)
         let legacyTrack = makeTrack(id: "legacy-track")
         let encoded = try JSONEncoder().encode([legacyTrack])
         defaults.set(encoded, forKey: "com.ensemble.playback.queue")
@@ -67,7 +87,7 @@ final class PlaybackQueueStoreTests: XCTestCase {
     }
 
     func testSaveClearsAllKeysWhenQueueAndHistoryAreEmpty() async throws {
-        let store = PlaybackQueueStore(defaults: defaults)
+        let store = PlaybackQueueStore(defaults: defaults, progressURL: progressURL)
         defaults.set(Data("stale".utf8), forKey: "com.ensemble.playback.snapshot")
         defaults.set(Data("stale".utf8), forKey: "com.ensemble.playback.queue")
 

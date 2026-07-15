@@ -524,6 +524,10 @@ final class PlaybackQueueController {
         )
     }
 
+    func saveProgress(_ currentTime: TimeInterval) {
+        queueStore.saveProgress(currentTime)
+    }
+
     func loadSnapshot() -> PlaybackQueueSnapshot? {
         queueStore.load()
     }

@@ -5607,7 +5607,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        savePlaybackState()
+        lastPlaybackSnapshotTime = time
+        queueController.saveProgress(time)
     }
 
     @MainActor

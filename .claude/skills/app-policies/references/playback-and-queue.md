@@ -37,7 +37,7 @@ Load this reference for playback start behavior, queue state, shuffle/repeat/aut
 
 - `PlaybackService` remains the playback facade, owns live queue state, and is the side-effect boundary for queue mutation and transport retry loops.
 - `PlaybackQueueController` owns focused pure queue/history transformations and coordinates snapshot persistence and download-state restamping using state supplied by `PlaybackService`; it does not own a parallel live queue.
-- `PlaybackQueueStore` owns backward-compatible queue/history snapshot serialization.
+- `PlaybackQueueStore` owns backward-compatible queue/history snapshot serialization. Full queue snapshots are persisted for queue and lifecycle changes; periodic playhead checkpoints use a small sidecar so active playback does not repeatedly rewrite the full queue payload.
 - `NowPlayingViewModel` gates app-UI queue replacements, while `RootView` and `DownloadsPresentationContainer` present the shared native replacement confirmation.
 - `PlaybackTransportCoordinator`, `PlaybackRecoveryPolicy`, `PlaybackLocalFilePolicy`, `PlaybackPrefetchController`, `PlaybackLaunchCoordinator`, `StreamingAudioPipeline`, `StreamingAudioDecoder`, `StreamingPCMBuffer`, `SmartMixAnalysisService`, and `SmartMixPlanner` own focused playback seams.
 - `ForegroundWorkScheduler` owns playback-safe budgeting for optional analysis work; it must not block user-initiated playback commands or download transfers.

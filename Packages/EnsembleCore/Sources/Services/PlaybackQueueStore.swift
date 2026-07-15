@@ -45,14 +45,25 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
 /// façade can shrink without changing user-visible restoration behavior.
 final class PlaybackQueueStore {
     private let defaults: UserDefaults
+    private let progressURL: URL
+    private let persistenceQueue = DispatchQueue(
+        label: "com.ensemble.playback.queue-persistence",
+        qos: .utility
+    )
     private let snapshotKey = "com.ensemble.playback.snapshot"
     private let queueKey = "com.ensemble.playback.queue"
     private let historyKey = "com.ensemble.playback.history"
     private let currentIndexKey = "com.ensemble.playback.currentIndex"
     private let currentTimeKey = "com.ensemble.playback.currentTime"
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        progressURL: URL? = nil
+    ) {
         self.defaults = defaults
+        self.progressURL = progressURL
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("PlaybackQueueProgress.json")
     }
 
     func save(
@@ -76,13 +87,14 @@ final class PlaybackQueueStore {
         let currentIndexKey = self.currentIndexKey
         let currentTimeKey = self.currentTimeKey
 
-        Task.detached(priority: .background) {
+        persistenceQueue.async {
             guard !snapshot.queue.isEmpty || !snapshot.history.isEmpty else {
                 defaults.removeObject(forKey: snapshotKey)
                 defaults.removeObject(forKey: queueKey)
                 defaults.removeObject(forKey: historyKey)
                 defaults.removeObject(forKey: currentIndexKey)
                 defaults.removeObject(forKey: currentTimeKey)
+                try? FileManager.default.removeItem(at: self.progressURL)
                 return
             }
 
@@ -100,6 +112,13 @@ final class PlaybackQueueStore {
             }
             defaults.set(snapshot.currentIndex, forKey: currentIndexKey)
             defaults.set(snapshot.currentTime, forKey: currentTimeKey)
+            self.writeProgress(snapshot.currentTime)
+        }
+    }
+
+    func saveProgress(_ currentTime: TimeInterval) {
+        persistenceQueue.async {
+            self.writeProgress(currentTime)
         }
     }
 
@@ -108,7 +127,7 @@ final class PlaybackQueueStore {
 
         if let snapshotData = defaults.data(forKey: snapshotKey),
            let snapshot = try? decoder.decode(PlaybackQueueSnapshot.self, from: snapshotData) {
-            return snapshot
+            return snapshot.updating(currentTime: loadProgress() ?? snapshot.currentTime)
         }
 
         let history = legacyHistory(decoder: decoder)
@@ -153,5 +172,31 @@ final class PlaybackQueueStore {
             return []
         }
         return history
+    }
+
+    private func writeProgress(_ currentTime: TimeInterval) {
+        guard let data = try? JSONEncoder().encode(currentTime) else { return }
+        try? FileManager.default.createDirectory(
+            at: progressURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: progressURL, options: .atomic)
+    }
+
+    private func loadProgress() -> TimeInterval? {
+        guard let data = try? Data(contentsOf: progressURL) else { return nil }
+        return try? JSONDecoder().decode(TimeInterval.self, from: data)
+    }
+}
+
+private extension PlaybackQueueSnapshot {
+    func updating(currentTime: TimeInterval) -> PlaybackQueueSnapshot {
+        PlaybackQueueSnapshot(
+            queue: queue,
+            history: history,
+            currentIndex: currentIndex,
+            currentTime: currentTime,
+            hasUserQueueEdits: hasUserQueueEdits
+        )
     }
 }
