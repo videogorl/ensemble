@@ -77,7 +77,8 @@ public enum TrackListLayoutMetrics {
         safeAreaBottom: CGFloat,
         tabBarBottomClearance: CGFloat = 0
     ) -> CGFloat {
-        max(safeAreaBottom, tabBarBottomClearance) + (tabBarBottomClearance > 0 ? miniPlayerAdditionalBottomPadding : 0)
+        guard tabBarBottomClearance > 0 else { return 0 }
+        return max(tabBarBottomClearance - safeAreaBottom, 0) + miniPlayerAdditionalBottomPadding
     }
 
     public static func contentLeadingInset(showArtwork: Bool, showTrackNumbers: Bool) -> CGFloat {
