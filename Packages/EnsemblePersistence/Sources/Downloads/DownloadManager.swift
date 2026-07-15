@@ -128,98 +128,95 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
     }
 
     public func fetchDownloads() async throws -> [CDDownload] {
-        try await withCheckedThrowingContinuation { continuation in
-            let context = coreDataStack.viewContext
-            context.perform {
-                let request = CDDownload.fetchRequest()
-                request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
-                request.fetchBatchSize = 50
-                do {
-                    let downloads = try context.fetch(request)
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDDownload.fetchRequest()
+            request.fetchBatchSize = 50
+            let downloads = try context.fetch(request)
 
-                    // Self-heal metadata drift for completed downloads:
-                    // - backfill missing track.localFilePath from download.filePath
-                    // - backfill fileSize from on-disk file
-                    // - mark completed items as failed when file is missing on disk
-                    var healedPathCount = 0
-                    var healedSizeCount = 0
-                    var missingFileCount = 0
-                    var invalidFileCount = 0
-                    var recoveredFailedCount = 0
-                    let existingDownloadFilenames = Self.existingDownloadFilenames()
+            // Self-heal metadata drift for completed downloads:
+            // - backfill missing track.localFilePath from download.filePath
+            // - backfill fileSize from on-disk file
+            // - mark completed items as failed when file is missing on disk
+            var healedPathCount = 0
+            var healedSizeCount = 0
+            var missingFileCount = 0
+            var invalidFileCount = 0
+            var recoveredFailedCount = 0
+            let existingDownloadFilenames = Self.existingDownloadFilenames()
 
-                    for download in downloads {
-                        guard let storedPath = download.filePath, !storedPath.isEmpty else {
-                            continue
-                        }
+            for download in downloads {
+                guard let storedPath = download.filePath, !storedPath.isEmpty else {
+                    continue
+                }
 
-                        // Migrate legacy absolute paths to filename-only storage.
-                        let filename = Self.extractFilename(from: storedPath)
-                        if filename != storedPath {
-                            download.filePath = filename
-                            healedPathCount += 1
-                        }
+                // Migrate legacy absolute paths to filename-only storage.
+                let filename = Self.extractFilename(from: storedPath)
+                if filename != storedPath {
+                    download.filePath = filename
+                    healedPathCount += 1
+                }
 
-                        let absolutePath = Self.absolutePath(forFilename: filename)
-                        let fileExists = existingDownloadFilenames.contains(filename)
-                        let isCompleted = download.downloadStatus == .completed
-                        let isFailed = download.downloadStatus == .failed
+                let absolutePath = Self.absolutePath(forFilename: filename)
+                let fileExists = existingDownloadFilenames.contains(filename)
+                let isCompleted = download.downloadStatus == .completed
+                let isFailed = download.downloadStatus == .failed
 
-                        if fileExists {
-                            if Self.isClearlyInvalidDownloadedPayload(atPath: absolutePath) {
-                                download.downloadStatus = .failed
-                                download.error = "Downloaded file is invalid"
-                                download.progress = 0
-                                download.track?.localFilePath = nil
-                                invalidFileCount += 1
-                                continue
-                            }
-
-                            // Recover failed records that already have a valid payload on disk.
-                            if isFailed {
-                                download.downloadStatus = .completed
-                                download.error = nil
-                                download.progress = 1
-                                if download.completedAt == nil {
-                                    download.completedAt = Date()
-                                }
-                                recoveredFailedCount += 1
-                            }
-
-                            // Keep track.localFilePath in sync (filename only).
-                            if download.track?.localFilePath != filename {
-                                download.track?.localFilePath = filename
-                                healedPathCount += 1
-                            }
-
-                            if download.fileSize <= 0,
-                               let attributes = try? FileManager.default.attributesOfItem(atPath: absolutePath),
-                               let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
-                               actualSize > 0 {
-                                download.fileSize = actualSize
-                                healedSizeCount += 1
-                            }
-                        } else if isCompleted {
-                            download.downloadStatus = .failed
-                            download.error = "Downloaded file missing on disk"
-                            download.progress = 0
-                            download.track?.localFilePath = nil
-                            missingFileCount += 1
-                        }
+                if fileExists {
+                    if Self.isClearlyInvalidDownloadedPayload(atPath: absolutePath) {
+                        download.downloadStatus = .failed
+                        download.error = "Downloaded file is invalid"
+                        download.progress = 0
+                        download.track?.localFilePath = nil
+                        invalidFileCount += 1
+                        continue
                     }
 
-                    if context.hasChanges {
-                        try context.save()
-                        EnsembleLogger.debug(
-                            "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
-                        )
+                    // Recover failed records that already have a valid payload on disk.
+                    if isFailed {
+                        download.downloadStatus = .completed
+                        download.error = nil
+                        download.progress = 1
+                        if download.completedAt == nil {
+                            download.completedAt = Date()
+                        }
+                        recoveredFailedCount += 1
                     }
 
-                    continuation.resume(returning: downloads)
-                } catch {
-                    continuation.resume(throwing: error)
+                    // Keep track.localFilePath in sync (filename only).
+                    if download.track?.localFilePath != filename {
+                        download.track?.localFilePath = filename
+                        healedPathCount += 1
+                    }
+
+                    if download.fileSize <= 0,
+                       let attributes = try? FileManager.default.attributesOfItem(atPath: absolutePath),
+                       let actualSize = (attributes[.size] as? NSNumber)?.int64Value,
+                       actualSize > 0 {
+                        download.fileSize = actualSize
+                        healedSizeCount += 1
+                    }
+                } else if isCompleted {
+                    download.downloadStatus = .failed
+                    download.error = "Downloaded file missing on disk"
+                    download.progress = 0
+                    download.track?.localFilePath = nil
+                    missingFileCount += 1
                 }
             }
+
+            if context.hasChanges {
+                try context.save()
+                EnsembleLogger.debug(
+                    "🧰 DownloadManager healed download metadata (path=\(healedPathCount), size=\(healedSizeCount), missing=\(missingFileCount), invalid=\(invalidFileCount), recoveredFailed=\(recoveredFailedCount))"
+                )
+            }
+        }
+
+        return try await coreDataStack.performViewContext { context in
+            let request = CDDownload.fetchRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+            request.fetchBatchSize = 50
+            return try context.fetch(request)
         }
     }
 
