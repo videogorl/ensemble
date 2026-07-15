@@ -163,6 +163,31 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         }
     }
 
+    private actor TLSCooldownNetwork {
+        private var shouldFailTLS = true
+        private var hits = 0
+
+        func recoverTLS() {
+            shouldFailTLS = false
+        }
+
+        func hitCount() -> Int {
+            hits
+        }
+
+        func perform(_ request: URLRequest) throws -> (Data, URLResponse) {
+            guard let url = request.url else { throw URLError(.badURL) }
+            hits += 1
+            if shouldFailTLS {
+                throw URLError(.secureConnectionFailed)
+            }
+            return (
+                Data(),
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            )
+        }
+    }
+
     func testPreferredURLFastPathSkipsParallelProbeWhenHealthyAndWorking() async throws {
         let network = MockNetwork(mode: .preferredSucceeds)
         let manager = ConnectionFailoverManager(timeout: 0.2) { request in
@@ -523,5 +548,36 @@ final class ConnectionFailoverManagerTests: XCTestCase {
         XCTAssertEqual(timedOutHitCount, 0)
         XCTAssertEqual(remoteHitCount, 1)
         XCTAssertEqual(lastProbe?.failureCategory, .timeout)
+    }
+
+    func testTLSCooledEndpointIsRetriedWhenNoFallbackExists() async throws {
+        let network = TLSCooldownNetwork()
+        let manager = ConnectionFailoverManager(timeout: 0.2) { request in
+            try await network.perform(request)
+        }
+        let endpoint = PlexEndpointDescriptor(
+            url: "https://recovered.example",
+            local: false,
+            relay: false
+        )
+
+        let failed = await manager.findBestConnection(
+            endpoints: [endpoint],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+        await network.recoverTLS()
+        let recovered = await manager.findBestConnection(
+            endpoints: [endpoint],
+            token: "token",
+            selectionPolicy: .plexSpecBalanced,
+            allowInsecure: .sameNetwork
+        )
+        let hitCount = await network.hitCount()
+
+        XCTAssertNil(failed.selected)
+        XCTAssertEqual(recovered.selected?.url, endpoint.url)
+        XCTAssertEqual(hitCount, 2)
     }
 }

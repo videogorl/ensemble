@@ -407,6 +407,10 @@ public actor ConnectionFailoverManager {
         if skipped > 0 {
             EnsembleLogger.debug("🔒 ConnectionFailover: Skipping \(skipped) endpoint(s) in TLS cooldown")
         }
+        if filtered.isEmpty, !endpoints.isEmpty {
+            EnsembleLogger.debug("🔒 ConnectionFailover: Retrying \(endpoints.count) TLS-cooled endpoint(s); no fallback candidates remain")
+            return endpoints
+        }
         return filtered
     }
 
