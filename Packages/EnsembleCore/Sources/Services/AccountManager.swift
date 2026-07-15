@@ -442,7 +442,7 @@ public final class AccountManager: ObservableObject {
     // MARK: - Account Management
 
     public func addPlexAccount(_ account: PlexAccountConfig) {
-        let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingLibrarySelection(in: account))
+        let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingConfiguration(in: account))
         // Replace if same account ID already exists
         plexAccounts.removeAll { $0.id == resolvedAccount.id }
         plexAccounts.append(resolvedAccount)
@@ -859,12 +859,14 @@ public final class AccountManager: ObservableObject {
         return timestamp
     }
 
-    private func preservingExistingLibrarySelection(in account: PlexAccountConfig) -> PlexAccountConfig {
+    private func preservingExistingConfiguration(in account: PlexAccountConfig) -> PlexAccountConfig {
+        guard let existingAccount = plexAccounts.first(where: { $0.id == account.id }) else {
+            return account
+        }
         let existingLibrariesByKey = localLibrariesByFlagKey(for: account.id)
-        guard !existingLibrariesByKey.isEmpty else { return account }
 
         var didChange = false
-        let updatedServers = account.servers.map { server in
+        var updatedServers = account.servers.map { server in
             let updatedLibraries = server.libraries.map { library in
                 let key = libraryFlagKey(accountId: account.id, serverId: server.id, libraryKey: library.key)
                 guard let existingLibrary = existingLibrariesByKey[key],
@@ -885,6 +887,15 @@ public final class AccountManager: ObservableObject {
 
             guard updatedLibraries != server.libraries else { return server }
             return server.replacing(libraries: updatedLibraries)
+        }
+
+        let discoveredServerIDs = Set(updatedServers.map(\.id))
+        let omittedServers = existingAccount.servers.filter { !discoveredServerIDs.contains($0.id) }
+        if !omittedServers.isEmpty {
+            // Plex resources can omit servers that are temporarily offline. Keep
+            // their cached configuration until the account is explicitly removed.
+            updatedServers.append(contentsOf: omittedServers)
+            didChange = true
         }
 
         guard didChange else { return account }

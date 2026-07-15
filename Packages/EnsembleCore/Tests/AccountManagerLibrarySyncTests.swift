@@ -471,6 +471,28 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertTrue(manager.pullSyncCredentials().isEmpty)
     }
 
+    func testRediscoveryPreservesServerOmittedWhileOffline() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(makeTwoServerAccount())
+
+        manager.addPlexAccount(
+            makeAccount(
+                serverName: "Refreshed Server One",
+                serverURL: "https://refreshed.example.com",
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false)
+                ]
+            )
+        )
+
+        let servers = try XCTUnwrap(manager.plexAccounts.first?.servers)
+        XCTAssertEqual(servers.map(\.id), ["server-1", "server-2"])
+        XCTAssertEqual(servers[0].name, "Refreshed Server One")
+        XCTAssertTrue(servers[0].libraries[0].isEnabled)
+        XCTAssertEqual(servers[1].name, "Server Two")
+        XCTAssertFalse(servers[1].libraries[0].isEnabled)
+    }
+
     func testHasSyncedCloudCredentialsReflectsStoredRemotePayload() throws {
         let keychain = TestKeychain()
         let manager = AccountManager(keychain: keychain)
