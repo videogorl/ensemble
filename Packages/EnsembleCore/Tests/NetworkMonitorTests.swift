@@ -93,4 +93,18 @@ final class NetworkMonitorTests: XCTestCase {
 
         XCTAssertEqual(state, .online(.cellular))
     }
+
+    func testConstrainedStateIsPublishedSeparatelyFromConnectivity() {
+        let sut = NetworkMonitor(
+            debounceNanoseconds: 0,
+            monitorQueue: DispatchQueue(label: "test.network.constrained"),
+            monitorFactory: { FakePathMonitor() }
+        )
+
+        sut.injectNetworkStateForTesting(.online(.wifi), isConstrained: true, debounced: false)
+
+        XCTAssertEqual(sut.networkState, .online(.wifi))
+        XCTAssertTrue(sut.isConnected)
+        XCTAssertTrue(sut.isConstrained)
+    }
 }

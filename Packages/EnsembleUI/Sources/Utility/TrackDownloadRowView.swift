@@ -14,6 +14,11 @@ struct DownloadQueueStatusBanner: View {
                     icon: EnsembleDesign.Icon.offline,
                     message: "Downloads paused — connect to Wi-Fi to continue"
                 )
+            case .lowDataMode:
+                queueBannerRow(
+                    icon: EnsembleDesign.Icon.offline,
+                    message: "Downloads paused — Low Data Mode is on"
+                )
             case .offline:
                 queueBannerRow(
                     icon: EnsembleDesign.Icon.offline,

@@ -81,6 +81,7 @@ public enum QueueStatusReason: Equatable, Sendable {
     case idle
     case downloading
     case waitingForWiFi
+    case lowDataMode
     case offline
     case paused
 }
@@ -1299,6 +1300,8 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private var canExecuteDownloads: Bool {
+        guard !networkMonitor.isConstrained else { return false }
+
         switch networkMonitor.networkState {
         case .online(.wifi), .online(.wired):
             return true
@@ -1333,6 +1336,8 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Maps current network state to a user-facing queue pause reason
     private func queueReasonForCurrentState() -> QueueStatusReason {
+        guard !networkMonitor.isConstrained else { return .lowDataMode }
+
         switch networkMonitor.networkState {
         case .offline:
             return .offline
@@ -1536,8 +1541,11 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func observeNetworkState() {
-        networkMonitor.$networkState
-            .sink { [weak self] _ in
+        Publishers.Merge(
+            networkMonitor.$networkState.map { _ in () },
+            networkMonitor.$isConstrained.dropFirst().map { _ in () }
+        )
+            .sink { [weak self] in
                 Task { @MainActor in
                     guard let self else { return }
                     do {

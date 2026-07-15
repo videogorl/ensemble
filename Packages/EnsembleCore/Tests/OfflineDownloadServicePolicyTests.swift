@@ -212,12 +212,13 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         downloadManager: MockDownloadManager = MockDownloadManager(),
         targetRepository: MockTargetRepository = MockTargetRepository(),
         backgroundCoordinator: OfflineDownloadBackgroundCoordinating? = nil,
+        networkMonitor suppliedNetworkMonitor: NetworkMonitor? = nil,
         launchRecoveryStartedAt: Date = Date()
     ) async -> OfflineDownloadService {
         let accountManager = AccountManager(keychain: TestKeychain())
         let libraryRepository = MockLibraryRepository()
         let playlistRepository = MockPlaylistRepository()
-        let networkMonitor = NetworkMonitor(
+        let networkMonitor = suppliedNetworkMonitor ?? NetworkMonitor(
             debounceNanoseconds: 1_000,
             monitorQueue: DispatchQueue(label: "test.network.monitor"),
             monitorFactory: { SystemNetworkPathMonitor() }
@@ -249,6 +250,34 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await Task.yield()
         return service
+    }
+
+    func testLowDataModePausesActiveDownloads() async {
+        let downloadManager = MockDownloadManager()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 0,
+            monitorQueue: DispatchQueue(label: "test.network.low-data"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+        let service = await makeService(
+            downloadManager: downloadManager,
+            networkMonitor: networkMonitor
+        )
+        downloadManager.resetStatusUpdates()
+
+        networkMonitor.injectNetworkStateForTesting(
+            .online(.wifi),
+            isConstrained: true,
+            debounced: false
+        )
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(service.queueStatusReason, .lowDataMode)
+        XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
+            statuses == [.downloading] && status == .paused
+        })
     }
 
     func testRemovingTargetClearsLyricsOnlyForLastReferencedDownload() async throws {

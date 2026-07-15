@@ -9,6 +9,7 @@ Load this reference for offline download targets, download queue behavior, trans
 - Removing the final target reference for a track must evict its audio file, frequency sidecar, and offline lyrics/chord caches. Preserve those artifacts while another target still references the same source-scoped track.
 - Download lookup, persistence, and deletion must be source-aware: use `ratingKey + sourceCompositeKey` so libraries and servers do not collide.
 - Queue policy is Wi-Fi/wired only by default. Active downloads pause on cellular or offline network state unless settings explicitly allow the path.
+- Low Data Mode pauses downloads on constrained network paths without treating the device as offline; pending work resumes when the path is no longer constrained.
 - User pause, Low Power Mode, app backgrounding, and iOS continued-processing windows all feed the same scheduler. The queue should pause aggressively on constrained devices without losing resumability.
 - Background execution is an accelerator, not the source of truth. Persistent queue state must resume under normal foreground/background opportunities when OS background execution is rejected, cancelled, or expired.
 - Launch recovery is lightweight: repair stale `.downloading` records and publish target shells first, then defer file healing, truncation scans, cleanup, and full progress recomputation.
