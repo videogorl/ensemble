@@ -45,6 +45,7 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
 /// façade can shrink without changing user-visible restoration behavior.
 final class PlaybackQueueStore {
     private let defaults: UserDefaults
+    private let snapshotURL: URL
     private let progressURL: URL
     private let persistenceQueue = DispatchQueue(
         label: "com.ensemble.playback.queue-persistence",
@@ -58,12 +59,18 @@ final class PlaybackQueueStore {
 
     init(
         defaults: UserDefaults = .standard,
+        snapshotURL: URL? = nil,
         progressURL: URL? = nil
     ) {
         self.defaults = defaults
+        let applicationSupportURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        )[0]
+        self.snapshotURL = snapshotURL
+            ?? applicationSupportURL.appendingPathComponent("PlaybackQueueSnapshot.json")
         self.progressURL = progressURL
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("PlaybackQueueProgress.json")
+            ?? applicationSupportURL.appendingPathComponent("PlaybackQueueProgress.json")
     }
 
     func save(
@@ -80,38 +87,16 @@ final class PlaybackQueueStore {
             currentTime: currentTime,
             hasUserQueueEdits: hasUserQueueEdits
         )
-        let defaults = self.defaults
-        let snapshotKey = self.snapshotKey
-        let queueKey = self.queueKey
-        let historyKey = self.historyKey
-        let currentIndexKey = self.currentIndexKey
-        let currentTimeKey = self.currentTimeKey
-
         persistenceQueue.async {
             guard !snapshot.queue.isEmpty || !snapshot.history.isEmpty else {
-                defaults.removeObject(forKey: snapshotKey)
-                defaults.removeObject(forKey: queueKey)
-                defaults.removeObject(forKey: historyKey)
-                defaults.removeObject(forKey: currentIndexKey)
-                defaults.removeObject(forKey: currentTimeKey)
+                try? FileManager.default.removeItem(at: self.snapshotURL)
                 try? FileManager.default.removeItem(at: self.progressURL)
+                self.removeLegacyDefaults()
                 return
             }
 
-            let encoder = JSONEncoder()
-            if let encodedSnapshot = try? encoder.encode(snapshot) {
-                defaults.set(encodedSnapshot, forKey: snapshotKey)
-            }
-
-            // Keep writing legacy keys for backward compatibility with older builds.
-            if let encodedQueue = try? encoder.encode(snapshot.queue) {
-                defaults.set(encodedQueue, forKey: queueKey)
-            }
-            if let encodedHistory = try? encoder.encode(snapshot.history) {
-                defaults.set(encodedHistory, forKey: historyKey)
-            }
-            defaults.set(snapshot.currentIndex, forKey: currentIndexKey)
-            defaults.set(snapshot.currentTime, forKey: currentTimeKey)
+            guard self.writeSnapshot(snapshot) else { return }
+            self.removeLegacyDefaults()
             self.writeProgress(snapshot.currentTime)
         }
     }
@@ -125,9 +110,23 @@ final class PlaybackQueueStore {
     func load() -> PlaybackQueueSnapshot? {
         let decoder = JSONDecoder()
 
+        if let snapshotData = try? Data(contentsOf: snapshotURL),
+           let snapshot = try? decoder.decode(PlaybackQueueSnapshot.self, from: snapshotData) {
+            removeLegacyDefaults()
+            return snapshot.updating(currentTime: loadProgress() ?? snapshot.currentTime)
+        }
+
+        guard let snapshot = loadLegacySnapshot(decoder: decoder) else { return nil }
+        if writeSnapshot(snapshot) {
+            removeLegacyDefaults()
+        }
+        return snapshot.updating(currentTime: loadProgress() ?? snapshot.currentTime)
+    }
+
+    private func loadLegacySnapshot(decoder: JSONDecoder) -> PlaybackQueueSnapshot? {
         if let snapshotData = defaults.data(forKey: snapshotKey),
            let snapshot = try? decoder.decode(PlaybackQueueSnapshot.self, from: snapshotData) {
-            return snapshot.updating(currentTime: loadProgress() ?? snapshot.currentTime)
+            return snapshot
         }
 
         let history = legacyHistory(decoder: decoder)
@@ -172,6 +171,26 @@ final class PlaybackQueueStore {
             return []
         }
         return history
+    }
+
+    private func writeSnapshot(_ snapshot: PlaybackQueueSnapshot) -> Bool {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: snapshotURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: snapshotURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func removeLegacyDefaults() {
+        let keys = [snapshotKey, queueKey, historyKey, currentIndexKey, currentTimeKey]
+        guard keys.contains(where: { defaults.object(forKey: $0) != nil }) else { return }
+        keys.forEach(defaults.removeObject(forKey:))
     }
 
     private func writeProgress(_ currentTime: TimeInterval) {
