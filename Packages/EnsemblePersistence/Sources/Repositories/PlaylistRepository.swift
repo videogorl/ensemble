@@ -603,15 +603,25 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         }
                     }
 
+                    let ratingKeys = Array(Set(snapshots.map(\.ratingKey)))
+                    let tracksByRatingKey: [String: [CDTrack]]
+                    if ratingKeys.isEmpty {
+                        tracksByRatingKey = [:]
+                    } else {
+                        let trackRequest = CDTrack.fetchRequest()
+                        trackRequest.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
+                        tracksByRatingKey = Dictionary(
+                            grouping: try context.fetch(trackRequest),
+                            by: \.ratingKey
+                        )
+                    }
+
                     // Keep a membership record for every server track. A record can
                     // intentionally have no cached track when its library is disabled.
                     var foundCount = 0
                     for (index, snapshot) in snapshots.enumerated() {
-                        let trackRequest = CDTrack.fetchRequest()
-                        trackRequest.predicate = NSPredicate(format: "ratingKey == %@", snapshot.ratingKey)
-                        let candidates = try context.fetch(trackRequest)
                         let track = Self.bestTrackMatch(
-                            from: candidates,
+                            from: tracksByRatingKey[snapshot.ratingKey] ?? [],
                             playlistSourceCompositeKey: sourceCompositeKey
                         )
                         if track != nil {
