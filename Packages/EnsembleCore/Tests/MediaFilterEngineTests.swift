@@ -89,6 +89,27 @@ final class MediaFilterEngineTests: XCTestCase {
         )
     }
 
+    func testAlbumFilterUsesSourceScopedDownloadedAlbumIDs() {
+        var options = FilterOptions()
+        options.showDownloadedOnly = true
+
+        let sourceA = "plex:account:server:1"
+        let sourceB = "plex:account:server:2"
+        let albums = [
+            makeAlbum(id: "album", sourceCompositeKey: sourceA),
+            makeAlbum(id: "album", sourceCompositeKey: sourceB),
+            makeAlbum(id: "other", sourceCompositeKey: sourceA)
+        ]
+
+        let filtered = MediaFilterEngine.filterAlbums(
+            albums,
+            with: options,
+            downloadedAlbumIDs: ["\(sourceA)||album"]
+        )
+
+        XCTAssertEqual(filtered.map(\.sourceScopedID), ["\(sourceA)||album"])
+    }
+
     func testArtistGenreFiltersUseAlbumGenreMap() {
         var options = FilterOptions()
         options.searchText = "artist"
@@ -150,7 +171,8 @@ final class MediaFilterEngineTests: XCTestCase {
         artistKey: String? = nil,
         year: Int? = nil,
         trackCount: Int = 0,
-        genres: [String] = []
+        genres: [String] = [],
+        sourceCompositeKey: String? = nil
     ) -> Album {
         Album(
             id: id,
@@ -161,7 +183,8 @@ final class MediaFilterEngineTests: XCTestCase {
             artistRatingKey: artistKey,
             year: year,
             trackCount: trackCount,
-            genres: genres
+            genres: genres,
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 

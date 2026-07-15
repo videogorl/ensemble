@@ -94,7 +94,7 @@ public final class LibraryViewModel: ObservableObject {
         }
 
         let sorted = Self.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection)
-        let filtered = Self.filterAlbums(sorted, with: albumsFilterOptions)
+        let filtered = Self.filterAlbums(sorted, with: albumsFilterOptions, tracks: tracks)
         return AlbumBrowseSnapshot(
             albums: filtered,
             sections: Self.computeAlbumSections(from: filtered, sortOption: albumSortOption),
@@ -324,11 +324,11 @@ public final class LibraryViewModel: ObservableObject {
         // Albums — debounce 100ms to coalesce search/filter typing without making tab switches feel delayed
         // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
         // removeDuplicates prevents no-op publishes during sync.
-        Publishers.CombineLatest3($albums, $albumSortOption, $albumsFilterOptions)
+        Publishers.CombineLatest4($albums, $albumSortOption, $albumsFilterOptions, $tracks)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, sortOption, filterOptions -> ([Album], [AlbumSection]) in
+            .map { albums, sortOption, filterOptions, tracks -> ([Album], [AlbumSection]) in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
-                let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions)
+                let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions, tracks: tracks)
                 let sections = LibraryViewModel.computeAlbumSections(from: filtered, sortOption: sortOption)
                 return (filtered, sections)
             }
@@ -365,13 +365,13 @@ public final class LibraryViewModel: ObservableObject {
         // Derived from items that pass all NON-genre filters, so only genres
         // that will produce results are shown (e.g. singles excluded by hideSingles
         // won't contribute their genres to the chip bar).
-        Publishers.CombineLatest($albums, $albumsFilterOptions)
+        Publishers.CombineLatest3($albums, $albumsFilterOptions, $tracks)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, filterOptions -> [String] in
+            .map { albums, filterOptions, tracks -> [String] in
                 var nonGenreOptions = filterOptions
                 nonGenreOptions.selectedGenres.removeAll()
                 nonGenreOptions.excludedGenres.removeAll()
-                let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions)
+                let preFiltered = Self.filterAlbums(albums, with: nonGenreOptions, tracks: tracks)
                 return Self.extractUniqueGenres(from: preFiltered.flatMap(\.genres))
             }
             .removeDuplicates()
@@ -1098,8 +1098,23 @@ public final class LibraryViewModel: ObservableObject {
         MediaFilterEngine.filterArtists(artists, with: options, albums: albums)
     }
 
-    private static func filterAlbums(_ albums: [Album], with options: FilterOptions) -> [Album] {
-        MediaFilterEngine.filterAlbums(albums, with: options, configuration: .library)
+    private static func filterAlbums(_ albums: [Album], with options: FilterOptions, tracks: [Track]) -> [Album] {
+        let downloadedAlbumIDs: Set<String>?
+        if options.showDownloadedOnly {
+            downloadedAlbumIDs = Set(tracks.compactMap { track in
+                guard track.isDownloaded, let albumID = track.albumRatingKey else { return nil }
+                return sourceScopedIdentity(ratingKey: albumID, sourceCompositeKey: track.sourceCompositeKey)
+            })
+        } else {
+            downloadedAlbumIDs = nil
+        }
+
+        return MediaFilterEngine.filterAlbums(
+            albums,
+            with: options,
+            configuration: .library,
+            downloadedAlbumIDs: downloadedAlbumIDs
+        )
     }
 
     private static func filterGenres(_ genres: [Genre], with options: FilterOptions) -> [Genre] {

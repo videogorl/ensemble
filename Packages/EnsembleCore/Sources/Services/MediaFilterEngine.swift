@@ -112,7 +112,8 @@ public struct MediaFilterEngine {
     public static func filterAlbums(
         _ albums: [Album],
         with options: FilterOptions,
-        configuration: AlbumConfiguration = .library
+        configuration: AlbumConfiguration = .library,
+        downloadedAlbumIDs: Set<String>? = nil
     ) -> [Album] {
         var filtered = albums
 
@@ -147,6 +148,10 @@ public struct MediaFilterEngine {
 
         if configuration.filtersSingles, options.hideSingles {
             filtered = filtered.filter { $0.trackCount > 1 }
+        }
+
+        if options.showDownloadedOnly, let downloadedAlbumIDs {
+            filtered = filtered.filter { downloadedAlbumIDs.contains($0.sourceScopedID) }
         }
 
         return filtered
