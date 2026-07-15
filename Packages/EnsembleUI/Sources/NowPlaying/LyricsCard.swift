@@ -22,6 +22,7 @@ public struct LyricsCard: View {
     @State private var isUserDrivenLyricsScrollActive = false
     @State private var lyricsScrollPhaseResetToken = 0
     @State private var lyricsRecenterRequestToken = 0
+    @State private var showLoadingIndicator = false
 
     public init(
         viewModel: NowPlayingViewModel,
@@ -89,6 +90,9 @@ public struct LyricsCard: View {
         .onReceive(viewModel.instrumentalProgressPublisher) { progress in
             guard NowPlayingPanelPage.lyrics.isActive(currentPage: currentPage) else { return }
             if progress != instrumentalProgress { instrumentalProgress = progress }
+        }
+        .task(id: viewModel.playbackState) {
+            await updateLoadingIndicator(for: viewModel.playbackState)
         }
     }
 
@@ -482,9 +486,17 @@ public struct LyricsCard: View {
             }
 
             Button(action: viewModel.togglePlayPause) {
-                Image(systemName: viewModel.playbackState == .playing ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
-                    .font(EnsembleDesign.Typography.utilityIcon)
-                    .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity))
+                ZStack {
+                    if showLoadingIndicator {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: EnsembleDesign.Color.primaryText))
+                            .scaleEffect(EnsembleScaffold.NowPlaying.loadingIndicatorScale)
+                    } else {
+                        Image(systemName: viewModel.playbackState == .playing ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
+                            .font(EnsembleDesign.Typography.utilityIcon)
+                    }
+                }
+                .foregroundColor(EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.activeControlOpacity))
             }
 
             Button(action: viewModel.next) {
@@ -500,6 +512,16 @@ public struct LyricsCard: View {
     }
 
     // MARK: - Helpers
+
+    @MainActor
+    private func updateLoadingIndicator(for state: PlaybackState) async {
+        let isLoading = state == .loading || state == .buffering
+        if isLoading {
+            try? await Task.sleep(nanoseconds: EnsembleScaffold.NowPlaying.loadingIndicatorDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+        }
+        showLoadingIndicator = isLoading
+    }
 
     /// Intro dot progress: time-synced if there's a real intro gap, otherwise just past/future
     private var introProgress: Double {
