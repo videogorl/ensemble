@@ -988,12 +988,48 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(track?.album?.ratingKey, "album-2")
     }
 
+    func testBatchAlbumUpsertPreservesAndClearsReleaseFormatExplicitly() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "plex/account/server/library"
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(
+                ratingKey: "single",
+                thumbPath: nil,
+                dateModified: nil,
+                releaseFormat: "single",
+                updatesReleaseFormat: true
+            )
+        ], sourceCompositeKey: sourceKey)
+        var album = try await repository.fetchAlbum(ratingKey: "single", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(album?.releaseFormat, "single")
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "single", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        album = try await repository.fetchAlbum(ratingKey: "single", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(album?.releaseFormat, "single")
+
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(
+                ratingKey: "single",
+                thumbPath: nil,
+                dateModified: nil,
+                updatesReleaseFormat: true
+            )
+        ], sourceCompositeKey: sourceKey)
+        album = try await repository.fetchAlbum(ratingKey: "single", sourceCompositeKey: sourceKey)
+        XCTAssertNil(album?.releaseFormat)
+    }
+
     private func makeAlbumInput(
         ratingKey: String,
         thumbPath: String?,
         dateModified: Date?,
         artistRatingKey: String? = nil,
-        genreNames: String? = nil
+        genreNames: String? = nil,
+        releaseFormat: String? = nil,
+        updatesReleaseFormat: Bool = false
     ) -> AlbumUpsertInput {
         AlbumUpsertInput(
             ratingKey: ratingKey,
@@ -1010,7 +1046,9 @@ final class LibraryRepositoryTests: XCTestCase {
             dateAdded: nil,
             dateModified: dateModified,
             rating: nil,
-            genreNames: genreNames
+            genreNames: genreNames,
+            releaseFormat: releaseFormat,
+            updatesReleaseFormat: updatesReleaseFormat
         )
     }
 

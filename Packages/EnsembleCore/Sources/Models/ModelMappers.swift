@@ -228,7 +228,8 @@ public extension Album {
             dateModified: cd.dateModified,
             rating: Int(cd.rating),
             genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
-            sourceCompositeKey: cd.sourceCompositeKey
+            sourceCompositeKey: cd.sourceCompositeKey,
+            releaseFormat: AlbumReleaseFormat(rawValue: cd.releaseFormat ?? "")
         )
     }
 }

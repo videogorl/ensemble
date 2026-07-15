@@ -1,4 +1,5 @@
 import XCTest
+import EnsemblePersistence
 @testable import EnsembleCore
 
 final class AlbumReleaseClassificationTests: XCTestCase {
@@ -51,6 +52,21 @@ final class AlbumReleaseClassificationTests: XCTestCase {
         let album = makeAlbum(id: "album", title: "Breach", trackCount: 0)
 
         XCTAssertFalse(album.isLikelySingleOrEP())
+    }
+
+    func testCachedReleaseFormatRestoresClassification() {
+        let stack = CoreDataStack.inMemory()
+        let album = CDAlbum(context: stack.viewContext)
+        album.ratingKey = "cached-ep"
+        album.key = "/library/metadata/cached-ep"
+        album.title = "Cached EP"
+        album.trackCount = 4
+        album.releaseFormat = "ep"
+
+        let mapped = Album(from: album)
+
+        XCTAssertEqual(mapped.releaseFormat, .ep)
+        XCTAssertTrue(mapped.isLikelySingleOrEP())
     }
 
     private func makeAlbum(

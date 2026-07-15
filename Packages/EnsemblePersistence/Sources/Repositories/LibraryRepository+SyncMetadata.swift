@@ -463,6 +463,9 @@ extension LibraryRepository {
                 album.year = Int32(input.year ?? 0)
                 album.trackCount = Int32(input.trackCount ?? 0)
                 album.genreNames = input.genreNames
+                if input.updatesReleaseFormat {
+                    album.releaseFormat = input.releaseFormat
+                }
                 if existing == nil, let added = input.dateAdded {
                     album.dateAdded = added
                 }

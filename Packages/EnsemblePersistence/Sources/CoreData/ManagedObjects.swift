@@ -117,6 +117,7 @@ public class CDAlbum: NSManagedObject {
     @NSManaged public var rating: Int16
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
+    @NSManaged public var releaseFormat: String?
     @NSManaged public var sourceCompositeKey: String?
     @NSManaged public var artist: CDArtist?
     @NSManaged public var source: CDMusicSource?

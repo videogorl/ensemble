@@ -43,8 +43,10 @@ public struct AlbumUpsertInput: Sendable {
     public let dateModified: Date?
     public let rating: Int?
     public let genreNames: String?
+    public let releaseFormat: String?
+    public let updatesReleaseFormat: Bool
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -60,6 +62,8 @@ public struct AlbumUpsertInput: Sendable {
         self.dateModified = dateModified
         self.rating = rating
         self.genreNames = genreNames
+        self.releaseFormat = releaseFormat
+        self.updatesReleaseFormat = updatesReleaseFormat
     }
 }
 

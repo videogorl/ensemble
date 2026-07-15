@@ -157,6 +157,17 @@ extension PlexAPIClient {
         )
     }
 
+    /// Get all albums constrained to a specific Plex album format.
+    public func getAlbums(sectionKey: String, formatKey: String) async throws -> [PlexAlbum] {
+        try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
+                "type": "9",
+                "format": formatKey
+            ]
+        )
+    }
+
     /// Get albums credited to an artist and constrained to a specific Plex album format.
     public func getArtistAlbums(sectionKey: String, artistTitle: String, formatKey: String) async throws -> [PlexAlbum] {
         try await getPagedSectionItems(

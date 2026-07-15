@@ -103,13 +103,18 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             updatedAt: { $0.updatedAt }
         )
         let albumsToSync = albumChanges.changedItems
+        let releaseFormats = albumsToSync.isEmpty ? nil : await libraryAlbumReleaseFormats()
 
         EnsembleLogger.debug("⏱️ Incremental sync: albums fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(albumChanges.uniqueCount) from server, \(albumsToSync.count) actually changed")
         phaseStart = CFAbsoluteTimeGetCurrent()
         // Build album genre lookup for incremental track upserts
         var incrementalAlbumGenres: [String: String] = [:]
         let albumInputs = albumsToSync.map { album in
-            let input = Self.albumUpsertInput(from: album)
+            let input = Self.albumUpsertInput(
+                from: album,
+                releaseFormat: releaseFormats?[album.ratingKey],
+                updatesReleaseFormat: releaseFormats != nil
+            )
             if let genreString = input.genreNames {
                 incrementalAlbumGenres[album.ratingKey] = genreString
             }
@@ -299,7 +304,11 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
     }
 
-    private static func albumUpsertInput(from album: PlexAlbum) -> AlbumUpsertInput {
+    private static func albumUpsertInput(
+        from album: PlexAlbum,
+        releaseFormat: AlbumReleaseFormat? = nil,
+        updatesReleaseFormat: Bool = false
+    ) -> AlbumUpsertInput {
         AlbumUpsertInput(
             ratingKey: album.ratingKey,
             key: album.key,
@@ -315,7 +324,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
-            genreNames: album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", ")
+            genreNames: album.genreNames.isEmpty ? nil : album.genreNames.joined(separator: ", "),
+            releaseFormat: releaseFormat?.rawValue,
+            updatesReleaseFormat: updatesReleaseFormat
         )
     }
 
@@ -376,11 +387,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         progressHandler(0.3)
         phaseStart = CFAbsoluteTimeGetCurrent()
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
+        let releaseFormats = await libraryAlbumReleaseFormats()
         let albumRatingKeys = Set(albums.map { $0.ratingKey })
         // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
         var albumGenresByKey: [String: String] = [:]
         let albumInputs = albums.map { album in
-            let input = Self.albumUpsertInput(from: album)
+            let input = Self.albumUpsertInput(
+                from: album,
+                releaseFormat: releaseFormats?[album.ratingKey],
+                updatesReleaseFormat: releaseFormats != nil
+            )
             if let genreString = input.genreNames {
                 albumGenresByKey[album.ratingKey] = genreString
             }
@@ -927,16 +943,37 @@ public func getStreamURL(
     }
 
     private func artistAlbumReleaseFormats(artistTitle: String) async throws -> [String: AlbumReleaseFormat] {
+        try await albumReleaseFormats(artistTitle: artistTitle)
+    }
+
+    private func libraryAlbumReleaseFormats() async -> [String: AlbumReleaseFormat]? {
+        do {
+            return try await albumReleaseFormats()
+        } catch {
+            EnsembleLogger.debug("PlexMusicSourceSyncProvider: Library album format query failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private func albumReleaseFormats(artistTitle: String? = nil) async throws -> [String: AlbumReleaseFormat] {
         let formatFilters = try await apiClient.getAlbumFormatFilters(sectionKey: sectionKey)
         var formatsByRatingKey: [String: AlbumReleaseFormat] = [:]
 
         for filter in formatFilters {
-            guard let releaseFormat = AlbumReleaseFormat(plexTag: filter.title) else { continue }
-            let formattedAlbums = try await apiClient.getArtistAlbums(
-                sectionKey: sectionKey,
-                artistTitle: artistTitle,
-                formatKey: filter.key
-            )
+            guard let releaseFormat = AlbumReleaseFormat(plexTag: filter.title), releaseFormat != .album else { continue }
+            let formattedAlbums: [PlexAlbum]
+            if let artistTitle {
+                formattedAlbums = try await apiClient.getArtistAlbums(
+                    sectionKey: sectionKey,
+                    artistTitle: artistTitle,
+                    formatKey: filter.key
+                )
+            } else {
+                formattedAlbums = try await apiClient.getAlbums(
+                    sectionKey: sectionKey,
+                    formatKey: filter.key
+                )
+            }
             for album in formattedAlbums {
                 formatsByRatingKey[album.ratingKey] = releaseFormat
             }
