@@ -459,6 +459,9 @@ public final class SyncCoordinator: ObservableObject {
                 clearLastPlaylistTargetIfNeeded: { [weak self] playlist in
                     self?.clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
                 },
+                deletePlaylistArtwork: { [weak self] ratingKey in
+                    self?.artworkDownloadManager.deleteArtwork(ratingKey: ratingKey, type: .playlist)
+                },
                 refreshRemotePlaylist: { [weak self] playlistID, serverSourceKey in
                     await self?.refreshRemotePlaylist(playlistID: playlistID, serverSourceKey: serverSourceKey)
                 },

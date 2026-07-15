@@ -18,6 +18,7 @@ final class PlaylistMutationController {
         let moveRemotePlaylistItem: (String, String, String?, String) async throws -> Void
         let persistLastPlaylistTarget: (Playlist) -> Void
         let clearLastPlaylistTargetIfNeeded: (Playlist) -> Void
+        let deletePlaylistArtwork: (String) -> Void
         let refreshRemotePlaylist: (String, String) async -> Void
         let refreshServerPlaylists: (String) async -> Void
     }
@@ -108,6 +109,7 @@ final class PlaylistMutationController {
 
         try await dependencies.deleteRemotePlaylist(playlist.id, serverSourceKey)
         dependencies.clearLastPlaylistTargetIfNeeded(playlist)
+        dependencies.deletePlaylistArtwork(playlist.id)
         await dependencies.refreshServerPlaylists(serverSourceKey)
     }
 

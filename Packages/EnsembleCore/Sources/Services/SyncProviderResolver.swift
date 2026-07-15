@@ -27,6 +27,13 @@ struct SyncProviderResolver {
             return ProviderResolution(sourceKey: sourceKey, provider: provider, usedFallback: false)
         }
 
+        if allowFallback,
+           let serverMatch = providers.first(where: {
+            MediaSourceIdentity.isSameServer($0.key, sourceKey)
+        }) {
+            return ProviderResolution(sourceKey: serverMatch.key, provider: serverMatch.value, usedFallback: false)
+        }
+
         guard allowFallback, let fallback = providers.first else {
             return nil
         }
@@ -40,6 +47,15 @@ struct SyncProviderResolver {
     ) -> PlexProviderResolution? {
         if let sourceKey, let provider = providers[sourceKey] as? PlexMusicSourceSyncProvider {
             return PlexProviderResolution(sourceKey: sourceKey, provider: provider, usedFallback: false)
+        }
+
+        if allowFallback,
+           let serverMatch = providers.first(where: {
+            $0.value is PlexMusicSourceSyncProvider
+                && MediaSourceIdentity.isSameServer($0.key, sourceKey)
+        }),
+           let provider = serverMatch.value as? PlexMusicSourceSyncProvider {
+            return PlexProviderResolution(sourceKey: serverMatch.key, provider: provider, usedFallback: false)
         }
 
         guard allowFallback,

@@ -331,6 +331,7 @@ public extension Playlist {
     }
 
     init(from cd: CDPlaylist) {
+        let fallbackArtwork = Self.fallbackArtwork(from: cd)
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -340,11 +341,29 @@ public extension Playlist {
             trackCount: Int(cd.trackCount),
             duration: TimeInterval(cd.duration) / 1000.0,
             compositePath: cd.compositePath,
+            fallbackArtworkPath: fallbackArtwork?.path,
+            fallbackArtworkRatingKey: fallbackArtwork?.albumRatingKey,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
             sourceCompositeKey: cd.sourceCompositeKey
         )
+    }
+
+    private static func fallbackArtwork(from playlist: CDPlaylist) -> (path: String, albumRatingKey: String?)? {
+        for membership in playlist.playlistItemsArray {
+            if let album = membership.track?.album,
+               let path = album.thumbPath,
+               !path.isEmpty {
+                return (path, album.ratingKey)
+            }
+
+            if let path = membership.track?.thumbPath ?? membership.trackThumbPath,
+               !path.isEmpty {
+                return (path, nil)
+            }
+        }
+        return nil
     }
 }
 

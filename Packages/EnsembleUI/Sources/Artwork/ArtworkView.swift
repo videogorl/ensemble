@@ -51,7 +51,7 @@ public struct ArtworkView: View {
     /// Unique ID to identify this specific artwork request — avoids string interpolation
     /// by using a stable struct key
     private var loadID: String {
-        "\(effectivePath ?? "")|\(effectiveRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
+        "\(path ?? "")|\(ratingKey ?? "")|\(fallbackPath ?? "")|\(fallbackRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
     }
 
     private var imagePriority: ArtworkImagePriority {
@@ -133,7 +133,7 @@ public struct ArtworkView: View {
         ) { notification in
             // Re-trigger load if this artwork's ratingKey was invalidated
             guard let invalidatedKey = notification.userInfo?["ratingKey"] as? String else { return }
-            if invalidatedKey == effectiveRatingKey {
+            if invalidatedKey == ratingKey || invalidatedKey == fallbackRatingKey {
                 artworkURL = nil
                 resolvedImage = nil
                 invalidationToken += 1
@@ -313,7 +313,14 @@ public extension ArtworkView {
             path: playlist.compositePath,
             sourceKey: playlist.sourceCompositeKey,
             ratingKey: playlist.id,
+            fallbackPath: playlist.fallbackArtworkPath,
+            fallbackRatingKey: playlist.fallbackArtworkRatingKey,
             cacheHint: PersistentArtworkCacheHint(playlist: playlist),
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: playlist.fallbackArtworkRatingKey,
+                kind: .album,
+                sourcePath: playlist.fallbackArtworkPath
+            ),
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive

@@ -265,6 +265,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
                 )
             ]
+            request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track", "playlistTracks.track.album"]
             result = Result { try context.fetch(request) }
         }
         return try result.get()
@@ -279,6 +280,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceCompositeKey)
                 }
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track", "playlistTracks.track.album"]
                 do {
                     let playlists = try context.fetch(request)
                     continuation.resume(returning: playlists)
@@ -338,6 +340,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     fieldNames: ["title"]
                 )
                 request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))]
+                request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track", "playlistTracks.track.album"]
                 do {
                     let playlists = try context.fetch(request)
                     continuation.resume(returning: playlists)

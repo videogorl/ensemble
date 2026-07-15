@@ -120,35 +120,45 @@ public enum ArtworkImageResolver {
         for descriptor: ArtworkResolutionDescriptor,
         artworkLoader: ArtworkLoaderProtocol
     ) async -> ArtworkImageResolutionOutcome {
-        guard let url = await artworkLoader.artworkURLAsync(
-            for: descriptor.path,
-            sourceKey: descriptor.sourceKey,
-            ratingKey: descriptor.ratingKey,
-            fallbackPath: descriptor.fallbackPath,
-            fallbackRatingKey: descriptor.fallbackRatingKey,
-            size: descriptor.size
-        ) else {
-            return .unavailable(.noArtworkURL)
-        }
+        let candidates = candidateDescriptors(for: descriptor)
+        var failedURL: URL?
 
-        if let resolved = await image(for: url, descriptor: descriptor) {
-            await artworkLoader.cacheResolvedArtwork(
-                from: url,
-                cacheHint: descriptor.effectiveCacheHint,
-                minimumPixelDimension: descriptor.size
+        for candidate in candidates {
+            let url = await artworkLoader.artworkURLAsync(
+                for: candidate.path,
+                sourceKey: candidate.sourceKey,
+                ratingKey: candidate.ratingKey,
+                fallbackPath: nil,
+                fallbackRatingKey: nil,
+                size: candidate.size
             )
-            return .resolved(resolved)
+
+            if let url,
+               let resolved = await image(for: url, descriptor: candidate) {
+                await artworkLoader.cacheResolvedArtwork(
+                    from: url,
+                    cacheHint: candidate.cacheHint,
+                    minimumPixelDimension: candidate.size
+                )
+                return .resolved(resolved)
+            }
+
+            if let url {
+                failedURL = url
+            }
+            if let local = await resolvedLocalImage(
+                for: candidate,
+                failedURL: url,
+                artworkLoader: artworkLoader
+            ) {
+                return .resolved(local)
+            }
         }
 
-        if let fallback = await resolvedLocalFallbackImage(
-            for: descriptor,
-            failedURL: url,
-            artworkLoader: artworkLoader
-        ) {
-            return .resolved(fallback)
+        if let failedURL {
+            return .unavailable(.imageLoadFailed(failedURL))
         }
-
-        return .unavailable(.imageLoadFailed(url))
+        return .unavailable(.noArtworkURL)
     }
 
     public static func preBlurredImage(
@@ -185,16 +195,50 @@ public enum ArtworkImageResolver {
         return blurred?.value
     }
 
-    private static func resolvedLocalFallbackImage(
+    private static func candidateDescriptors(
+        for descriptor: ArtworkResolutionDescriptor
+    ) -> [ArtworkResolutionDescriptor] {
+        var candidates: [ArtworkResolutionDescriptor] = []
+        if descriptor.path?.isEmpty == false {
+            candidates.append(ArtworkResolutionDescriptor(
+                path: descriptor.path,
+                sourceKey: descriptor.sourceKey,
+                ratingKey: descriptor.ratingKey,
+                fallbackPath: nil,
+                fallbackRatingKey: nil,
+                cacheHint: descriptor.cacheHint,
+                fallbackCacheHint: nil,
+                size: descriptor.size,
+                priority: descriptor.priority
+            ))
+        }
+        if descriptor.fallbackPath?.isEmpty == false,
+           descriptor.fallbackPath != descriptor.path {
+            candidates.append(ArtworkResolutionDescriptor(
+                path: descriptor.fallbackPath,
+                sourceKey: descriptor.sourceKey,
+                ratingKey: descriptor.fallbackRatingKey,
+                fallbackPath: nil,
+                fallbackRatingKey: nil,
+                cacheHint: descriptor.fallbackCacheHint,
+                fallbackCacheHint: nil,
+                size: descriptor.size,
+                priority: descriptor.priority
+            ))
+        }
+        return candidates
+    }
+
+    private static func resolvedLocalImage(
         for descriptor: ArtworkResolutionDescriptor,
-        failedURL: URL,
+        failedURL: URL?,
         artworkLoader: ArtworkLoaderProtocol
     ) async -> ArtworkResolvedImage? {
         guard let localURL = await artworkLoader.localArtworkURLAsync(
             for: descriptor.path,
             ratingKey: descriptor.ratingKey,
-            fallbackPath: descriptor.fallbackPath,
-            fallbackRatingKey: descriptor.fallbackRatingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
             minimumPixelDimension: nil,
             allowStaleIdentity: true
         ),

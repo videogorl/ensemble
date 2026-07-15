@@ -143,6 +143,53 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertTrue(cacheRequests.isEmpty)
     }
 
+    func testArtworkResolverLoadsAndCachesFallbackWhenPrimaryURLFails() async throws {
+        let fallbackArtworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: fallbackArtworkURL) }
+
+        let primaryPath = "/playlists/playlist-1/composite"
+        let fallbackPath = "/library/metadata/album-1/thumb"
+        let missingArtworkURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("png")
+        let fallbackHint = PersistentArtworkCacheHint(
+            ratingKey: "album-1",
+            kind: .album,
+            sourcePath: fallbackPath
+        )
+        let artworkLoader = RecordingArtworkLoader(
+            url: nil,
+            urlsByPath: [
+                primaryPath: missingArtworkURL,
+                fallbackPath: fallbackArtworkURL
+            ]
+        )
+        let descriptor = ArtworkResolutionDescriptor(
+            path: primaryPath,
+            sourceKey: "plex:account:server",
+            ratingKey: "playlist-1",
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: "album-1",
+            cacheHint: PersistentArtworkCacheHint(
+                ratingKey: "playlist-1",
+                kind: .playlist,
+                sourcePath: primaryPath
+            ),
+            fallbackCacheHint: fallbackHint,
+            size: 44,
+            priority: .high
+        )
+
+        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
+
+        XCTAssertEqual(resolved?.url, fallbackArtworkURL)
+        let artworkPaths = await artworkLoader.artworkPaths
+        XCTAssertEqual(artworkPaths, [primaryPath, fallbackPath])
+        let cacheRequests = await artworkLoader.cacheRequests
+        XCTAssertEqual(cacheRequests.count, 1)
+        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint)
+    }
+
     @MainActor
     func testTrackArtworkThumbnailLoaderUsesResolverLocalFallback() async throws {
         let localArtworkURL = try makeTemporaryPNG()
@@ -1342,12 +1389,15 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
 
     let url: URL?
     let localURL: URL?
+    let urlsByPath: [String: URL]
     private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
     private(set) var localRequests: [LocalRequest] = []
+    private(set) var artworkPaths: [String] = []
 
-    init(url: URL?, localURL: URL? = nil) {
+    init(url: URL?, localURL: URL? = nil, urlsByPath: [String: URL] = [:]) {
         self.url = url
         self.localURL = localURL
+        self.urlsByPath = urlsByPath
     }
 
     func artworkURLAsync(
@@ -1358,7 +1408,13 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
         fallbackRatingKey: String?,
         size: Int
     ) async -> URL? {
-        url
+        if let path {
+            artworkPaths.append(path)
+            if let pathURL = urlsByPath[path] {
+                return pathURL
+            }
+        }
+        return url
     }
 
     func localArtworkURLAsync(

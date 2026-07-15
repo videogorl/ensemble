@@ -48,6 +48,27 @@ final class SyncProviderResolverTests: XCTestCase {
         XCTAssertEqual(fallback?.usedFallback, true)
     }
 
+    func testResolveUsesProviderFromRequestedServerForServerScopedKey() {
+        let requested = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+        let other = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-2", libraryId: "2")
+        let resolver = SyncProviderResolver(providers: [
+            other.compositeKey: MockProvider(sourceIdentifier: other),
+            requested.compositeKey: MockProvider(sourceIdentifier: requested)
+        ])
+        let serverSourceKey = "plex:account-1:server-1"
+
+        XCTAssertNil(resolver.resolve(sourceKey: serverSourceKey, allowFallback: false))
+
+        let resolution = resolver.resolve(
+            sourceKey: serverSourceKey,
+            allowFallback: true
+        )
+
+        XCTAssertEqual(resolution?.sourceKey, requested.compositeKey)
+        XCTAssertEqual(resolution?.provider.sourceIdentifier, requested)
+        XCTAssertEqual(resolution?.usedFallback, false)
+    }
+
     func testRequireProviderThrowsWhenSourceIsUnavailable() {
         let resolver = SyncProviderResolver(providers: [:])
 

@@ -720,6 +720,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     public let trackCount: Int
     public let duration: TimeInterval
     public let compositePath: String?
+    public let fallbackArtworkPath: String?
+    public let fallbackArtworkRatingKey: String?
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
@@ -734,6 +736,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         trackCount: Int = 0,
         duration: TimeInterval = 0,
         compositePath: String? = nil,
+        fallbackArtworkPath: String? = nil,
+        fallbackArtworkRatingKey: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
@@ -747,6 +751,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         self.trackCount = trackCount
         self.duration = duration
         self.compositePath = compositePath
+        self.fallbackArtworkPath = fallbackArtworkPath
+        self.fallbackArtworkRatingKey = fallbackArtworkRatingKey
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
@@ -770,6 +776,8 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
             lhs.trackCount == rhs.trackCount &&
             lhs.duration == rhs.duration &&
             lhs.compositePath == rhs.compositePath &&
+            lhs.fallbackArtworkPath == rhs.fallbackArtworkPath &&
+            lhs.fallbackArtworkRatingKey == rhs.fallbackArtworkRatingKey &&
             lhs.isSmart == rhs.isSmart
     }
 
