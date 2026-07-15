@@ -161,9 +161,7 @@ public enum ShareActions {
 
         switch payload {
         case .link(let url, _):
-            ShareSheetPresenter.present(items: [url]) {
-                deps.shareService.cleanupTempFiles()
-            }
+            ShareSheetPresenter.present(items: [url])
 
         case .text(let text):
             // Show a toast indicating we're sharing text instead of a link
@@ -179,9 +177,9 @@ public enum ShareActions {
             ShareSheetPresenter.present(items: [text])
 
         case .file(let url, _):
-            ShareSheetPresenter.present(items: [url]) {
-                deps.shareService.cleanupTempFiles()
-            }
+            // Keep the system-temporary file alive after the share sheet closes.
+            // Receiving apps can continue reading it after the activity callback.
+            ShareSheetPresenter.present(items: [url])
         }
     }
 }

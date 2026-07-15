@@ -172,6 +172,12 @@ final class ShareServiceTests: XCTestCase {
         XCTAssertEqual(metadata.fileName, "A_B_C_ - Artist_Name.mp3")
     }
 
+    func testAudioExportRejectsTruncatedFile() {
+        XCTAssertFalse(ShareService.isCompleteAudioExport(actualByteCount: 999, expectedByteCount: 1_000))
+        XCTAssertTrue(ShareService.isCompleteAudioExport(actualByteCount: 1_000, expectedByteCount: 1_000))
+        XCTAssertTrue(ShareService.isCompleteAudioExport(actualByteCount: 1_000, expectedByteCount: nil))
+    }
+
     // MARK: - NoOp Searcher Fallback
 
     func testNoOpSearcher_producesTextFallback() async {

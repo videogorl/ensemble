@@ -149,7 +149,11 @@ public final class ShareService: ObservableObject {
     /// For non-downloaded tracks, downloads to a temp directory first.
     /// Returns nil on download failure.
     public func prepareTrackFilePayload(track: Track) async -> SharePayload? {
-        let exportMetadata = TrackFileExportMetadata(track: track)
+        let originalFileInfo = track.localFilePath == nil ? await originalFileInfo(for: track) : nil
+        let exportMetadata = TrackFileExportMetadata(
+            track: track,
+            fallbackExtension: originalFileInfo?.container ?? "mp3"
+        )
         let title = exportMetadata.displayTitle
 
         // Check for existing local download — create a renamed copy so the share sheet
@@ -187,7 +191,16 @@ public final class ShareService: ObservableObject {
             // Clean up any previous temp file at this path
             try? FileManager.default.removeItem(at: tempFileURL)
 
-            let (downloadedURL, _) = try await URLSession.shared.download(from: streamURL)
+            let (downloadedURL, response) = try await URLSession.shared.download(from: streamURL)
+            let actualByteCount = try downloadedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            let responseByteCount = response.expectedContentLength > 0 ? Int(response.expectedContentLength) : nil
+            let expectedByteCount = originalFileInfo?.fileSize ?? responseByteCount
+            guard Self.isCompleteAudioExport(
+                actualByteCount: actualByteCount,
+                expectedByteCount: expectedByteCount
+            ) else {
+                throw ShareFileError.incompleteDownload
+            }
             try FileManager.default.moveItem(at: downloadedURL, to: tempFileURL)
 
             logger.info("Downloaded track to temp for sharing: \(title)")
@@ -207,18 +220,18 @@ public final class ShareService: ObservableObject {
         return url
     }
 
-    /// Clean up temporary share files. Call after share sheet is dismissed.
-    public func cleanupTempFiles() {
+    nonisolated static func isCompleteAudioExport(actualByteCount: Int, expectedByteCount: Int?) -> Bool {
+        actualByteCount > 0 && expectedByteCount.map { actualByteCount >= $0 } != false
+    }
+
+    private func originalFileInfo(for track: Track) async -> AudioFileInfo? {
+        guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: Self.tempShareDirectory,
-                includingPropertiesForKeys: nil
-            )
-            for file in contents {
-                try? FileManager.default.removeItem(at: file)
-            }
+            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
+            return AudioFileInfo(from: plexTrack)
         } catch {
-            // Temp directory may not exist yet — that's fine
+            logger.debug("Couldn't load original file metadata for sharing: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -238,4 +251,8 @@ public final class ShareService: ObservableObject {
         return "\"\(album.title)\""
     }
 
+}
+
+private enum ShareFileError: Error {
+    case incompleteDownload
 }
