@@ -153,8 +153,7 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
                     // background acceleration. The persistent queue resumes in
                     // foreground. Using success:false shows "Task Failed" in the
                     // Dynamic Island which is misleading for a paused download.
-                    (self?.currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: true)
-                    self?.currentTask = nil
+                    self?.finishCurrentTask(success: true)
                 }
             }
             // Notify the download service so it can start/continue processing.
@@ -212,6 +211,7 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
 
     override func finishCurrentTask(success: Bool) {
         if #available(iOS 26.0, *) {
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.continuedTaskIdentifier)
             (currentTask as? BGContinuedProcessingTask)?.setTaskCompleted(success: success)
             currentTask = nil
         }
@@ -224,7 +224,7 @@ final class OfflineBackgroundExecutionCoordinator: OfflineBackgroundExecutionCoo
         applicationBackgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Offline Downloads") { [weak self] in
             Task { @MainActor in
                 self?.eventStore.onExpiration?()
-                self?.endApplicationBackgroundTaskIfNeeded()
+                self?.finishCurrentTask(success: true)
             }
         }
         EnsembleLogger.debug("📦 Began app background task for offline downloads")
