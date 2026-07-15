@@ -30,7 +30,6 @@ struct RootMiniPlayerOverlay: View {
             EnsembleScaffold.MiniPlayer.artworkDimension,
             EnsembleScaffold.MiniPlayer.largeRowMinimumHeight
         ) + (TrackListLayoutMetrics.rowVerticalPadding * 2)
-            + EnsembleScaffold.MiniPlayer.floatingBottomPadding
     }
 
     var body: some View {

@@ -530,7 +530,6 @@ public enum EnsembleScaffold {
         public static let popoverCornerRadius = EnsembleDesign.Radius.miniPlayer
         public static let floatingHorizontalPadding = EnsembleDesign.Spacing.xl
         public static let inlineHorizontalPadding = EnsembleDesign.Spacing.md
-        public static let floatingBottomPadding = EnsembleDesign.Spacing.chipVertical
         public static let inlineBottomPadding = EnsembleDesign.Spacing.xs
         public static let verticalSwipeRubberBandFactor: CGFloat = 0.5
         public static let verticalOpenThreshold: CGFloat = 50

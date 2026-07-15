@@ -458,7 +458,7 @@ final class EnsembleUITests: XCTestCase {
             ),
             86
         )
-        XCTAssertEqual(TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20), 32)
+        XCTAssertEqual(TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20), 20)
     }
 
     func testTrackListLayoutMetricsRowInsets() {

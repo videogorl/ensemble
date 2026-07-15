@@ -82,7 +82,7 @@ public struct MiniPlayer: View {
             )
         )
         .padding(.horizontal, horizontalPadding)
-        .padding(.bottom, isFloating ? EnsembleScaffold.MiniPlayer.floatingBottomPadding : EnsembleScaffold.MiniPlayer.inlineBottomPadding)
+        .padding(.bottom, isFloating ? 0 : EnsembleScaffold.MiniPlayer.inlineBottomPadding)
         .offset(y: verticalOffset)
         .contextMenu {
             // Context menu closures are evaluated lazily on long press,
