@@ -30,6 +30,7 @@ public struct MainTabView: View {
     @State private var accentColor: AppAccentColor = DependencyContainer.shared.settingsManager.accentColor
     @State private var auroraVisualizationEnabled: Bool = DependencyContainer.shared.settingsManager.auroraVisualizationEnabled
     @State private var tabInteractionGeneration = 0
+    @State private var tabBarBottomClearance: CGFloat = 0
     // Get the tabs to show in the bar (limit to 4, then More)
     private var barTabs: [TabItem] {
         Array(enabledTabs.prefix(4))
@@ -97,7 +98,10 @@ public struct MainTabView: View {
 
     public var body: some View {
         GeometryReader { geometry in
-            let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift()
+            let miniPlayerBottomLift = TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                safeAreaBottom: geometry.safeAreaInsets.bottom,
+                tabBarBottomClearance: tabBarBottomClearance
+            )
             let activeStageFlowRootTab = activeStageFlowRootTab
             let rootStageFlowActive = isStageFlowActive(for: geometry.size, activeTab: activeStageFlowRootTab)
             let rootChromeSuppressed = rootStageFlowActive
@@ -138,7 +142,8 @@ public struct MainTabView: View {
                 // The 70pt covers the mini player height + spacing above the tab bar.
                 .miniPlayerContainerInset(
                     TrackListLayoutMetrics.miniPlayerContainerInset,
-                    isVisible: !isShowingNowPlaying && !miniPlayerSuppressed
+                    isVisible: !isShowingNowPlaying && !miniPlayerSuppressed,
+                    tabBarBottomClearance: $tabBarBottomClearance
                 )
                 .zIndex(0)
             .task {

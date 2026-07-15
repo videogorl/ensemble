@@ -259,9 +259,17 @@ enum RootChromeLayoutResolver {
             return .hidden
         }
 
+        #if os(iOS)
+        let bottomPadding = TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+            safeAreaBottom: proxy.safeAreaInsets.bottom
+        )
+        #else
+        let bottomPadding = TrackListLayoutMetrics.miniPlayerBottomLiftBase
+        #endif
+
         return RootChromeLayout(
             frame: rootBounds,
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: bottomPadding,
             horizontalOffset: 0,
             showsMiniPlayer: true
         )

@@ -451,7 +451,14 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(TrackListLayoutMetrics.compactMiniPlayerBottomSpacing, 110)
         XCTAssertEqual(TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 0), 20)
         XCTAssertEqual(TrackListLayoutMetrics.detailMiniPlayerBottomLift(safeAreaBottom: 20), 32)
-        XCTAssertEqual(TrackListLayoutMetrics.rootMiniPlayerBottomLift(), 52)
+        XCTAssertEqual(
+            TrackListLayoutMetrics.rootMiniPlayerBottomLift(
+                safeAreaBottom: 0,
+                tabBarBottomClearance: 74
+            ),
+            86
+        )
+        XCTAssertEqual(TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20), 32)
     }
 
     func testTrackListLayoutMetricsRowInsets() {
@@ -480,7 +487,7 @@ final class EnsembleUITests: XCTestCase {
         )
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -498,7 +505,7 @@ final class EnsembleUITests: XCTestCase {
     func testRootChromeLayoutInfersContentViewportWhenSidebarVisibilityIsUnknown() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -530,7 +537,7 @@ final class EnsembleUITests: XCTestCase {
         )
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -551,7 +558,7 @@ final class EnsembleUITests: XCTestCase {
     func testRootChromeLayoutUsesVisibleSidebarFallbackWidthWhenFrameIsUnavailable() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 900, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -577,7 +584,7 @@ final class EnsembleUITests: XCTestCase {
     func testRootChromeLayoutUsesRootFallbackWhenSidebarIsHidden() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 900, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -603,7 +610,7 @@ final class EnsembleUITests: XCTestCase {
     func testRootChromeLayoutIgnoresResolvedLayoutWhenSidebarIsVisible() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 900, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -629,7 +636,7 @@ final class EnsembleUITests: XCTestCase {
     func testRootChromeLayoutIgnoresTransientDetailFrameWhenSidebarFrameIsUnavailable() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 900, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -750,7 +757,7 @@ final class EnsembleUITests: XCTestCase {
     func testRootChromeLayoutIgnoresIPadDetailFrameChangesWhenSidebarIsStable() {
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
@@ -791,7 +798,7 @@ final class EnsembleUITests: XCTestCase {
         )
         let rootFallback = RootChromeLayout(
             frame: CGRect(x: 0, y: 0, width: 556, height: 800),
-            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(),
+            bottomPadding: TrackListLayoutMetrics.rootMiniPlayerBottomLift(safeAreaBottom: 20),
             horizontalOffset: 0,
             showsMiniPlayer: true
         )
