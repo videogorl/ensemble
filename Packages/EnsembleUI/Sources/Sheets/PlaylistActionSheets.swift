@@ -206,11 +206,15 @@ public struct PlaylistPickerSheet: View {
         playlistsContainingSelection = []
         defer { isLoading = false }
         do {
+            let filters = FilterPersistence.load(for: "Playlists")
+            let sortOption = PlaylistSortOption(rawValue: filters.sortBy) ?? .title
             playlists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: inferredServerSourceKey)
                 .filter { !$0.isSmart }
-                .sorted { lhs, rhs in
-                    (lhs.dateModified ?? .distantPast) > (rhs.dateModified ?? .distantPast)
-                }
+            playlists = PlaylistViewModel.sortPlaylists(
+                playlists,
+                by: sortOption,
+                ascending: filters.sortDirection == .ascending
+            )
             await loadCachedPlaylistMembership()
         } catch {
             deps.toastCenter.show(

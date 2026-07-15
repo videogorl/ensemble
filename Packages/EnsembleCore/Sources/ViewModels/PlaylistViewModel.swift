@@ -272,7 +272,8 @@ public final class PlaylistViewModel: ObservableObject {
     
     // MARK: - Sort & Filter (static, used by Combine pipeline)
 
-    private static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
+    /// Sorts playlists using the same options as the Playlists screen.
+    public static func sortPlaylists(_ playlists: [Playlist], by option: PlaylistSortOption, ascending asc: Bool) -> [Playlist] {
         switch option {
         case .title:
             return playlists.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: asc)
