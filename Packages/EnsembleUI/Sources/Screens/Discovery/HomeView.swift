@@ -60,13 +60,13 @@ public struct HomeView: View {
             #if os(macOS)
                 EnsembleToolbarLeadingSpacer()
             #endif
-            ToolbarItem(placement: .primaryActionIfAvailable) {
-                Button("Edit") {
-                    viewModel.enterEditMode()
-                    viewModel.isEditingOrder = true
+            ToolbarItemGroup(placement: .primaryActionIfAvailable) {
+                if viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty {
+                    Button("Edit") {
+                        viewModel.enterEditMode()
+                        viewModel.isEditingOrder = true
+                    }
                 }
-                .disabled(!viewModel.hasEnabledLibraries || viewModel.hubs.isEmpty)
-                .opacity(viewModel.hasEnabledLibraries && !viewModel.hubs.isEmpty ? 1 : 0)
             }
         }
         .sheet(isPresented: $viewModel.isEditingOrder) {
