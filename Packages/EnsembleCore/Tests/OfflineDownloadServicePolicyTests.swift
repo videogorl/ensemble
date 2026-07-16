@@ -79,6 +79,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         private var _fetchDownloadsCount = 0
         private var _fetchCompletedDownloadsCount = 0
         private var _deletedReferences: [OfflineTrackReference] = []
+        private var _deleteBatches: [[OfflineTrackReference]] = []
 
         var statusUpdates: [([CDDownload.Status], CDDownload.Status)] {
             lock.withLock { _statusUpdates }
@@ -94,6 +95,10 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         var deletedReferences: [OfflineTrackReference] {
             lock.withLock { _deletedReferences }
+        }
+
+        var deleteBatches: [[OfflineTrackReference]] {
+            lock.withLock { _deleteBatches }
         }
 
         func resetStatusUpdates() {
@@ -139,6 +144,12 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
                 )
             }
         }
+        func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws {
+            lock.withLock {
+                _deleteBatches.append(references)
+                _deletedReferences.append(contentsOf: references)
+            }
+        }
         func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
         func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
@@ -155,7 +166,12 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func fetchTarget(key: String) async throws -> CDOfflineDownloadTarget? { nil }
         func upsertTarget(key: String, kind: CDOfflineDownloadTarget.Kind, ratingKey: String?, sourceCompositeKey: String?, displayName: String?) async throws -> CDOfflineDownloadTarget { throw MockError.unimplemented }
         func updateTarget(key: String, status: CDOfflineDownloadTarget.Status, totalTrackCount: Int, completedTrackCount: Int, progress: Float, lastError: String?) async throws {}
-        func deleteTarget(key: String) async throws { deletedTargetKeys.append(key) }
+        func deleteTarget(key: String) async throws {
+            deletedTargetKeys.append(key)
+            for reference in referencesByTarget[key] ?? [] {
+                membershipCounts[reference] = max(0, (membershipCounts[reference] ?? 0) - 1)
+            }
+        }
         func deleteTargets(forSourceCompositeKey sourceKey: String) async throws {}
         func deleteAllTargets() async throws {}
         func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership] { [] }
@@ -318,11 +334,18 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             downloadManager: downloadManager,
             targetRepository: targetRepository
         )
+        var progressUpdates: [RemovalProgress] = []
+        let progressCancellable = service.$removalInProgress
+            .compactMap { $0[targetKey] }
+            .sink { progressUpdates.append($0) }
+        defer { progressCancellable.cancel() }
 
         await service.removeTarget(key: targetKey)
 
         XCTAssertEqual(targetRepository.deletedTargetKeys, [targetKey])
         XCTAssertEqual(downloadManager.deletedReferences, [orphaned])
+        XCTAssertEqual(downloadManager.deleteBatches, [[orphaned]])
+        XCTAssertEqual(progressUpdates.map(\.completed), [0, 2])
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanedCacheURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sharedCacheURL.path))
     }

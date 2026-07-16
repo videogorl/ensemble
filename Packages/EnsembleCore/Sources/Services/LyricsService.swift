@@ -813,6 +813,34 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    /// Remove caches for multiple source-scoped tracks with one directory scan.
+    public func clearCaches(for references: [OfflineTrackReference]) async {
+        let uniqueReferences = Array(Set(references))
+        guard !uniqueReferences.isEmpty else { return }
+
+        let prefixes = uniqueReferences.map {
+            "\($0.trackRatingKey):\($0.trackSourceCompositeKey):"
+        }
+        cache = cache.filter { key, _ in !prefixes.contains(where: key.hasPrefix) }
+        negativeCacheTimestamps = negativeCacheTimestamps.filter { key, _ in
+            !prefixes.contains(where: key.hasPrefix)
+        }
+
+        let safePrefixes = prefixes.map(Self.safeFilename)
+        await Task.detached(priority: .utility) {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                atPath: Self.lyricsCacheDir.path
+            ) else {
+                return
+            }
+            for file in files where safePrefixes.contains(where: file.hasPrefix) {
+                try? FileManager.default.removeItem(
+                    at: Self.lyricsCacheDir.appendingPathComponent(file)
+                )
+            }
+        }.value
+    }
+
     // MARK: - Persistent File Cache
 
     private nonisolated static func persistentCachePath(key: String) -> URL {

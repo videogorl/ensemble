@@ -62,6 +62,8 @@ public protocol DownloadManagerProtocol: Sendable {
 
     func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws
     func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws
+    /// Delete source-scoped download records and files in bounded background batches.
+    func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws
 
     func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String?
     func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String?
@@ -103,6 +105,15 @@ public extension DownloadManagerProtocol {
 
     func requeueDownload(_ downloadId: NSManagedObjectID, quality: String) async throws {
         try await updateDownloadStatus(downloadId, status: .pending, quality: quality)
+    }
+
+    func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws {
+        for reference in references {
+            try await deleteDownload(
+                forTrackRatingKey: reference.trackRatingKey,
+                sourceCompositeKey: reference.trackSourceCompositeKey
+            )
+        }
     }
 
     func removeOrphanedDownloadFiles() async throws -> Int { 0 }
@@ -730,6 +741,39 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     continuation.resume()
                 } catch {
                     continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws {
+        let uniqueReferences = Array(Set(references))
+        guard !uniqueReferences.isEmpty else { return }
+
+        try await coreDataStack.performBackgroundContext { context in
+            let grouped = Dictionary(grouping: uniqueReferences, by: \.trackSourceCompositeKey)
+
+            for (sourceKey, sourceReferences) in grouped {
+                let ratingKeys = sourceReferences.map(\.trackRatingKey)
+                for start in stride(from: 0, to: ratingKeys.count, by: 500) {
+                    let batch = Array(ratingKeys[start..<min(start + 500, ratingKeys.count)])
+                    let request = CDDownload.fetchRequest()
+                    request.predicate = NSPredicate(
+                        format: "track.sourceCompositeKey == %@ AND track.ratingKey IN %@",
+                        sourceKey,
+                        batch
+                    )
+
+                    for download in try context.fetch(request) {
+                        Self.removeStoredDownloadFileAndSidecar(download.filePath)
+                        download.track?.localFilePath = nil
+                        context.delete(download)
+                    }
+
+                    if context.hasChanges {
+                        try context.save()
+                    }
+                    context.reset()
                 }
             }
         }

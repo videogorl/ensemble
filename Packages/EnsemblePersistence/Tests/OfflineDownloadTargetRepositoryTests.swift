@@ -90,6 +90,51 @@ final class OfflineDownloadTargetRepositoryTests: XCTestCase {
         XCTAssertEqual(l2Count, 1)
     }
 
+    func testUnreferencedTrackReferencesBatchesAndPreservesSharedTracks() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = OfflineDownloadTargetRepository(coreDataStack: stack)
+        let targetA = "offline:library:source-a"
+        let targetB = "offline:album:source-a:shared"
+        let shared = OfflineTrackReference(
+            trackRatingKey: "shared",
+            trackSourceCompositeKey: "source-a"
+        )
+        let candidates = (0..<501).map {
+            OfflineTrackReference(
+                trackRatingKey: "track-\($0)",
+                trackSourceCompositeKey: "source-a"
+            )
+        } + [shared]
+
+        _ = try await repository.upsertTarget(
+            key: targetA,
+            kind: .library,
+            ratingKey: nil,
+            sourceCompositeKey: "source-a",
+            displayName: "Library"
+        )
+        _ = try await repository.upsertTarget(
+            key: targetB,
+            kind: .album,
+            ratingKey: "shared",
+            sourceCompositeKey: "source-a",
+            displayName: "Shared"
+        )
+        try await repository.replaceMemberships(
+            targetKey: targetA,
+            trackReferences: candidates
+        )
+        try await repository.replaceMemberships(
+            targetKey: targetB,
+            trackReferences: [shared]
+        )
+
+        try await repository.deleteTarget(key: targetA)
+        let unreferenced = try await repository.unreferencedTrackReferences(from: candidates)
+
+        XCTAssertEqual(Set(unreferenced), Set(candidates.dropLast()))
+    }
+
     func testFetchTargetKeysReturnsTargetsContainingReference() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)

@@ -160,6 +160,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         let removed = OfflineTrackReference(trackRatingKey: "old", trackSourceCompositeKey: "source")
         targetRepository.previousReferencesByTarget["target"] = [removed]
         targetRepository.membershipCounts[removed] = 0
+        var clearedLyrics: [OfflineTrackReference] = []
 
         let reconciler = DownloadTargetReconciler(
             dependencies: .init(
@@ -167,7 +168,8 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 libraryRepository: libraryRepository,
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
-                currentDownloadQuality: { "high" }
+                currentDownloadQuality: { "high" },
+                clearLyricsCaches: { clearedLyrics.append(contentsOf: $0) }
             )
         )
 
@@ -184,6 +186,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
             ]
         )
         XCTAssertEqual(downloadManager.deletedReferences, [removed])
+        XCTAssertEqual(clearedLyrics, [removed])
     }
 
     func testReconcilePlaylistTargetUsesPlaylistTracks() async throws {
@@ -210,7 +213,8 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 libraryRepository: libraryRepository,
                 playlistRepository: playlistRepository,
                 downloadManager: downloadManager,
-                currentDownloadQuality: { "original" }
+                currentDownloadQuality: { "original" },
+                clearLyricsCaches: { _ in }
             )
         )
 

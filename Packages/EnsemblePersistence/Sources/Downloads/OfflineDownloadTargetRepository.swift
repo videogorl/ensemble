@@ -51,12 +51,28 @@ public protocol OfflineDownloadTargetRepositoryProtocol: Sendable {
 
     func hasAnyMembership(for reference: OfflineTrackReference) async throws -> Bool
     func membershipCount(for reference: OfflineTrackReference) async throws -> Int
+    /// Returns only references that are not present in any offline target.
+    func unreferencedTrackReferences(
+        from references: [OfflineTrackReference]
+    ) async throws -> [OfflineTrackReference]
 
     /// Returns target keys for all targets that contain the given track reference.
     func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String]
 
     /// Returns the total duration (in milliseconds) of all unique tracks across all download targets.
     func totalTrackDurationMs() async throws -> Int64
+}
+
+public extension OfflineDownloadTargetRepositoryProtocol {
+    func unreferencedTrackReferences(
+        from references: [OfflineTrackReference]
+    ) async throws -> [OfflineTrackReference] {
+        var result: [OfflineTrackReference] = []
+        for reference in references where try await membershipCount(for: reference) == 0 {
+            result.append(reference)
+        }
+        return result
+    }
 }
 
 public final class OfflineDownloadTargetRepository: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
@@ -229,12 +245,19 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
     }
 
     public func fetchTrackReferences(targetKey: String) async throws -> [OfflineTrackReference] {
-        let memberships = try await fetchMemberships(targetKey: targetKey)
-        return memberships.map {
-            OfflineTrackReference(
-                trackRatingKey: $0.trackRatingKey,
-                trackSourceCompositeKey: $0.trackSourceCompositeKey
-            )
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDOfflineDownloadMembership.fetchRequest()
+            request.predicate = NSPredicate(format: "targetKey == %@", targetKey)
+            request.sortDescriptors = [
+                NSSortDescriptor(key: "trackSourceCompositeKey", ascending: true),
+                NSSortDescriptor(key: "trackRatingKey", ascending: true)
+            ]
+            return try context.fetch(request).map {
+                OfflineTrackReference(
+                    trackRatingKey: $0.trackRatingKey,
+                    trackSourceCompositeKey: $0.trackSourceCompositeKey
+                )
+            }
         }
     }
 
@@ -303,9 +326,10 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
             context.delete(membership)
         }
 
-        // Cache track resolutions within this call to avoid repeated fetches
-        // for the same track referenced by multiple memberships
-        var trackCache: [String: CDTrack?] = [:]
+        let tracksByReference = try resolveTracks(
+            references: normalizedReferences,
+            in: context
+        )
 
         for reference in normalizedReferences {
             let id = self.membershipID(targetKey: targetKey, reference: reference)
@@ -316,15 +340,7 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
             membership.trackSourceCompositeKey = reference.trackSourceCompositeKey
             membership.createdAt = membership.createdAt ?? Date()
             membership.target = target
-
-            let cacheKey = "\(reference.trackRatingKey):\(reference.trackSourceCompositeKey)"
-            if let cached = trackCache[cacheKey] {
-                membership.track = cached
-            } else {
-                let resolved = try self.resolveTrack(reference: reference, in: context)
-                trackCache[cacheKey] = resolved
-                membership.track = resolved
-            }
+            membership.track = tracksByReference[reference]
         }
 
         target.updatedAt = Date()
@@ -347,6 +363,42 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         }
     }
 
+    public func unreferencedTrackReferences(
+        from references: [OfflineTrackReference]
+    ) async throws -> [OfflineTrackReference] {
+        let uniqueReferences = Array(Set(references))
+        guard !uniqueReferences.isEmpty else { return [] }
+
+        return try await coreDataStack.performBackgroundContext { context in
+            var referenced = Set<OfflineTrackReference>()
+            let grouped = Dictionary(grouping: uniqueReferences, by: \.trackSourceCompositeKey)
+
+            for (sourceKey, sourceReferences) in grouped {
+                let ratingKeys = sourceReferences.map(\.trackRatingKey)
+                for start in stride(from: 0, to: ratingKeys.count, by: 500) {
+                    let batch = Array(ratingKeys[start..<min(start + 500, ratingKeys.count)])
+                    let request = CDOfflineDownloadMembership.fetchRequest()
+                    request.predicate = NSPredicate(
+                        format: "trackSourceCompositeKey == %@ AND trackRatingKey IN %@",
+                        sourceKey,
+                        batch
+                    )
+                    for membership in try context.fetch(request) {
+                        referenced.insert(
+                            OfflineTrackReference(
+                                trackRatingKey: membership.trackRatingKey,
+                                trackSourceCompositeKey: membership.trackSourceCompositeKey
+                            )
+                        )
+                    }
+                    context.reset()
+                }
+            }
+
+            return uniqueReferences.filter { !referenced.contains($0) }
+        }
+    }
+
     public func fetchTargetKeys(containing reference: OfflineTrackReference) async throws -> [String] {
         try await coreDataStack.performViewContext { context in
             let request = CDOfflineDownloadMembership.fetchRequest()
@@ -360,15 +412,36 @@ public final class OfflineDownloadTargetRepository: OfflineDownloadTargetReposit
         }
     }
 
-    private func resolveTrack(reference: OfflineTrackReference, in context: NSManagedObjectContext) throws -> CDTrack? {
-        let request = CDTrack.fetchRequest()
-        request.predicate = NSPredicate(
-            format: "ratingKey == %@ AND sourceCompositeKey == %@",
-            reference.trackRatingKey,
-            reference.trackSourceCompositeKey
-        )
-        request.fetchLimit = 1
-        return try context.fetch(request).first
+    private func resolveTracks(
+        references: [OfflineTrackReference],
+        in context: NSManagedObjectContext
+    ) throws -> [OfflineTrackReference: CDTrack] {
+        var result: [OfflineTrackReference: CDTrack] = [:]
+        let grouped = Dictionary(grouping: references, by: \.trackSourceCompositeKey)
+
+        for (sourceKey, sourceReferences) in grouped {
+            let ratingKeys = sourceReferences.map(\.trackRatingKey)
+            for start in stride(from: 0, to: ratingKeys.count, by: 500) {
+                let batch = Array(ratingKeys[start..<min(start + 500, ratingKeys.count)])
+                let request = CDTrack.fetchRequest()
+                request.predicate = NSPredicate(
+                    format: "sourceCompositeKey == %@ AND ratingKey IN %@",
+                    sourceKey,
+                    batch
+                )
+
+                for track in try context.fetch(request) {
+                    result[
+                        OfflineTrackReference(
+                            trackRatingKey: track.ratingKey,
+                            trackSourceCompositeKey: sourceKey
+                        )
+                    ] = track
+                }
+            }
+        }
+
+        return result
     }
 
     public func totalTrackDurationMs() async throws -> Int64 {

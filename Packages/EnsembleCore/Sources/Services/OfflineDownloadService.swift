@@ -177,18 +177,18 @@ public final class OfflineDownloadService: ObservableObject {
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             downloadManager: downloadManager,
-            currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" }
+            currentDownloadQuality: { [weak self] in self?.currentDownloadQuality() ?? "original" },
+            clearLyricsCaches: { [lyricsService] references in
+                await lyricsService.clearCaches(for: references)
+            }
         )
     )
     private lazy var cleanupCoordinator = OfflineDownloadCleanupCoordinator(
         dependencies: .init(
             downloadManager: downloadManager,
             targetRepository: targetRepository,
-            clearLyricsCache: { [lyricsService] ratingKey, sourceCompositeKey in
-                lyricsService.clearCache(
-                    forTrackRatingKey: ratingKey,
-                    sourceCompositeKey: sourceCompositeKey
-                )
+            clearLyricsCaches: { [lyricsService] references in
+                await lyricsService.clearCaches(for: references)
             }
         )
     )
@@ -736,45 +736,27 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func disableTarget(key: String) async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         do {
-            // Resolve title before deletion for progress UI
             let targetTitle = (try? await targetRepository.fetchTarget(key: key))?.displayName ?? key
             let previousReferences = try await targetRepository.fetchTrackReferences(targetKey: key)
-
-            // Pre-compute which tracks are only referenced by this target BEFORE
-            // deleting it. Querying after the delete is unreliable because the
-            // cascade-deleted memberships are saved on a background context and the
-            // view context may not have merged yet, causing membershipCount to return
-            // stale (non-zero) values and skipping the file cleanup.
-            var orphanedReferences = Set<OfflineTrackReference>()
-            for reference in previousReferences {
-                let count = try await targetRepository.membershipCount(for: reference)
-                // Count of 1 means only this target references the track
-                if count <= 1 {
-                    orphanedReferences.insert(reference)
-                }
-            }
-
-            try await targetRepository.deleteTarget(key: key)
-
             let total = previousReferences.count
             if total > 0 {
                 removalInProgress[key] = RemovalProgress(targetTitle: targetTitle, completed: 0, total: total)
             }
 
-            // Reference-counted cleanup: remove track files that no other target references.
-            for (index, reference) in previousReferences.enumerated() {
-                if orphanedReferences.contains(reference) {
-                    try await downloadManager.deleteDownload(
-                        forTrackRatingKey: reference.trackRatingKey,
-                        sourceCompositeKey: reference.trackSourceCompositeKey
-                    )
-                    lyricsService.clearCache(
-                        forTrackRatingKey: reference.trackRatingKey,
-                        sourceCompositeKey: reference.trackSourceCompositeKey
-                    )
-                }
-                removalInProgress[key] = RemovalProgress(targetTitle: targetTitle, completed: index + 1, total: total)
+            try await targetRepository.deleteTarget(key: key)
+            let orphanedReferences = try await targetRepository.unreferencedTrackReferences(
+                from: previousReferences
+            )
+            try await downloadManager.deleteDownloads(forReferences: orphanedReferences)
+            await lyricsService.clearCaches(for: orphanedReferences)
+            if total > 0 {
+                removalInProgress[key] = RemovalProgress(
+                    targetTitle: targetTitle,
+                    completed: total,
+                    total: total
+                )
             }
             _ = try await downloadManager.removeOrphanedDownloadFiles()
 
@@ -785,6 +767,10 @@ public final class OfflineDownloadService: ObservableObject {
 
             // Notify track-displaying VMs so they re-fetch and reflect updated offline state
             notificationBridge.notifyDownloadsChangedImmediately()
+            let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+            EnsembleLogger.info(
+                "Offline target removal finished tracks=\(total) files=\(orphanedReferences.count) elapsedMs=\(elapsedMs)"
+            )
         } catch {
             removalInProgress.removeValue(forKey: key)
             EnsembleLogger.debug("❌ Failed disabling offline target \(key): \(error.localizedDescription)")
@@ -792,6 +778,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func reconcileTarget(key: String) async throws {
+        let startedAt = ProcessInfo.processInfo.systemUptime
         guard let target = try await targetRepository.fetchTarget(key: key) else {
             return
         }
@@ -805,11 +792,10 @@ public final class OfflineDownloadService: ObservableObject {
             )
         )
 
-        if result.newPendingCount > 0 {
-            EnsembleLogger.debug(
-                "📥 reconcileTarget: key=\(key) totalRefs=\(result.trackReferenceCount) newPending=\(result.newPendingCount) quality=\(result.downloadQuality)"
-            )
-        }
+        let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
+        EnsembleLogger.info(
+            "Offline target reconciliation finished tracks=\(result.trackReferenceCount) newPending=\(result.newPendingCount) elapsedMs=\(elapsedMs)"
+        )
 
         await refreshTargetProgress(forTargetKey: key)
     }

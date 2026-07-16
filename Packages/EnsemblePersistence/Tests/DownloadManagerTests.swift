@@ -236,6 +236,70 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLB.path))
     }
 
+    func testDeleteDownloadsForReferencesIsSourceAware() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        let suffix = UUID().uuidString
+        let filenameA = "batch-a-\(suffix).mp3"
+        let filenameB = "batch-b-\(suffix).mp3"
+        let fileURLA = DownloadManager.downloadsDirectory.appendingPathComponent(filenameA)
+        let fileURLB = DownloadManager.downloadsDirectory.appendingPathComponent(filenameB)
+        defer {
+            try? FileManager.default.removeItem(at: fileURLA)
+            try? FileManager.default.removeItem(at: fileURLB)
+        }
+
+        try Data([0x01]).write(to: fileURLA)
+        try Data([0x02]).write(to: fileURLB)
+        try await seedTrack(ratingKey: "batch-track", sourceCompositeKey: sourceA, repository: libraryRepository)
+        try await seedTrack(ratingKey: "batch-track", sourceCompositeKey: sourceB, repository: libraryRepository)
+        let downloadA = try await downloadManager.createDownload(
+            forTrackRatingKey: "batch-track",
+            sourceCompositeKey: sourceA,
+            quality: "low"
+        )
+        let downloadB = try await downloadManager.createDownload(
+            forTrackRatingKey: "batch-track",
+            sourceCompositeKey: sourceB,
+            quality: "low"
+        )
+        try await downloadManager.completeDownload(
+            downloadA.objectID,
+            filePath: filenameA,
+            fileSize: 1,
+            quality: "low"
+        )
+        try await downloadManager.completeDownload(
+            downloadB.objectID,
+            filePath: filenameB,
+            fileSize: 1,
+            quality: "low"
+        )
+
+        try await downloadManager.deleteDownloads(
+            forReferences: [
+                OfflineTrackReference(
+                    trackRatingKey: "batch-track",
+                    trackSourceCompositeKey: sourceA
+                )
+            ]
+        )
+
+        let removed = try await downloadManager.fetchDownload(
+            forTrackRatingKey: "batch-track",
+            sourceCompositeKey: sourceA
+        )
+        let retained = try await downloadManager.fetchDownload(
+            forTrackRatingKey: "batch-track",
+            sourceCompositeKey: sourceB
+        )
+        XCTAssertNil(removed)
+        XCTAssertNotNil(retained)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURLA.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURLB.path))
+    }
+
     func testRequeueDownloadResetsTransientStateButPreservesCompletedFile() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
