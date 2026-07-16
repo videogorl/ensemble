@@ -21,6 +21,7 @@ public enum ForegroundInteractionState: String, CaseIterable, Hashable, Sendable
     case nowPlayingInteractive
     case shareSheetPresenting
     case audioCritical
+    case downloadTransfer
 }
 
 public enum ForegroundWorkPolicy: Equatable, Sendable {
@@ -152,7 +153,7 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
     }
 
     private var blockingInteractionStates: Set<ForegroundInteractionState> {
-        [.launching, .scrolling, .navigating, .nowPlayingInteractive, .shareSheetPresenting, .audioCritical]
+        [.launching, .scrolling, .navigating, .nowPlayingInteractive, .shareSheetPresenting, .audioCritical, .downloadTransfer]
     }
 
     private var isThermallyConstrained: Bool {
@@ -164,7 +165,7 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
     }
 
     private var playbackBlockingStates: Set<ForegroundInteractionState> {
-        [.shareSheetPresenting, .audioCritical]
+        [.shareSheetPresenting, .audioCritical, .downloadTransfer]
     }
 
     private var nonessentialKinds: Set<ForegroundWorkKind> {

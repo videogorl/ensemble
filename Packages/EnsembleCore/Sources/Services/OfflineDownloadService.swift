@@ -130,7 +130,16 @@ public final class OfflineDownloadService: ObservableObject {
     /// Posted when download targets change (enable/disable/quality refresh) so track-displaying VMs can re-fetch
     nonisolated public static let downloadsDidChange = Notification.Name("OfflineDownloadsDidChange")
     @Published public private(set) var targets: [OfflineDownloadTargetSnapshot] = []
-    @Published public private(set) var isQueueRunning = false
+    @Published public private(set) var isQueueRunning = false {
+        didSet {
+            guard isQueueRunning != oldValue else { return }
+            if isQueueRunning {
+                foregroundWorkScheduler?.beginInteraction(.downloadTransfer)
+            } else {
+                foregroundWorkScheduler?.endInteraction(.downloadTransfer)
+            }
+        }
+    }
     /// Current reason the queue is idle/paused — observed by detail views for status banners
     @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Per-target removal progress — keyed by target key, shown in DownloadsView during cleanup
