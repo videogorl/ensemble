@@ -38,7 +38,7 @@ public struct ForegroundWorkSchedulerConfiguration: Equatable, Sendable {
     public init(
         isConstrainedLegacyDevice: Bool,
         idleDelay: TimeInterval = 1.5,
-        pollingInterval: TimeInterval = 0.1
+        pollingInterval: TimeInterval = 0.5
     ) {
         self.isConstrainedLegacyDevice = isConstrainedLegacyDevice
         self.idleDelay = idleDelay
@@ -75,19 +75,23 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
 
     private let configuration: ForegroundWorkSchedulerConfiguration
     private let now: () -> Date
+    private let thermalState: () -> ProcessInfo.ThermalState
     private var lastInteractionAt: Date
 
     public init(
         configuration: ForegroundWorkSchedulerConfiguration = .live,
-        now: @escaping () -> Date = Date.init
+        now: @escaping () -> Date = Date.init,
+        thermalState: @escaping () -> ProcessInfo.ThermalState = { ProcessInfo.processInfo.thermalState }
     ) {
         self.configuration = configuration
         self.now = now
+        self.thermalState = thermalState
         self.lastInteractionAt = now()
     }
 
     public var isIdleForNonessentialWork: Bool {
         isForegroundActive &&
+            !isThermallyConstrained &&
             !startupSyncInFlight &&
             blockingInteractionStates.isDisjoint(with: activeStates) &&
             now().timeIntervalSince(lastInteractionAt) >= configuration.idleDelay
@@ -123,13 +127,16 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
         guard !Task.isCancelled, isForegroundActive else { return false }
         switch policy {
         case .immediate:
-            if configuration.isConstrainedLegacyDevice, nonessentialKinds.contains(kind) {
+            if nonessentialKinds.contains(kind),
+               configuration.isConstrainedLegacyDevice || isThermallyConstrained {
                 return await waitForIdle()
             }
             return !Task.isCancelled
         case .debounce(let interval):
             guard await sleep(seconds: interval) else { return false }
-            if configuration.isConstrainedLegacyDevice || requiresIdle(kind: kind) {
+            if configuration.isConstrainedLegacyDevice ||
+                requiresIdle(kind: kind) ||
+                (nonessentialKinds.contains(kind) && isThermallyConstrained) {
                 return await waitForIdle()
             }
             return !Task.isCancelled
@@ -146,6 +153,14 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
 
     private var blockingInteractionStates: Set<ForegroundInteractionState> {
         [.launching, .scrolling, .navigating, .nowPlayingInteractive, .shareSheetPresenting, .audioCritical]
+    }
+
+    private var isThermallyConstrained: Bool {
+        switch thermalState() {
+        case .serious, .critical: return true
+        case .nominal, .fair: return false
+        @unknown default: return false
+        }
     }
 
     private var playbackBlockingStates: Set<ForegroundInteractionState> {
@@ -179,7 +194,8 @@ public final class ForegroundWorkScheduler: ObservableObject, ForegroundWorkSche
     private func waitForPlaybackSafe(kind: ForegroundWorkKind) async -> Bool {
         while startupSyncInFlight ||
             !playbackBlockingStates.isDisjoint(with: activeStates) ||
-            (configuration.isConstrainedLegacyDevice && requiresIdle(kind: kind) && !isIdleForNonessentialWork) {
+            (configuration.isConstrainedLegacyDevice && requiresIdle(kind: kind) && !isIdleForNonessentialWork) ||
+            (nonessentialKinds.contains(kind) && isThermallyConstrained) {
             guard !Task.isCancelled else { return false }
             guard isForegroundActive else { return false }
             guard await sleep(seconds: configuration.pollingInterval) else { return false }

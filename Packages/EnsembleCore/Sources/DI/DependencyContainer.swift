@@ -190,7 +190,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let network = Self.buildNetworkBootstrap(core: core)
         let sync = Self.buildSyncBootstrap(core: core, network: network)
         let builtForegroundWorkScheduler = MainActor.assumeIsolated {
-            ForegroundWorkScheduler()
+            ForegroundWorkScheduler(thermalState: { core.powerStateMonitor.thermalState })
         }
         let builtAppReadinessCoordinator = MainActor.assumeIsolated {
             AppReadinessCoordinator(

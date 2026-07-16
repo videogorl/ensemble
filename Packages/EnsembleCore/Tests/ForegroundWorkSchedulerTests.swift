@@ -175,4 +175,30 @@ final class ForegroundWorkSchedulerTests: XCTestCase {
         XCTAssertTrue(visibleRetryAllowed)
         XCTAssertFalse(scheduler.isIdleForNonessentialWork)
     }
+
+    func testSeriousThermalStateDefersNonessentialWorkUntilRecovery() async {
+        var thermalState: ProcessInfo.ThermalState = .serious
+        let scheduler = ForegroundWorkScheduler(
+            configuration: ForegroundWorkSchedulerConfiguration(
+                isConstrainedLegacyDevice: false,
+                idleDelay: 0,
+                pollingInterval: 0.01
+            ),
+            thermalState: { thermalState }
+        )
+        scheduler.clearLaunchState()
+
+        var didRun = false
+        let task = Task { @MainActor in
+            didRun = await scheduler.waitUntilAllowed(.artworkRetry, policy: .immediate)
+        }
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertFalse(didRun)
+        XCTAssertFalse(scheduler.isIdleForNonessentialWork)
+
+        thermalState = .nominal
+        await task.value
+        XCTAssertTrue(didRun)
+    }
 }
