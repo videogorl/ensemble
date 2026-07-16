@@ -64,13 +64,16 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     private final class MockPlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
         var playlists: [String: CDPlaylist] = [:]
         var fetchPlaylistCallCount = 0
+        var fetchPlaylistsCallCount = 0
         var fetchPlaylistsForReferencesCallCount = 0
 
         func fetchPlaylists() async throws -> [CDPlaylist] {
-            Array(playlists.values)
+            fetchPlaylistsCallCount += 1
+            return Array(playlists.values)
         }
 
         func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist] {
+            fetchPlaylistsCallCount += 1
             guard let sourceCompositeKey else { return Array(playlists.values) }
             return playlists.values.filter { $0.sourceCompositeKey == sourceCompositeKey }
         }
@@ -511,6 +514,24 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.error)
     }
 
+    func testPlaylistViewModelCanOptOutOfExternalReloads() async throws {
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            observesExternalChanges: false
+        )
+
+        NotificationCenter.default.post(name: SyncCoordinator.playlistsDidRefresh, object: nil)
+        try await Task.sleep(for: .milliseconds(600))
+
+        XCTAssertEqual(playlistRepository.fetchPlaylistsCallCount, 0)
+        _ = viewModel
+    }
+
     func testPlaylistViewModelClearsVisiblePlaylistsAfterLibraryDataClearNotification() async throws {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()
@@ -793,6 +814,24 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         await viewModel.loadTracks()
 
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
+    }
+
+    func testPlaylistDetailCanOptOutOfExternalReloads() async throws {
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let viewModel = PlaylistDetailViewModel(
+            playlist: makePlaylist(),
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            observesExternalChanges: false
+        )
+
+        NotificationCenter.default.post(name: SyncCoordinator.playlistsDidRefresh, object: nil)
+        try await Task.sleep(for: .milliseconds(600))
+
+        XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 0)
+        _ = viewModel
     }
 
     func testRemoveTrackFromPlaylistDeletesMembershipWithoutReplacingContents() async {

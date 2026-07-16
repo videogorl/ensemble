@@ -90,13 +90,14 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makePlaylistViewModel() -> PlaylistViewModel {
+    func makePlaylistViewModel(observesExternalChanges: Bool = true) -> PlaylistViewModel {
         PlaylistViewModel(
             playlistRepository: playlistRepository,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
             toastCenter: toastCenter,
-            accountManager: accountManager
+            accountManager: accountManager,
+            observesExternalChanges: observesExternalChanges
         )
     }
 
@@ -104,7 +105,8 @@ public extension DependencyContainer {
     func makePlaylistDetailViewModel(
         playlist: Playlist,
         initialTracks: [Track]? = nil,
-        initialItems: [PlaylistItem]? = nil
+        initialItems: [PlaylistItem]? = nil,
+        observesExternalChanges: Bool = true
     ) -> PlaylistDetailViewModel {
         PlaylistDetailViewModel(
             playlist: playlist,
@@ -112,7 +114,8 @@ public extension DependencyContainer {
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator,
             initialTracks: initialTracks,
-            initialItems: initialItems
+            initialItems: initialItems,
+            observesExternalChanges: observesExternalChanges
         )
     }
 

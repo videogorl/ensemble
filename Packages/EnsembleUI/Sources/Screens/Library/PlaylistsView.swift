@@ -924,7 +924,8 @@ public struct PlaylistDetailView: View {
             wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
                 playlist: playlist,
                 initialTracks: initialTracks,
-                initialItems: initialItems
+                initialItems: initialItems,
+                observesExternalChanges: !startInEditMode
             )
         )
         self.nowPlayingVM = nowPlayingVM

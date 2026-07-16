@@ -98,7 +98,8 @@ public final class PlaylistViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
         toastCenter: ToastCenter,
-        accountManager: AccountManager? = nil
+        accountManager: AccountManager? = nil,
+        observesExternalChanges: Bool = true
     ) {
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
@@ -128,6 +129,16 @@ public final class PlaylistViewModel: ObservableObject {
         setupDisplayPlaylistsPipeline()
         setupSortedDisplayPlaylistsPipeline()
 
+        if observesExternalChanges {
+            observeExternalChanges()
+        }
+
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            self?.handleLibraryDataCleared()
+        }
+    }
+
+    private func observeExternalChanges() {
         // Auto-reload when sync completes (skip during pull-to-refresh — it does its own reload)
         syncCoordinator.$isSyncing
             .receive(on: DispatchQueue.main)
@@ -149,10 +160,6 @@ public final class PlaylistViewModel: ObservableObject {
                 self?.scheduleCoalescedPlaylistReload(reason: "playlistsDidRefresh")
             }
             .store(in: &cancellables)
-
-        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
-            self?.handleLibraryDataCleared()
-        }
     }
     
     private func setupFilterPersistence() {
@@ -754,7 +761,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator,
         initialTracks: [Track]? = nil,
-        initialItems: [PlaylistItem]? = nil
+        initialItems: [PlaylistItem]? = nil,
+        observesExternalChanges: Bool = true
     ) {
         self.playlist = playlist
         if let initialItems {
@@ -777,11 +785,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         // Save filter options when they change
         setupFilterPersistence()
 
-        // Re-fetch tracks when download or metadata state changes so row state stays accurate.
-        observeReloadTriggers()
-
-        // Re-fetch tracks when playlists are refreshed after a mutation (e.g. tracks added)
-        observePlaylistRefresh()
+        if observesExternalChanges {
+            // Re-fetch tracks when download, metadata, or playlist state changes.
+            observeReloadTriggers()
+            observePlaylistRefresh()
+        }
     }
 
     private func setupFilterPersistence() {

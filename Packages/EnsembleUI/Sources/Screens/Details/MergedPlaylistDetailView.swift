@@ -287,7 +287,9 @@ public struct MergedPlaylistDetailLoader: View {
         self.title = title
         self.isSmart = isSmart
         self.nowPlayingVM = nowPlayingVM
-        self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
+        self._playlistsVM = StateObject(
+            wrappedValue: DependencyContainer.shared.makePlaylistViewModel(observesExternalChanges: false)
+        )
     }
 
     public var body: some View {
