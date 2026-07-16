@@ -4,6 +4,8 @@ import SwiftUI
 public struct DownloadsView: View {
     @StateObject private var viewModel: DownloadsViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var showTemporaryResumeConfirmation = false
+    @State private var temporaryResumeReason: QueueStatusReason = .idle
     let nowPlayingVM: NowPlayingViewModel
 
     public init(nowPlayingVM: NowPlayingViewModel) {
@@ -56,6 +58,14 @@ public struct DownloadsView: View {
         }
         .refreshCommand {
             await viewModel.refresh()
+        }
+        .alert("Resume Downloads for One Hour?", isPresented: $showTemporaryResumeConfirmation) {
+            Button("Resume for One Hour") {
+                Task { await viewModel.resumeQueue() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(temporaryResumeConfirmationMessage)
         }
     }
 
@@ -484,13 +494,29 @@ public struct DownloadsView: View {
             }
         } else if hasDownloadTargets && viewModel.hasResumableDownloads {
             Button {
-                Task { await viewModel.resumeQueue() }
+                if let reason = viewModel.temporaryResumeQueueReason {
+                    temporaryResumeReason = reason
+                    showTemporaryResumeConfirmation = true
+                } else {
+                    Task { await viewModel.resumeQueue() }
+                }
             } label: {
                 Label(
-                    viewModel.canTemporarilyResumeQueue ? "Resume Downloads for One Hour" : "Resume Downloads",
+                    viewModel.temporaryResumeQueueReason != nil ? "Resume Downloads for One Hour" : "Resume Downloads",
                     systemImage: EnsembleDesign.Icon.play
                 )
             }
+        }
+    }
+
+    private var temporaryResumeConfirmationMessage: String {
+        switch temporaryResumeReason {
+        case .lowDataMode:
+            return "Low Data Mode is on. Downloads will run for one hour, then pause again unless the connection is no longer constrained."
+        case .waitingForWiFi:
+            return "Cellular downloads are disabled. Downloads will run over cellular for one hour, which may use cellular data, then pause again unless Wi-Fi is available or cellular downloads are enabled."
+        default:
+            return "The current network policy has paused downloads. They will run for one hour, then pause again unless the connection is permitted."
         }
     }
 

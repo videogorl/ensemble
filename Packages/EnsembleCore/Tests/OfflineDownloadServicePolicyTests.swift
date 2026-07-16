@@ -330,7 +330,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.resumeQueue()
 
-        XCTAssertTrue(service.canTemporarilyResumeQueue)
+        XCTAssertEqual(service.temporaryResumeQueueReason, .lowDataMode)
         XCTAssertEqual(service.queueStatusReason, .idle)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
             statuses == [.paused] && status == .pending
@@ -375,7 +375,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.resumeQueue()
 
-        XCTAssertTrue(service.canTemporarilyResumeQueue)
+        XCTAssertEqual(service.temporaryResumeQueueReason, .waitingForWiFi)
         XCTAssertEqual(service.queueStatusReason, .idle)
         XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
             statuses == [.paused] && status == .pending
@@ -401,7 +401,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         await service.resumeQueue()
 
-        XCTAssertFalse(service.canTemporarilyResumeQueue)
+        XCTAssertNil(service.temporaryResumeQueueReason)
         XCTAssertEqual(service.queueStatusReason, .offline)
         XCTAssertFalse(downloadManager.statusUpdates.contains { statuses, status in
             statuses == [.paused] && status == .pending

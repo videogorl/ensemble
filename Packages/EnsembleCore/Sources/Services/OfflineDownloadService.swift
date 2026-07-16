@@ -817,7 +817,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Resumes the download queue, temporarily overriding connected network restrictions when needed.
     public func resumeQueue() async {
         isUserPaused = false
-        if networkPolicyCanBeTemporarilyOverridden {
+        if temporaryNetworkPolicyReason != nil {
             startNetworkPolicyOverride()
         }
         try? await applyNetworkPolicy()
@@ -826,9 +826,9 @@ public final class OfflineDownloadService: ObservableObject {
         startQueueIfNeeded()
     }
 
-    /// Whether Play can temporarily override the current connected network restriction.
-    public var canTemporarilyResumeQueue: Bool {
-        networkPolicyCanBeTemporarilyOverridden
+    /// The connected network restriction that Play can temporarily override.
+    public var temporaryResumeQueueReason: QueueStatusReason? {
+        temporaryNetworkPolicyReason
     }
 
     /// Applies the Low Power Mode policy without overwriting the user's manual pause state.
@@ -1297,7 +1297,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private var canExecuteDownloads: Bool {
-        if isNetworkPolicyOverridden && networkPolicyCanBeTemporarilyOverridden {
+        if isNetworkPolicyOverridden && temporaryNetworkPolicyReason != nil {
             return true
         }
 
@@ -1320,17 +1320,17 @@ public final class OfflineDownloadService: ObservableObject {
             && (!isAppInBackground || allowsBackgroundContinuation)
     }
 
-    private var networkPolicyCanBeTemporarilyOverridden: Bool {
+    private var temporaryNetworkPolicyReason: QueueStatusReason? {
         if networkMonitor.isConstrained,
            case .online = networkMonitor.networkState {
-            return true
+            return .lowDataMode
         }
 
         if case .online(.cellular) = networkMonitor.networkState {
-            return !DownloadSettingsPreference.storedAllowCellularDownloads()
+            return DownloadSettingsPreference.storedAllowCellularDownloads() ? nil : .waitingForWiFi
         }
 
-        return false
+        return nil
     }
 
     internal var currentDownloadWorkMode: DownloadWorkMode {
@@ -1350,7 +1350,7 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Maps current network state to a user-facing queue pause reason
     private func queueReasonForCurrentState() -> QueueStatusReason {
-        if isNetworkPolicyOverridden && networkPolicyCanBeTemporarilyOverridden {
+        if isNetworkPolicyOverridden && temporaryNetworkPolicyReason != nil {
             return .idle
         }
 

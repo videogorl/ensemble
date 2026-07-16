@@ -178,9 +178,9 @@ public final class DownloadsViewModel: ObservableObject {
         await downloadMutationWorkflow.resumeQueue()
     }
 
-    /// Whether Resume will grant a temporary exception for the current network policy.
-    public var canTemporarilyResumeQueue: Bool {
-        offlineDownloadService.canTemporarilyResumeQueue
+    /// The network policy that Resume can temporarily override.
+    public var temporaryResumeQueueReason: QueueStatusReason? {
+        offlineDownloadService.temporaryResumeQueueReason
     }
 
     /// Whether any target still owns pending or paused work.
