@@ -593,8 +593,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Fetch existing playlist timestamps for change detection
         var phaseStart = CFAbsoluteTimeGetCurrent()
         let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
-        let localTrackStates = try await repository.fetchPlaylistLocalTrackStates(forSource: serverSourceKey)
-
         // Fetch playlists added or updated since last sync
         let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
         let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
@@ -624,21 +622,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             try await repository.setPlaylistTrackSnapshots(
                 playlistTracks.map(Self.playlistTrackSnapshot),
                 forPlaylist: playlist.ratingKey,
-                sourceCompositeKey: serverSourceKey
-            )
-        }
-
-        let changedPlaylistKeys = Set(changedPlaylists.map(\.ratingKey))
-        let repairPlaylistKeys = localTrackStates.compactMap { ratingKey, state in
-            state.membershipCount < state.trackCount && !changedPlaylistKeys.contains(ratingKey)
-                ? ratingKey
-                : nil
-        }
-        for ratingKey in repairPlaylistKeys {
-            let playlistTracks = try await apiClient.getPlaylistTracks(playlistKey: ratingKey)
-            try await repository.setPlaylistTrackSnapshots(
-                playlistTracks.map(Self.playlistTrackSnapshot),
-                forPlaylist: ratingKey,
                 sourceCompositeKey: serverSourceKey
             )
         }
@@ -714,7 +697,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         localMembershipCount: Int?
     ) -> Bool {
         guard let serverTrackCount, serverTrackCount > 0 else { return false }
-        return localMembershipCount.map { $0 < serverTrackCount } ?? true
+        return localMembershipCount.map { $0 == 0 } ?? true
     }
 
     static func shouldCheckPlaylistOrphans(
