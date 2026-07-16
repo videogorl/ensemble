@@ -165,7 +165,8 @@ public final class OfflineDownloadService: ObservableObject {
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
     private let sidecarAnalysisQueue: SidecarAnalysisQueue
-    private var isUserPaused = false
+    /// Whether the user explicitly paused the queue.
+    public private(set) var isUserPaused = false
     private var isLowPowerSuspended = false
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false

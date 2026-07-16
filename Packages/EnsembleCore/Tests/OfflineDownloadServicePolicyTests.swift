@@ -296,6 +296,16 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         })
     }
 
+    func testManualPauseStateRemainsSetUntilResume() async {
+        let service = await makeService()
+
+        await service.pauseQueue()
+        XCTAssertTrue(service.isUserPaused)
+
+        await service.resumeQueue()
+        XCTAssertFalse(service.isUserPaused)
+    }
+
     func testRemovingTargetClearsLyricsOnlyForLastReferencedDownload() async throws {
         let sourceKey = "plex:test-account:test-server:test-library"
         let orphaned = OfflineTrackReference(

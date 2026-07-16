@@ -171,6 +171,11 @@ public final class DownloadsViewModel: ObservableObject {
         await downloadMutationWorkflow.resumeQueue()
     }
 
+    /// Whether the queue should keep its user-facing Resume control visible.
+    public var isQueuePausedByUser: Bool {
+        offlineDownloadService.isUserPaused
+    }
+
     /// Whether a library-level download target exists for the given sourceCompositeKey
     public func isLibraryEnabled(sourceCompositeKey: String) -> Bool {
         offlineDownloadService.isLibraryDownloadEnabled(sourceCompositeKey: sourceCompositeKey)

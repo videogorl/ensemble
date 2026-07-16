@@ -484,19 +484,17 @@ public struct DownloadsView: View {
     /// Toolbar button that switches between pause and resume states.
     @ViewBuilder
     private var queueControlButton: some View {
-        if !viewModel.items.isEmpty {
-            if viewModel.isQueueRunning {
-                Button {
-                    Task { await viewModel.pauseQueue() }
-                } label: {
-                    Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
-                }
-            } else if hasResumableDownloads {
-                Button {
-                    Task { await viewModel.resumeQueue() }
-                } label: {
-                    Label("Resume Downloads", systemImage: EnsembleDesign.Icon.play)
-                }
+        if viewModel.isQueueRunning {
+            Button {
+                Task { await viewModel.pauseQueue() }
+            } label: {
+                Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
+            }
+        } else if viewModel.isQueuePausedByUser || hasResumableDownloads {
+            Button {
+                Task { await viewModel.resumeQueue() }
+            } label: {
+                Label("Resume Downloads", systemImage: EnsembleDesign.Icon.play)
             }
         }
     }
