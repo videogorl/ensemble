@@ -317,7 +317,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             queue: .main
         ) { _ in
             ImagePipeline.shared.cache.removeAll()
-            EnsembleLogger.debug("⚠️ Memory warning: Cleared artwork cache")
+            ArtworkBlurRenderer.clearMemoryCache()
+            EnsembleLogger.debug("⚠️ Memory warning: Cleared artwork and blur caches")
         }
         #endif
         

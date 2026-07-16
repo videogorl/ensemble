@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 import XCTest
 @testable import EnsembleCore
 
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
 @MainActor
 final class ArtworkLoaderPersistentCacheTests: XCTestCase {
     private struct ArtworkRequest: Equatable {
@@ -123,6 +129,24 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             defer { lock.unlock() }
             return body()
         }
+    }
+
+    func testBlurMemoryCacheCanBePurgedWithoutDeletingPersistentFiles() throws {
+        let url = try makeTemporaryJPEG(width: 32, height: 32)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        #if canImport(UIKit)
+        let image = try XCTUnwrap(UIImage(contentsOfFile: url.path))
+        #elseif canImport(AppKit)
+        let image = try XCTUnwrap(NSImage(contentsOf: url))
+        #endif
+
+        XCTAssertNotNil(ArtworkBlurRenderer.blurredImage(from: image))
+        XCTAssertNotNil(ArtworkBlurRenderer.cachedBlurredImage(for: image))
+
+        ArtworkBlurRenderer.clearMemoryCache()
+
+        XCTAssertNil(ArtworkBlurRenderer.cachedBlurredImage(for: image))
     }
 
     func testInvalidatedArtworkKeepsPersistentFileAsOfflineFallback() async throws {
