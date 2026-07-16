@@ -415,6 +415,7 @@ final class PlaylistRepositoryTests: XCTestCase {
 
         var states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
         XCTAssertEqual(states["playlist-1"]?.trackCount, 2)
+        XCTAssertEqual(states["playlist-1"]?.membershipCount, 0)
         XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 0)
         XCTAssertEqual(states["playlist-1"]?.modifiedAt, modifiedAt)
 
@@ -426,6 +427,7 @@ final class PlaylistRepositoryTests: XCTestCase {
 
         states = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
         XCTAssertEqual(states["playlist-1"]?.trackCount, 2)
+        XCTAssertEqual(states["playlist-1"]?.membershipCount, 1)
         XCTAssertEqual(states["playlist-1"]?.linkedTrackCount, 1)
     }
 
@@ -497,6 +499,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(hiddenMembership.trackThumbPath, "/thumb/2")
         XCTAssertTrue(playlist.hasUnavailableTracks)
         let localState = try await playlistRepository.fetchPlaylistLocalTrackStates(forSource: playlistSource)
+        XCTAssertEqual(localState["playlist-1"]?.membershipCount, 2)
         XCTAssertEqual(localState["playlist-1"]?.linkedTrackCount, 1)
         XCTAssertEqual(localState["playlist-1"]?.identifiedMembershipCount, 2)
 

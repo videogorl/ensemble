@@ -495,7 +495,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 existingModifiedAt: existingTimestamps[playlist.ratingKey]
             ) || Self.shouldRepairPlaylistTracks(
                 serverTrackCount: playlist.leafCount,
-                localLinkedTrackCount: localTrackStates[playlist.ratingKey]?.identifiedMembershipCount
+                localMembershipCount: localTrackStates[playlist.ratingKey]?.membershipCount
             )
 
             try await Self.upsertPlaylist(playlist, to: repository, sourceCompositeKey: serverSourceKey)
@@ -630,7 +630,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
         let changedPlaylistKeys = Set(changedPlaylists.map(\.ratingKey))
         let repairPlaylistKeys = localTrackStates.compactMap { ratingKey, state in
-            state.identifiedMembershipCount < state.trackCount && !changedPlaylistKeys.contains(ratingKey)
+            state.membershipCount < state.trackCount && !changedPlaylistKeys.contains(ratingKey)
                 ? ratingKey
                 : nil
         }
@@ -711,10 +711,10 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
 
     static func shouldRepairPlaylistTracks(
         serverTrackCount: Int?,
-        localLinkedTrackCount: Int?
+        localMembershipCount: Int?
     ) -> Bool {
         guard let serverTrackCount, serverTrackCount > 0 else { return false }
-        return localLinkedTrackCount.map { $0 < serverTrackCount } ?? true
+        return localMembershipCount.map { $0 < serverTrackCount } ?? true
     }
 
     static func shouldCheckPlaylistOrphans(

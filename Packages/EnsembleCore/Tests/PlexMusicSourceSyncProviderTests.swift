@@ -253,7 +253,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertTrue(
             PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
                 serverTrackCount: 12,
-                localLinkedTrackCount: 0
+                localMembershipCount: 0
             )
         )
     }
@@ -262,7 +262,16 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertTrue(
             PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
                 serverTrackCount: 12,
-                localLinkedTrackCount: 3
+                localMembershipCount: 3
+            )
+        )
+    }
+
+    func testPlaylistTrackSyncDoesNotRepairCompleteBodyWhenItemIDsAreMissing() {
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
+                serverTrackCount: 12,
+                localMembershipCount: 12
             )
         )
     }
@@ -271,7 +280,7 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertFalse(
             PlexMusicSourceSyncProvider.shouldRepairPlaylistTracks(
                 serverTrackCount: 0,
-                localLinkedTrackCount: 0
+                localMembershipCount: 0
             )
         )
     }

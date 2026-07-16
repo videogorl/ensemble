@@ -4,17 +4,20 @@ import Foundation
 public struct PlaylistLocalTrackState: Sendable, Equatable {
     public let modifiedAt: Date?
     public let trackCount: Int
+    public let membershipCount: Int
     public let linkedTrackCount: Int
     public let identifiedMembershipCount: Int
 
     public init(
         modifiedAt: Date?,
         trackCount: Int,
+        membershipCount: Int,
         linkedTrackCount: Int,
         identifiedMembershipCount: Int
     ) {
         self.modifiedAt = modifiedAt
         self.trackCount = trackCount
+        self.membershipCount = membershipCount
         self.linkedTrackCount = linkedTrackCount
         self.identifiedMembershipCount = identifiedMembershipCount
     }
@@ -156,11 +159,13 @@ public extension PlaylistRepositoryProtocol {
         var states: [String: PlaylistLocalTrackState] = [:]
         states.reserveCapacity(playlists.count)
         for playlist in playlists {
+            let memberships = playlist.playlistTracks as? Set<CDPlaylistTrack> ?? []
             states[playlist.ratingKey] = PlaylistLocalTrackState(
                 modifiedAt: playlist.dateModified,
                 trackCount: Int(playlist.trackCount),
-                linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0,
-                identifiedMembershipCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.playlistItemID != nil }) ?? 0
+                membershipCount: memberships.count,
+                linkedTrackCount: memberships.count(where: { $0.track != nil }),
+                identifiedMembershipCount: memberships.count(where: { $0.playlistItemID != nil })
             )
         }
         return states
@@ -301,11 +306,13 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             var states: [String: PlaylistLocalTrackState] = [:]
             states.reserveCapacity(playlists.count)
             for playlist in playlists {
+                let memberships = playlist.playlistTracks as? Set<CDPlaylistTrack> ?? []
                 states[playlist.ratingKey] = PlaylistLocalTrackState(
                     modifiedAt: playlist.dateModified,
                     trackCount: Int(playlist.trackCount),
-                    linkedTrackCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.track != nil }) ?? 0,
-                    identifiedMembershipCount: (playlist.playlistTracks as? Set<CDPlaylistTrack>)?.count(where: { $0.playlistItemID != nil }) ?? 0
+                    membershipCount: memberships.count,
+                    linkedTrackCount: memberships.count(where: { $0.track != nil }),
+                    identifiedMembershipCount: memberships.count(where: { $0.playlistItemID != nil })
                 )
             }
             return states
