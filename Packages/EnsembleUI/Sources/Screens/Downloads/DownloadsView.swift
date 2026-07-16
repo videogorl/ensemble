@@ -469,32 +469,27 @@ public struct DownloadsView: View {
         DownloadTargetDetailView(summary: item, nowPlayingVM: nowPlayingVM)
     }
 
-    /// Whether any targets can be advanced by resuming the queue.
-    private var hasResumableDownloads: Bool {
-        viewModel.items.contains { item in
-            switch item.status {
-            case .pending, .downloading, .paused:
-                return true
-            case .completed, .failed:
-                return false
-            }
-        }
+    private var hasDownloadTargets: Bool {
+        !viewModel.items.isEmpty || viewModel.librarySummaries.contains { $0.isEnabled }
     }
 
     /// Toolbar button that switches between pause and resume states.
     @ViewBuilder
     private var queueControlButton: some View {
-        if viewModel.isQueueRunning {
+        if hasDownloadTargets && viewModel.isQueueRunning {
             Button {
                 Task { await viewModel.pauseQueue() }
             } label: {
                 Label("Pause Downloads", systemImage: EnsembleDesign.Icon.pause)
             }
-        } else if viewModel.isQueuePausedByUser || hasResumableDownloads {
+        } else if hasDownloadTargets && viewModel.hasResumableDownloads {
             Button {
                 Task { await viewModel.resumeQueue() }
             } label: {
-                Label("Resume Downloads", systemImage: EnsembleDesign.Icon.play)
+                Label(
+                    viewModel.canTemporarilyResumeQueue ? "Resume Downloads for One Hour" : "Resume Downloads",
+                    systemImage: EnsembleDesign.Icon.play
+                )
             }
         }
     }

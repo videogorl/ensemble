@@ -300,10 +300,112 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         let service = await makeService()
 
         await service.pauseQueue()
-        XCTAssertTrue(service.isUserPaused)
+        XCTAssertEqual(service.queueStatusReason, .paused)
 
         await service.resumeQueue()
-        XCTAssertFalse(service.isUserPaused)
+        XCTAssertEqual(service.queueStatusReason, .idle)
+    }
+
+    func testResumeTemporarilyOverridesLowDataModeAndExpires() async {
+        let downloadManager = MockDownloadManager()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 0,
+            monitorQueue: DispatchQueue(label: "test.network.low-data-override"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        let service = await makeService(
+            downloadManager: downloadManager,
+            networkMonitor: networkMonitor
+        )
+        service.networkPolicyOverrideDuration = 0.02
+        networkMonitor.injectNetworkStateForTesting(
+            .online(.wifi),
+            isConstrained: true,
+            debounced: false
+        )
+        await Task.yield()
+        await Task.yield()
+        await service.reevaluateQueuePolicy()
+        downloadManager.resetStatusUpdates()
+
+        await service.resumeQueue()
+
+        XCTAssertTrue(service.canTemporarilyResumeQueue)
+        XCTAssertEqual(service.queueStatusReason, .idle)
+        XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
+            statuses == [.paused] && status == .pending
+        })
+
+        try? await Task.sleep(nanoseconds: 80_000_000)
+
+        XCTAssertEqual(service.queueStatusReason, .lowDataMode)
+        XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
+            statuses == [.downloading] && status == .paused
+        })
+    }
+
+    func testResumeTemporarilyOverridesDisabledCellularDownloads() async {
+        let defaults = UserDefaults.standard
+        let key = DownloadSettingsPreference.allowCellularDownloadsKey
+        let previousValue = defaults.object(forKey: key)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.set(false, forKey: key)
+
+        let downloadManager = MockDownloadManager()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 0,
+            monitorQueue: DispatchQueue(label: "test.network.cellular-override"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        let service = await makeService(
+            downloadManager: downloadManager,
+            networkMonitor: networkMonitor
+        )
+        networkMonitor.injectNetworkStateForTesting(.online(.cellular), debounced: false)
+        await Task.yield()
+        await Task.yield()
+        await service.reevaluateQueuePolicy()
+        downloadManager.resetStatusUpdates()
+
+        await service.resumeQueue()
+
+        XCTAssertTrue(service.canTemporarilyResumeQueue)
+        XCTAssertEqual(service.queueStatusReason, .idle)
+        XCTAssertTrue(downloadManager.statusUpdates.contains { statuses, status in
+            statuses == [.paused] && status == .pending
+        })
+    }
+
+    func testResumeDoesNotOverrideOfflinePolicy() async {
+        let downloadManager = MockDownloadManager()
+        let networkMonitor = NetworkMonitor(
+            debounceNanoseconds: 0,
+            monitorQueue: DispatchQueue(label: "test.network.offline-override"),
+            monitorFactory: { SystemNetworkPathMonitor() }
+        )
+        let service = await makeService(
+            downloadManager: downloadManager,
+            networkMonitor: networkMonitor
+        )
+        networkMonitor.injectNetworkStateForTesting(.offline, debounced: false)
+        await Task.yield()
+        await Task.yield()
+        await service.reevaluateQueuePolicy()
+        downloadManager.resetStatusUpdates()
+
+        await service.resumeQueue()
+
+        XCTAssertFalse(service.canTemporarilyResumeQueue)
+        XCTAssertEqual(service.queueStatusReason, .offline)
+        XCTAssertFalse(downloadManager.statusUpdates.contains { statuses, status in
+            statuses == [.paused] && status == .pending
+        })
     }
 
     func testRemovingTargetClearsLyricsOnlyForLastReferencedDownload() async throws {

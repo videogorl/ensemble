@@ -165,12 +165,14 @@ public final class OfflineDownloadService: ObservableObject {
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
     private let sidecarAnalysisQueue: SidecarAnalysisQueue
-    /// Whether the user explicitly paused the queue.
-    public private(set) var isUserPaused = false
+    private var isUserPaused = false
     private var isLowPowerSuspended = false
     private var isAppInBackground = false
     private var allowsBackgroundContinuation = false
     private var isPlaybackSensitive = false
+    private var isNetworkPolicyOverridden = false
+    private var networkPolicyOverrideTask: Task<Void, Never>?
+    internal var networkPolicyOverrideDuration: TimeInterval = 60 * 60
     private let retryPolicy = DownloadRetryPolicy()
     private lazy var targetReconciler = DownloadTargetReconciler(
         dependencies: .init(
@@ -812,13 +814,21 @@ public final class OfflineDownloadService: ObservableObject {
         scheduleFullProgressRefresh()
     }
 
-    /// Resumes the download queue — unpauses tracks and restarts the queue loop.
+    /// Resumes the download queue, temporarily overriding connected network restrictions when needed.
     public func resumeQueue() async {
         isUserPaused = false
+        if networkPolicyCanBeTemporarilyOverridden {
+            startNetworkPolicyOverride()
+        }
         try? await applyNetworkPolicy()
         refreshQueueStatusReason()
         scheduleFullProgressRefresh()
         startQueueIfNeeded()
+    }
+
+    /// Whether Play can temporarily override the current connected network restriction.
+    public var canTemporarilyResumeQueue: Bool {
+        networkPolicyCanBeTemporarilyOverridden
     }
 
     /// Applies the Low Power Mode policy without overwriting the user's manual pause state.
@@ -1287,6 +1297,10 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private var canExecuteDownloads: Bool {
+        if isNetworkPolicyOverridden && networkPolicyCanBeTemporarilyOverridden {
+            return true
+        }
+
         guard !networkMonitor.isConstrained else { return false }
 
         switch networkMonitor.networkState {
@@ -1306,6 +1320,19 @@ public final class OfflineDownloadService: ObservableObject {
             && (!isAppInBackground || allowsBackgroundContinuation)
     }
 
+    private var networkPolicyCanBeTemporarilyOverridden: Bool {
+        if networkMonitor.isConstrained,
+           case .online = networkMonitor.networkState {
+            return true
+        }
+
+        if case .online(.cellular) = networkMonitor.networkState {
+            return !DownloadSettingsPreference.storedAllowCellularDownloads()
+        }
+
+        return false
+    }
+
     internal var currentDownloadWorkMode: DownloadWorkMode {
         if isAppInBackground {
             return .background
@@ -1323,6 +1350,10 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Maps current network state to a user-facing queue pause reason
     private func queueReasonForCurrentState() -> QueueStatusReason {
+        if isNetworkPolicyOverridden && networkPolicyCanBeTemporarilyOverridden {
+            return .idle
+        }
+
         guard !networkMonitor.isConstrained else { return .lowDataMode }
 
         switch networkMonitor.networkState {
@@ -1349,6 +1380,29 @@ public final class OfflineDownloadService: ObservableObject {
         refreshQueueStatusReason()
         if canExecuteDownloads {
             startQueueIfNeeded()
+        }
+    }
+
+    private func startNetworkPolicyOverride() {
+        networkPolicyOverrideTask?.cancel()
+        isNetworkPolicyOverridden = true
+        let duration = networkPolicyOverrideDuration
+
+        EnsembleLogger.info("Temporary download network override started durationSeconds=\(Int(duration))")
+        networkPolicyOverrideTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(max(duration, 0) * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+
+            self.isNetworkPolicyOverridden = false
+            self.networkPolicyOverrideTask = nil
+            if !self.canExecuteDownloads {
+                await self.stopQueueForSuspension()
+            }
+            try? await self.applyNetworkPolicy()
+            self.refreshQueueStatusReason()
+            self.scheduleFullProgressRefresh()
+            self.startQueueIfNeeded()
+            EnsembleLogger.info("Temporary download network override expired")
         }
     }
 

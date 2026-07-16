@@ -51,6 +51,8 @@ public final class DownloadsViewModel: ObservableObject {
     @Published public private(set) var pendingMutationCount: Int = 0
     /// Whether the download queue is actively processing tracks
     @Published public private(set) var isQueueRunning = false
+    /// Current queue policy state used by the Downloads toolbar.
+    @Published public private(set) var queueStatusReason: QueueStatusReason = .idle
     /// Aggregated download stats for each sync-enabled library
     @Published public private(set) var librarySummaries: [LibraryDownloadSummary] = []
     /// Library sourceCompositeKeys currently toggling (for spinner feedback)
@@ -127,6 +129,11 @@ public final class DownloadsViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$isQueueRunning)
 
+        offlineDownloadService.$queueStatusReason
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$queueStatusReason)
+
         // Rebuild library summaries when targets or accounts change
         offlineDownloadService.$targets
             .combineLatest(accountManager.$plexAccounts)
@@ -171,9 +178,16 @@ public final class DownloadsViewModel: ObservableObject {
         await downloadMutationWorkflow.resumeQueue()
     }
 
-    /// Whether the queue should keep its user-facing Resume control visible.
-    public var isQueuePausedByUser: Bool {
-        offlineDownloadService.isUserPaused
+    /// Whether Resume will grant a temporary exception for the current network policy.
+    public var canTemporarilyResumeQueue: Bool {
+        offlineDownloadService.canTemporarilyResumeQueue
+    }
+
+    /// Whether any target still owns pending or paused work.
+    public var hasResumableDownloads: Bool {
+        offlineDownloadService.targets.contains {
+            $0.totalTrackCount > $0.completedTrackCount + $0.failedTrackCount
+        }
     }
 
     /// Whether a library-level download target exists for the given sourceCompositeKey
