@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 @testable import EnsembleCore
 import XCTest
@@ -79,6 +80,52 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         XCTAssertEqual(engine.currentTrackId, trackId)
         try engine.play()
         engine.stop()
+    }
+
+    func testStreamingSourceResumesAfterPause() async throws {
+        let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
+        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw XCTSkip("System M4A fixture is unavailable on this macOS install")
+        }
+
+        let engine = AudioPlaybackEngine()
+        try engine.setup()
+        let rendered = expectation(description: "streaming source rendered")
+        engine.onFirstAudibleRender = { _ in rendered.fulfill() }
+        let source = PlaybackSource.directHTTP(
+            URLRequest(url: fixtureURL),
+            metadata: PlaybackSourceMetadata(
+                trackId: "streaming-resume-test",
+                ratingKey: "1",
+                estimatedContentLength: nil,
+                duration: 5,
+                isSeekable: true,
+                cacheFileExtension: "m4a"
+            )
+        )
+
+        try await engine.load(source: source, trackId: "streaming-resume-test")
+        try engine.play()
+        await fulfillment(of: [rendered], timeout: 1)
+        guard let sourceNode = streamingSourceNode(from: engine),
+              let playingSampleTime = sourceNode.lastRenderTime?.sampleTime else {
+            return XCTFail("Expected the streaming source node to render")
+        }
+        engine.pause()
+
+        try engine.resume()
+        try await Task.sleep(nanoseconds: 200_000_000)
+
+        XCTAssertGreaterThan(sourceNode.lastRenderTime?.sampleTime ?? 0, playingSampleTime)
+        engine.stop()
+    }
+
+    private func streamingSourceNode(from engine: AudioPlaybackEngine) -> AVAudioSourceNode? {
+        guard let wrappedNode = Mirror(reflecting: engine).children
+            .first(where: { $0.label == "streamingSourceNode" })?.value else {
+            return nil
+        }
+        return Mirror(reflecting: wrappedNode).children.first?.value as? AVAudioSourceNode
     }
 
     func testKnownDurationStreamingSourceCompletesAtDuration() async throws {

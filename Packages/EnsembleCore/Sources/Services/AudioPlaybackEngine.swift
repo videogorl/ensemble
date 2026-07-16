@@ -1690,15 +1690,16 @@ public final class AudioPlaybackEngine {
         EnsembleLogger.debug("[AudioEngine] Playing from \(String(format: "%.1f", time))s (frame \(fileFrame)/\(currentContentFrameCount))")
     }
 
-    /// Pause playback and stop the engine.
+    /// Pause playback and suspend the engine.
     ///
-    /// Stopping the engine is essential: while `playerNode.pause()` silences audio,
+    /// Suspending the engine is essential: while `playerNode.pause()` silences audio,
     /// the engine's render cycle continues pulling frames from CoreAudio. iOS detects
     /// this active render cycle and overrides the system playback state,
     /// causing the lock screen to show "playing" even though audio is paused.
     ///
-    /// `engine.stop()` does NOT detach nodes or reset the player node's paused position.
-    /// On resume, `engine.start()` + `playerNode.play()` picks up where we left off.
+    /// Streaming keeps its prepared render graph so AirPlay can resume the source node
+    /// without rebuilding released engine resources. File playback retains the full
+    /// stop used by its player-node resume path.
     func pause() {
         cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         let position = snapshotPlaybackPositionBeforeStopping()
@@ -1707,15 +1708,20 @@ public final class AudioPlaybackEngine {
         wasPlaying = false
         stopTimeUpdates()
         if engine.isRunning {
-            engine.stop()
+            if streamingPipeline != nil {
+                engine.pause()
+            } else {
+                engine.stop()
+            }
         }
-        EnsembleLogger.debug("[AudioEngine] Paused (engine stopped) at \(String(format: "%.1f", position))s")
+        let suspension = streamingPipeline == nil ? "stopped" : "paused"
+        EnsembleLogger.debug("[AudioEngine] Paused (engine \(suspension)) at \(String(format: "%.1f", position))s")
     }
 
     /// Resume playback after pause.
     ///
-    /// The engine may have been stopped during `pause()`, so we restart it here.
-    /// Restarting the engine can reset AU state, so we re-apply isolation parameters.
+    /// The engine may have been paused or stopped during `pause()`, so we restart it here.
+    /// Restarting a stopped engine can reset AU state, so re-apply isolation parameters.
     func resume() throws {
         if !engine.isRunning {
             try engine.start()
