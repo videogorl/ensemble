@@ -247,6 +247,9 @@ struct EnsembleApp: App {
                     DependencyContainer.shared.webSocketCoordinator.start()
                 }
 
+                // Resume persisted download work before foreground sync and reconciliation.
+                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
+
                 if isInitialActivation {
                     AppLogger.debug("📱 EnsembleApp: Initial active phase — skipping foreground freshness after cold-launch pipeline")
                 } else {
@@ -262,7 +265,6 @@ struct EnsembleApp: App {
                 // Restart display timer if music was actively playing when backgrounded.
                 // Also resumes sidecar analysis so pending FFT jobs process in foreground.
                 DependencyContainer.shared.audioAnalyzer.exitBackground()
-                await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
                 await DependencyContainer.shared.offlineDownloadService.resumeSidecarAnalysis()
                 WatchCompanionBridge.shared.refresh()
 
