@@ -24,6 +24,7 @@ public enum DownloadError: Error, LocalizedError {
 
 public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloads() async throws -> [CDDownload]
+    func repairDownloads() async throws
     func countDownloads() async throws -> Int
     func fetchPendingDownloads() async throws -> [CDDownload]
     func countPendingDownloads() async throws -> Int
@@ -83,6 +84,10 @@ public protocol DownloadManagerProtocol: Sendable {
 
 // Convenience defaults for lightweight protocol conformers.
 public extension DownloadManagerProtocol {
+    func repairDownloads() async throws {
+        _ = try await fetchDownloads()
+    }
+
     func countDownloads() async throws -> Int {
         try await fetchDownloads().count
     }
@@ -127,7 +132,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
     }
 
     /// Directory for storing downloaded tracks
-    public static var downloadsDirectory: URL {
+    public static let downloadsDirectory: URL = {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let downloadsURL = documentsURL.appendingPathComponent("Downloads", isDirectory: true)
 
@@ -136,9 +141,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
 
         return downloadsURL
-    }
+    }()
 
-    public func fetchDownloads() async throws -> [CDDownload] {
+    public func repairDownloads() async throws {
         try await coreDataStack.performBackgroundContext { context in
             let request = CDDownload.fetchRequest()
             request.fetchBatchSize = 50
@@ -222,7 +227,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                 )
             }
         }
+    }
 
+    public func fetchDownloads() async throws -> [CDDownload] {
         return try await coreDataStack.performViewContext { context in
             let request = CDDownload.fetchRequest()
             request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]

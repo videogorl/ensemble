@@ -526,7 +526,7 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanSidecarURL.path))
     }
 
-    func testFetchDownloadsHealsMetadataFromDirectorySnapshot() async throws {
+    func testRepairDownloadsHealsMetadataWithoutChangingOrdinaryFetches() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let downloadManager = DownloadManager(coreDataStack: stack)
@@ -570,6 +570,13 @@ final class DownloadManagerTests: XCTestCase {
         }
 
         _ = try await downloadManager.fetchDownloads()
+        let unhealedMissing = try await downloadManager.fetchDownload(
+            forTrackRatingKey: "401",
+            sourceCompositeKey: sourceA
+        )
+        XCTAssertEqual(unhealedMissing?.downloadStatus, .completed)
+
+        try await downloadManager.repairDownloads()
         let fetchedValid = try await downloadManager.fetchDownload(forTrackRatingKey: "400", sourceCompositeKey: sourceA)
         let fetchedMissing = try await downloadManager.fetchDownload(forTrackRatingKey: "401", sourceCompositeKey: sourceA)
         let healedValid = try XCTUnwrap(fetchedValid)

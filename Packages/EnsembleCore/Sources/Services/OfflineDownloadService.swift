@@ -1470,7 +1470,7 @@ public final class OfflineDownloadService: ObservableObject {
 
         let runStartedAt = Date()
         // Verify files on disk, mark missing/invalid downloads as failed.
-        _ = try? await downloadManager.fetchDownloads()
+        try? await downloadManager.repairDownloads()
         // Catch truncated audio files (interrupted downloads that passed basic checks).
         await scanForTruncatedDownloads()
 
