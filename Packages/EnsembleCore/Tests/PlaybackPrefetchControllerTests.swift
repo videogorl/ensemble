@@ -153,6 +153,54 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         )
     }
 
+    func testSmartMixDeferredPrefetchWaitsUntilTransitionWindow() {
+        let controller = PlaybackPrefetchController()
+        controller.deferSmartMixPrefetch(
+            outgoingTrackID: "current",
+            incomingTrackID: "next",
+            until: 90
+        )
+
+        XCTAssertTrue(
+            controller.shouldDeferSmartMixPrefetch(
+                outgoingTrackID: "current",
+                incomingTrackID: "next",
+                currentTime: 89.9
+            )
+        )
+        XCTAssertFalse(
+            controller.shouldDeferSmartMixPrefetch(
+                outgoingTrackID: "current",
+                incomingTrackID: "next",
+                currentTime: 90
+            )
+        )
+    }
+
+    func testSmartMixDeferredPrefetchClearsWhenQueueChanges() {
+        let controller = PlaybackPrefetchController()
+        controller.deferSmartMixPrefetch(
+            outgoingTrackID: "current",
+            incomingTrackID: "next",
+            until: 90
+        )
+
+        XCTAssertFalse(
+            controller.shouldDeferSmartMixPrefetch(
+                outgoingTrackID: "current",
+                incomingTrackID: "replacement",
+                currentTime: 80
+            )
+        )
+        XCTAssertFalse(
+            controller.shouldDeferSmartMixPrefetch(
+                outgoingTrackID: "current",
+                incomingTrackID: "next",
+                currentTime: 80
+            )
+        )
+    }
+
     func testScheduledTracksStayValidWhenQueueAppendLeavesNextTrackUnchanged() {
         let controller = PlaybackPrefetchController()
         let queue = makeQueue(["current", "next", "later", "appended"])

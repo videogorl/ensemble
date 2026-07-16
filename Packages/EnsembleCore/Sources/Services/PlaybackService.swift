@@ -4514,8 +4514,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Don't prefetch when playback has failed
         if case .failed = playbackState { return }
 
-        let prefetchSnapshot: (track: Track?, shouldClearSchedule: Bool) = await MainActor.run { [weak self] in
-            guard let self else { return (track: nil, shouldClearSchedule: false) }
+        let prefetchSnapshot: (track: Track?, shouldClearSchedule: Bool, shouldDefer: Bool) = await MainActor.run { [weak self] in
+            guard let self else { return (track: nil, shouldClearSchedule: false, shouldDefer: false) }
             let removedDuplicates = self.removeDuplicateFutureAutoplayItemsIfNeeded(
                 shouldInvalidateGaplessSchedule: false
             ) > 0
@@ -4527,14 +4527,28 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
             let targetIndices = self.upcomingQueueIndices(depth: depth)
             guard let firstIndex = targetIndices.first else {
-                return (track: nil, shouldClearSchedule: shouldInvalidateScheduledTracks)
+                return (track: nil, shouldClearSchedule: shouldInvalidateScheduledTracks, shouldDefer: false)
             }
-            return (track: Optional(self.queue[firstIndex].track), shouldClearSchedule: shouldInvalidateScheduledTracks)
+            let track = self.queue[firstIndex].track
+            let shouldDefer = self.currentTrack.map {
+                self.prefetchController.shouldDeferSmartMixPrefetch(
+                    outgoingTrackID: $0.playbackIdentity,
+                    incomingTrackID: track.playbackIdentity,
+                    currentTime: self.currentTime
+                )
+            } ?? false
+            return (
+                track: Optional(track),
+                shouldClearSchedule: shouldInvalidateScheduledTracks,
+                shouldDefer: shouldDefer
+            )
         }
 
         if prefetchSnapshot.shouldClearSchedule {
             engine.clearScheduledFiles()
         }
+
+        guard !prefetchSnapshot.shouldDefer else { return }
 
         guard let track = prefetchSnapshot.track else { return }
         let trackIdentity = track.playbackIdentity
@@ -4684,6 +4698,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         currentTime: smartMixContext.currentTime,
                         plan: plan
                     ) else {
+                        await MainActor.run { [prefetchController] in
+                            prefetchController.deferSmartMixPrefetch(
+                                outgoingTrackID: currentTrack.playbackIdentity,
+                                incomingTrackID: trackIdentity,
+                                until: plan.outgoingStartTime - SmartMixPlanner.transitionStartTolerance
+                            )
+                        }
                         EnsembleLogger.debug("[prefetch] Cached '\(track.title)' for later SmartMix scheduling")
                         return
                     }

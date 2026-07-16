@@ -153,6 +153,7 @@ public enum SmartMixPlanner {
     public static let maximumSubtleTempoRate: Double = 1.04
     public static let minimumAssertiveTempoRate: Double = 0.92
     public static let maximumAssertiveTempoRate: Double = 1.08
+    public static let transitionStartTolerance: TimeInterval = 0.35
 
     public static func plan(
         outgoingDuration: TimeInterval,
@@ -207,7 +208,7 @@ public enum SmartMixPlanner {
     public static func shouldStartTransition(
         currentTime: TimeInterval,
         plan: SmartMixPlan,
-        tolerance: TimeInterval = 0.35
+        tolerance: TimeInterval = transitionStartTolerance
     ) -> Bool {
         currentTime + tolerance >= plan.outgoingStartTime
     }

@@ -10,6 +10,8 @@ struct PlaybackStreamCacheContext {
 
 /// Owns resolved-file cache updates and temporary stream-cache cleanup policy.
 final class PlaybackPrefetchController {
+    private var deferredSmartMixPrefetch: (outgoingTrackID: String, incomingTrackID: String, retryAt: TimeInterval)?
+
     func upcomingQueueIndices(
         queueCount: Int,
         currentQueueIndex: Int,
@@ -73,6 +75,33 @@ final class PlaybackPrefetchController {
 
         return outgoingAlbumID != incomingAlbumID
             || outgoingTrack.sourceCompositeKey != incomingTrack.sourceCompositeKey
+    }
+
+    func shouldDeferSmartMixPrefetch(
+        outgoingTrackID: String,
+        incomingTrackID: String,
+        currentTime: TimeInterval
+    ) -> Bool {
+        guard let deferredSmartMixPrefetch else { return false }
+        guard deferredSmartMixPrefetch.outgoingTrackID == outgoingTrackID,
+              deferredSmartMixPrefetch.incomingTrackID == incomingTrackID
+        else {
+            self.deferredSmartMixPrefetch = nil
+            return false
+        }
+        guard currentTime < deferredSmartMixPrefetch.retryAt else {
+            self.deferredSmartMixPrefetch = nil
+            return false
+        }
+        return true
+    }
+
+    func deferSmartMixPrefetch(
+        outgoingTrackID: String,
+        incomingTrackID: String,
+        until retryAt: TimeInterval
+    ) {
+        deferredSmartMixPrefetch = (outgoingTrackID, incomingTrackID, retryAt)
     }
 
     func shouldInvalidateScheduledTracks(
