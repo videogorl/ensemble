@@ -1135,6 +1135,11 @@ public final class DependencyContainer: @unchecked Sendable {
 
                 let disabledSourcesToCleanup = Array(Set(result.disabledSources))
                 if !disabledSourcesToCleanup.isEmpty {
+                    for source in disabledSourcesToCleanup {
+                        EnsembleLogger.info(
+                            "[SourceReconciliation] Cleanup requested source=\(source.compositeKey) reason=icloud-library-disabled"
+                        )
+                    }
                     await self.syncCoordinator.cleanupRemovedSourcesIfPresent(disabledSourcesToCleanup)
                 }
 

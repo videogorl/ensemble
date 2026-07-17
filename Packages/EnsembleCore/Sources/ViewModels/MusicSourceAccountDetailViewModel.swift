@@ -210,6 +210,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         if !nextEnabledState {
             // Disabling a library purges only that library's cached data.
+            EnsembleLogger.info(
+                "[SourceReconciliation] Cleanup requested source=\(row.sourceIdentifier.compositeKey) reason=local-library-disabled"
+            )
             await syncCoordinator.cleanupRemovedSource(row.sourceIdentifier)
 
             // If this was the final enabled library for the server, purge server-level playlists.
@@ -278,6 +281,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         accountManager.removePlexAccount(id: account.id)
 
         for source in accountSources {
+            EnsembleLogger.info(
+                "[SourceReconciliation] Cleanup requested source=\(source.compositeKey) reason=account-removed"
+            )
             await syncCoordinator.cleanupRemovedSource(source)
         }
 
@@ -307,6 +313,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
         // Keep cached inventory visible and avoid destructive reconciliation when offline.
         guard !syncCoordinator.isOffline else {
+            EnsembleLogger.info(
+                "[SourceReconciliation] Preserving cached sources account=\(accountId) reason=device-offline"
+            )
             return
         }
 
@@ -326,6 +335,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             // Ignore cancellation when user leaves the screen mid-refresh.
             return
         } catch {
+            EnsembleLogger.info(
+                "[SourceReconciliation] Preserving cached sources account=\(accountId) reason=account-discovery-failed error=\(error.localizedDescription)"
+            )
             self.error = error.localizedDescription
         }
 
@@ -364,6 +376,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
             if hasLibraryError, let existingServer {
                 // Partial failure: keep existing libraries unchanged for this server.
+                EnsembleLogger.info(
+                    "[SourceReconciliation] Preserving cached libraries server=\(existingServer.id) count=\(existingServer.libraries.count) reason=library-fetch-failed"
+                )
                 resolvedLibraries = existingServer.libraries
             } else {
                 let existingLibrariesByKey = Dictionary(uniqueKeysWithValues: (existingServer?.libraries ?? []).map { ($0.key, $0) })
@@ -383,14 +398,16 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
 
                 if let existingServer {
                     for removedLibrary in existingServer.libraries where !discoveredKeys.contains(removedLibrary.key) {
-                        removedSources.insert(
-                            MusicSourceIdentifier(
-                                type: .plex,
-                                accountId: account.id,
-                                serverId: existingServer.id,
-                                libraryId: removedLibrary.key
-                            )
+                        let removedSource = MusicSourceIdentifier(
+                            type: .plex,
+                            accountId: account.id,
+                            serverId: existingServer.id,
+                            libraryId: removedLibrary.key
                         )
+                        EnsembleLogger.info(
+                            "[SourceReconciliation] Cleanup requested source=\(removedSource.compositeKey) reason=absent-from-successful-plex-inventory"
+                        )
+                        removedSources.insert(removedSource)
                     }
                 }
             }
@@ -414,6 +431,9 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         // unreachable. Preserve cached server/library rows until the user explicitly
         // removes the account or disables a library.
         for existingServer in account.servers where !discoveredServerIDs.contains(existingServer.id) {
+            EnsembleLogger.info(
+                "[SourceReconciliation] Preserving cached server=\(existingServer.id) libraries=\(existingServer.libraries.count) reason=server-omitted-from-resources"
+            )
             updatedServers.append(existingServer)
         }
 
