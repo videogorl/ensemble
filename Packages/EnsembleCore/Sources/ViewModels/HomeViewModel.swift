@@ -13,7 +13,7 @@ public final class HomeViewModel: ObservableObject {
     }
 
     @Published public private(set) var hubs: [Hub] = []
-    @Published public private(set) var isLoading = false
+    @Published public private(set) var isLoading = true
     @Published public private(set) var error: String?
     @Published public private(set) var hasConfiguredAccounts = false
     @Published public private(set) var hasEnabledLibraries = false
@@ -162,9 +162,10 @@ public final class HomeViewModel: ObservableObject {
 
         await cachedSnapshotRestoreTask?.value
 
-        guard hubs.isEmpty else {
+        if !hubs.isEmpty, !shouldRefreshHubsForAutomaticLoad {
             initialLoadCompleted = true
-            EnsembleLogger.debug("🏠 Feed automatic load skipped detail=cachedContent")
+            isLoading = false
+            EnsembleLogger.debug("🏠 Feed automatic load skipped detail=freshCachedContent")
             return
         }
 
@@ -316,9 +317,6 @@ public final class HomeViewModel: ObservableObject {
                     availableHubs,
                     hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys
                 )
-                if lastNetworkHubFetchTime == nil {
-                    lastAutomaticHubRefreshAttemptTime = Date()
-                }
                 EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(hubs.count) hubs)")
             } else {
                 appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)

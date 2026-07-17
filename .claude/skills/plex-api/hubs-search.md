@@ -17,6 +17,8 @@ Get global hubs (cross-library).
 ### `GET /hubs/sections/{sectionId}`
 Get hubs for a specific library section.
 
+Use this endpoint for source-exact Feed content. `GET /hubs` is cross-library, so its items must not be attributed to whichever enabled section happens to be first.
+
 **Parameters:**
 - `sectionId` (required): Section ID
 - `count` (optional): Limit entries per hub

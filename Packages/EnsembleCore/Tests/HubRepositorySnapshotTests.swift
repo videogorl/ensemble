@@ -51,6 +51,40 @@ final class HubRepositorySnapshotTests: XCTestCase {
         XCTAssertEqual(hubs.first?.context, "hub.music.album")
     }
 
+    func testCombinedSnapshotReplacesSourceScopedSnapshots() async throws {
+        let repository = HubRepository(coreDataStack: .inMemory())
+        try await repository.saveHomeFeedSnapshot(
+            HomeFeedCachedSnapshot(
+                id: "source-snapshot",
+                sourceScopeKey: "plex:account:server",
+                sourceName: "Editing Music",
+                fetchedAt: Date(),
+                refreshReason: "network",
+                freshnessState: .fresh,
+                isLastGood: true,
+                hubs: [makeHub(id: "source-hub", context: nil)]
+            )
+        )
+        try await repository.saveHomeFeedSnapshot(
+            HomeFeedCachedSnapshot(
+                id: "combined-snapshot",
+                sourceScopeKey: nil,
+                sourceName: "Editing Music",
+                fetchedAt: Date(),
+                refreshReason: "network",
+                freshnessState: .fresh,
+                isLastGood: true,
+                hubs: [makeHub(id: "combined-hub", context: nil)]
+            )
+        )
+
+        let combined = try await repository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil)
+        let oldScope = try await repository.fetchLatestHomeFeedSnapshot(sourceScopeKey: "plex:account:server")
+
+        XCTAssertEqual(combined?.id, "combined-snapshot")
+        XCTAssertNil(oldScope)
+    }
+
     func testDeleteSnapshotsIsSourceScoped() async throws {
         let repository = HubRepository(coreDataStack: .inMemory())
         try await repository.saveHomeFeedSnapshot(

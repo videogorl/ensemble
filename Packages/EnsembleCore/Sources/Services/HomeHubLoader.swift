@@ -93,7 +93,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     public func loadCachedSnapshot() async throws -> HomeHubSnapshot {
         let sourceContext = currentSourceContext()
         let enabledSourceKeys = enabledSourceCompositeKeys()
-        let cachedSnapshot = try await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: sourceContext.sourceKey)
+        let cachedSnapshot = try await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil)
         let cached: [Hub]
         if let cachedSnapshot {
             cached = cachedSnapshot.hubs
@@ -154,17 +154,26 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         var collectedHubs: [Hub] = []
         var updatedFailedHubKeys = failedHubKeys
 
-        await withTaskGroup(of: (hubs: [Hub], failedKeys: Set<String>).self) { group in
-            for task in fetchTasks {
+        await withTaskGroup(of: (index: Int, hubs: [Hub], failedKeys: Set<String>).self) { group in
+            for (index, task) in fetchTasks.enumerated() {
                 group.addTask {
-                    await Self.fetchSectionHubs(
+                    let result = await Self.fetchSectionHubs(
                         task: task,
                         hubCount: hubCount
                     )
+                    return (index, result.hubs, result.failedKeys)
                 }
             }
 
+            var results = Array<(hubs: [Hub], failedKeys: Set<String>)?>(
+                repeating: nil,
+                count: fetchTasks.count
+            )
             for await result in group {
+                results[result.index] = (result.hubs, result.failedKeys)
+            }
+
+            for result in results.compactMap({ $0 }) {
                 collectedHubs.append(contentsOf: result.hubs)
                 if !result.failedKeys.isEmpty {
                     updatedFailedHubKeys.formUnion(result.failedKeys)
@@ -174,17 +183,9 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
         persistFailedHubKeys(updatedFailedHubKeys)
 
-        let usedGlobalFallback = collectedHubs.count < 3
-        let finalHubs: [Hub]
-        if usedGlobalFallback {
-            finalHubs = await collectedHubs + fetchGlobalFallbackHubs(from: fetchTasks)
-        } else {
-            finalHubs = collectedHubs
-        }
-
-        let mergedHubs = mergeAndGroupHubs(finalHubs)
+        let mergedHubs = mergeAndGroupHubs(collectedHubs)
         EnsembleLogger.debug(
-            "🏠 Hub loader merged result count=\(mergedHubs.count) fallback=\(usedGlobalFallback)"
+            "🏠 Hub loader merged result count=\(mergedHubs.count)"
         )
 
         let orderedHubs = orderedSnapshot(
@@ -198,7 +199,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             EnsembleLogger.debug("🏠 Hub loader skipped empty cache save to preserve last usable Feed cache")
         } else {
             let cacheSnapshot = HomeFeedCachedSnapshot(
-                sourceScopeKey: sourceContext.sourceKey,
+                sourceScopeKey: nil,
                 sourceName: sourceContext.sourceName,
                 fetchedAt: Date(),
                 refreshReason: "network",
@@ -206,13 +207,11 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 isLastGood: true,
                 hubs: orderedHubs
             )
-            Task.detached(priority: .background) { [hubRepository] in
-                do {
-                    try await hubRepository.saveHomeFeedSnapshot(cacheSnapshot)
-                    EnsembleLogger.debug("🏠 Hub loader last-good snapshot save count=\(cacheSnapshot.hubs.count)")
-                } catch {
-                    EnsembleLogger.debug("🏠 Hub loader last-good snapshot save failed: \(error.localizedDescription)")
-                }
+            do {
+                try await hubRepository.saveHomeFeedSnapshot(cacheSnapshot)
+                EnsembleLogger.debug("🏠 Hub loader last-good snapshot save count=\(cacheSnapshot.hubs.count)")
+            } catch {
+                EnsembleLogger.debug("🏠 Hub loader last-good snapshot save failed: \(error.localizedDescription)")
             }
         }
 
@@ -223,7 +222,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 currentSourceKey: sourceContext.sourceKey,
                 currentSourceName: sourceContext.sourceName,
                 fetchTaskCount: fetchTasks.count,
-                usedGlobalFallback: usedGlobalFallback,
+                usedGlobalFallback: false,
                 networkFetchCompletedAt: Date(),
                 cacheCreatedAt: nil,
                 cacheFetchedAt: nil,
@@ -369,76 +368,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         }
 
         return (hubs, newFailedKeys)
-    }
-
-    private func fetchGlobalFallbackHubs(from fetchTasks: [FetchTask]) async -> [Hub] {
-        var handledServers = Set<String>()
-        var serverTasks: [(sourceKey: String, client: PlexAPIClient)] = []
-
-        for task in fetchTasks {
-            guard let serverKey = MediaSourceIdentity.serverSourceKey(from: task.sourceKey) else { continue }
-            if handledServers.insert(serverKey).inserted {
-                serverTasks.append((task.sourceKey, task.client))
-            }
-        }
-
-        return await withTaskGroup(of: [Hub].self) { group in
-            var collected: [Hub] = []
-
-            for task in serverTasks {
-                group.addTask {
-                    var hubs: [Hub] = []
-                    do {
-                        let globalHubs = try await task.client.getGlobalHubs()
-                        for plexHub in globalHubs {
-                            let hubType = plexHub.type?.lowercased() ?? ""
-                            let isMusic = hubType.contains("artist")
-                                || hubType.contains("album")
-                                || hubType.contains("track")
-                                || hubType.contains("playlist")
-                                || hubType.contains("music")
-                            guard isMusic else { continue }
-
-                            let hubId = "\(task.sourceKey):global:\(plexHub.id)"
-                            var hubItems: [HubItem] = []
-
-                            if let metadata = plexHub.metadata, !metadata.isEmpty {
-                                let filteredMetadata = metadata.filter { item in
-                                    let type = item.type?.lowercased() ?? ""
-                                    return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                                }
-                                hubItems = Array(filteredMetadata.prefix(12)).map {
-                                    HubItem(from: $0, sourceKey: task.sourceKey)
-                                }
-                            }
-
-                            if !hubItems.isEmpty {
-                                hubs.append(
-                                    Hub(
-                                        id: hubId,
-                                        title: plexHub.title,
-                                        type: plexHub.type ?? "mixed",
-                                        items: hubItems,
-                                        context: plexHub.context
-                                    )
-                                )
-                            }
-                        }
-                    } catch {
-                        EnsembleLogger.debug(
-                            "🏠 Hub loader global fallback failed source=\(task.sourceKey): \(error.localizedDescription)"
-                        )
-                    }
-                    return hubs
-                }
-            }
-
-            for await hubs in group {
-                collected.append(contentsOf: hubs)
-            }
-
-            return collected
-        }
     }
 
     private func orderedSnapshot(
@@ -605,7 +534,12 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 }
             }
 
-            allItems.sort { ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast) }
+            allItems.sort {
+                let leftDate = $0.dateAdded ?? .distantPast
+                let rightDate = $1.dateAdded ?? .distantPast
+                if leftDate != rightDate { return leftDate > rightDate }
+                return "\($0.sourceCompositeKey):\($0.id)" < "\($1.sourceCompositeKey):\($1.id)"
+            }
 
             let mergedHub = Hub(
                 id: "\(serverKey(firstHub.id)):merged:\(Self.hubTypeIdentifier(from: firstHub.id)):\(normalizedTitle)",

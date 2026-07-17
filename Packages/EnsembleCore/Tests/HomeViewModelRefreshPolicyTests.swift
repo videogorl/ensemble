@@ -81,11 +81,17 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     private final class MockHubRepository: HubRepositoryProtocol, @unchecked Sendable {
         var cachedHubs: [Hub] = []
         var cachedSnapshot: HomeFeedCachedSnapshot?
+        var snapshotFetchCount = 0
+        var requestedNonNilSnapshotScopes: [String] = []
 
         func fetchHubs() async throws -> [Hub] { cachedHubs }
         func saveHubs(_ hubs: [Hub]) async throws {}
         func deleteAllHubs() async throws {}
         func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot? {
+            snapshotFetchCount += 1
+            if let sourceScopeKey {
+                requestedNonNilSnapshotScopes.append(sourceScopeKey)
+            }
             return cachedSnapshot
         }
         func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws {
@@ -374,6 +380,31 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         )
     }
 
+    func testFeedRestoresCombinedSnapshotWithoutFirstServerScope() async {
+        let account = PlexAccountConfig(
+            id: "account-enabled",
+            displayTitle: "Enabled",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-enabled",
+                    name: "Enabled Server",
+                    url: "https://enabled.example.com",
+                    token: "token-enabled",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-enabled", key: "lib-enabled", title: "Music", isEnabled: true)
+                    ]
+                )
+            ]
+        )
+        let harness = makeHarness(accounts: [account], cachedHubs: [makeHub()])
+
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertGreaterThan(harness.hubRepository.snapshotFetchCount, 0)
+        XCTAssertTrue(harness.hubRepository.requestedNonNilSnapshotScopes.isEmpty)
+    }
+
     private func makeSourceIdentifier() -> MusicSourceIdentifier {
         MusicSourceIdentifier(
             type: .plex,
@@ -452,7 +483,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(loadCount, 0)
     }
 
-    func testFeedEntrySkipsExistingCachedContentEvenWhenNetworkSnapshotIsStale() async {
+    func testFeedEntryRevalidatesExistingCachedContentWhenNetworkSnapshotIsStale() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -465,7 +496,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         await sut.loadHubsIfNeeded()
 
-        XCTAssertEqual(loadCount, 0)
+        XCTAssertEqual(loadCount, 1)
     }
 
     func testAutomaticFeedLoadSkipsFreshCachedSnapshotAfterViewModelRecreation() async {
@@ -489,7 +520,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(loadCount, 0)
     }
 
-    func testFeedEntrySkipsExistingCachedContentWithoutNetworkTimestamp() async {
+    func testFeedEntryRevalidatesCachedContentWithoutNetworkTimestampOncePerWindow() async {
         let sut = makeViewModel()
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
@@ -502,7 +533,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         await sut.loadHubsIfNeeded()
         await sut.loadHubsIfNeeded()
 
-        XCTAssertEqual(loadCount, 0)
+        XCTAssertEqual(loadCount, 1)
     }
 
     func testHiddenNetworkRefreshDoesNotReplaceVisibleFeedContent() async {
