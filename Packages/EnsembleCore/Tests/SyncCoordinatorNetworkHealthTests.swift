@@ -390,13 +390,25 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
     }
 
     func testPossiblyAvailableTreatsUnknownHealthAsPlayable() {
-        let (coordinator, _) = makeCoordinator()
+        let (coordinator, networkMonitor) = makeCoordinator()
         let sourceKey = "plex:account-1:server-1:lib-1"
 
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
         coordinator.serverHealthChecker.prepopulateUnknownStates()
+        let resolver = TrackAvailabilityResolver(
+            networkMonitor: networkMonitor,
+            serverHealthChecker: coordinator.serverHealthChecker
+        )
+        let track = Track(
+            id: "track-1",
+            key: "/library/metadata/track-1",
+            title: "Track",
+            sourceCompositeKey: sourceKey
+        )
 
         XCTAssertFalse(coordinator.isServerAvailable(sourceKey: sourceKey))
         XCTAssertTrue(coordinator.isServerPossiblyAvailable(sourceKey: sourceKey))
+        XCTAssertEqual(resolver.availability(for: track), .available)
     }
 
     func testSyncPublishesOnlyMaterialLibraryChanges() async {

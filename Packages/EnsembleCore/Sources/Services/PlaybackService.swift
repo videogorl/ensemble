@@ -2319,6 +2319,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: index) else {
             // Stop any currently playing audio before showing error state
             stop()
+            queue = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
+            originalQueue = queue
+            currentQueueIndex = index
+            currentTrack = tracks[index]
             let isDeviceOffline = await MainActor.run {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
@@ -2454,6 +2458,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         guard let playableQueue = await resolvePlayableQueue(tracks: tracks, preferredStartIndex: 0) else {
             stop()
+            queue = tracks.map { makeQueueItem(track: $0, source: .continuePlaying) }
+            originalQueue = queue
+            currentQueueIndex = 0
+            currentTrack = tracks[0]
             let isDeviceOffline = await MainActor.run {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
@@ -2582,7 +2590,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             hasUnavailableTracks = await MainActor.run {
                 tracks.contains { track in
-                    !track.isDownloaded && !syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey)
+                    !track.isDownloaded && !syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
                 }
             }
         }
@@ -2608,7 +2616,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Downloaded tracks are always playable
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
-            } else if await MainActor.run(body: { syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey) }) {
+            } else if await MainActor.run(body: { syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey) }) {
                 // Track's server is online — can stream
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
@@ -2669,7 +2677,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Block playback of tracks from offline servers
         let track = queue[index].track
         let isUnavailable = await MainActor.run {
-            !track.isDownloaded && !syncCoordinator.isServerAvailable(sourceKey: track.sourceCompositeKey)
+            !track.isDownloaded && !syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
         }
         if isUnavailable { return }
 
@@ -2949,7 +2957,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Retry playing the current track (useful after network errors)
     public func retryCurrentTrack() async {
         consecutivePlaybackFailures = 0
-        await retryCurrentTrack(forceConnectionRefresh: false, reason: "manual")
+        await retryCurrentTrack(forceConnectionRefresh: true, reason: "manual")
     }
 
     public func next() {

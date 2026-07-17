@@ -94,12 +94,11 @@ public final class TrackAvailabilityResolver: ObservableObject {
 
         // Device is online — check per-server health
         let serverKey = extractServerKey(from: track.sourceCompositeKey)
-        if let serverKey {
-            let state = serverHealthChecker.serverStates[serverKey]
-            if let state, !state.isAvailable {
-                let reason = serverHealthChecker.serverFailureReasons[serverKey] ?? .offline
-                return .unavailableServerOffline(reason: reason)
-            }
+        if let serverKey,
+           serverHealthChecker.serverStates[serverKey] == .offline
+        {
+            let reason = serverHealthChecker.serverFailureReasons[serverKey] ?? .offline
+            return .unavailableServerOffline(reason: reason)
         }
 
         return .available

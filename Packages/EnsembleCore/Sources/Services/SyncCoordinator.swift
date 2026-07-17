@@ -1878,10 +1878,10 @@ public final class SyncCoordinator: ObservableObject {
         return state.isAvailable
     }
 
-    /// Optimistic availability check for non-critical operations like artwork loading.
+    /// Optimistic availability check for preflight operations like queue filtering and artwork loading.
     /// Returns true if the server is available OR if health checks haven't completed yet
     /// (.unknown/.connecting). This avoids premature local-file fallback during startup
-    /// when health checks are still in flight. Nuke handles network failures gracefully.
+    /// when health checks are still in flight. The actual request remains authoritative.
     public func isServerPossiblyAvailable(sourceKey: String?) -> Bool {
         guard let server = MediaSourceIdentity.parse(sourceKey) else {
             return true
