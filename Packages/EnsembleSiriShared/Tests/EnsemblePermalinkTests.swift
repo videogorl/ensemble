@@ -14,9 +14,9 @@ final class EnsemblePermalinkTests: XCTestCase {
         )
 
         let url = try XCTUnwrap(link.url)
-        XCTAssertEqual(url.scheme, "ensemble")
-        XCTAssertEqual(url.host, "media")
-        XCTAssertTrue(url.absoluteString.contains("/v1/song/Pagan%20Poetry"), url.absoluteString)
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "ensemble.videogorl.me")
+        XCTAssertTrue(url.absoluteString.contains("/media/v1/song/Pagan%20Poetry"), url.absoluteString)
 
         let decoded = try XCTUnwrap(EnsemblePermalink(url: url), url.absoluteString)
         XCTAssertEqual(decoded.kind, .track)
@@ -41,5 +41,15 @@ final class EnsemblePermalinkTests: XCTestCase {
     func testRejectsUnsupportedVersionAndNonEnsembleScheme() {
         XCTAssertNil(EnsemblePermalink(url: URL(string: "ensemble://media/v2/song/Test")!))
         XCTAssertNil(EnsemblePermalink(url: URL(string: "https://example.com/media/v1/song/Test")!))
+    }
+
+    func testLegacyCustomSchemeStillDecodes() throws {
+        let decoded = try XCTUnwrap(
+            EnsemblePermalink(url: URL(string: "ensemble://media/v1/song/Pagan%20Poetry?artist=Bj%C3%B6rk")!)
+        )
+
+        XCTAssertEqual(decoded.kind, .track)
+        XCTAssertEqual(decoded.title, "Pagan Poetry")
+        XCTAssertEqual(decoded.artistName, "Björk")
     }
 }

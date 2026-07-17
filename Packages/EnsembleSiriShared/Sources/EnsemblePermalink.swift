@@ -3,6 +3,7 @@ import Foundation
 /// Portable, library-independent description of media shared between Ensemble users.
 public struct EnsemblePermalink: Sendable, Equatable, Hashable {
     public static let currentVersion = 1
+    private static let webHost = "ensemble.videogorl.me"
 
     public let kind: SiriMediaKind
     public let title: String
@@ -36,12 +37,12 @@ public struct EnsemblePermalink: Sendable, Equatable, Hashable {
         self.isSmartPlaylist = isSmartPlaylist
     }
 
-    /// Encodes the descriptor as an `ensemble://media/v1/...` URL.
+    /// Encodes the descriptor as a portable Ensemble Universal Link.
     public var url: URL? {
         var components = URLComponents()
-        components.scheme = "ensemble"
-        components.host = "media"
-        components.path = "/v\(Self.currentVersion)/\(pathKind)/\(title)"
+        components.scheme = "https"
+        components.host = Self.webHost
+        components.path = "/media/v\(Self.currentVersion)/\(pathKind)/\(title)"
 
         var queryItems: [URLQueryItem] = []
         append(artistName, named: "artist", to: &queryItems)
@@ -57,13 +58,16 @@ public struct EnsemblePermalink: Sendable, Equatable, Hashable {
 
     /// Decodes a supported portable Ensemble media URL.
     public init?(url: URL) {
-        guard url.scheme?.lowercased() == "ensemble",
-              url.host?.lowercased() == "media"
-        else {
+        let scheme = url.scheme?.lowercased()
+        let host = url.host?.lowercased()
+        var path = url.pathComponents.filter { $0 != "/" }
+
+        if scheme == "https", host == Self.webHost, path.first?.lowercased() == "media" {
+            path.removeFirst()
+        } else if scheme != "ensemble" || host != "media" {
             return nil
         }
 
-        let path = url.pathComponents.filter { $0 != "/" }
         guard path.count == 3,
               path[0].lowercased() == "v\(Self.currentVersion)",
               let kind = Self.kind(for: path[1]),
