@@ -241,13 +241,20 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         let accountManager: AccountManager
         let coordinator: SyncCoordinator
         let hubRepository: MockHubRepository
+        let hubLoader: HomeHubLoader
     }
 
     private func makeHarness(
         accounts: [PlexAccountConfig] = [],
-        cachedHubs: [Hub] = []
+        cachedHubs: [Hub] = [],
+        credentialReadUnavailable: Bool = false
     ) -> Harness {
-        let accountManager = AccountManager(keychain: TestKeychain())
+        let keychain = TestKeychain()
+        if credentialReadUnavailable {
+            keychain.localReadFailure = .unavailable
+        }
+        let accountManager = AccountManager(keychain: keychain)
+        accountManager.loadAccounts()
         for account in accounts {
             accountManager.addPlexAccount(account)
         }
@@ -286,7 +293,8 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             viewModel: viewModel,
             accountManager: accountManager,
             coordinator: coordinator,
-            hubRepository: hubRepository
+            hubRepository: hubRepository,
+            hubLoader: hubLoader
         )
     }
 
@@ -403,6 +411,30 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         XCTAssertGreaterThan(harness.hubRepository.snapshotFetchCount, 0)
         XCTAssertTrue(harness.hubRepository.requestedNonNilSnapshotScopes.isEmpty)
+    }
+
+    func testFeedRestoresCachedHubsWhenCredentialsAreUnavailable() async throws {
+        let cachedHub = makeHub()
+        let harness = makeHarness(
+            cachedHubs: [cachedHub],
+            credentialReadUnavailable: true
+        )
+
+        let snapshot = try await harness.hubLoader.loadCachedSnapshot()
+
+        XCTAssertEqual(harness.accountManager.credentialLoadState, .unavailable)
+        XCTAssertEqual(snapshot.orderedHubs.map(\.id), [cachedHub.id])
+    }
+
+    func testFeedRestoresCachedHubsWhenSavedCredentialsAreMissing() async throws {
+        let cachedHub = makeHub()
+        let harness = makeHarness(cachedHubs: [cachedHub])
+
+        let snapshot = try await harness.hubLoader.loadCachedSnapshot()
+
+        XCTAssertEqual(harness.accountManager.credentialLoadState, .loaded)
+        XCTAssertFalse(harness.accountManager.hasAnySources)
+        XCTAssertEqual(snapshot.orderedHubs.map(\.id), [cachedHub.id])
     }
 
     private func makeSourceIdentifier() -> MusicSourceIdentifier {

@@ -36,20 +36,26 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         }
     }
 
-    func testLoadLibraryPurgesAllCachedLibraryDataWhenNoAccountsExist() async throws {
+    func testLoadLibraryPreservesCachedLibraryDataWhenNoAccountsExist() async throws {
         let harness = makeHarness()
-        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: "plex:account-1:server-1:lib-1")
-        try await seedOfflineDownload(harness: harness, sourceKey: "plex:account-1:server-1:lib-1", trackRatingKey: "track-lib-1")
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+        try await seedOfflineDownload(harness: harness, sourceKey: sourceKey, trackRatingKey: "track-lib-1")
 
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
 
-        XCTAssertTrue(viewModel.tracks.isEmpty)
-        XCTAssertTrue(viewModel.albums.isEmpty)
-        XCTAssertTrue(viewModel.artists.isEmpty)
-        XCTAssertTrue(viewModel.genres.isEmpty)
-        try await waitForDeferredCleanup(repository: harness.libraryRepository)
-        try await waitForDeferredOfflineCleanup(harness: harness)
+        XCTAssertEqual(viewModel.tracks.map(\.sourceCompositeKey), [sourceKey])
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        let persistedSources = try await harness.libraryRepository.fetchMusicSources()
+        let persistedTracks = try await harness.libraryRepository.fetchTracks()
+        let persistedDownloads = try await harness.downloadManager.fetchDownloads()
+        let persistedTargets = try await harness.targetRepository.fetchTargets()
+        XCTAssertEqual(Set(persistedSources.map(\.compositeKey)), [sourceKey])
+        XCTAssertEqual(Set(persistedTracks.compactMap(\.sourceCompositeKey)), [sourceKey])
+        XCTAssertEqual(persistedDownloads.count, 1)
+        XCTAssertEqual(persistedTargets.count, 1)
     }
 
     func testLoadLibraryPreservesCachedLibraryDataWhenConfiguredAccountHasNoEnabledLibraries() async throws {
@@ -89,6 +95,20 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         let sourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
         XCTAssertEqual(sourceKeys, [sourceKey])
+    }
+
+    func testLoadLibraryPublishesCachedLibraryWhenCredentialsAreUnavailable() async throws {
+        let harness = makeHarness(credentialReadUnavailable: true)
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let viewModel = makeViewModel(harness: harness)
+        await viewModel.loadLibrary()
+
+        XCTAssertEqual(harness.accountManager.credentialLoadState, .unavailable)
+        XCTAssertEqual(viewModel.tracks.map(\.sourceCompositeKey), [sourceKey])
+        let persistedSources = try await harness.libraryRepository.fetchMusicSources()
+        XCTAssertEqual(Set(persistedSources.map(\.compositeKey)), [sourceKey])
     }
 
     func testLibraryReloadsWhenCloudSourceRestorationSettles() async throws {
@@ -226,7 +246,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForArtistName(viewModel: viewModel, expectedName: "Janelle Monáe")
     }
 
-    func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {
+    func testLoadLibraryFiltersDisabledSourcesWithoutPurgingTheirCache() async throws {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness { sourceKey in
             await cleanupRecorder.record(sourceKey)
@@ -245,16 +265,26 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         let viewModel = makeViewModel(harness: harness)
         await viewModel.loadLibrary()
+        try await Task.sleep(nanoseconds: 1_200_000_000)
 
-        try await waitForDeferredCleanup(repository: harness.libraryRepository, expectedSourceKeys: ["plex:account-1:server-1:lib-1"])
+        XCTAssertEqual(
+            Set(viewModel.tracks.compactMap(\.sourceCompositeKey)),
+            ["plex:account-1:server-1:lib-1"]
+        )
 
         let sourceKeys = Set(try await harness.libraryRepository.fetchMusicSources().map(\.compositeKey))
-        XCTAssertEqual(sourceKeys, ["plex:account-1:server-1:lib-1"])
+        XCTAssertEqual(
+            sourceKeys,
+            ["plex:account-1:server-1:lib-1", "plex:account-1:server-1:lib-2"]
+        )
 
         let trackSourceKeys = Set(try await harness.libraryRepository.fetchTracks().compactMap(\.sourceCompositeKey))
-        XCTAssertEqual(trackSourceKeys, ["plex:account-1:server-1:lib-1"])
+        XCTAssertEqual(
+            trackSourceKeys,
+            ["plex:account-1:server-1:lib-1", "plex:account-1:server-1:lib-2"]
+        )
         let cleanedSourceKeys = await cleanupRecorder.recordedSourceKeys()
-        XCTAssertEqual(cleanedSourceKeys, ["plex:account-1:server-1:lib-2"])
+        XCTAssertTrue(cleanedSourceKeys.isEmpty)
     }
 
     func testSourceCleanupResultReportsRemovedCounts() async throws {
@@ -577,10 +607,16 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
     }
 
     private func makeHarness(
+        credentialReadUnavailable: Bool = false,
         clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in 0 },
         clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = { 0 }
     ) -> Harness {
-        let accountManager = AccountManager(keychain: TestKeychain())
+        let keychain = TestKeychain()
+        if credentialReadUnavailable {
+            keychain.localReadFailure = .unavailable
+        }
+        let accountManager = AccountManager(keychain: keychain)
+        accountManager.loadAccounts()
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
@@ -725,7 +761,6 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         LibraryViewModel(
             libraryRepository: harness.libraryRepository,
             syncCoordinator: harness.syncCoordinator,
-            sourceCacheCleanupService: harness.sourceCacheCleanupService,
             accountManager: harness.accountManager,
             visibilityStore: LibraryVisibilityStore(),
             toastCenter: ToastCenter(),

@@ -62,6 +62,66 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         await manager.loadAccountsAsync()
 
         XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
+        XCTAssertEqual(manager.credentialLoadState, .loaded)
+    }
+
+    func testLoadAccountsReportsUnavailableWithoutClearingExistingAccounts() {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        let manager = AccountManager(keychain: keychain)
+        manager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-1",
+                displayTitle: "tester",
+                authToken: "token",
+                servers: []
+            )
+        )
+        keychain.localReadFailure = .unavailable
+
+        manager.loadAccounts()
+
+        XCTAssertEqual(manager.credentialLoadState, .unavailable)
+        XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
+        XCTAssertFalse(manager.isSourceConfigurationAuthoritative)
+    }
+
+    func testAsyncCredentialLoadTimesOutWithoutBlockingCachedFallback() async {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        keychain.localReadDelay = 2
+        let manager = AccountManager(keychain: keychain)
+        let startedAt = Date()
+
+        await manager.loadAccountsAsync()
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1.5)
+        XCTAssertEqual(manager.credentialLoadState, .unavailable)
+        XCTAssertFalse(manager.isSourceConfigurationAuthoritative)
+    }
+
+    func testAsyncCredentialRetryRecoversAfterAccessReturns() async {
+        UserDefaults.standard.set(2, forKey: migrationDefaultsKey)
+        let keychain = TestKeychain()
+        let manager = AccountManager(keychain: keychain)
+        manager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-1",
+                displayTitle: "tester",
+                authToken: "token",
+                servers: []
+            )
+        )
+        keychain.localReadFailure = .unavailable
+
+        await manager.loadAccountsAsync()
+        XCTAssertEqual(manager.credentialLoadState, .unavailable)
+
+        keychain.localReadFailure = nil
+        await manager.loadAccountsAsync()
+
+        XCTAssertEqual(manager.credentialLoadState, .loaded)
+        XCTAssertEqual(manager.plexAccounts.map(\.id), ["account-1"])
     }
 
     func testExpiredAccountIsRemovedDuringPolicyEnforcement() {

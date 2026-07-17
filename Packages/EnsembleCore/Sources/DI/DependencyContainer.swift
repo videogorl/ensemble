@@ -89,6 +89,7 @@ public final class DependencyContainer: @unchecked Sendable {
     private var firstConnectRetryTask: Task<Void, Never>?
     private var firstConnectRetryAttempt = 0
     private var lastKnownICloudAccountStatus: CKAccountStatus = .couldNotDetermine
+    private var lastKnownProfileTransportState: CloudSyncService.ProfileTransportState = .unknown
     private var hasScheduledDeferredSyncStartup = false
     private static let firstConnectRetryDelays: [TimeInterval] = [5, 15, 30, 60]
 
@@ -1215,6 +1216,7 @@ public final class DependencyContainer: @unchecked Sendable {
         feature: SyncSettingsManager.SyncFeature? = nil
     ) async {
         if syncSettingsManager.isMasterSyncEnabled {
+            lastKnownProfileTransportState = await cloudSyncService.currentProfileTransportState()
             lastKnownICloudAccountStatus = await cloudSyncService.currentAccountStatus()
             await performSyncBootstrap(reason: reason, feature: feature)
         }
@@ -1340,13 +1342,17 @@ public final class DependencyContainer: @unchecked Sendable {
                 sourcesFeatureEnabled: syncSettingsManager.isFeatureEnabled(.sources),
                 hasAnySources: accountManager.hasAnySources,
                 hasSyncedCloudCredentials: accountManager.hasSyncedCloudCredentials(),
-                accountStatus: lastKnownICloudAccountStatus
+                accountStatus: lastKnownICloudAccountStatus,
+                profileTransportState: lastKnownProfileTransportState
             )
 
         let waitingForProfile =
             userProfileStore.profile.isEmpty &&
             syncSettingsManager.profileStatus.phase == .unknown &&
-            !Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus)
+            !Self.isBootstrapTransportUnavailable(
+                accountStatus: lastKnownICloudAccountStatus,
+                profileTransportState: lastKnownProfileTransportState
+            )
 
         return waitingForSources || waitingForProfile
     }
@@ -1477,7 +1483,10 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         guard accountManager.hasAnySources else {
-            if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            if Self.isBootstrapTransportUnavailable(
+                accountStatus: lastKnownICloudAccountStatus,
+                profileTransportState: lastKnownProfileTransportState
+            ) {
                 accountManager.setAwaitingCloudSources(false)
                 syncSettingsManager.setFeatureState(.transportUnavailable, for: .sources)
                 return true
@@ -1717,7 +1726,14 @@ public final class DependencyContainer: @unchecked Sendable {
         return true
     }
 
-    static func isBootstrapTransportUnavailable(accountStatus: CKAccountStatus) -> Bool {
+    static func isBootstrapTransportUnavailable(
+        accountStatus: CKAccountStatus,
+        profileTransportState: CloudSyncService.ProfileTransportState = .unknown
+    ) -> Bool {
+        if profileTransportState == .unavailable {
+            return true
+        }
+
         switch accountStatus {
         case .noAccount, .restricted:
             return true
@@ -1748,12 +1764,16 @@ public final class DependencyContainer: @unchecked Sendable {
         sourcesFeatureEnabled: Bool,
         hasAnySources: Bool,
         hasSyncedCloudCredentials: Bool,
-        accountStatus: CKAccountStatus
+        accountStatus: CKAccountStatus,
+        profileTransportState: CloudSyncService.ProfileTransportState = .unknown
     ) -> Bool {
         sourcesFeatureEnabled &&
         !hasAnySources &&
         !hasSyncedCloudCredentials &&
-        !isBootstrapTransportUnavailable(accountStatus: accountStatus)
+        !isBootstrapTransportUnavailable(
+            accountStatus: accountStatus,
+            profileTransportState: profileTransportState
+        )
     }
 
 }

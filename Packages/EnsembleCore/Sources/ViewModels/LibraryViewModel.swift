@@ -124,23 +124,19 @@ public final class LibraryViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
-    private let sourceCacheCleanupService: SourceCacheCleaning
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
-    private var cachedSourceCleanupTask: Task<Void, Never>?
     private var allArtists: [Artist] = []
     private var allAlbums: [Album] = []
     private var allTracks: [Track] = []
     private var allGenres: [Genre] = []
-    private static let cachedSourceCleanupDelayNs: UInt64 = 1_000_000_000
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        sourceCacheCleanupService: SourceCacheCleaning,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
         toastCenter: ToastCenter,
@@ -148,7 +144,6 @@ public final class LibraryViewModel: ObservableObject {
     ) {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
-        self.sourceCacheCleanupService = sourceCacheCleanupService
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.toastCenter = toastCenter
@@ -545,19 +540,18 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
-    /// Keeps local library storage aligned with the account/library selection before publishing browse rows.
+    /// Resolves the source keys that may be published without treating transient credentials as deletion intent.
     private func reconcileCachedSourcesBeforeLoad(enabledSourceKeys: Set<String>) async throws -> Set<String>? {
         let cachedSourceKeys = Set(try await libraryRepository.fetchMusicSources().map(\.compositeKey))
 
-        guard !accountManager.isAwaitingCloudSources else {
-            cancelCachedSourceCleanup()
+        guard accountManager.isSourceConfigurationAuthoritative else {
             guard !cachedSourceKeys.isEmpty else {
-                EnsembleLogger.info("LibraryViewModel: preserving visible library while cloud sources are restoring")
+                EnsembleLogger.info("LibraryViewModel: preserving visible library while source credentials are unresolved")
                 return nil
             }
 
             if enabledSourceKeys.isEmpty {
-                EnsembleLogger.info("LibraryViewModel: using cached library source keys while cloud source selection is restoring")
+                EnsembleLogger.info("LibraryViewModel: using cached source keys while source credentials are unresolved")
                 return cachedSourceKeys
             }
 
@@ -565,65 +559,19 @@ public final class LibraryViewModel: ObservableObject {
         }
 
         guard !enabledSourceKeys.isEmpty else {
+            if !accountManager.hasAnySources, !cachedSourceKeys.isEmpty {
+                EnsembleLogger.info("LibraryViewModel: using last-good cached sources without saved credentials")
+                return cachedSourceKeys
+            }
+
             clearInMemoryLibrary()
-
-            guard !accountManager.hasAnySources else {
-                cancelCachedSourceCleanup()
-                if !cachedSourceKeys.isEmpty {
-                    EnsembleLogger.info("LibraryViewModel: preserving cached library data while no libraries are enabled")
-                }
-                return nil
-            }
-
             if !cachedSourceKeys.isEmpty {
-                EnsembleLogger.info("LibraryViewModel: purging cached library data because no source accounts are configured")
+                EnsembleLogger.info("LibraryViewModel: preserving cached library data with no enabled sources")
             }
-            scheduleCachedSourceCleanup(sourceKeys: cachedSourceKeys, deleteAllLibraryData: true)
             return nil
         }
 
-        let staleSourceKeys = cachedSourceKeys.subtracting(enabledSourceKeys)
-        if !staleSourceKeys.isEmpty {
-            EnsembleLogger.info("LibraryViewModel: purging cached data for \(staleSourceKeys.count) disabled library source(s)")
-            scheduleCachedSourceCleanup(sourceKeys: staleSourceKeys, deleteAllLibraryData: false)
-        }
         return enabledSourceKeys
-    }
-
-    private func cancelCachedSourceCleanup() {
-        cachedSourceCleanupTask?.cancel()
-        cachedSourceCleanupTask = nil
-    }
-
-    /// Schedules destructive stale-source cleanup outside the browse load path.
-    /// Published collections are filtered by enabled source, so cleanup can run
-    /// after first interaction without showing stale rows.
-    private func scheduleCachedSourceCleanup(sourceKeys: Set<String>, deleteAllLibraryData: Bool) {
-        guard !sourceKeys.isEmpty || deleteAllLibraryData else { return }
-
-        cachedSourceCleanupTask?.cancel()
-        let cleanupService = sourceCacheCleanupService
-        cachedSourceCleanupTask = Task(priority: .utility) { [cleanupService] in
-            try? await Task.sleep(nanoseconds: Self.cachedSourceCleanupDelayNs)
-            guard !Task.isCancelled else { return }
-            do {
-                if deleteAllLibraryData {
-                    _ = try await cleanupService.cleanupAllLibraryData(cachedSourceKeys: sourceKeys)
-                } else {
-                    for sourceKey in sourceKeys {
-                        guard !Task.isCancelled else { return }
-                        _ = try await cleanupService.cleanupSource(sourceKey)
-                        await Task.yield()
-                    }
-                }
-                guard !Task.isCancelled else { return }
-                EnsembleLogger.info(
-                    "LibraryViewModel: completed deferred cached-source cleanup (sources=\(sourceKeys.count), deleteAll=\(deleteAllLibraryData))"
-                )
-            } catch {
-                EnsembleLogger.debug("LibraryViewModel: deferred cached-source cleanup failed: \(error.localizedDescription)")
-            }
-        }
     }
 
     private func clearInMemoryLibrary() {
@@ -651,7 +599,6 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func handleLibraryDataCleared() {
-        cancelCachedSourceCleanup()
         isLoading = false
         error = nil
         clearInMemoryLibrary()

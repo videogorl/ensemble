@@ -168,6 +168,17 @@ public struct HomeView: View {
                 addSource: { navigationCoordinator.showingAddAccount = true },
                 manageSources: { navigationCoordinator.openProfile() }
             )
+        } else if readiness.canRetryUnavailableCredentials {
+            EnsembleLibraryEmptyStateScaffold(
+                title: "Plex credentials unavailable",
+                iconSystemName: EnsembleDesign.Icon.error,
+                recovery: .credentialsUnavailable,
+                retryCredentials: {
+                    Task { await viewModel.retryCredentialLoad() }
+                },
+                addSource: { navigationCoordinator.showingAddAccount = true },
+                manageSources: { navigationCoordinator.openProfile() }
+            )
         } else if readiness.canShowAddSources {
             EnsembleLibraryEmptyStateScaffold(
                 title: "Welcome Home",

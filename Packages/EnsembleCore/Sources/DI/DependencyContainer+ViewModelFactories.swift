@@ -22,7 +22,6 @@ public extension DependencyContainer {
         LibraryViewModel(
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            sourceCacheCleanupService: sourceCacheCleanupService,
             accountManager: accountManager,
             visibilityStore: libraryVisibilityStore,
             toastCenter: toastCenter,

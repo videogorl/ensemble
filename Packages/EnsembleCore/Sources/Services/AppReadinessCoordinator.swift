@@ -4,6 +4,7 @@ import Foundation
 public struct AppReadinessSnapshot: Equatable, Sendable {
     public let hasConfiguredAccounts: Bool
     public let hasEnabledLibraries: Bool
+    public let credentialLoadState: AccountCredentialLoadState
     public let isRestoringCloudSources: Bool
     public let isOfflineMode: Bool
     public let hasCachedLibrary: Bool
@@ -15,6 +16,7 @@ public struct AppReadinessSnapshot: Equatable, Sendable {
     public init(
         hasConfiguredAccounts: Bool = false,
         hasEnabledLibraries: Bool = false,
+        credentialLoadState: AccountCredentialLoadState = .loaded,
         isRestoringCloudSources: Bool = false,
         isOfflineMode: Bool = false,
         hasCachedLibrary: Bool = false,
@@ -25,6 +27,7 @@ public struct AppReadinessSnapshot: Equatable, Sendable {
     ) {
         self.hasConfiguredAccounts = hasConfiguredAccounts
         self.hasEnabledLibraries = hasEnabledLibraries
+        self.credentialLoadState = credentialLoadState
         self.isRestoringCloudSources = isRestoringCloudSources
         self.isOfflineMode = isOfflineMode
         self.hasCachedLibrary = hasCachedLibrary
@@ -35,7 +38,14 @@ public struct AppReadinessSnapshot: Equatable, Sendable {
     }
 
     public var canShowAddSources: Bool {
-        isBootstrapSettled && !isRestoringCloudSources && !hasConfiguredAccounts
+        isBootstrapSettled &&
+            credentialLoadState == .loaded &&
+            !isRestoringCloudSources &&
+            !hasConfiguredAccounts
+    }
+
+    public var canRetryUnavailableCredentials: Bool {
+        isBootstrapSettled && credentialLoadState == .unavailable
     }
 
     public var canShowCachedLibrary: Bool {
@@ -55,6 +65,7 @@ public final class AppReadinessCoordinator: ObservableObject {
 
     private var hasConfiguredAccounts = false
     private var hasEnabledLibraries = false
+    private var credentialLoadState: AccountCredentialLoadState = .loaded
     private var isRestoringCloudSources = false
     private var isOfflineMode = false
     private var hasCachedLibrary = false
@@ -73,6 +84,7 @@ public final class AppReadinessCoordinator: ObservableObject {
         if let accountManager {
             hasConfiguredAccounts = accountManager.hasAnySources
             hasEnabledLibraries = !accountManager.enabledSources().isEmpty
+            credentialLoadState = accountManager.credentialLoadState
             isRestoringCloudSources = accountManager.isAwaitingCloudSources
 
             accountManager.$plexAccounts
@@ -82,6 +94,14 @@ public final class AppReadinessCoordinator: ObservableObject {
                     self.hasConfiguredAccounts = accountManager.hasAnySources
                     self.hasEnabledLibraries = !accountManager.enabledSources().isEmpty
                     self.recomputeSnapshot()
+                }
+                .store(in: &cancellables)
+
+            accountManager.$credentialLoadState
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] state in
+                    self?.credentialLoadState = state
+                    self?.recomputeSnapshot()
                 }
                 .store(in: &cancellables)
 
@@ -150,6 +170,7 @@ public final class AppReadinessCoordinator: ObservableObject {
         let next = AppReadinessSnapshot(
             hasConfiguredAccounts: hasConfiguredAccounts,
             hasEnabledLibraries: hasEnabledLibraries,
+            credentialLoadState: credentialLoadState,
             isRestoringCloudSources: isRestoringCloudSources,
             isOfflineMode: isOfflineMode,
             hasCachedLibrary: hasCachedLibrary,
@@ -164,6 +185,7 @@ public final class AppReadinessCoordinator: ObservableObject {
 
     private func computeBootstrapSettled() -> Bool {
         guard !isRestoringCloudSources else { return false }
+        guard credentialLoadState != .loading else { return hasCachedFeed || hasCachedLibrary }
         if forcedBootstrapSettled { return true }
         guard hasConfiguredAccounts else { return true }
         guard hasEnabledLibraries else { return isHealthCheckComplete || isStartupSyncComplete || isOfflineMode }

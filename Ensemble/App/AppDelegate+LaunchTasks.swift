@@ -90,7 +90,7 @@ extension AppDelegate {
             }
 
             let indexStore = DependencyContainer.shared.siriMediaIndexStore
-            if indexStore.loadIndex(maxAge: 3600) == nil {
+            if await indexStore.loadIndex(maxAge: 3600) == nil {
                 let rebuilt = await indexStore.rebuildIndex()
                 AppLogger.debug("AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
             }

@@ -2,6 +2,13 @@ import Combine
 import EnsembleAPI
 import Foundation
 
+/// Whether the persisted source configuration was read authoritatively.
+public enum AccountCredentialLoadState: Equatable, Sendable {
+    case loading
+    case loaded
+    case unavailable
+}
+
 /// Manages connected music source accounts (Plex, future Apple Music, etc.)
 @MainActor
 public final class AccountManager: ObservableObject {
@@ -9,6 +16,7 @@ public final class AccountManager: ObservableObject {
         let json: String?
         let migrationWasApplied: Bool
         let wasFreshInstall: Bool
+        let credentialState: AccountCredentialLoadState
     }
 
     private struct LibraryFlagEntry: Codable, Equatable, Sendable {
@@ -59,6 +67,13 @@ public final class AccountManager: ObservableObject {
 
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
     @Published public private(set) var isAwaitingCloudSources = false
+    /// Distinguishes a valid empty Keychain from a Keychain access failure.
+    @Published public private(set) var credentialLoadState: AccountCredentialLoadState = .loading
+
+    /// Whether cached data may be filtered against the current configured sources.
+    public var isSourceConfigurationAuthoritative: Bool {
+        credentialLoadState == .loaded && !isAwaitingCloudSources
+    }
 
     private let keychain: KeychainServiceProtocol
     private let connectionRegistry: ServerConnectionRegistry?
@@ -67,6 +82,9 @@ public final class AccountManager: ObservableObject {
     private var syncedLibraryFlagEntries: [String: LibraryFlagEntry] = [:]
     private var libraryFlagModifiedAt: [String: TimeInterval]
     private var accountLoadTask: Task<AccountLoadResult, Never>?
+    private var accountLoadGeneration = 0
+    private static let accountLoadPollNanoseconds: UInt64 = 25_000_000
+    private static let accountLoadPollLimit = 40
     nonisolated private static let authMigrationVersionKey = "plex_auth_migration_version"
     nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
@@ -85,29 +103,60 @@ public final class AccountManager: ObservableObject {
     // MARK: - Load / Save
 
     public func loadAccounts() {
+        cancelPendingAccountLoad()
         applyAccountLoadResult(Self.readAccountLoadResult(keychain: keychain))
     }
 
     /// macOS startup path. Keychain Services can block while the login keychain
     /// is locked or awaiting authorization, so never perform this read on the UI thread.
     public func loadAccountsAsync() async {
-        let task: Task<AccountLoadResult, Never>
-        if let accountLoadTask {
-            task = accountLoadTask
-        } else {
+        if credentialLoadState == .unavailable {
+            cancelPendingAccountLoad()
+        }
+
+        if accountLoadTask == nil {
+            credentialLoadState = .loading
             let keychain = self.keychain
-            task = Task.detached(priority: .userInitiated) {
+            accountLoadGeneration += 1
+            let generation = accountLoadGeneration
+            let task = Task.detached(priority: .userInitiated) {
                 Self.readAccountLoadResult(keychain: keychain)
             }
             accountLoadTask = task
+
+            Task { @MainActor [weak self] in
+                let result = await task.value
+                guard let self, self.accountLoadGeneration == generation else { return }
+                self.accountLoadTask = nil
+                self.applyAccountLoadResult(result)
+            }
         }
 
-        let result = await task.value
+        for _ in 0..<Self.accountLoadPollLimit {
+            guard accountLoadTask != nil else { return }
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: Self.accountLoadPollNanoseconds)
+        }
+
+        guard accountLoadTask != nil else { return }
+        credentialLoadState = .unavailable
+        EnsembleLogger.error("AccountManager: credential read timed out; preserving cached source data")
+    }
+
+    private func cancelPendingAccountLoad() {
+        accountLoadGeneration += 1
+        accountLoadTask?.cancel()
         accountLoadTask = nil
-        applyAccountLoadResult(result)
     }
 
     private func applyAccountLoadResult(_ result: AccountLoadResult) {
+        guard result.credentialState == .loaded else {
+            credentialLoadState = .unavailable
+            EnsembleLogger.error("AccountManager: credentials unavailable; preserving cached source data")
+            return
+        }
+
+        credentialLoadState = .loaded
         if result.migrationWasApplied {
             plexAccounts = []
             clearAPIClientCache()
@@ -140,17 +189,37 @@ public final class AccountManager: ObservableObject {
         let defaults = UserDefaults.standard
         let hasStoredMigrationVersion = defaults.object(forKey: authMigrationVersionKey) != nil
         let previousVersion = defaults.integer(forKey: authMigrationVersionKey)
-        let json = try? keychain.get(KeychainKey.plexAccounts)
+        let json: String?
+        do {
+            json = try keychain.get(KeychainKey.plexAccounts)
+        } catch {
+            return AccountLoadResult(
+                json: nil,
+                migrationWasApplied: false,
+                wasFreshInstall: false,
+                credentialState: .unavailable
+            )
+        }
 
         guard previousVersion < authMigrationVersion else {
-            return AccountLoadResult(json: json, migrationWasApplied: false, wasFreshInstall: false)
+            return AccountLoadResult(
+                json: json,
+                migrationWasApplied: false,
+                wasFreshInstall: false,
+                credentialState: .loaded
+            )
         }
 
         let isFreshInstall = !hasStoredMigrationVersion && json == nil
         if !isFreshInstall {
             try? keychain.delete(KeychainKey.plexAccounts)
         }
-        return AccountLoadResult(json: nil, migrationWasApplied: true, wasFreshInstall: isFreshInstall)
+        return AccountLoadResult(
+            json: nil,
+            migrationWasApplied: true,
+            wasFreshInstall: isFreshInstall,
+            credentialState: .loaded
+        )
     }
 
     /// Tracks whether first-connect source hydration is still waiting on iCloud.
@@ -442,6 +511,8 @@ public final class AccountManager: ObservableObject {
     // MARK: - Account Management
 
     public func addPlexAccount(_ account: PlexAccountConfig) {
+        cancelPendingAccountLoad()
+        credentialLoadState = .loaded
         let resolvedAccount = applyingSyncedLibraryFlags(to: preservingExistingConfiguration(in: account))
         // Replace if same account ID already exists
         plexAccounts.removeAll { $0.id == resolvedAccount.id }
@@ -450,6 +521,8 @@ public final class AccountManager: ObservableObject {
     }
 
     public func removePlexAccount(id: String) {
+        cancelPendingAccountLoad()
+        credentialLoadState = .loaded
         // Clear cached API clients for this account
         plexAccounts.first(where: { $0.id == id })?.servers.forEach { server in
             clearAPIClientCache(accountId: id, serverId: server.id)

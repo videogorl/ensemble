@@ -337,6 +337,13 @@ public final class HomeViewModel: ObservableObject {
         await loadHubs()
     }
 
+    /// Retries macOS Keychain hydration and resumes Feed loading if sources become available.
+    public func retryCredentialLoad() async {
+        await accountManager.loadAccountsAsync()
+        updateSourceAvailability()
+        await loadHubsIfNeeded()
+    }
+
     public func handleViewVisibilityChange(isVisible: Bool) {
         guard isViewVisible != isVisible else { return }
         isViewVisible = isVisible
@@ -355,7 +362,7 @@ public final class HomeViewModel: ObservableObject {
 
     private func requestAutoRefresh(reason: AutoRefreshReason) {
         guard hasEnabledLibraries else {
-            clearHubContentForUnavailableSources()
+            clearHubContentIfUnavailableSourcesAreSettled()
             return
         }
 
@@ -796,7 +803,10 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func clearHubContentIfUnavailableSourcesAreSettled() {
-        guard readinessSnapshot.isBootstrapSettled, !readinessSnapshot.isRestoringCloudSources else {
+        guard accountManager.isSourceConfigurationAuthoritative,
+              accountManager.hasAnySources,
+              readinessSnapshot.isBootstrapSettled,
+              !readinessSnapshot.isRestoringCloudSources else {
             isLoading = false
             initialLoadCompleted = true
             return

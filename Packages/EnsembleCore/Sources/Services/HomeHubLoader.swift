@@ -100,10 +100,9 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         } else {
             cached = try await hubRepository.fetchHubs()
         }
-        let filtered = Self.filterHubsToEnabledSources(
-            cached,
-            enabledSourceCompositeKeys: enabledSourceKeys
-        )
+        let filtered = accountManager.isSourceConfigurationAuthoritative && accountManager.hasAnySources
+            ? Self.filterHubsToEnabledSources(cached, enabledSourceCompositeKeys: enabledSourceKeys)
+            : cached
 
         EnsembleLogger.debug(
             "🏠 Hub loader cache \(filtered.isEmpty ? "miss" : "hit") count=\(filtered.count)"

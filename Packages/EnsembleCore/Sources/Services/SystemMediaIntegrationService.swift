@@ -436,7 +436,7 @@ public final class SystemMediaIntegrationService {
             }
         }
 
-        let previousIndex = siriMediaIndexStore.loadIndexUnbounded()
+        let previousIndex = await siriMediaIndexStore.loadIndexUnbounded()
         let rebuiltIndex = await siriMediaIndexStore.rebuildIndex()
         let index = rebuiltIndex ?? previousIndex
         guard let index else {

@@ -28,4 +28,17 @@ final class AppReadinessCoordinatorTests: XCTestCase {
         XCTAssertTrue(coordinator.snapshot.isBootstrapSettled)
         XCTAssertTrue(coordinator.snapshot.canShowAddSources)
     }
+
+    func testUnavailableCredentialsSettleWithRetryInsteadOfAddSources() {
+        let keychain = TestKeychain()
+        keychain.localReadFailure = .unavailable
+        let accountManager = AccountManager(keychain: keychain)
+        accountManager.loadAccounts()
+
+        let coordinator = AppReadinessCoordinator(accountManager: accountManager)
+
+        XCTAssertTrue(coordinator.snapshot.isBootstrapSettled)
+        XCTAssertTrue(coordinator.snapshot.canRetryUnavailableCredentials)
+        XCTAssertFalse(coordinator.snapshot.canShowAddSources)
+    }
 }

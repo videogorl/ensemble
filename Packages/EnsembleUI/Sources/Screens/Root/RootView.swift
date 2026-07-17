@@ -160,8 +160,8 @@ public struct RootView: View {
             // are dimmed until health checks confirm reachability.
             deps.serverHealthChecker.prepopulateUnknownStates()
             deps.syncCoordinator.refreshProviders()
-            if deps.siriMediaIndexStore.loadIndex(maxAge: 3600) == nil,
-               await deps.foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly) {
+            if await deps.foregroundWorkScheduler.waitUntilAllowed(.systemMediaIndexing, policy: .idleOnly),
+               await deps.siriMediaIndexStore.loadIndex(maxAge: 3600) == nil {
                 _ = await deps.siriMediaIndexStore.rebuildIndex()
             }
         }

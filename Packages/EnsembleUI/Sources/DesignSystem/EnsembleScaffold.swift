@@ -1152,6 +1152,7 @@ public struct EnsembleStateActionLabel: View {
 public struct EnsembleLibraryEmptyStateScaffold: View {
     public enum Recovery: Equatable {
         case restoringCloudSources
+        case credentialsUnavailable
         case noSources
         case syncing
         case noEnabledLibraries
@@ -1161,6 +1162,8 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
             switch self {
             case .restoringCloudSources:
                 return "Restoring libraries from iCloud…"
+            case .credentialsUnavailable:
+                return "Ensemble couldn’t access your saved Plex credentials. Retry or reconnect a source."
             case .noSources:
                 return "No music sources connected"
             case .syncing:
@@ -1196,6 +1199,7 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
     private let title: String
     private let iconSystemName: String
     private let recovery: Recovery
+    private let retryCredentials: (() -> Void)?
     private let addSource: () -> Void
     private let manageSources: () -> Void
 
@@ -1203,12 +1207,14 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
         title: String,
         iconSystemName: String,
         recovery: Recovery,
+        retryCredentials: (() -> Void)? = nil,
         addSource: @escaping () -> Void,
         manageSources: @escaping () -> Void
     ) {
         self.title = title
         self.iconSystemName = iconSystemName
         self.recovery = recovery
+        self.retryCredentials = retryCredentials
         self.addSource = addSource
         self.manageSources = manageSources
     }
@@ -1234,6 +1240,19 @@ public struct EnsembleLibraryEmptyStateScaffold: View {
                     .font(EnsembleDesign.Typography.cardSubtitle)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .multilineTextAlignment(.center)
+            }
+        case .credentialsUnavailable:
+            VStack(spacing: EnsembleDesign.Spacing.sm) {
+                if let retryCredentials {
+                    Button(action: retryCredentials) {
+                        actionLabel("Retry", systemImage: EnsembleDesign.Icon.retry)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button(action: addSource) {
+                    actionLabel("Add Source", systemImage: EnsembleDesign.Icon.addCircle)
+                }
+                .buttonStyle(.plain)
             }
         case .noSources:
             Button(action: addSource) {
