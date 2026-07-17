@@ -57,6 +57,12 @@ For bug reports:
 - Treat reported symptoms as real regressions until proven otherwise.
 - Add focused logs when they materially improve diagnosis; remove or reduce noisy logs after fixing.
 
+## Ensemble Worker
+
+The Cloudflare Worker for `ensemble.videogorl.me` lives in the sibling repository `/Users/felicity/Developer/Sites/ensemble-worker/ensemble` and is mirrored privately at `https://github.com/videogorl/ensemble-worker`.
+
+It preserves the Notion-backed website and serves `/.well-known/apple-app-site-association` for Ensemble Universal Links. Cloudflare Workers Builds tests with `npm test -- --run` and deploys `main` with `npx wrangler deploy`. After Worker changes, verify both the AASA endpoint and the homepage return `200`.
+
 ## Plex Streaming Guardrail
 
 Before changing streaming or playback transport code, load `plex-api` and test the relevant PMS endpoint with `curl` using `.env` credentials. Do not rely on stale documentation.
