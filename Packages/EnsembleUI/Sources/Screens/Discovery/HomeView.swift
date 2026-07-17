@@ -83,7 +83,7 @@ public struct HomeView: View {
                 artworkCacheInvalidationGeneration = generation
             }
         }
-        .task {
+        .task(id: viewModel.hasEnabledLibraries) {
             await viewModel.loadHubsIfNeeded()
         }
         .task(id: profileBackgroundReloadKey) {
