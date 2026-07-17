@@ -74,6 +74,9 @@ struct EnsembleApp: App {
                 }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { userActivity in
                     AppLogger.info("SIRI_APP: Received web browsing activity: \(userActivity.webpageURL?.absoluteString ?? "nil")")
+                    if let url = userActivity.webpageURL {
+                        handleIncomingURL(url)
+                    }
                 }
                 .userActivity("com.videogorl.ensemble.active") { activity in
                     // This registers a user activity so we can track if the app becomes active
