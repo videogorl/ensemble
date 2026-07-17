@@ -1,4 +1,5 @@
 import EnsembleAPI
+import EnsemblePersistence
 import XCTest
 @testable import EnsembleCore
 
@@ -113,6 +114,24 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
 
         XCTAssertEqual(changes.changedItems, [ratingOnly])
+    }
+
+    func testArtistChangeSelectionUsesMetadataWhenPlexTimestampIsStale() {
+        let staleDate = Date(timeIntervalSince1970: 100)
+        let unchanged = makeArtistInput(ratingKey: "unchanged", name: "Unchanged", dateModified: staleDate)
+        let oldRenamed = makeArtistInput(ratingKey: "renamed", name: "Janelle Mon�e", dateModified: staleDate)
+        let renamed = makeArtistInput(ratingKey: "renamed", name: "Janelle Monáe", dateModified: staleDate)
+        let newArtist = makeArtistInput(ratingKey: "new", name: "New Artist", dateModified: nil)
+
+        let changes = PlexMusicSourceSyncProvider.changedArtistInputs(
+            [unchanged, renamed, newArtist],
+            existingMetadata: [
+                unchanged.ratingKey: ArtistSyncMetadata(unchanged),
+                oldRenamed.ratingKey: ArtistSyncMetadata(oldRenamed)
+            ]
+        )
+
+        XCTAssertEqual(changes.map(\.ratingKey), ["renamed", "new"])
     }
 
     func testTrackUpsertInputPreservesPlexTrackMetadata() throws {
@@ -282,6 +301,23 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
                 serverTrackCount: 0,
                 localMembershipCount: 0
             )
+        )
+    }
+
+    private func makeArtistInput(
+        ratingKey: String,
+        name: String,
+        dateModified: Date?
+    ) -> ArtistUpsertInput {
+        ArtistUpsertInput(
+            ratingKey: ratingKey,
+            key: "/library/metadata/\(ratingKey)/children",
+            name: name,
+            summary: "Summary",
+            thumbPath: "/library/metadata/\(ratingKey)/thumb/100",
+            artPath: "/library/metadata/\(ratingKey)/art/100",
+            dateAdded: nil,
+            dateModified: dateModified
         )
     }
 }

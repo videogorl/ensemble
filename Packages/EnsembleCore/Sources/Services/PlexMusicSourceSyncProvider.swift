@@ -48,49 +48,45 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             accountName: nil
         )
 
-        if try await librarySectionIsUnchanged(since: timestamp) {
+        async let sectionIsUnchanged = librarySectionIsUnchanged(since: timestamp)
+
+        // Plex can change artist fields without advancing artist or section timestamps.
+        // Compare the small artist catalog directly before using the section preflight
+        // to skip the much larger album and track requests.
+        progressHandler(0.05)
+        var phaseStart = CFAbsoluteTimeGetCurrent()
+        async let existingArtistMetadata = repository.fetchArtistSyncMetadata(forSource: sourceKey)
+        let artists = try await apiClient.getArtists(sectionKey: sectionKey)
+        let artistInputs = artists.map(Self.artistUpsertInput)
+        let artistsToSync = Self.changedArtistInputs(
+            artistInputs,
+            existingMetadata: try await existingArtistMetadata
+        )
+        try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
+        let artistRatingKeys = Set(artists.map(\.ratingKey))
+        EnsembleLogger.debug(
+            "⏱️ Incremental sync: artist metadata comparison took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artists.count) from server, \(artistsToSync.count) changed"
+        )
+
+        if try await sectionIsUnchanged {
             try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
             progressHandler(1.0)
-            EnsembleLogger.debug("⏭️ Incremental sync: Plex section \(sectionKey) unchanged, skipped library item fetches")
-            return LibrarySyncResult()
+            EnsembleLogger.debug("⏭️ Incremental sync: Plex section \(sectionKey) unchanged, skipped album and track fetches")
+            return LibrarySyncResult(
+                changedArtists: artistsToSync.count
+            )
         }
 
         // Fetch existing timestamps to skip unchanged items (avoids expensive per-item CoreData upserts)
-        progressHandler(0.05)
-        var phaseStart = CFAbsoluteTimeGetCurrent()
-        let existingArtistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceKey)
+        progressHandler(0.15)
+        phaseStart = CFAbsoluteTimeGetCurrent()
         let existingAlbumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceKey)
         let existingTrackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceKey)
         let existingTrackRatings = try await repository.fetchTrackRatings(forSource: sourceKey)
-        EnsembleLogger.debug("⏱️ Incremental sync: timestamp prefetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(existingArtistTimestamps.count) artists, \(existingAlbumTimestamps.count) albums, \(existingTrackTimestamps.count) tracks)")
-
-        // Sync artists added or updated since timestamp
-        progressHandler(0.1)
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        let newArtists = try await apiClient.getArtists(sectionKey: sectionKey, addedAfter: timestamp)
-        let updatedArtists = try await apiClient.getArtists(sectionKey: sectionKey, updatedAfter: timestamp)
-
-        let artistChanges = Self.deduplicatedChangedItems(
-            added: newArtists,
-            updated: updatedArtists,
-            existingTimestamps: existingArtistTimestamps,
-            ratingKey: { $0.ratingKey },
-            updatedAt: { $0.updatedAt }
-        )
-        let artistsToSync = artistChanges.changedItems
-
-        EnsembleLogger.debug("⏱️ Incremental sync: artists fetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artistChanges.uniqueCount) from server, \(artistsToSync.count) actually changed")
-        phaseStart = CFAbsoluteTimeGetCurrent()
-        try await repository.batchUpsertArtists(
-            artistsToSync.map(Self.artistUpsertInput),
-            sourceCompositeKey: sourceKey
-        )
+        EnsembleLogger.debug("⏱️ Incremental sync: timestamp prefetch took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(existingAlbumTimestamps.count) albums, \(existingTrackTimestamps.count) tracks)")
 
         // Sync albums added or updated since timestamp
         progressHandler(0.25)
-        if !artistsToSync.isEmpty {
-            EnsembleLogger.debug("⏱️ Incremental sync: artists upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
-        }
         phaseStart = CFAbsoluteTimeGetCurrent()
         let newAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, addedAfter: timestamp)
         let updatedAlbums = try await apiClient.getAlbums(sectionKey: sectionKey, updatedAfter: timestamp)
@@ -177,8 +173,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
 
         // Fetch only ratingKeys from server using includeFields parameter (much smaller response)
-        let artistInventory = try await apiClient.getArtistInventory(sectionKey: sectionKey)
-        let artistRatingKeys = Set(artistInventory.map { $0.ratingKey })
         progressHandler(0.65)
 
         let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
@@ -289,6 +283,15 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         }
 
         return IncrementalChangeSet(uniqueItems: uniqueItems, changedItems: changedItems)
+    }
+
+    static func changedArtistInputs(
+        _ inputs: [ArtistUpsertInput],
+        existingMetadata: [String: ArtistSyncMetadata]
+    ) -> [ArtistUpsertInput] {
+        inputs.filter { input in
+            existingMetadata[input.ratingKey] != ArtistSyncMetadata(input)
+        }
     }
 
     private static func artistUpsertInput(from artist: PlexArtist) -> ArtistUpsertInput {

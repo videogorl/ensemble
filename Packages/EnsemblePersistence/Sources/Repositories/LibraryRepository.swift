@@ -26,6 +26,43 @@ public struct ArtistUpsertInput: Sendable {
     }
 }
 
+/// Artist fields Plex can change without advancing the item's `updatedAt` timestamp.
+public struct ArtistSyncMetadata: Sendable, Equatable {
+    public let key: String
+    public let name: String
+    public let summary: String?
+    public let thumbPath: String?
+    public let artPath: String?
+    public let dateModified: Date?
+
+    public init(
+        key: String,
+        name: String,
+        summary: String?,
+        thumbPath: String?,
+        artPath: String?,
+        dateModified: Date?
+    ) {
+        self.key = key
+        self.name = name
+        self.summary = summary
+        self.thumbPath = thumbPath
+        self.artPath = artPath
+        self.dateModified = dateModified
+    }
+
+    public init(_ input: ArtistUpsertInput) {
+        self.init(
+            key: input.key,
+            name: input.name,
+            summary: input.summary,
+            thumbPath: input.thumbPath,
+            artPath: input.artPath,
+            dateModified: input.dateModified
+        )
+    }
+}
+
 /// Lightweight input for batch album upsert
 public struct AlbumUpsertInput: Sendable {
     public let ratingKey: String
@@ -330,6 +367,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func removeOrphanedTracks(notIn validRatingKeys: Set<String>, forSource sourceKey: String) async throws -> Int
 
     // Bulk timestamp lookups (for incremental sync change detection)
+    func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata]
     func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
@@ -523,6 +561,7 @@ public extension LibraryRepositoryProtocol {
         excludingSourceCompositeKey _: String?
     ) async throws -> CDTrack? { nil }
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
+    func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] { [:] }
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
 }
 

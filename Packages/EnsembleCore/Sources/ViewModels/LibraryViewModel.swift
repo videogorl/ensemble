@@ -305,10 +305,10 @@ public final class LibraryViewModel: ObservableObject {
                 return (filtered, display, sections)
             }
             .removeDuplicates { old, new in
-                guard old.0.count == new.0.count, old.1.count == new.1.count, old.2.count == new.2.count else { return false }
-                return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
-                    && zip(old.1, new.1).allSatisfy { $0.id == $1.id }
-                    && LibraryViewModel.artistSectionsEqual(old.2, new.2)
+                let artistsUnchanged = old.0 == new.0
+                let displayArtistsUnchanged = old.1 == new.1
+                let sectionsUnchanged = old.2 == new.2
+                return artistsUnchanged && displayArtistsUnchanged && sectionsUnchanged
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered, display, sections in
@@ -468,15 +468,6 @@ public final class LibraryViewModel: ObservableObject {
         let grouped = Dictionary(grouping: albums, by: groupingKey)
         return grouped.map { AlbumSection(letter: $0.key, albums: $0.value) }
             .sorted { $0.letter < $1.letter }
-    }
-
-    private static func artistSectionsEqual(_ old: [ArtistSection], _ new: [ArtistSection]) -> Bool {
-        guard old.count == new.count else { return false }
-        for (oldSection, newSection) in zip(old, new) {
-            guard oldSection.letter == newSection.letter, oldSection.artists.count == newSection.artists.count else { return false }
-            guard zip(oldSection.artists, newSection.artists).allSatisfy({ $0.id == $1.id }) else { return false }
-        }
-        return true
     }
 
     private static func albumSectionsEqual(_ old: [AlbumSection], _ new: [AlbumSection]) -> Bool {
@@ -813,7 +804,7 @@ public final class LibraryViewModel: ObservableObject {
         let newTracks = LibraryVisibilityFiltering.visibleItems(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
         let newGenres = LibraryVisibilityFiltering.visibleItems(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
 
-        if !Self.idsEqual(artists, newArtists, identifier: \.sourceScopedID) { artists = newArtists }
+        if artists != newArtists { artists = newArtists }
         if !Self.idsEqual(albums, newAlbums, identifier: \.sourceScopedID) { albums = newAlbums }
         if !Self.idsEqual(tracks, newTracks, identifier: \.sourceScopedID) { tracks = newTracks }
         if !Self.idsEqual(genres, newGenres, identifier: \.id) { genres = newGenres }
@@ -880,8 +871,8 @@ public final class LibraryViewModel: ObservableObject {
             return
         }
 
-        if !Self.idsEqual(filteredArtists, artists, identifier: \.sourceScopedID) { filteredArtists = artists }
-        if !Self.idsEqual(self.displayArtists, displayArtists, identifier: \.id) { self.displayArtists = displayArtists }
+        if filteredArtists != artists { filteredArtists = artists }
+        if self.displayArtists != displayArtists { self.displayArtists = displayArtists }
         if artistSections != sections { artistSections = sections }
 
         updateArtistBrowseSnapshot(

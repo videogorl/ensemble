@@ -83,7 +83,7 @@ extension PlexAPIClient {
         let unixTime = Int(timestamp)
         return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
-            query: ["type": "8", "addedAt>=": String(unixTime)]
+            query: ["type": "8", "addedAt>": String(unixTime)]
         )
     }
 
@@ -92,7 +92,7 @@ extension PlexAPIClient {
         let unixTime = Int(timestamp)
         return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
-            query: ["type": "8", "updatedAt>=": String(unixTime)]
+            query: ["type": "8", "updatedAt>": String(unixTime)]
         )
     }
 
@@ -116,7 +116,7 @@ extension PlexAPIClient {
         let unixTime = Int(timestamp)
         return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
-            query: ["type": "9", "addedAt>=": String(unixTime)]
+            query: ["type": "9", "addedAt>": String(unixTime)]
         )
     }
 
@@ -125,7 +125,7 @@ extension PlexAPIClient {
         let unixTime = Int(timestamp)
         return try await mediaContainerItems(
             path: "/library/sections/\(sectionKey)/all",
-            query: ["type": "9", "updatedAt>=": String(unixTime)]
+            query: ["type": "9", "updatedAt>": String(unixTime)]
         )
     }
 
@@ -218,7 +218,7 @@ extension PlexAPIClient {
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media",
-                "addedAt>=": String(unixTime)
+                "addedAt>": String(unixTime)
             ]
         )
     }
@@ -232,7 +232,7 @@ extension PlexAPIClient {
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media",
-                "updatedAt>=": String(unixTime)
+                "updatedAt>": String(unixTime)
             ]
         )
     }
@@ -246,7 +246,7 @@ extension PlexAPIClient {
                 "type": "10",
                 "includeMedia": "1",
                 "includeElements": "Media",
-                "lastRatedAt>=": String(unixTime)
+                "lastRatedAt>": String(unixTime)
             ]
         )
     }

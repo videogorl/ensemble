@@ -256,6 +256,28 @@ extension LibraryRepository {
 
     // MARK: - Bulk Timestamp Lookups
 
+    /// Fetches source-scoped artist fields for metadata comparison without escaping managed objects.
+    public func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] {
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            let artists = try context.fetch(request)
+            var result: [String: ArtistSyncMetadata] = [:]
+            result.reserveCapacity(artists.count)
+            for artist in artists {
+                result[artist.ratingKey] = ArtistSyncMetadata(
+                    key: artist.key,
+                    name: artist.name,
+                    summary: artist.summary,
+                    thumbPath: artist.thumbPath,
+                    artPath: artist.artPath,
+                    dateModified: artist.dateModified
+                )
+            }
+            return result
+        }
+    }
+
     /// Fetch all artist ratingKey -> dateModified pairs for a source (single query for change detection)
     public func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date] {
         try await coreDataStack.performBackgroundContext { context in

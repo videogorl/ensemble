@@ -93,5 +93,6 @@ GET /library/sections/{id}/all?type=10&addedAt>={timestamp}
 
 **Notes:**
 - Timestamps are Unix epoch seconds
+- With `URLQueryItem`, use the comparison operator as part of the name (`addedAt>` or `updatedAt>`). The query delimiter supplies the final `=`, producing `addedAt>=...` on the wire. A name ending in `>=` is ignored by PMS.
 - Combine with pagination for large result sets
-- `updatedAt` catches metadata changes; `addedAt` catches new items
+- `updatedAt` catches metadata changes only when PMS advances the timestamp; `addedAt` catches new items

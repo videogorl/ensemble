@@ -183,6 +183,49 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(viewModel.immediateTrackBrowseSnapshot, viewModel.trackBrowseSnapshot)
     }
 
+    func testLoadLibraryPublishesArtistMetadataChangesWithStableIdentity() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", true)])
+        )
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let metadataDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try await harness.libraryRepository.batchUpsertArtists([
+            ArtistUpsertInput(
+                ratingKey: "artist-1",
+                key: "/library/metadata/artist-1",
+                name: "Janelle Mon�e",
+                summary: nil,
+                thumbPath: nil,
+                artPath: nil,
+                dateAdded: nil,
+                dateModified: metadataDate
+            )
+        ], sourceCompositeKey: sourceKey)
+
+        let viewModel = makeViewModel(harness: harness)
+        await viewModel.loadLibrary()
+        try await waitForArtistName(viewModel: viewModel, expectedName: "Janelle Mon�e")
+
+        try await harness.libraryRepository.batchUpsertArtists([
+            ArtistUpsertInput(
+                ratingKey: "artist-1",
+                key: "/library/metadata/artist-1",
+                name: "Janelle Monáe",
+                summary: nil,
+                thumbPath: nil,
+                artPath: nil,
+                dateAdded: nil,
+                dateModified: metadataDate
+            )
+        ], sourceCompositeKey: sourceKey)
+        await viewModel.loadLibrary()
+
+        try await waitForArtistName(viewModel: viewModel, expectedName: "Janelle Monáe")
+    }
+
     func testLoadLibraryPurgesCachedSourcesThatAreNoLongerEnabled() async throws {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness { sourceKey in
@@ -661,6 +704,18 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         XCTAssertEqual(viewModel.trackBrowseSnapshot.tracks.compactMap(\.sourceCompositeKey), expectedSourceKeys)
         XCTAssertEqual(viewModel.trackBrowseSnapshot.isShowingStaleSnapshot, isShowingStaleSnapshot)
+    }
+
+    private func waitForArtistName(viewModel: LibraryViewModel, expectedName: String) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if viewModel.artistBrowseSnapshot.displayArtists.first?.name == expectedName {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        XCTAssertEqual(viewModel.artistBrowseSnapshot.displayArtists.first?.name, expectedName)
     }
 
     private func makeViewModel(

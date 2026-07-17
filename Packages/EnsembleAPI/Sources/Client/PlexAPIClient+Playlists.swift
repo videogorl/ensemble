@@ -26,7 +26,7 @@ extension PlexAPIClient {
         let unixTime = Int(timestamp)
         return try await mediaContainerItems(
             path: "/playlists",
-            query: ["playlistType": "audio", "addedAt>=": String(unixTime)]
+            query: ["playlistType": "audio", "addedAt>": String(unixTime)]
         )
     }
 
@@ -35,7 +35,7 @@ extension PlexAPIClient {
         let unixTime = Int(timestamp)
         return try await mediaContainerItems(
             path: "/playlists",
-            query: ["playlistType": "audio", "updatedAt>=": String(unixTime)]
+            query: ["playlistType": "audio", "updatedAt>": String(unixTime)]
         )
     }
 

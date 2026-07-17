@@ -848,10 +848,9 @@ final class LibraryRepositoryTests: XCTestCase {
         let sourceB = "plex/account/server/library-b"
         let dateA = Date(timeIntervalSince1970: 1_000)
         let dateB = Date(timeIntervalSince1970: 2_000)
+        let artistInputA = makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: dateA)
 
-        try await repository.batchUpsertArtists([
-            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: dateA)
-        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertArtists([artistInputA], sourceCompositeKey: sourceA)
         try await repository.batchUpsertArtists([
             makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: dateB)
         ], sourceCompositeKey: sourceB)
@@ -865,11 +864,13 @@ final class LibraryRepositoryTests: XCTestCase {
             makeTrackInput(ratingKey: "track", dateModified: dateB, rating: 1)
         ], sourceCompositeKey: sourceB)
 
+        let artistMetadata = try await repository.fetchArtistSyncMetadata(forSource: sourceA)
         let artistTimestamps = try await repository.fetchArtistTimestamps(forSource: sourceA)
         let albumTimestamps = try await repository.fetchAlbumTimestamps(forSource: sourceA)
         let trackTimestamps = try await repository.fetchTrackTimestamps(forSource: sourceA)
         let trackRatings = try await repository.fetchTrackRatings(forSource: sourceA)
 
+        XCTAssertEqual(artistMetadata, ["artist": ArtistSyncMetadata(artistInputA)])
         XCTAssertEqual(artistTimestamps, ["artist": dateA])
         XCTAssertEqual(albumTimestamps, ["album": dateA])
         XCTAssertEqual(trackTimestamps, ["track": dateA])

@@ -342,6 +342,35 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertEqual(request.url?.query?.contains("format=lrc"), true)
     }
 
+    func testPlexTimestampComparisonUsesQueryDelimiterForEquals() throws {
+        let context = PlexRequestHeaderContext(
+            clientIdentifier: "test-client",
+            productName: "EnsembleTests",
+            productVersion: "1",
+            platformName: "iOS",
+            deviceName: "Simulator"
+        )
+        let request = try PlexRequestBuilder(
+            baseURL: "https://example.test",
+            token: "token",
+            headerContext: context
+        ).makeRequest(
+            method: "GET",
+            path: "/library/sections/3/all",
+            query: ["type": "8", "updatedAt>": "999"]
+        )
+
+        XCTAssertEqual(
+            URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name.hasPrefix("updatedAt") })?
+                .name,
+            "updatedAt>"
+        )
+        XCTAssertTrue(try XCTUnwrap(request.url?.absoluteString).contains("updatedAt%3E=999"))
+        XCTAssertFalse(try XCTUnwrap(request.url?.absoluteString).contains("updatedAt%3E%3D=999"))
+    }
+
     func testPlexTrackDecodingFallsBackToFileNameWhenTitleMissing() throws {
         let trackJSON = """
         {
