@@ -78,8 +78,6 @@ struct LibraryDescriptionSection: View {
     }
 
     private func toggleExpansion() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            isExpanded.toggle()
-        }
+        isExpanded.toggle()
     }
 }

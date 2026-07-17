@@ -33,6 +33,71 @@ class DeferredLayoutTableView: UITableView {
     }
 }
 
+private final class TableFooterHostingController: UIHostingController<AnyView> {
+    var onContentHeightChange: ((CGFloat) -> Void)?
+    private var contentHeight: CGFloat = 0
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard view.bounds.width > 0 else { return }
+
+        let fittingHeight = view.systemLayoutSizeFitting(
+            CGSize(width: view.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        guard abs(contentHeight - fittingHeight) > 1 else { return }
+        contentHeight = fittingHeight
+        onContentHeightChange?(fittingHeight)
+    }
+}
+
+private final class TableFooterCell: UITableViewCell {
+    static let reuseIdentifier = "TableFooterCell"
+    private var hostingController: TableFooterHostingController?
+
+    func configure(content: AnyView, tableView: UITableView) {
+        selectionStyle = .none
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+        separatorInset = UIEdgeInsets(top: 0, left: tableView.bounds.width, bottom: 0, right: 0)
+
+        if #available(iOS 16.0, *) {
+            hostingController?.view.removeFromSuperview()
+            hostingController = nil
+            contentConfiguration = UIHostingConfiguration {
+                content
+            }
+            .margins(.all, 0)
+            return
+        }
+
+        if let hostingController {
+            hostingController.rootView = content
+            return
+        }
+
+        let hostingController = TableFooterHostingController(rootView: content)
+        hostingController.view.backgroundColor = .clear
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(hostingController.view)
+        NSLayoutConstraint.activate([
+            hostingController.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            hostingController.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+        ])
+        hostingController.onContentHeightChange = { [weak self, weak tableView] _ in
+            guard self?.window != nil, let tableView else { return }
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+            }
+        }
+        self.hostingController = hostingController
+    }
+}
+
 fileprivate struct MediaTrackGroup {
     let id: String
     let title: String?
@@ -687,6 +752,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
+        tableView.register(TableFooterCell.self, forCellReuseIdentifier: TableFooterCell.reuseIdentifier)
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
@@ -750,25 +816,6 @@ public struct MediaTrackList: UIViewRepresentable {
             context.coordinator.headerHostingController = hostingController
         }
 
-        // Install optional SwiftUI table footer (loading/empty indicators).
-        // Only set tableFooterView when the content has real height — an empty
-        // hosting controller can interfere with bottomContentInset scroll-behind.
-        if let tableFooterContent {
-            let footerHost = UIHostingController(rootView: tableFooterContent)
-            footerHost.view.backgroundColor = .clear
-            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
-            let fittingSize = footerHost.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            footerHost.view.frame = CGRect(origin: .zero, size: fittingSize)
-            if fittingSize.height >= 1 {
-                tableView.tableFooterView = footerHost.view
-            }
-            context.coordinator.footerHostingController = footerHost
-        }
-
         // When a search binding is provided, set up a UISearchController once the
         // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
         // UIViewController and attach the search controller to its navigation item.
@@ -804,7 +851,8 @@ public struct MediaTrackList: UIViewRepresentable {
         // Check if track list structure changed (additions/removals/reordering)
         let newGroupSignature = newGroupedTracks.map(\.signature)
         let dataChanged = !trackIdentityOrderMatches(context.coordinator.tracks, tracks) ||
-            context.coordinator.groupSignature != newGroupSignature
+            context.coordinator.groupSignature != newGroupSignature ||
+            (context.coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
 
         // Check if any track's download state changed (localFilePath set or cleared)
         let downloadStateChanged = !dataChanged &&
@@ -857,6 +905,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
         context.coordinator.lastDisplayRatingsRevision = displayRatingsRevision
+        context.coordinator.tableFooterContent = tableFooterContent
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
@@ -865,6 +914,13 @@ public struct MediaTrackList: UIViewRepresentable {
         if tableView.window != nil && dataChanged {
             tableView.reloadData()
             tableView.reloadSectionIndexTitles()
+        }
+
+        if let tableFooterContent,
+           let footerCell = tableView.cellForRow(
+               at: IndexPath(row: 0, section: newGroupedTracks.count)
+           ) as? TableFooterCell {
+            footerCell.configure(content: tableFooterContent, tableView: tableView)
         }
 
         // Update table header view size if needed (e.g., after initial width becomes available).
@@ -885,38 +941,6 @@ public struct MediaTrackList: UIViewRepresentable {
             if abs(headerView.frame.height - fittingSize.height) > 1 {
                 headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
                 tableView.tableHeaderView = headerView
-            }
-        }
-
-        // Update table footer view — dynamically add/remove based on content height.
-        // An empty footer (EmptyView) must be removed entirely so it doesn't interfere
-        // with bottomContentInset scroll-behind behavior (mini player / tab bar).
-        if let footerHost = context.coordinator.footerHostingController,
-           tableView.bounds.width > 0 {
-            if let tableFooterContent {
-                footerHost.rootView = tableFooterContent
-            }
-            let targetWidth = tableView.bounds.width
-            let fittingSize = footerHost.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            if fittingSize.height < 1 {
-                // Footer content is empty — remove to preserve scroll-behind inset
-                if tableView.tableFooterView != nil {
-                    tableView.tableFooterView = nil
-                }
-            } else if let footerView = tableView.tableFooterView {
-                // Footer exists — resize if height changed
-                if abs(footerView.frame.height - fittingSize.height) > 1 {
-                    footerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                    tableView.tableFooterView = footerView
-                }
-            } else {
-                // Footer became non-empty — install it
-                footerHost.view.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                tableView.tableFooterView = footerHost.view
             }
         }
 
@@ -1005,7 +1029,8 @@ public struct MediaTrackList: UIViewRepresentable {
             trackAvailabilityResolver: dependencies.trackAvailabilityResolver,
             isOffline: !dependencies.networkMonitor.isConnected,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-            rowHeight: rowHeight
+            rowHeight: rowHeight,
+            tableFooterContent: tableFooterContent
         )
         return coordinator
     }
@@ -1087,12 +1112,11 @@ public struct MediaTrackList: UIViewRepresentable {
         var isOffline: Bool
         var activeDownloadTrackIdentities: Set<String>
         var rowHeight: CGFloat
+        var tableFooterContent: AnyView?
         var lastAvailabilityGeneration: UInt64 = 0
         var lastDisplayRatingsRevision: UInt64 = 0
         /// Retains the UIHostingController used for the table header view
         var headerHostingController: UIHostingController<AnyView>?
-        /// Retains the UIHostingController used for the table footer view
-        var footerHostingController: UIHostingController<AnyView>?
         /// Pending search binding — set before the table is in a window, consumed
         /// once the UISearchController is attached to the navigation item.
         var pendingSearchBinding: Binding<String>?
@@ -1135,7 +1159,8 @@ public struct MediaTrackList: UIViewRepresentable {
             trackAvailabilityResolver: TrackAvailabilityResolver,
             isOffline: Bool,
             activeDownloadTrackIdentities: Set<String> = [],
-            rowHeight: CGFloat
+            rowHeight: CGFloat,
+            tableFooterContent: AnyView?
         ) {
             self.tracks = tracks
             self.groupedTracks = groupedTracks
@@ -1171,6 +1196,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isOffline = isOffline
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.rowHeight = rowHeight
+            self.tableFooterContent = tableFooterContent
         }
         
         // MARK: - Bounds-Safe Accessor
@@ -1196,15 +1222,27 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {
-            groupedTracks.count
+            groupedTracks.count + (tableFooterContent == nil ? 0 : 1)
         }
 
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+            if section == groupedTracks.count {
+                return tableFooterContent == nil ? 0 : 1
+            }
             guard section < groupedTracks.count else { return 0 }
             return groupedTracks[section].tracks.count
         }
 
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+            if indexPath.section == groupedTracks.count, let tableFooterContent {
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: TableFooterCell.reuseIdentifier,
+                    for: indexPath
+                ) as! TableFooterCell
+                cell.configure(content: tableFooterContent, tableView: tableView)
+                return cell
+            }
+
             let cell = tableView.dequeueReusableCell(withIdentifier: "TrackCell", for: indexPath) as! TrackTableViewCell
             cell.backgroundColor = .clear
             guard let track = track(at: indexPath) else { return cell }
@@ -1322,7 +1360,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            rowHeight
+            indexPath.section == groupedTracks.count ? UITableView.automaticDimension : rowHeight
         }
 
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
