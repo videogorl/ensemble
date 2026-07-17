@@ -227,7 +227,7 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         syncCoordinator.refreshProviders()
     }
 
-    /// Triggers sync for all currently enabled libraries in this account.
+    /// Forces a full sync for all currently enabled libraries in this account.
     public func syncEnabledLibraries() async {
         guard !isSyncingEnabledLibraries else { return }
 

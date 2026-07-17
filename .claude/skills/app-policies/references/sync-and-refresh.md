@@ -12,6 +12,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Feed uses stale-while-revalidate cadence: fetch once per app session or when the last network snapshot is at least 10 minutes old; manual pull-to-refresh bypasses the cadence.
 - Feed/Search hub refresh should use inline Plex hub metadata from the hub payload and skip hubs that do not include usable music metadata. Do not add speculative per-hub item fallback requests without live PMS evidence and tests, because unsupported hub keys can produce repeated 404s during refresh.
 - Refreshable root screens attach `.refreshable` to the native scroll owner for every visible content state and expose `.refreshCommand` so keyboard/menu refresh invokes the active screen's same action.
+- Library pull-to-refresh remains incremental. The Source account detail screen exposes `Force Full Sync` for all enabled libraries in that source, bypassing Plex item and section timestamp shortcuts when metadata integrity is uncertain.
 - Background refresh routes through `BackgroundRefreshCoordinator`, not transient UI view models.
 - WebSocket library/update/download events accelerate refresh and sync. Debounce, in-flight guards, cooldowns, polling timers, and foreground refresh remain fallback paths.
 - Source cleanup is destructive and must stay outside UI view models. Removed/disabled sources should clean caches, lyrics, artwork, offline targets, downloads, and stale rows through the owning cleanup services.
@@ -52,6 +53,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 - Keep WebSocket event handling idempotent and safe to miss.
 - Use `SyncCursorRepository` for new scoped sync freshness decisions. Server playlist inventory reconciliation should record full/inventory/incremental completion there and clear the cursor when server-scoped playlist rows are purged.
 - `SyncCoordinator` owns full-size persistent artwork pre-caching through `cacheAlbumArtwork`, `cacheArtistArtwork`, and `cachePlaylistArtwork`; detail views should treat sync output as the durable cache source and use visible loading only as a recovery path.
+- `MusicSourceAccountDetailView` routes `Force Full Sync` through `MusicSourceAccountDetailViewModel.syncEnabledLibraries()` and the existing source-scoped `SyncCoordinator.sync(sources:)` full-sync path.
 - `MutationCoordinator` owns durable optimistic playlist rename persistence through `PlaylistRepository.updatePlaylistTitle`; `PlaylistDetailViewModel` must not immediately replace the optimistic title from a stale cache snapshot.
 - `ArtworkIdentity.requestedPixelDimension` records the largest persistent artwork request already attempted for the current source identity; `ArtworkDownloadManager.localArtworkExists` uses it to distinguish stale thumbnails from server-limited detail responses.
 

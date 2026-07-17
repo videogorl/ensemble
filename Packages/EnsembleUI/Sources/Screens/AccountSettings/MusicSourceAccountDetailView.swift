@@ -228,8 +228,11 @@ public struct MusicSourceAccountDetailView: View {
                 }
             } label: {
                 HStack {
-                    EnsembleUtilityIcon(EnsembleDesign.Icon.refreshCycle)
-                    Text("Sync Enabled Libraries")
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.refreshCycle,
+                        title: "Force Full Sync",
+                        subtitle: "Re-fetch all metadata, even when Plex reports no changes"
+                    )
                     Spacer()
                     if viewModel.isSyncingEnabledLibraries {
                         ProgressView()

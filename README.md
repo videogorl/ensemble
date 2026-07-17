@@ -48,7 +48,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, watch-native source/library selection, pins-first library browsing, watch-local streaming playback, and phone remote control through WatchConnectivity
 
 **Management:**
-- **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and “Sync Enabled Libraries” in one detail screen
+- **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and an explicit “Force Full Sync” action in one detail screen
 - **Resilient Mixed-Library Playlists** — Songs from disabled libraries remain visible and editable in playlists while playback and downloads stay disabled only for those songs
 - **Library Visibility Foundation** — Source-level visibility profiles are supported in core data flow (selector UI planned)
 - **Swipe Action Customization** — Configure leading/trailing swipe slots and reset defaults from Settings → Playback
