@@ -2,6 +2,41 @@ import AVFoundation
 import Foundation
 
 final class StreamingAudioPipeline: NSObject {
+    struct Diagnostics {
+        let taskState: URLSessionTask.State?
+        let secondsSinceLastByte: TimeInterval?
+        let secondsSinceLastPCM: TimeInterval?
+        let receivedBytes: Int64
+        let decodedFrames: AVAudioFramePosition
+        let bufferedFrames: Int
+        let isComplete: Bool
+
+        var summary: String {
+            "task=\(taskStateDescription)"
+                + " lastByte=\(ageDescription(secondsSinceLastByte))"
+                + " lastPCM=\(ageDescription(secondsSinceLastPCM))"
+                + " bytes=\(receivedBytes)"
+                + " decodedFrames=\(decodedFrames)"
+                + " bufferedFrames=\(bufferedFrames)"
+                + " complete=\(isComplete)"
+        }
+
+        private var taskStateDescription: String {
+            switch taskState {
+            case .running: return "running"
+            case .suspended: return "suspended"
+            case .canceling: return "canceling"
+            case .completed: return "completed"
+            case nil: return "none"
+            @unknown default: return "unknown"
+            }
+        }
+
+        private func ageDescription(_ age: TimeInterval?) -> String {
+            age.map { String(format: "%.2fs", $0) } ?? "never"
+        }
+    }
+
     struct Configuration {
         let request: URLRequest
         let fileExtension: String
@@ -52,6 +87,9 @@ final class StreamingAudioPipeline: NSObject {
     private var hasReceivedFirstByte = false
     private var completed = false
     private var cancelled = false
+    private var receivedByteCount: Int64 = 0
+    private var lastByteUptime: TimeInterval?
+    private var lastPCMUptime: TimeInterval?
     private var decodedFrameCount: AVAudioFramePosition = 0
     private var decodedFrameTarget: AVAudioFramePosition?
 
@@ -64,6 +102,28 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.lock()
         defer { stateLock.unlock() }
         return completed
+    }
+
+    func diagnostics(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Diagnostics {
+        stateLock.lock()
+        let task = self.task
+        let pcmBuffer = self.pcmBuffer
+        let lastByteUptime = self.lastByteUptime
+        let lastPCMUptime = self.lastPCMUptime
+        let receivedBytes = receivedByteCount
+        let decodedFrames = decodedFrameCount
+        let isComplete = completed
+        stateLock.unlock()
+
+        return Diagnostics(
+            taskState: task?.state,
+            secondsSinceLastByte: lastByteUptime.map { max(0, now - $0) },
+            secondsSinceLastPCM: lastPCMUptime.map { max(0, now - $0) },
+            receivedBytes: receivedBytes,
+            decodedFrames: decodedFrames,
+            bufferedFrames: pcmBuffer?.availableFrames ?? 0,
+            isComplete: isComplete
+        )
     }
 
     func start() {
@@ -152,6 +212,7 @@ final class StreamingAudioPipeline: NSObject {
             guard let self else { return }
             stateLock.lock()
             let ring = pcmBuffer
+            lastPCMUptime = ProcessInfo.processInfo.systemUptime
             decodedFrameCount += AVAudioFramePosition(buffer.frameLength)
             let progress = decodedFrameTarget
                 .flatMap { $0 > 0 ? Double(self.decodedFrameCount) / Double($0) : nil }
@@ -172,8 +233,13 @@ final class StreamingAudioPipeline: NSObject {
 
     private func append(_ data: Data) {
         do {
-            if !hasReceivedFirstByte {
-                hasReceivedFirstByte = true
+            stateLock.lock()
+            let isFirstByte = !hasReceivedFirstByte
+            hasReceivedFirstByte = true
+            receivedByteCount += Int64(data.count)
+            lastByteUptime = ProcessInfo.processInfo.systemUptime
+            stateLock.unlock()
+            if isFirstByte {
                 onFirstByte?()
             }
             try cacheHandle?.write(contentsOf: data)

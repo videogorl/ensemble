@@ -77,8 +77,18 @@ final class StreamingAudioPipelineTests: XCTestCase {
         XCTAssertLessThan(servedAtFirstBufferedProgress, data.count)
         XCTAssertGreaterThan(bufferedProgressValues.first ?? 0, 0)
 
+        let activeDiagnostics = pipeline.diagnostics()
+        XCTAssertEqual(activeDiagnostics.taskState, .running)
+        XCTAssertNotNil(activeDiagnostics.secondsSinceLastByte)
+        XCTAssertNotNil(activeDiagnostics.secondsSinceLastPCM)
+        XCTAssertGreaterThan(activeDiagnostics.receivedBytes, 0)
+        XCTAssertGreaterThan(activeDiagnostics.decodedFrames, 0)
+        XCTAssertGreaterThanOrEqual(activeDiagnostics.bufferedFrames, 0)
+        XCTAssertFalse(activeDiagnostics.isComplete)
+
         await fulfillment(of: [completed], timeout: 3)
         XCTAssertEqual(bufferedProgressValues.last ?? 0, 1, accuracy: 0.001)
+        XCTAssertTrue(pipeline.diagnostics().isComplete)
         let attrs = try FileManager.default.attributesOfItem(atPath: cacheURL.path)
         XCTAssertEqual(attrs[.size] as? Int64, Int64(data.count))
     }
