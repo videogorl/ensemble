@@ -120,6 +120,45 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         engine.stop()
     }
 
+    func testStreamingFailureAfterFormatReadyReachesEngineErrorHandler() async throws {
+        let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
+        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw XCTSkip("System M4A fixture is unavailable on this macOS install")
+        }
+
+        StreamingFailureURLProtocol.payload = try Data(contentsOf: fixtureURL)
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [StreamingFailureURLProtocol.self]
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("streaming-failure-\(UUID().uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let pipeline = StreamingAudioPipeline(configuration: .init(
+            request: URLRequest(url: URL(string: "https://stream-failure.test/file.m4a")!),
+            fileExtension: "m4a",
+            cacheURL: cacheURL,
+            duration: 5,
+            sessionConfiguration: sessionConfiguration
+        ))
+
+        let engine = AudioPlaybackEngine()
+        let failed = expectation(description: "streaming failure reached engine")
+        engine.onError = { error, trackId in
+            XCTAssertEqual((error as NSError).code, NSURLErrorNetworkConnectionLost)
+            XCTAssertNil(trackId)
+            failed.fulfill()
+        }
+        let format = try await engine.startStreamingPipeline(
+            pipeline,
+            trackId: "streaming-failure-test",
+            startTime: 0,
+            duration: 5
+        )
+
+        XCTAssertGreaterThan(format.sampleRate, 0)
+        await fulfillment(of: [failed], timeout: 1)
+        pipeline.cancel()
+    }
+
     private func streamingSourceNode(from engine: AudioPlaybackEngine) -> AVAudioSourceNode? {
         guard let wrappedNode = Mirror(reflecting: engine).children
             .first(where: { $0.label == "streamingSourceNode" })?.value else {
@@ -217,4 +256,32 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         XCTAssertEqual(engine.currentTime(), 4, accuracy: 0.5)
         engine.stop()
     }
+}
+
+private final class StreamingFailureURLProtocol: URLProtocol {
+    static var payload = Data()
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "stream-failure.test"
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url else { return }
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "audio/mp4"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.payload)
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+        }
+    }
+
+    override func stopLoading() {}
 }

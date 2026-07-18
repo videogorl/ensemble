@@ -75,6 +75,7 @@ public final class AudioPlaybackEngine {
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
     private var streamingPipeline: StreamingAudioPipeline?
+    var isStreamingSourceActive: Bool { streamingPipeline != nil }
     private var streamingStartTime: TimeInterval = 0
     private var streamingCompletionGeneration: UInt64 = 0
     private var streamingCompletionNotified = false
@@ -1081,7 +1082,7 @@ public final class AudioPlaybackEngine {
         )
     }
 
-    private func startStreamingPipeline(
+    func startStreamingPipeline(
         _ pipeline: StreamingAudioPipeline,
         trackId: String,
         startTime: TimeInterval,
@@ -1125,8 +1126,20 @@ public final class AudioPlaybackEngine {
             pipeline.onFormatReady = { format in
                 resumeOnce(.success(format))
             }
-            pipeline.onFailure = { error in
-                resumeOnce(.failure(error))
+            pipeline.onFailure = { [weak self] error in
+                let nsError = error as NSError
+                lock.lock()
+                let didStart = didResume
+                lock.unlock()
+                if didStart {
+                    guard nsError.domain != NSURLErrorDomain || nsError.code != NSURLErrorCancelled else {
+                        return
+                    }
+                    EnsembleLogger.error("[StreamingPipeline] failed after startup trackId=\(trackId): \(error.localizedDescription)")
+                    self?.onError?(error, nil)
+                } else {
+                    resumeOnce(.failure(error))
+                }
             }
             pipeline.start()
         }

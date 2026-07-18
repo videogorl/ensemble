@@ -844,7 +844,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var postPlaybackAutoplayRefreshTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
     private var lastObservedNetworkState: NetworkState?
-    private var stallRecoveryTask: Task<Void, Never>? // Kept for network stall detection during file resolution
+    private var stallRecoveryTask: Task<Void, Never>?
     /// Tracks the in-progress next()/previous() transition task so it can be
     /// cancelled if the user presses next/previous again before it completes.
     private var skipTransitionTask: Task<Void, Never>?
@@ -1224,7 +1224,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
-        engine.onError = { [weak self] error, trackId in
+        engine.onError = { [weak self, weak engine] error, trackId in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if let trackId, trackId != self.currentTrack?.playbackIdentity {
@@ -1232,8 +1232,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     // without stopping the currently playing track.
                     EnsembleLogger.playback("ENGINE: scheduled track error (trackId=\(trackId)) -- \(error.localizedDescription)")
                     self.audioEngine?.removeScheduledTrack(trackId)
+                } else if engine?.isStreamingSourceActive == true,
+                          self.playbackState == .playing
+                          || self.playbackState == .buffering
+                          || self.playbackState == .loading
+                {
+                    self.recoverCurrentStream(after: error)
                 } else {
-                    // Error in the current track — existing failure behavior
                     EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
                     if self.playbackState == .playing || self.playbackState == .loading {
                         self.playbackState = .failed(error.localizedDescription)
@@ -1275,6 +1280,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
 
         audioEngine = engine
+    }
+
+    @MainActor
+    private func recoverCurrentStream(after error: Error) {
+        guard stallRecoveryTask == nil, let trackId = currentTrack?.playbackIdentity else { return }
+
+        EnsembleLogger.playback("ENGINE: stream interrupted -- retrying from \(String(format: "%.1f", currentTime))s (\(error.localizedDescription))")
+        audioEngine?.pause()
+        playbackState = .buffering
+        updateNowPlayingInfo()
+
+        stallRecoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.stallRecoveryTask = nil }
+            guard self.currentTrack?.playbackIdentity == trackId else { return }
+            await self.retryCurrentTrack(forceConnectionRefresh: false, reason: "stream-interrupted")
+        }
     }
 
     /// Destroys the current audio engine and creates a fresh instance.
