@@ -6,7 +6,6 @@ import QuartzCore
 struct StreamingRenderHealth {
     let recoveryThresholdFrames: AVAudioFramePosition
     private(set) var missingFrameCount: AVAudioFramePosition = 0
-    private var hasRenderedAudio = false
     private var didReportUnderrun = false
 
     mutating func observe(
@@ -14,12 +13,7 @@ struct StreamingRenderHealth {
         requestedFrames: AVAudioFrameCount,
         isComplete: Bool
     ) -> Bool {
-        guard !didReportUnderrun else { return false }
-
-        if renderedFrames > 0 {
-            hasRenderedAudio = true
-        }
-        guard hasRenderedAudio, !isComplete else { return false }
+        guard !didReportUnderrun, !isComplete else { return false }
 
         let missingFrames = max(0, Int64(requestedFrames) - Int64(renderedFrames))
         if missingFrames == 0 {
