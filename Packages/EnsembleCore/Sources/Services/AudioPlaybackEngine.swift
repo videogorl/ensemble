@@ -3,6 +3,37 @@ import AVFoundation
 import Combine
 import QuartzCore
 
+struct StreamingRenderHealth {
+    let recoveryThresholdFrames: AVAudioFramePosition
+    private(set) var missingFrameCount: AVAudioFramePosition = 0
+    private var hasRenderedAudio = false
+    private var didReportUnderrun = false
+
+    mutating func observe(
+        renderedFrames: Int,
+        requestedFrames: AVAudioFrameCount,
+        isComplete: Bool
+    ) -> Bool {
+        guard !didReportUnderrun else { return false }
+
+        if renderedFrames > 0 {
+            hasRenderedAudio = true
+        }
+        guard hasRenderedAudio, !isComplete else { return false }
+
+        let missingFrames = max(0, Int64(requestedFrames) - Int64(renderedFrames))
+        if missingFrames == 0 {
+            missingFrameCount = 0
+            return false
+        }
+
+        missingFrameCount += AVAudioFramePosition(missingFrames)
+        guard missingFrameCount >= recoveryThresholdFrames else { return false }
+        didReportUnderrun = true
+        return true
+    }
+}
+
 /// General-purpose AVAudioEngine wrapper for file-based audio playback.
 /// Replaces AVQueuePlayer with direct PCM scheduling for gapless transitions,
 /// inline audio effects (AUSoundIsolation for instrumental mode), and
@@ -1051,6 +1082,9 @@ public final class AudioPlaybackEngine {
         streamingCompletionGeneration = scheduleGeneration
 
         var didLogFirstAudibleRender = false
+        var renderHealth = StreamingRenderHealth(
+            recoveryThresholdFrames: AVAudioFramePosition(max(1, format.sampleRate))
+        )
         let sourceNode = AVAudioSourceNode(format: format) { [weak self, weak pipeline] _, _, frameCount, audioBufferList in
             guard let self, let pipeline else { return noErr }
             let read = pipeline.render(into: audioBufferList, frameCount: frameCount)
@@ -1061,7 +1095,24 @@ public final class AudioPlaybackEngine {
                     self.onFirstAudibleRender?(trackId)
                 }
             }
-            if read == 0, pipeline.isComplete {
+            let isComplete = pipeline.isComplete
+            if renderHealth.observe(
+                renderedFrames: read,
+                requestedFrames: frameCount,
+                isComplete: isComplete
+            ) {
+                let missingFrames = renderHealth.missingFrameCount
+                DispatchQueue.main.async { [weak self, weak pipeline] in
+                    guard let self, let pipeline, self.streamingPipeline === pipeline else { return }
+                    EnsembleLogger.error(
+                        "[StreamingPipeline] PCM underrun trackId=\(trackId)"
+                            + " missingFrames=\(missingFrames)"
+                            + " \(pipeline.diagnostics().summary)"
+                    )
+                    self.onError?(AudioPlaybackEngineError.streamingUnderrun, nil)
+                }
+            }
+            if read == 0, isComplete {
                 DispatchQueue.main.async {
                     self.handleStreamingComplete(generation: self.streamingCompletionGeneration)
                 }
@@ -2347,6 +2398,7 @@ public enum AudioPlaybackEngineError: Error, LocalizedError {
     case soundIsolationUnavailable
     case noFileLoaded
     case streamingSeekUnavailable
+    case streamingUnderrun
 
     public var errorDescription: String? {
         switch self {
@@ -2356,6 +2408,8 @@ public enum AudioPlaybackEngineError: Error, LocalizedError {
             return "No audio file has been loaded"
         case .streamingSeekUnavailable:
             return "Seeking is not available until the current stream is seekable"
+        case .streamingUnderrun:
+            return "The audio stream stopped producing decoded frames"
         }
     }
 }
