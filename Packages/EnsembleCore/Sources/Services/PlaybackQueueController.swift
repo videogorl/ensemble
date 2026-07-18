@@ -281,19 +281,23 @@ final class PlaybackQueueController {
         byId sourceId: String,
         from sourceIndex: Int,
         to destinationIndex: Int,
+        destinationSource: QueueItemSource? = nil,
         queue: inout [QueueItem],
         currentQueueIndex: inout Int
     ) -> PlaybackQueueMoveResult? {
         guard queue.indices.contains(sourceIndex),
               destinationIndex >= 0,
               destinationIndex <= queue.count,
-              sourceIndex != destinationIndex,
+              sourceIndex != destinationIndex
+                || destinationSource.map({ $0 != queue[sourceIndex].source }) == true,
               queue[sourceIndex].id == sourceId else {
             return nil
         }
 
         var item = queue.remove(at: sourceIndex)
-        if item.source == .autoplay {
+        if let destinationSource {
+            item.source = destinationSource
+        } else if item.source == .autoplay {
             item.source = .continuePlaying
         }
 

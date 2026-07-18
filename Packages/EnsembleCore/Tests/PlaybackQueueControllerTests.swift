@@ -391,6 +391,29 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertEqual(currentQueueIndex, 2)
     }
 
+    func testMoveItemAdoptsDestinationQueueSection() {
+        let controller = makeController()
+        var queue = [
+            makeItem(id: "current"),
+            makeItem(id: "next", source: .upNext),
+            makeItem(id: "last", source: .continuePlaying),
+        ]
+        var currentQueueIndex = 0
+
+        controller.moveItem(
+            byId: queue[2].id,
+            from: 2,
+            to: 2,
+            destinationSource: .upNext,
+            queue: &queue,
+            currentQueueIndex: &currentQueueIndex
+        )
+
+        XCTAssertEqual(queue.map(\.track.id), ["current", "next", "last"])
+        XCTAssertEqual(queue[2].source, .upNext)
+        XCTAssertEqual(currentQueueIndex, 0)
+    }
+
     func testEnableShuffleKeepsCurrentFirstAutoplayLastAndExcludesHistory() {
         let controller = makeController()
         var queue = [

@@ -323,7 +323,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func playLast(_: [Track]) {}
         func removeFromQueue(at _: Int) {}
         func clearQueue() {}
-        func moveQueueItem(byId _: String, from _: Int, to _: Int) {}
+        func moveQueueItem(byId _: String, from _: Int, to _: Int, destinationSource _: QueueItemSource?) {}
         func toggleShuffle() {}
         func cycleRepeatMode() {}
         func toggleAutoplay() {}

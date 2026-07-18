@@ -242,7 +242,7 @@ public struct QueueTableView: UIViewRepresentable {
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
     let onRemoveFromQueue: (Int) -> Void
-    let onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
+    let onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
 
     @Environment(\.dependencies) private var dependencies
 
@@ -262,7 +262,7 @@ public struct QueueTableView: UIViewRepresentable {
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
         onRemoveFromQueue: @escaping (Int) -> Void,
-        onMoveItem: @escaping (String, Int, Int) -> Void
+        onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void
     ) {
         self.queueItems = queueItems
         self.history = history
@@ -406,7 +406,7 @@ public struct QueueTableView: UIViewRepresentable {
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
         var onRemoveFromQueue: (Int) -> Void
-        var onMoveItem: (String, Int, Int) -> Void  // itemId, sourceIndex, destinationIndex
+        var onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
 
@@ -455,7 +455,7 @@ public struct QueueTableView: UIViewRepresentable {
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
             onRemoveFromQueue: @escaping (Int) -> Void,
-            onMoveItem: @escaping (String, Int, Int) -> Void,
+            onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void,
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService
         ) {
@@ -498,16 +498,11 @@ public struct QueueTableView: UIViewRepresentable {
                 let upNext = visibleQueueItems.filter { $0.source == .upNext }
                 let continuePlaying = visibleQueueItems.filter { $0.source == .continuePlaying }
                 let autoplay = visibleQueueItems.filter { $0.source == .autoplay }
-                
-                if !upNext.isEmpty {
-                    sections.append(QueueSection(type: .upNext, items: upNext))
-                }
-                if !continuePlaying.isEmpty {
-                    sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
-                }
-                if !autoplay.isEmpty {
-                    sections.append(QueueSection(type: .autoplay, items: autoplay))
-                }
+
+                // Stable sections keep UIKit's cross-section move batch internally consistent.
+                sections.append(QueueSection(type: .upNext, items: upNext))
+                sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
+                sections.append(QueueSection(type: .autoplay, items: autoplay))
                 if hiddenCount > 0 {
                     sections.append(QueueSection(type: .more(hiddenCount), items: []))
                 }
@@ -563,7 +558,7 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
             let sectionData = sections[section]
-            if case .more = sectionData.type {
+            if sectionData.items.isEmpty {
                 return nil
             }
             
@@ -607,7 +602,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            if case .more = sections[section].type {
+            if sections[section].items.isEmpty {
                 return CGFloat.leastNormalMagnitude
             }
             return 40
@@ -717,6 +712,11 @@ public struct QueueTableView: UIViewRepresentable {
             targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
             toProposedIndexPath proposedDestinationIndexPath: IndexPath
         ) -> IndexPath {
+            if sections.indices.contains(proposedDestinationIndexPath.section),
+               case .autoplay = sections[proposedDestinationIndexPath.section].type {
+                return sourceIndexPath
+            }
+
             guard sections.indices.contains(proposedDestinationIndexPath.section),
                   case .more = sections[proposedDestinationIndexPath.section].type
             else {
@@ -758,6 +758,10 @@ public struct QueueTableView: UIViewRepresentable {
                 return UITableViewDropProposal(operation: .cancel)
             }
             if let destinationIndexPath {
+                if sections.indices.contains(destinationIndexPath.section),
+                   case .autoplay = sections[destinationIndexPath.section].type {
+                    return UITableViewDropProposal(operation: .cancel)
+                }
                 triggerQueueMoveFeedbackIfNeeded(for: destinationIndexPath)
             }
             return UITableViewDropProposal(operation: .move, intent: .insertAtDestinationIndexPath)
@@ -820,7 +824,8 @@ public struct QueueTableView: UIViewRepresentable {
             commitQueueMove(
                 itemId: sourceItem.id,
                 sourceIndex: sourceAbsoluteIndex,
-                destinationIndex: destinationAbsoluteIndex
+                destinationIndex: destinationAbsoluteIndex,
+                destinationSource: queueSource(for: destinationIndexPath)
             )
         }
 
@@ -862,15 +867,48 @@ public struct QueueTableView: UIViewRepresentable {
             commitQueueMove(
                 itemId: sourceItem.id,
                 sourceIndex: sourceAbsoluteIndex,
-                destinationIndex: destinationAbsoluteIndex
+                destinationIndex: destinationAbsoluteIndex,
+                destinationSource: queueSource(for: destinationIndexPath)
             )
         }
 
-        private func commitQueueMove(itemId: String, sourceIndex: Int, destinationIndex: Int) {
-            guard sourceIndex != destinationIndex else { return }
+        private func commitQueueMove(
+            itemId: String,
+            sourceIndex: Int,
+            destinationIndex: Int,
+            destinationSource: QueueItemSource?
+        ) {
+            guard queueItems.indices.contains(sourceIndex),
+                  sourceIndex != destinationIndex
+                    || destinationSource.map({ $0 != queueItems[sourceIndex].source }) == true,
+                  destinationIndex >= 0,
+                  destinationIndex <= queueItems.count
+            else { return }
+
+            var item = queueItems.remove(at: sourceIndex)
+            if let destinationSource {
+                item.source = destinationSource
+            } else if item.source == .autoplay {
+                item.source = .continuePlaying
+            }
+            let adjustedDestination = destinationIndex > sourceIndex
+                ? destinationIndex - 1
+                : destinationIndex
+            queueItems.insert(item, at: adjustedDestination)
+            rebuildSections()
+
             reorderFeedback.selectionChanged()
             reorderFeedback.prepare()
-            onMoveItem(itemId, sourceIndex, destinationIndex)
+            onMoveItem(itemId, sourceIndex, destinationIndex, destinationSource)
+        }
+
+        private func queueSource(for indexPath: IndexPath) -> QueueItemSource? {
+            guard sections.indices.contains(indexPath.section) else { return nil }
+            switch sections[indexPath.section].type {
+            case .upNext: return .upNext
+            case .continuePlaying: return .continuePlaying
+            case .history, .autoplay, .more: return nil
+            }
         }
 
         private func triggerQueueMoveFeedbackIfNeeded(for indexPath: IndexPath) {

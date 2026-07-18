@@ -184,7 +184,7 @@ public protocol PlaybackServiceProtocol: AnyObject {
     func playLast(_ tracks: [Track])
     func removeFromQueue(at index: Int)
     func clearQueue()
-    func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int)
+    func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource?)
     func toggleShuffle()
     func cycleRepeatMode()
     func toggleAutoplay()
@@ -3506,11 +3506,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Move a queue item by ID from source position to destination position.
     /// This is the primary method for drag-to-reorder (more robust than index-based).
     /// Both indices are absolute queue positions (not filtered/relative).
-    public func moveQueueItem(byId sourceId: String, from sourceIndex: Int, to destinationIndex: Int) {
+    public func moveQueueItem(byId sourceId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {
         guard let result = queueController.moveItem(
             byId: sourceId,
             from: sourceIndex,
             to: destinationIndex,
+            destinationSource: destinationSource,
             queue: &queue,
             currentQueueIndex: &currentQueueIndex
         ) else { return }

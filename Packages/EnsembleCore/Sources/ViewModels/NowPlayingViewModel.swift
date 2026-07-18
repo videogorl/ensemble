@@ -1365,8 +1365,13 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.playLast(tracks)
     }
 
-    public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int) {
-        playbackService.moveQueueItem(byId: itemId, from: sourceIndex, to: destinationIndex)
+    public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {
+        playbackService.moveQueueItem(
+            byId: itemId,
+            from: sourceIndex,
+            to: destinationIndex,
+            destinationSource: destinationSource
+        )
     }
 
     public func removeFromQueue(at index: Int) {

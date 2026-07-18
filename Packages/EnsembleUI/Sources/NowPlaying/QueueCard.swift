@@ -226,9 +226,14 @@ public struct QueueCard: View {
                         onRemoveFromQueue: { absoluteIndex in
                             viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                         },
-                        onMoveItem: { itemId, sourceIndex, destinationIndex in
+                        onMoveItem: { itemId, sourceIndex, destinationIndex, destinationSource in
                             let offset = capturedCurrentIndex + 1
-                            viewModel.moveQueueItem(byId: itemId, from: sourceIndex + offset, to: destinationIndex + offset)
+                            viewModel.moveQueueItem(
+                                byId: itemId,
+                                from: sourceIndex + offset,
+                                to: destinationIndex + offset,
+                                destinationSource: destinationSource
+                            )
                         }
                     )
                     .padding(.horizontal, TrackListLayoutMetrics.queueOuterContentPadding)
