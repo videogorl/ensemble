@@ -361,6 +361,7 @@ public final class WatchExperienceModel: ObservableObject {
     private var bootstrapTask: Task<Void, Never>?
     private var bootstrapTaskID: UUID?
     private var linkPollTask: Task<Void, Never>?
+    private var playbackStatusCancellable: AnyCancellable?
 
     public init(
         discovery: EnsemblePlexDiscoveryService = EnsemblePlexDiscoveryService(),
@@ -375,6 +376,11 @@ public final class WatchExperienceModel: ObservableObject {
         self.cloudPreferences = cloudPreferences
         self.authService = authService
         self.catalogSnapshot = catalogStore.loadSnapshot()
+        self.playbackStatusCancellable = playback.$status
+            .dropFirst()
+            .sink { [weak self] status in
+                self?.statusMessage = Self.playbackStatusMessage(for: status)
+            }
     }
 
     public var isReady: Bool {
@@ -390,6 +396,14 @@ public final class WatchExperienceModel: ObservableObject {
     public func refresh() {
         bootstrapTask?.cancel()
         startBootstrapTask(forceRefresh: true)
+    }
+
+    /// Applies pin preferences after iCloud delivers an external KVS update.
+    public func cloudPreferencesDidChange() {
+        Task { [weak self] in
+            guard let self else { return }
+            applyPinnedReferences(await cloudPreferences.pinnedReferences())
+        }
     }
 
     public func startLinkFlow() {
@@ -447,7 +461,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func isPinned(_ item: EnsembleMediaSummary) -> Bool {
-        pinnedItemIDs.contains(item.id)
+        pinnedItemIDs.contains(Self.pinIdentity(id: item.id, sourceKey: item.sourceKey))
     }
 
     public func canPin(_ item: EnsembleMediaSummary) -> Bool {
@@ -459,8 +473,8 @@ public final class WatchExperienceModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             var pins = await cloudPreferences.pinnedReferences()
-            if pins.contains(where: { $0.id == item.id }) {
-                pins.removeAll { $0.id == item.id }
+            if pins.contains(where: { $0.matches(item) }) {
+                pins.removeAll { $0.matches(item) }
             } else if let pin = WatchPinnedReference(item: item) {
                 pins.append(pin)
             }
@@ -621,21 +635,17 @@ public final class WatchExperienceModel: ObservableObject {
 
         statusMessage = "Syncing selected libraries"
         let pinnedReferences = await cloudPreferences.pinnedReferences()
-        pinnedItemIDs = Set(pinnedReferences.map(\.id))
-        let snapshot = try await catalog.refreshSnapshot(libraries: libraries, pinnedIDs: pinnedReferences.map(\.id))
-        catalogStore.saveSnapshot(snapshot)
+        let snapshot = try await catalog.refreshSnapshot(libraries: libraries)
         catalogSnapshot = snapshot
+        applyPinnedReferences(pinnedReferences)
         statusMessage = "Ready"
     }
 
     private func applyPinnedReferences(_ pins: [WatchPinnedReference]) {
-        pinnedItemIDs = Set(pins.map(\.id))
+        pinnedItemIDs = Set(pins.map { Self.pinIdentity(id: $0.id, sourceKey: $0.sourceCompositeKey) })
 
         guard let snapshot = catalogSnapshot else { return }
-        let allItems = snapshot.albums + snapshot.artists + snapshot.playlists + snapshot.recentlyAdded
-        let pinnedItems = pins.compactMap { pin in
-            allItems.first { $0.id == pin.id && $0.sourceKey == pin.sourceCompositeKey }
-        }
+        let pinnedItems = Self.resolvedPinnedItems(pins, in: snapshot)
 
         let updatedSnapshot = EnsemblePlexCatalogSnapshot(
             fetchedAt: snapshot.fetchedAt,
@@ -649,6 +659,39 @@ public final class WatchExperienceModel: ObservableObject {
 
         catalogSnapshot = updatedSnapshot
         catalogStore.saveSnapshot(updatedSnapshot)
+    }
+
+    nonisolated static func resolvedPinnedItems(
+        _ pins: [WatchPinnedReference],
+        in snapshot: EnsemblePlexCatalogSnapshot
+    ) -> [EnsembleMediaSummary] {
+        let allItems = snapshot.albums + snapshot.artists + snapshot.playlists + snapshot.recentlyAdded
+        return pins.compactMap { pin in
+            allItems.first {
+                $0.id == pin.id
+                    && $0.sourceKey == pin.sourceCompositeKey
+                    && $0.kind.rawValue == pin.type
+            }
+        }
+    }
+
+    nonisolated static func playbackStatusMessage(for status: EnsemblePlaybackStatus) -> String {
+        switch status {
+        case .idle:
+            return "Ready"
+        case .loading:
+            return "Preparing stream"
+        case .playing:
+            return "Playing on Apple Watch"
+        case .paused:
+            return "Paused on Apple Watch"
+        case .failed:
+            return "Playback failed."
+        }
+    }
+
+    private nonisolated static func pinIdentity(id: String, sourceKey: String) -> String {
+        "\(sourceKey)||\(id)"
     }
 
     private func pruneMediaToSelectedLibraries() {
@@ -815,5 +858,9 @@ private extension WatchPinnedReference {
         case .track:
             return nil
         }
+    }
+
+    func matches(_ item: EnsembleMediaSummary) -> Bool {
+        id == item.id && sourceCompositeKey == item.sourceKey
     }
 }

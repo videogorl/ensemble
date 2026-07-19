@@ -104,6 +104,45 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(TimeInterval(65).ensembleWatchClockText, "1:05")
     }
 
+    func testPinnedItemsResolveBySourceAndTypeAcrossTheFullSnapshot() {
+        let selectedSource = "plex:account:server:3"
+        let otherSource = "plex:account:server:5"
+        let albums = (1...50).map { makeSummary(id: "album-\($0)", sourceKey: selectedSource) }
+        let snapshot = EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [],
+            albums: albums + [makeSummary(id: "album-50", sourceKey: otherSource)],
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        )
+        let pins = [
+            WatchPinnedReference(
+                id: "album-50",
+                sourceCompositeKey: otherSource,
+                type: "album",
+                title: "Pinned Album"
+            ),
+            WatchPinnedReference(
+                id: "album-49",
+                sourceCompositeKey: selectedSource,
+                type: "artist",
+                title: "Wrong Type"
+            )
+        ]
+
+        let resolved = WatchExperienceModel.resolvedPinnedItems(pins, in: snapshot)
+
+        XCTAssertEqual(resolved.map(\.sourceKey), [otherSource])
+        XCTAssertEqual(resolved.map(\.id), ["album-50"])
+    }
+
+    func testPlaybackStatusMessagesFollowPauseAndResume() {
+        XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .playing), "Playing on Apple Watch")
+        XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .paused), "Paused on Apple Watch")
+        XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .idle), "Ready")
+    }
+
     private func makeLibrary(
         accountId: String,
         serverId: String,

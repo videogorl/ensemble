@@ -116,17 +116,9 @@ public struct EnsemblePlexCatalogSnapshot: Codable, Equatable, Sendable {
 }
 
 public struct EnsemblePlexCatalogLimits: Equatable, Sendable {
-    public let pins: Int
-    public let albums: Int
-    public let artists: Int
-    public let playlists: Int
     public let recentlyAdded: Int
 
-    public init(pins: Int = 12, albums: Int = 36, artists: Int = 36, playlists: Int = 36, recentlyAdded: Int = 24) {
-        self.pins = pins
-        self.albums = albums
-        self.artists = artists
-        self.playlists = playlists
+    public init(recentlyAdded: Int = 24) {
         self.recentlyAdded = recentlyAdded
     }
 }
@@ -432,7 +424,7 @@ enum WatchPlexConnectionPolicy {
     }
 }
 
-/// Loads compact, capped Plex catalog data for watch browse surfaces.
+/// Loads lightweight Plex catalog data for watch browse surfaces.
 public actor EnsemblePlexCatalogService {
     public init() {}
 
@@ -460,11 +452,9 @@ public actor EnsemblePlexCatalogService {
 
     public func refreshSnapshot(
         libraries: [EnsemblePlexLibrary],
-        pinnedIDs: [String] = [],
         limits: EnsemblePlexCatalogLimits = EnsemblePlexCatalogLimits()
     ) async throws -> EnsemblePlexCatalogSnapshot {
         var libraryRefs: [EnsembleLibraryReference] = []
-        var pins: [EnsembleMediaSummary] = []
         var albums: [EnsembleMediaSummary] = []
         var artists: [EnsembleMediaSummary] = []
         var playlists: [EnsembleMediaSummary] = []
@@ -474,9 +464,9 @@ public actor EnsemblePlexCatalogService {
             libraryRefs.append(EnsembleLibraryReference(id: library.id, key: library.key, title: library.title, isEnabled: true))
             let client = EnsemblePlexDiscoveryService.client(for: library)
 
-            async let libraryArtists = client.getArtists(sectionKey: library.key, limit: limits.artists)
-            async let libraryAlbums = client.getAlbums(sectionKey: library.key, limit: limits.albums)
-            async let serverPlaylists = client.getPlaylists(limit: limits.playlists)
+            async let libraryArtists = client.getArtists(sectionKey: library.key)
+            async let libraryAlbums = client.getAlbums(sectionKey: library.key)
+            async let serverPlaylists = client.getPlaylists()
             async let hubItems = recentlyAddedItems(client: client, library: library, limit: limits.recentlyAdded)
 
             let sourceKey = library.sourceKey
@@ -492,23 +482,18 @@ public actor EnsemblePlexCatalogService {
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
             let mappedRecent = try await hubItems
 
-            artists.append(contentsOf: mappedArtists.prefix(limits.artists))
-            albums.append(contentsOf: mappedAlbums.prefix(limits.albums))
-            playlists.append(contentsOf: mappedPlaylists.prefix(limits.playlists))
+            artists.append(contentsOf: mappedArtists)
+            albums.append(contentsOf: mappedAlbums)
+            playlists.append(contentsOf: mappedPlaylists)
             recentlyAdded.append(contentsOf: mappedRecent.prefix(limits.recentlyAdded))
-        }
-
-        if !pinnedIDs.isEmpty {
-            let allItems = albums + artists + playlists + recentlyAdded
-            pins = pinnedIDs.compactMap { id in allItems.first(where: { $0.id == id }) }
         }
 
         return EnsemblePlexCatalogSnapshot(
             libraries: libraryRefs,
-            pins: Array(pins.prefix(limits.pins)),
-            albums: Array(albums.prefix(limits.albums)),
-            artists: Array(artists.prefix(limits.artists)),
-            playlists: Array(playlists.prefix(limits.playlists)),
+            pins: [],
+            albums: albums,
+            artists: artists,
+            playlists: playlists,
             recentlyAdded: Array(recentlyAdded.prefix(limits.recentlyAdded))
         )
     }

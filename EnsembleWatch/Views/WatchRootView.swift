@@ -31,6 +31,9 @@ struct WatchRootView: View {
         .onAppear {
             experience.start()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)) { _ in
+            experience.cloudPreferencesDidChange()
+        }
     }
 
     private var rootContent: some View {
