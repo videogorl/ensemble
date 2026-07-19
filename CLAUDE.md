@@ -4,7 +4,7 @@ Repository guidance for AI agents working on Ensemble.
 
 ## Product And Constraints
 
-Ensemble is a Plex music player for iOS 15+, iPadOS 15+, macOS 12+, and watchOS 8+. It should feel native, information-dense, customizable, and reliable on 2 GB RAM devices such as iPhone 6s and iPad Air 2.
+Ensemble is a Plex music player for iOS 15+, iPadOS 15+, macOS 12+, and watchOS 9+. It should feel native, information-dense, customizable, and reliable on 2 GB RAM devices such as iPhone 6s and iPad Air 2.
 
 The app is in beta. Handle data and migration edge cases defensively; asking testers to reset can be acceptable, but do not silently discard functionality or data.
 
@@ -128,7 +128,7 @@ Automation launch arguments:
 
 For landscape iPad sheets, prefer semantic element refs for visible controls. If a native `List` row is below the sheet viewport, Computer Use exposes `Scroll Down` / `Scroll Up` secondary actions on the sheet's scroll container; invoke that action, refresh the app state, then resume with a fresh Xcode `snapshot_ui` ref. Raw `ios-simulator-mcp` coordinates are orientation-sensitive in this configuration and can hit the presenting view, so do not classify an out-of-frame accessibility row as clipped until the native scroll action has been tried.
 
-The independent watch app builds with the `EnsembleWatch` scheme. The iOS `Ensemble` scheme does not embed the watch app during simulator builds.
+The independent watch app builds directly with the `EnsembleWatch` scheme for simulator testing. The iOS `Ensemble` target embeds it as Watch content for device archives and TestFlight distribution.
 
 ## Architecture Summary
 

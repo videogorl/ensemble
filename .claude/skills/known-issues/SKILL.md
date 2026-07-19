@@ -29,8 +29,8 @@ No unresolved critical issues are currently documented.
 
 - **Area:** `EnsembleDomain`, `EnsemblePlex`, `EnsembleWatchCore`, `EnsembleWatch/Views/WatchRootView.swift`
 - **Status:** Watch has standalone Plex Link/iCloud credential bootstrap, selected-library browsing, watch-local playback, and phone remote Now Playing, but remains a compact V1 implementation.
-- **Limitations:** Downloads are not included. KVS pins/library flags require watchOS 9+; watchOS 8 degrades to local cached/default behavior.
-- **Build note:** The iOS `Ensemble` scheme no longer embeds the watch app during simulator builds. Build/run watch with `EnsembleWatch`.
+- **Limitations:** Downloads are not included.
+- **Build note:** Build/run Watch directly with `EnsembleWatch` for simulator testing. The iOS `Ensemble` target embeds the independent Watch app for device archives and TestFlight distribution.
 
 ### iOS 26 Keyboard Presenter Guardrails
 
