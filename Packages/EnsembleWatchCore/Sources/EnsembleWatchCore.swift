@@ -245,7 +245,6 @@ public final class WatchPlaybackController: ObservableObject {
         self.player = player
         observe(player: player, item: item)
         player.play()
-        status = .playing
     }
 
     public func togglePlayPause() {
@@ -277,6 +276,36 @@ public final class WatchPlaybackController: ObservableObject {
             }
         }
         timeObserverPlayer = player
+
+        player.publisher(for: \.timeControlStatus, options: [.initial, .new])
+            .sink { [weak self, weak player] timeControlStatus in
+                Task { @MainActor in
+                    guard let self, self.player === player else { return }
+                    switch timeControlStatus {
+                    case .playing:
+                        self.status = .playing
+                    case .waitingToPlayAtSpecifiedRate:
+                        self.status = .loading
+                    case .paused:
+                        if self.status == .playing {
+                            self.status = .paused
+                        }
+                    @unknown default:
+                        break
+                    }
+                }
+            }
+            .store(in: &cancellables)
+
+        item.publisher(for: \.status, options: [.initial, .new])
+            .sink { [weak self, weak item] itemStatus in
+                Task { @MainActor in
+                    guard let self, self.player?.currentItem === item, itemStatus == .failed else { return }
+                    self.status = .failed
+                    self.errorMessage = item?.error?.localizedDescription ?? "Playback failed."
+                }
+            }
+            .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
             .sink { [weak self] _ in

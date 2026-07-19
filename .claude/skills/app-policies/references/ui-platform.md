@@ -38,6 +38,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Watch is an independent lightweight Plex client plus optional iPhone remote, not a full `EnsembleCore`/`EnsembleUI` client. Downloads are outside the current standalone watch scope.
 - Watch account bootstrap reads the iPhone app's synchronizable Plex credentials through their shared Keychain access group; Plex Link remains the fallback when no synced credentials exist.
 - Watch server discovery retains the endpoint that successfully returned Plex library sections so subsequent catalog, artwork, and playback requests begin from the verified connection rather than the original candidate. `EnsemblePlexDiscoveryService` owns this handoff.
+- Watch Pins contains only media referenced by the user's synchronized pin preferences. An empty pin list remains empty; Recently Added content stays in its own browse surface.
 
 ## Owners
 

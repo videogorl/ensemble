@@ -501,8 +501,6 @@ public actor EnsemblePlexCatalogService {
         if !pinnedIDs.isEmpty {
             let allItems = albums + artists + playlists + recentlyAdded
             pins = pinnedIDs.compactMap { id in allItems.first(where: { $0.id == id }) }
-        } else {
-            pins = Array(recentlyAdded.prefix(limits.pins))
         }
 
         return EnsemblePlexCatalogSnapshot(
@@ -568,16 +566,15 @@ public actor EnsemblePlexCatalogService {
         let resolution = try await client.resolveStreamURL(
             ratingKey: track.id,
             trackStreamKey: track.streamKey,
-            quality: .low,
+            quality: .original,
             metadataDurationSeconds: track.duration > 0 ? track.duration : nil
         )
 
         switch resolution {
         case .directStream(let url), .downloadedFile(let url):
             return url
-        case .progressiveTranscode(let config):
-            guard let url = config.streamRequest.url else { throw EnsemblePlexError.unsupportedStreamResolution }
-            return url
+        case .progressiveTranscode:
+            throw EnsemblePlexError.unsupportedStreamResolution
         }
     }
 

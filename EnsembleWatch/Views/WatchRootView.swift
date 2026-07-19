@@ -25,6 +25,7 @@ struct WatchRootView: View {
             }
         }
         .environmentObject(experience)
+        .environmentObject(experience.playback)
         .environmentObject(remoteSession)
         .environmentObject(navigation)
         .onAppear {
@@ -757,6 +758,7 @@ private struct WatchArtistAlbumSummary: Identifiable {
 
 private struct WatchNowPlayingView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
+    @EnvironmentObject private var playback: WatchPlaybackController
     @EnvironmentObject private var remoteSession: WatchSessionModel
     @Environment(\.dismiss) private var dismiss
     @State private var showsTargetPicker = false
@@ -905,7 +907,7 @@ private struct WatchNowPlayingView: View {
 
             Button {
                 if experience.playbackTarget == .local {
-                    experience.playback.togglePlayPause()
+                    playback.togglePlayPause()
                 } else {
                     remoteSession.send(.togglePlayPause)
                 }
@@ -940,25 +942,25 @@ private struct WatchNowPlayingView: View {
             )
         }
 
-        guard let track = experience.playback.currentTrack else { return nil }
+        guard let track = playback.currentTrack else { return nil }
         return WatchNowPlayingPresentation(
             title: track.title,
             subtitle: localSubtitle,
             artworkTrack: track,
-            progress: experience.playback.progress,
-            elapsedText: experience.playback.currentTime.ensembleWatchClockText,
-            remainingText: "-" + max(0, track.duration - experience.playback.currentTime).ensembleWatchClockText,
+            progress: playback.progress,
+            elapsedText: playback.currentTime.ensembleWatchClockText,
+            remainingText: "-" + max(0, track.duration - playback.currentTime).ensembleWatchClockText,
             isRemote: false
         )
     }
 
     private var isPlaying: Bool {
-        experience.playbackTarget == .local ? experience.playback.isPlaying : remoteSession.isPlaying
+        experience.playbackTarget == .local ? playback.isPlaying : remoteSession.isPlaying
     }
 
     private var playPauseDisabled: Bool {
         if experience.playbackTarget == .local {
-            return experience.playback.currentTrack == nil
+            return playback.currentTrack == nil
         }
         return remoteSession.isSendingCommand
     }
