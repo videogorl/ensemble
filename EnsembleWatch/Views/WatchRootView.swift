@@ -1245,7 +1245,10 @@ private struct WatchArtistAlbumRow: View {
 
 private extension WatchExperienceModel {
     var artworkContextID: String {
-        libraries.map(\.sourceKey).sorted().joined(separator: "|")
+        libraries
+            .map { "\($0.sourceKey)@\($0.server.url)" }
+            .sorted()
+            .joined(separator: "|")
     }
 }
 

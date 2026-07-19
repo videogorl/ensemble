@@ -190,6 +190,7 @@ public actor EnsemblePlexDiscoveryService {
                 } catch {
                     continue
                 }
+                let activeServerURL = await client.getCurrentServerURL()
                 let musicSections = sections.filter(\.isMusicLibrary)
                 let libraries = Self.mergeLibraryHints(hintedLibraries, sections: musicSections)
 
@@ -198,7 +199,7 @@ public actor EnsemblePlexDiscoveryService {
                     id: device.clientIdentifier,
                     name: device.name,
                     token: token,
-                    url: connection.uri,
+                    url: activeServerURL,
                     connections: device.connections,
                     libraries: libraries
                 ))
