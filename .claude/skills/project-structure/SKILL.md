@@ -38,6 +38,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 | `EnsembleUITests/` | App UI smoke and regression tests launched by the `Ensemble` scheme. |
 | `EnsembleSiriIntentsExtension/` | SiriKit Media Intents extension. Keep extension logic thin. |
 | `EnsembleWatch/` | Independent watchOS app target and watch SwiftUI. |
+| `EnsembleWatch/EnsembleWatch.entitlements` | Watch access to the iPhone app's synchronizable Plex credential Keychain group. |
 | `EnsembleWatch/Shared/` | Codable iOS/watch payload contracts compiled into both targets. |
 
 ## Packages

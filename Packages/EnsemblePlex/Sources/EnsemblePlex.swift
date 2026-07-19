@@ -184,7 +184,12 @@ public actor EnsemblePlexDiscoveryService {
                     library: nil
                 )
 
-                let sections = try await client.getLibrarySections()
+                let sections: [PlexLibrarySection]
+                do {
+                    sections = try await client.getLibrarySections()
+                } catch {
+                    continue
+                }
                 let musicSections = sections.filter(\.isMusicLibrary)
                 let libraries = Self.mergeLibraryHints(hintedLibraries, sections: musicSections)
 

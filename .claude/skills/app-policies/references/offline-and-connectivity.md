@@ -18,6 +18,7 @@ Load this reference for changes involving device connectivity, per-server health
 - WebSocket events are acceleration hints. Polling timers, foreground refresh, and circuit breakers must remain fallback paths because some servers reject or close WebSocket connections.
 - WebSocket healthy signals from an already-available server should refresh that server's health-check cache instead of triggering or allowing near-term duplicate probes.
 - Source identity must include account, server, and library scope where applicable. Library section keys are per-server and are not globally unique.
+- Watch server discovery treats each Plex server independently; an unreachable server must not prevent reachable servers and their libraries from loading.
 
 ## Owners
 

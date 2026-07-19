@@ -30,7 +30,15 @@ public final class KeychainService: KeychainServiceProtocol, Sendable {
         self.keychain = Keychain(service: service)
             .accessibility(.afterFirstUnlock)
         // Use a separate service for sync to avoid attribute conflicts
-        self.syncKeychain = Keychain(service: "\(service).sync")
+#if os(watchOS)
+        let syncKeychain = Keychain(
+            service: "\(service).sync",
+            accessGroup: "86QFS2R7RZ.com.videogorl.ensemble"
+        )
+#else
+        let syncKeychain = Keychain(service: "\(service).sync")
+#endif
+        self.syncKeychain = syncKeychain
             .accessibility(.afterFirstUnlock)
             .synchronizable(true)
     }
