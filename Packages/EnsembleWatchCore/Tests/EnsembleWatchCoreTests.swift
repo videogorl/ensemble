@@ -143,6 +143,42 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .idle), "Ready")
     }
 
+    @MainActor
+    func testCachedCatalogStartsReadyAndRefreshesOnlyWhenStale() {
+        let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = WatchCatalogStore(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 10_000)
+        let freshSnapshot = EnsemblePlexCatalogSnapshot(
+            fetchedAt: now.addingTimeInterval(-599),
+            libraries: [],
+            pins: [],
+            albums: [],
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        )
+        store.saveSnapshot(freshSnapshot)
+
+        let model = WatchExperienceModel(catalogStore: store)
+
+        XCTAssertEqual(model.bootstrapState, .ready)
+        XCTAssertFalse(WatchExperienceModel.catalogNeedsRefresh(freshSnapshot, now: now))
+        XCTAssertTrue(WatchExperienceModel.catalogNeedsRefresh(
+            EnsemblePlexCatalogSnapshot(
+                fetchedAt: now.addingTimeInterval(-600),
+                libraries: [],
+                pins: [],
+                albums: [],
+                artists: [],
+                playlists: [],
+                recentlyAdded: []
+            ),
+            now: now
+        ))
+    }
+
     private func makeLibrary(
         accountId: String,
         serverId: String,

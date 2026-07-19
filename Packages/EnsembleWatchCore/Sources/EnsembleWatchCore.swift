@@ -376,6 +376,10 @@ public final class WatchExperienceModel: ObservableObject {
         self.cloudPreferences = cloudPreferences
         self.authService = authService
         self.catalogSnapshot = catalogStore.loadSnapshot()
+        if catalogSnapshot != nil {
+            bootstrapState = .ready
+            statusMessage = "Ready"
+        }
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
             .sink { [weak self] status in
@@ -537,7 +541,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func bootstrap(forceRefresh: Bool = false) async {
-        if !forceRefresh, catalogSnapshot != nil {
+        if catalogSnapshot != nil {
             bootstrapState = .ready
             statusMessage = "Refreshing"
         } else {
@@ -555,10 +559,15 @@ public final class WatchExperienceModel: ObservableObject {
             }
             try await finishBootstrap(credentials: credentials, forceRefresh: forceRefresh)
         } catch EnsemblePlexError.noSyncedCredentials {
-            bootstrapState = .needsLink
-            statusMessage = "Sign in with Plex Link."
+            if catalogSnapshot != nil {
+                bootstrapState = .ready
+                statusMessage = "Using cached library. Sign in to refresh."
+            } else {
+                bootstrapState = .needsLink
+                statusMessage = "Sign in with Plex Link."
+            }
         } catch {
-            bootstrapState = .failed(error.localizedDescription)
+            bootstrapState = catalogSnapshot == nil ? .failed(error.localizedDescription) : .ready
             statusMessage = error.localizedDescription
         }
     }
@@ -571,13 +580,23 @@ public final class WatchExperienceModel: ObservableObject {
         sourceAccounts = Self.buildSourceAccounts(from: flaggedServers)
         libraries = try catalog.selectedLibraries(from: flaggedServers, fallbackToAllDiscovered: false)
 
-        let cachedSnapshot = forceRefresh ? nil : catalogStore.loadSnapshot()
+        let cachedSnapshot = catalogStore.loadSnapshot()
         if let snapshot = cachedSnapshot {
             let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
-            catalogSnapshot = selectedSnapshot
-            catalogStore.saveSnapshot(selectedSnapshot)
+            if catalogSnapshot != selectedSnapshot {
+                catalogSnapshot = selectedSnapshot
+            }
+            if snapshot != selectedSnapshot {
+                catalogStore.saveSnapshot(selectedSnapshot)
+            }
             bootstrapState = .ready
             statusMessage = "Refreshing"
+
+            if !forceRefresh, !Self.catalogNeedsRefresh(selectedSnapshot) {
+                applyPinnedReferences(await cloudPreferences.pinnedReferences())
+                statusMessage = "Ready"
+                return
+            }
         }
 
         do {
@@ -657,8 +676,10 @@ public final class WatchExperienceModel: ObservableObject {
             recentlyAdded: snapshot.recentlyAdded
         )
 
-        catalogSnapshot = updatedSnapshot
-        catalogStore.saveSnapshot(updatedSnapshot)
+        if updatedSnapshot != snapshot {
+            catalogSnapshot = updatedSnapshot
+            catalogStore.saveSnapshot(updatedSnapshot)
+        }
     }
 
     nonisolated static func resolvedPinnedItems(
@@ -688,6 +709,13 @@ public final class WatchExperienceModel: ObservableObject {
         case .failed:
             return "Playback failed."
         }
+    }
+
+    nonisolated static func catalogNeedsRefresh(
+        _ snapshot: EnsemblePlexCatalogSnapshot,
+        now: Date = Date()
+    ) -> Bool {
+        now.timeIntervalSince(snapshot.fetchedAt) >= 10 * 60
     }
 
     private nonisolated static func pinIdentity(id: String, sourceKey: String) -> String {
