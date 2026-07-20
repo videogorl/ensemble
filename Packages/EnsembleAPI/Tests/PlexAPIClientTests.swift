@@ -3,6 +3,21 @@ import XCTest
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testArtworkURLCanBeBuiltWithoutAClient() throws {
+        let url = try XCTUnwrap(PlexAPIClient.artworkURL(
+            serverURL: "https://example.com:32400",
+            token: "token123",
+            path: "/library/metadata/42/thumb",
+            size: 80
+        ))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        XCTAssertEqual(components.path, "/photo/:/transcode")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "url" })?.value, "/library/metadata/42/thumb")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "width" })?.value, "80")
+        XCTAssertEqual(components.queryItems?.first(where: { $0.name == "X-Plex-Token" })?.value, "token123")
+    }
+
     func testCurrentEndpointSyncUsesRegistrySelection() async {
         let registry = ServerConnectionRegistry()
         let serverKey = "account:server"

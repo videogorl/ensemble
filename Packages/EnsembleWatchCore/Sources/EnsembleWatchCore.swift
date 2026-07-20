@@ -572,11 +572,11 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func artworkURL(for item: EnsembleMediaSummary, size: Int = 96) async -> URL? {
-        await catalog.artworkURL(for: item, in: libraries, size: size)
+        catalog.artworkURL(for: item, in: libraries, size: size)
     }
 
     public func artworkURL(for track: EnsembleTrack, size: Int = 96) async -> URL? {
-        await catalog.artworkURL(for: track, in: libraries, size: size)
+        catalog.artworkURL(for: track, in: libraries, size: size)
     }
 
     public func toggleLibrarySelection(_ row: WatchSourceLibraryRow) {

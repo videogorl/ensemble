@@ -390,19 +390,30 @@ public actor PlexAPIClient {
 
     /// Generate artwork URL
     public func getArtworkURL(path: String?, size: Int = 300) throws -> URL? {
-        guard let path = path else { return nil }
+        Self.artworkURL(
+            serverURL: currentServerURL,
+            token: serverConnection.token,
+            path: path,
+            size: size
+        )
+    }
 
-        guard var components = URLComponents(string: currentServerURL) else {
-            return nil
-        }
-        
+    /// Generates an artwork URL without constructing a network client.
+    public nonisolated static func artworkURL(
+        serverURL: String,
+        token: String,
+        path: String?,
+        size: Int = 300
+    ) -> URL? {
+        guard let path, var components = URLComponents(string: serverURL) else { return nil }
+
         components.path = "/photo/:/transcode"
         components.queryItems = [
             URLQueryItem(name: "url", value: path),
             URLQueryItem(name: "width", value: String(size)),
             URLQueryItem(name: "height", value: String(size)),
             URLQueryItem(name: "minSize", value: "1"),
-            URLQueryItem(name: "X-Plex-Token", value: serverConnection.token)
+            URLQueryItem(name: "X-Plex-Token", value: token)
         ]
 
         return components.url

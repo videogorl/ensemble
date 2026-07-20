@@ -537,24 +537,32 @@ public actor EnsemblePlexCatalogService {
         return tracks.map { $0.watchTrack(sourceKey: item.sourceKey) }
     }
 
-    public func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
+    public nonisolated func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) -> URL? {
         guard let artworkPath = item.artworkPath,
               let library = Self.library(for: item.sourceKey, in: libraries) else {
             return nil
         }
 
-        let client = EnsemblePlexDiscoveryService.client(for: library)
-        return try? await client.getArtworkURL(path: artworkPath, size: size)
+        return PlexAPIClient.artworkURL(
+            serverURL: library.server.url,
+            token: library.server.token,
+            path: artworkPath,
+            size: size
+        )
     }
 
-    public func artworkURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
+    public nonisolated func artworkURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary], size: Int = 96) -> URL? {
         guard let artworkPath = track.artworkPath,
               let library = Self.library(for: track.sourceKey, in: libraries) else {
             return nil
         }
 
-        let client = EnsemblePlexDiscoveryService.client(for: library)
-        return try? await client.getArtworkURL(path: artworkPath, size: size)
+        return PlexAPIClient.artworkURL(
+            serverURL: library.server.url,
+            token: library.server.token,
+            path: artworkPath,
+            size: size
+        )
     }
 
     public func streamURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary]) async throws -> URL {

@@ -147,8 +147,8 @@ final class EnsemblePlexTests: XCTestCase {
         )
 
         let tracks = try await service.tracks(for: item, in: [selectedLibrary])
-        let itemArtwork = await service.artworkURL(for: item, in: [selectedLibrary])
-        let trackArtwork = await service.artworkURL(for: track, in: [selectedLibrary])
+        let itemArtwork = service.artworkURL(for: item, in: [selectedLibrary])
+        let trackArtwork = service.artworkURL(for: track, in: [selectedLibrary])
 
         XCTAssertTrue(tracks.isEmpty)
         XCTAssertNil(itemArtwork)
