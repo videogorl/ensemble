@@ -2,6 +2,7 @@ import EnsembleDomain
 import EnsembleWatchCore
 import SwiftUI
 #if canImport(UIKit)
+import CoreGraphics
 import UIKit
 #endif
 
@@ -537,8 +538,11 @@ private struct WatchTrackCollectionDetailView: View {
         _ track: EnsembleTrack,
         @ViewBuilder row: () -> Row
     ) -> some View {
-        Button {
-            experience.play(track)
+        NavigationLink {
+            WatchNowPlayingView()
+                .task {
+                    experience.play(track, in: tracks)
+                }
         } label: {
             row()
         }
@@ -707,7 +711,7 @@ private enum WatchMediaActionTarget: Identifiable {
             experience.play(group, shuffled: shuffled)
         case .artistAlbum(let album):
             guard let track = shuffled ? album.tracks.randomElement() : album.tracks.first else { return }
-            experience.play(track)
+            experience.play(track, in: album.tracks)
         case .track(let track):
             experience.play(track)
         }
@@ -980,95 +984,60 @@ private struct WatchNowPlayingView: View {
     @EnvironmentObject private var playback: WatchPlaybackController
     @EnvironmentObject private var remoteSession: WatchSessionModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showsTargetPicker = false
-    @State private var showsQueueActions = false
+    @State private var volume = 1.0
+    @State private var artwork: UIImage?
+    @State private var blurredArtwork: UIImage?
+    @State private var showsMoreActions = false
 
     var body: some View {
-        let baseView = ScrollView {
-            VStack(spacing: 10) {
-                if let presentation = currentPresentation {
-                    WatchNowPlayingArtwork(presentation: presentation)
+        ZStack {
+            nowPlayingBackground
 
-                    VStack(spacing: 4) {
+            if let presentation = currentPresentation {
+                GeometryReader { geometry in
+                    let artworkSide = min(150, min(geometry.size.width * 0.62, geometry.size.height * 0.58))
+
+                    VStack(spacing: 6) {
+                        Spacer(minLength: 0)
+
+                        artworkView
+                            .frame(width: artworkSide, height: artworkSide)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
                         Text(presentation.title)
                             .font(.headline)
                             .multilineTextAlignment(.center)
-                            .lineLimit(3)
-
-                        Text(presentation.subtitle)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
                             .lineLimit(2)
-                    }
 
-                    ProgressView(value: presentation.progress)
-                        .progressViewStyle(.linear)
-
-                    HStack {
-                        Text(presentation.elapsedText)
-                        Spacer()
-                        Text(presentation.remainingText)
-                    }
-                    .font(.caption2.monospacedDigit())
-                    .foregroundColor(.secondary)
-
-                    transportControls
-
-                    HStack {
-                        Spacer()
-
-                        Button {
-                            showsTargetPicker = true
-                        } label: {
-                            Image(systemName: "airplayaudio")
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel("Playback Target")
-                    }
-                } else {
-                    VStack(spacing: 8) {
-                        Image(systemName: "music.note")
-                            .font(.title)
-                            .foregroundColor(.secondary)
-                        Text("Nothing Playing")
-                            .font(.headline)
-                        Text(experience.statusMessage)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                        Text(presentation.artist)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
+                            .lineLimit(1)
+
+                        Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            }
-            .padding()
-        }
-        .navigationTitle("Now Playing")
-        .confirmationDialog("Playback Target", isPresented: $showsTargetPicker) {
-            Button {
-                experience.playbackTarget = .local
-            } label: {
-                Label("This Watch", systemImage: experience.playbackTarget == .local ? "checkmark" : "applewatch")
-            }
-
-            Button {
-                experience.playbackTarget = .remote
-            } label: {
-                Label("iPhone", systemImage: experience.playbackTarget == .remote ? "checkmark" : "iphone")
-            }
-        }
-        .confirmationDialog("Queue Controls", isPresented: $showsQueueActions) {
-            if experience.playbackTarget == .remote {
-                Button(remoteSession.snapshot?.isShuffleEnabled == true ? "Disable Shuffle" : "Enable Shuffle") {
-                    remoteSession.send(.toggleShuffle)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "music.note")
+                        .font(.title)
+                        .foregroundStyle(.secondary)
+                    Text("Nothing Playing")
+                        .font(.headline)
+                    Text(experience.statusMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-
-                Button(remoteRepeatTitle) {
-                    remoteSession.send(.cycleRepeatMode)
-                }
+                .padding()
             }
         }
-
-        baseView.toolbar {
+        .navigationTitle("")
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
                     dismiss()
@@ -1080,73 +1049,153 @@ private struct WatchNowPlayingView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showsQueueActions = true
+                    showsMoreActions = true
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
                 }
                 .accessibilityLabel("More Actions")
-                .disabled(experience.playbackTarget == .local)
+            }
+
+            ToolbarItemGroup(placement: .bottomBar) {
+                previousButton
+                playPauseButton
+                nextButton
+            }
+        }
+        .confirmationDialog("More Actions", isPresented: $showsMoreActions, titleVisibility: .visible) {
+            playbackTargetMenu
+
+            if experience.playbackTarget == .remote {
+                Button(remoteSession.snapshot?.isShuffleEnabled == true ? "Disable Shuffle" : "Enable Shuffle") {
+                    remoteSession.send(.toggleShuffle)
+                }
+
+                Button(remoteRepeatTitle) {
+                    remoteSession.send(.cycleRepeatMode)
+                }
+            }
+        }
+        .focusable(true)
+        .digitalCrownRotation(
+            $volume,
+            from: 0,
+            through: 1,
+            by: 0.02,
+            sensitivity: .medium,
+            isContinuous: true,
+            isHapticFeedbackEnabled: true
+        )
+        .onAppear {
+            volume = playback.volume
+        }
+        .onChange(of: volume) { _, newVolume in
+            playback.setVolume(newVolume)
+        }
+        .task(id: artworkIdentity) {
+            await loadArtwork()
+        }
+    }
+
+    @ViewBuilder
+    private var nowPlayingBackground: some View {
+        if let blurredArtwork {
+            Image(uiImage: blurredArtwork)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .saturation(0.8)
+                .overlay(Color.black.opacity(0.42))
+                .ignoresSafeArea()
+        } else {
+            Color.black.ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder
+    private var artworkView: some View {
+        if let artwork {
+            Image(uiImage: artwork)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ZStack {
+                Color.secondary.opacity(0.18)
+                Image(systemName: "music.note")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private var transportControls: some View {
-        HStack(spacing: 16) {
-            Button {
-                if experience.playbackTarget == .remote {
-                    remoteSession.send(.previous)
-                }
-            } label: {
-                Image(systemName: "backward.fill")
-            }
-            .disabled(experience.playbackTarget == .local || remoteSession.isSendingCommand)
-
-            Button {
-                if experience.playbackTarget == .local {
-                    playback.togglePlayPause()
-                } else {
-                    remoteSession.send(.togglePlayPause)
-                }
-            } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title2)
-            }
-            .disabled(playPauseDisabled)
-
-            Button {
-                if experience.playbackTarget == .remote {
-                    remoteSession.send(.next)
-                }
-            } label: {
-                Image(systemName: "forward.fill")
-            }
-            .disabled(experience.playbackTarget == .local || remoteSession.isSendingCommand)
+    @ViewBuilder
+    private var playbackTargetMenu: some View {
+        Button {
+            experience.playbackTarget = .local
+        } label: {
+            Label("This Watch", systemImage: experience.playbackTarget == .local ? "checkmark" : "applewatch")
         }
-        .buttonStyle(.plain)
+
+        Button {
+            experience.playbackTarget = .remote
+        } label: {
+            Label("iPhone", systemImage: experience.playbackTarget == .remote ? "checkmark" : "iphone")
+        }
+    }
+
+    private var previousButton: some View {
+        Button {
+            if experience.playbackTarget == .local {
+                experience.playPrevious()
+            } else {
+                remoteSession.send(.previous)
+            }
+        } label: {
+            Image(systemName: "backward.fill")
+        }
+        .accessibilityLabel("Previous")
+        .disabled(previousDisabled)
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            if experience.playbackTarget == .local {
+                playback.togglePlayPause()
+            } else {
+                remoteSession.send(.togglePlayPause)
+            }
+        } label: {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+        }
+        .accessibilityLabel(isPlaying ? "Pause" : "Play")
+        .disabled(playPauseDisabled)
+    }
+
+    private var nextButton: some View {
+        Button {
+            if experience.playbackTarget == .local {
+                experience.playNext()
+            } else {
+                remoteSession.send(.next)
+            }
+        } label: {
+            Image(systemName: "forward.fill")
+        }
+        .accessibilityLabel("Next")
+        .disabled(nextDisabled)
     }
 
     private var currentPresentation: WatchNowPlayingPresentation? {
         if experience.playbackTarget == .remote {
             return WatchNowPlayingPresentation(
                 title: remoteSession.currentTrackTitle,
-                subtitle: remoteSession.currentTrackSubtitle,
-                artworkURL: nil,
-                progress: remoteSession.progress,
-                elapsedText: remoteSession.elapsedText,
-                remainingText: remoteSession.remainingText,
-                isRemote: true
+                artist: remoteSession.snapshot?.currentTrack?.artistName ?? "Unknown Artist"
             )
         }
 
         guard let track = playback.currentTrack else { return nil }
         return WatchNowPlayingPresentation(
             title: track.title,
-            subtitle: localSubtitle,
-            artworkTrack: track,
-            progress: playback.progress,
-            elapsedText: playback.currentTime.ensembleWatchClockText,
-            remainingText: "-" + max(0, track.duration - playback.currentTime).ensembleWatchClockText,
-            isRemote: false
+            artist: track.artistName ?? "Unknown Artist"
         )
     }
 
@@ -1157,6 +1206,20 @@ private struct WatchNowPlayingView: View {
     private var playPauseDisabled: Bool {
         if experience.playbackTarget == .local {
             return playback.currentTrack == nil
+        }
+        return remoteSession.isSendingCommand
+    }
+
+    private var previousDisabled: Bool {
+        if experience.playbackTarget == .local {
+            return !experience.canPlayPrevious
+        }
+        return remoteSession.isSendingCommand
+    }
+
+    private var nextDisabled: Bool {
+        if experience.playbackTarget == .local {
+            return !experience.canPlayNext
         }
         return remoteSession.isSendingCommand
     }
@@ -1172,80 +1235,37 @@ private struct WatchNowPlayingView: View {
         }
     }
 
-    private var localSubtitle: String {
-        let artist = experience.playback.currentTrack?.artistName
-        let album = experience.playback.currentTrack?.albumTitle
-        switch (artist?.isEmpty == false ? artist : nil, album?.isEmpty == false ? album : nil) {
-        case let (.some(artist), .some(album)):
-            return "\(artist) - \(album)"
-        case let (.some(artist), nil):
-            return artist
-        case let (nil, .some(album)):
-            return album
-        case (nil, nil):
-            return experience.statusMessage
+    private var artworkIdentity: String {
+        guard experience.playbackTarget == .local, let track = playback.currentTrack else {
+            return "remote"
         }
+        return "\(track.sourceKey):\(track.id)"
+    }
+
+    private func loadArtwork() async {
+        artwork = nil
+        blurredArtwork = nil
+        guard experience.playbackTarget == .local,
+              let track = playback.currentTrack,
+              let url = await experience.artworkURL(for: track, size: 240),
+              let image = await WatchArtworkLoader.image(from: url) else {
+            return
+        }
+        artwork = image
+        blurredArtwork = WatchArtworkLoader.blurred(image)
     }
 }
 
 private struct WatchNowPlayingPresentation {
     let title: String
-    let subtitle: String
-    let artworkURL: URL?
-    let artworkTrack: EnsembleTrack?
-    let progress: Double
-    let elapsedText: String
-    let remainingText: String
-    let isRemote: Bool
+    let artist: String
 
     init(
         title: String,
-        subtitle: String,
-        artworkURL: URL? = nil,
-        artworkTrack: EnsembleTrack? = nil,
-        progress: Double,
-        elapsedText: String,
-        remainingText: String,
-        isRemote: Bool
+        artist: String
     ) {
         self.title = title
-        self.subtitle = subtitle
-        self.artworkURL = artworkURL
-        self.artworkTrack = artworkTrack
-        self.progress = progress
-        self.elapsedText = elapsedText
-        self.remainingText = remainingText
-        self.isRemote = isRemote
-    }
-}
-
-private struct WatchNowPlayingArtwork: View {
-    @EnvironmentObject private var experience: WatchExperienceModel
-    let presentation: WatchNowPlayingPresentation
-    @State private var artworkURL: URL?
-
-    var body: some View {
-        WatchArtworkImage(url: resolvedArtworkURL)
-            .frame(width: 120, height: 120)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: presentation.isRemote ? "iphone" : "applewatch")
-                    .font(.caption2)
-                    .padding(5)
-                    .background(Circle().fill(Color.black.opacity(0.62)))
-                    .padding(5)
-            }
-            .task(id: presentation.artworkTrack?.id) {
-                guard let track = presentation.artworkTrack else {
-                    artworkURL = presentation.artworkURL
-                    return
-                }
-                artworkURL = await experience.artworkURL(for: track, size: 240)
-            }
-    }
-
-    private var resolvedArtworkURL: URL? {
-        artworkURL ?? presentation.artworkURL
+        self.artist = artist
     }
 }
 
@@ -1469,12 +1489,12 @@ private struct WatchMediaArtworkThumbnail: View {
 private struct WatchArtworkImage: View {
     let url: URL?
 
-    @State private var image: Image?
+    @State private var image: UIImage?
 
     var body: some View {
         Group {
             if let image {
-                image
+                Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
             } else if url != nil {
@@ -1493,16 +1513,35 @@ private struct WatchArtworkImage: View {
     private func loadImage() async {
         image = nil
         guard let url else { return }
+        image = await WatchArtworkLoader.image(from: url)
+    }
+}
 
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            #if canImport(UIKit)
-            if let uiImage = UIImage(data: data) {
-                image = Image(uiImage: uiImage)
+private enum WatchArtworkLoader {
+    static func image(from url: URL) async -> UIImage? {
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+        return UIImage(data: data)
+    }
+
+    static func blurred(_ image: UIImage) -> UIImage? {
+        guard let source = image.cgImage else { return nil }
+        let side = 24
+        var pixels = [UInt8](repeating: 0, count: side * side * 4)
+        return pixels.withUnsafeMutableBytes { bytes in
+            guard let context = CGContext(
+                data: bytes.baseAddress,
+                width: side,
+                height: side,
+                bitsPerComponent: 8,
+                bytesPerRow: side * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else {
+                return nil
             }
-            #endif
-        } catch {
-            image = nil
+            context.interpolationQuality = .high
+            context.draw(source, in: CGRect(x: 0, y: 0, width: side, height: side))
+            return context.makeImage().map(UIImage.init(cgImage:))
         }
     }
 }

@@ -167,6 +167,17 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .idle), "Ready")
     }
 
+    @MainActor
+    func testPlaybackVolumeClampsToPlayerRange() {
+        let playback = WatchPlaybackController()
+
+        playback.setVolume(1.5)
+        XCTAssertEqual(playback.volume, 1)
+
+        playback.setVolume(-0.5)
+        XCTAssertEqual(playback.volume, 0)
+    }
+
     func testWatchPlaylistGroupsMergeRegularSourcesButKeepSmartPlaylistsSeparate() {
         let playlists = [
             EnsembleMediaSummary(id: "a", kind: .playlist, title: "Café Mix", sourceKey: "plex:a:s1", isSmart: false),

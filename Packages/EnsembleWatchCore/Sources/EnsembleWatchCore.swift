@@ -242,6 +242,7 @@ public final class WatchPlaybackController: ObservableObject {
     private weak var timeObserverPlayer: AVPlayer?
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
+    private var storedVolume: Float = 1
 
     public init() {}
 
@@ -260,6 +261,10 @@ public final class WatchPlaybackController: ObservableObject {
         return min(max(currentTime / duration, 0), 1)
     }
 
+    public var volume: Double {
+        Double(player?.volume ?? storedVolume)
+    }
+
     public func play(track: EnsembleTrack, url: URL) {
         currentTrack = track
         currentTime = 0
@@ -270,9 +275,10 @@ public final class WatchPlaybackController: ObservableObject {
 
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
+        player.volume = storedVolume
         self.player = player
         observe(player: player, item: item)
-        player.play()
+        start(player)
     }
 
     public func togglePlayPause() {
@@ -282,8 +288,21 @@ public final class WatchPlaybackController: ObservableObject {
             status = .paused
         } else {
             player.play()
-            status = .playing
         }
+    }
+
+    public func restart() {
+        guard let player else { return }
+        player.seek(to: .zero)
+        currentTime = 0
+        if status != .playing {
+            player.play()
+        }
+    }
+
+    public func setVolume(_ volume: Double) {
+        storedVolume = Float(min(max(volume, 0), 1))
+        player?.volume = storedVolume
     }
 
     public func stop() {
@@ -292,6 +311,33 @@ public final class WatchPlaybackController: ObservableObject {
         player = nil
         currentTime = 0
         status = .idle
+    }
+
+    private func start(_ player: AVPlayer) {
+        #if os(watchOS)
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.playback, mode: .default, policy: .longFormAudio)
+        } catch {
+            status = .failed
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        audioSession.activate(options: []) { [weak self, weak player] activated, error in
+            Task { @MainActor in
+                guard let self, let player, self.player === player else { return }
+                guard activated else {
+                    self.status = .failed
+                    self.errorMessage = error?.localizedDescription ?? "No audio route is available."
+                    return
+                }
+                player.play()
+            }
+        }
+        #else
+        player.play()
+        #endif
     }
 
     private func observe(player: AVPlayer, item: AVPlayerItem) {
@@ -390,6 +436,7 @@ public final class WatchExperienceModel: ObservableObject {
     private var bootstrapTaskID: UUID?
     private var linkPollTask: Task<Void, Never>?
     private var playbackStatusCancellable: AnyCancellable?
+    private var playbackQueue: [EnsembleTrack] = []
 
     public init(
         discovery: EnsemblePlexDiscoveryService = EnsemblePlexDiscoveryService(),
@@ -484,6 +531,13 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func play(_ track: EnsembleTrack) {
+        let queue = detailTracks.contains(where: { Self.sameTrack($0, track) }) ? detailTracks : [track]
+        play(track, in: queue)
+    }
+
+    public func play(_ track: EnsembleTrack, in queue: [EnsembleTrack]) {
+        playbackTarget = .local
+        playbackQueue = queue.contains(where: { Self.sameTrack($0, track) }) ? queue : [track]
         statusMessage = "Preparing stream"
         Task { [weak self] in
             guard let self else { return }
@@ -507,7 +561,7 @@ public final class WatchExperienceModel: ObservableObject {
                     statusMessage = "No tracks found."
                     return
                 }
-                play(track)
+                play(track, in: tracks)
             } catch {
                 statusMessage = error.localizedDescription
             }
@@ -523,8 +577,43 @@ public final class WatchExperienceModel: ObservableObject {
                 statusMessage = Self.trackLoadStatus(trackCount: 0, failureCount: result.failureCount)
                 return
             }
-            play(track)
+            play(track, in: result.tracks)
         }
+    }
+
+    public var canPlayPrevious: Bool {
+        playback.currentTrack != nil
+    }
+
+    public var canPlayNext: Bool {
+        guard let currentTrack = playback.currentTrack,
+              let index = playbackQueue.firstIndex(where: { Self.sameTrack($0, currentTrack) }) else {
+            return false
+        }
+        return playbackQueue.indices.contains(index + 1)
+    }
+
+    public func playPrevious() {
+        guard let currentTrack = playback.currentTrack else { return }
+        if playback.currentTime > 3 {
+            playback.restart()
+            return
+        }
+
+        guard let index = playbackQueue.firstIndex(where: { Self.sameTrack($0, currentTrack) }), index > 0 else {
+            playback.restart()
+            return
+        }
+        play(playbackQueue[index - 1], in: playbackQueue)
+    }
+
+    public func playNext() {
+        guard let currentTrack = playback.currentTrack,
+              let index = playbackQueue.firstIndex(where: { Self.sameTrack($0, currentTrack) }),
+              playbackQueue.indices.contains(index + 1) else {
+            return
+        }
+        play(playbackQueue[index + 1], in: playbackQueue)
     }
 
     public func isPinned(_ item: EnsembleMediaSummary) -> Bool {
@@ -638,6 +727,10 @@ public final class WatchExperienceModel: ObservableObject {
             return failureCount > 0 ? "Some sources unavailable." : "Ready"
         }
         return failureCount > 0 ? "Playlist unavailable." : "No tracks found."
+    }
+
+    private static func sameTrack(_ lhs: EnsembleTrack, _ rhs: EnsembleTrack) -> Bool {
+        lhs.id == rhs.id && lhs.playlistItemID == rhs.playlistItemID && lhs.sourceKey == rhs.sourceKey
     }
 
     private func startBootstrapTask(forceRefresh: Bool) {
