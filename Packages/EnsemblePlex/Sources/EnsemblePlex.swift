@@ -470,10 +470,11 @@ public actor EnsemblePlexCatalogService {
             async let hubItems = recentlyAddedItems(client: client, library: library, limit: limits.recentlyAdded)
 
             let sourceKey = library.sourceKey
-            let mappedArtists = try await libraryArtists
+            let fetchedAlbums = try await libraryAlbums
+            let mappedArtists = Self.albumArtists(try await libraryArtists, albums: fetchedAlbums)
                 .map { $0.watchSummary(sourceKey: sourceKey) }
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
-            let mappedAlbums = try await libraryAlbums
+            let mappedAlbums = fetchedAlbums
                 .map { $0.watchSummary(sourceKey: sourceKey) }
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
             let mappedPlaylists = try await serverPlaylists
@@ -496,6 +497,11 @@ public actor EnsemblePlexCatalogService {
             playlists: playlists,
             recentlyAdded: Array(recentlyAdded.prefix(limits.recentlyAdded))
         )
+    }
+
+    static func albumArtists(_ artists: [PlexArtist], albums: [PlexAlbum]) -> [PlexArtist] {
+        let albumArtistIDs = Set(albums.compactMap(\.parentRatingKey))
+        return artists.filter { albumArtistIDs.contains($0.ratingKey) }
     }
 
     public func tracks(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary]) async throws -> [EnsembleTrack] {

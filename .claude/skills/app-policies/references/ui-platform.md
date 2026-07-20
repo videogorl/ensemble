@@ -40,7 +40,7 @@ Load this reference for platform navigation, native UI ownership, persistent sur
 - Watch server discovery retains the endpoint that successfully returned Plex library sections so subsequent catalog, artwork, and playback requests begin from the verified connection rather than the original candidate. `EnsemblePlexDiscoveryService` owns this handoff.
 - Watch Pins contains only media referenced by the user's synchronized pin preferences. An empty pin list remains empty; Recently Added content stays in its own browse surface.
 - Watch Pins reads the iPhone app's shared KVS store and refreshes when iCloud delivers external preference changes. `WatchCloudPreferenceStore`, `WatchExperienceModel`, and `WatchRootView` own this flow.
-- Watch Albums, Artists, and Playlists keep every selected-library item reachable through their native lists. Recently Added remains a compact surface capped at 24 items. `EnsemblePlexCatalogService` and `WatchCategoryView` own the browse catalog.
+- Watch Albums and Playlists keep every selected-library item reachable through their native lists. Watch Artists contains only artists referenced as an album artist by at least one selected-library album. Recently Added remains a compact surface capped at 24 items. `EnsemblePlexCatalogService` and `WatchCategoryView` own the browse catalog.
 - Watch renders its persisted catalog immediately and keeps it interactive during credential checks, server discovery, manual refresh, and recoverable failures. Automatic launch refresh reuses snapshots younger than 10 minutes; manual refresh bypasses that cadence without replacing cached UI. `WatchExperienceModel` owns this stale-while-revalidate behavior.
 
 ## Owners

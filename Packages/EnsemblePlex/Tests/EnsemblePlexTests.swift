@@ -1,4 +1,5 @@
 import XCTest
+import EnsembleAPI
 import EnsembleDomain
 @testable import EnsemblePlex
 
@@ -8,6 +9,25 @@ final class EnsemblePlexTests: XCTestCase {
             EnsemblePlexSourceKey.build(accountId: "a", serverId: "s", libraryKey: "3"),
             "plex:a:s:3"
         )
+    }
+
+    func testWatchCatalogIncludesOnlyArtistsReferencedByAlbums() throws {
+        let artists: [PlexArtist] = try decodeJSON("""
+        [
+          {"ratingKey":"artist-1","key":"/library/metadata/artist-1","title":"Album Artist"},
+          {"ratingKey":"artist-2","key":"/library/metadata/artist-2","title":"Track Artist"}
+        ]
+        """)
+        let albums: [PlexAlbum] = try decodeJSON("""
+        [
+          {"ratingKey":"album-1","key":"/library/metadata/album-1","parentRatingKey":"artist-1","title":"Album"},
+          {"ratingKey":"album-2","key":"/library/metadata/album-2","title":"Unknown Artist Album"}
+        ]
+        """)
+
+        let filteredArtists = EnsemblePlexCatalogService.albumArtists(artists, albums: albums)
+
+        XCTAssertEqual(filteredArtists.map(\.ratingKey), ["artist-1"])
     }
 
     func testWatchPrivatePlexDirectHostPolicyCoversPrivateRangesOnly() {
@@ -139,5 +159,9 @@ final class EnsemblePlexTests: XCTestCase {
             ]
         )
         return EnsemblePlexLibrary(server: server, id: libraryKey, key: libraryKey, title: "Music")
+    }
+
+    private func decodeJSON<Value: Decodable>(_ json: String) throws -> Value {
+        try JSONDecoder().decode(Value.self, from: Data(json.utf8))
     }
 }
