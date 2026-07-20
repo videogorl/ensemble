@@ -12,6 +12,7 @@ public struct MainTabView: View {
     @StateObject private var homeVM: HomeViewModel
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
+    @Namespace private var albumNavigationNamespace
     private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
     // which would invalidate the entire root view. We only need networkState, so we
@@ -335,6 +336,7 @@ public struct MainTabView: View {
                         homeVM: homeVM,
                         searchVM: searchVM,
                         pinnedVM: pinnedVM,
+                        albumNavigationNamespace: albumNavigationNamespace,
                         isMoreRoot: isMoreRoot
                     )
                     .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
@@ -379,6 +381,7 @@ public struct MainTabView: View {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
+            albumNavigationNamespace: albumNavigationNamespace,
             isMoreRoot: isMoreRoot
         )
         .rootProfileToolbar(isVisible: shouldShowProfileButton(for: tab, isMoreRoot: isMoreRoot))
@@ -397,7 +400,8 @@ public struct MainTabView: View {
             nowPlayingVM: nowPlayingVM,
             homeVM: homeVM,
             searchVM: searchVM,
-            pinnedVM: pinnedVM
+            pinnedVM: pinnedVM,
+            albumNavigationNamespace: albumNavigationNamespace
         )
     }
 
@@ -585,6 +589,7 @@ public struct SidebarView: View {
     @StateObject private var searchVM: SearchViewModel
     @StateObject private var pinnedVM: PinnedViewModel
     @StateObject private var playlistsVM: PlaylistViewModel
+    @Namespace private var albumNavigationNamespace
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
     private let rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
@@ -1579,7 +1584,8 @@ public struct SidebarView: View {
                     nowPlayingVM: nowPlayingVM,
                     homeVM: homeVM,
                     searchVM: searchVM,
-                    pinnedVM: pinnedVM
+                    pinnedVM: pinnedVM,
+                    albumNavigationNamespace: albumNavigationNamespace
                 )
             }
         }
@@ -2064,7 +2070,8 @@ public struct SidebarView: View {
             nowPlayingVM: nowPlayingVM,
             homeVM: homeVM,
             searchVM: searchVM,
-            pinnedVM: pinnedVM
+            pinnedVM: pinnedVM,
+            albumNavigationNamespace: albumNavigationNamespace
         )
     }
 }

@@ -10,6 +10,7 @@ struct NavigationDestinationFactory {
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil,
+        albumNavigationNamespace: Namespace.ID? = nil,
         isMoreRoot: Bool = false
     ) -> AnyView {
         AnyView(NavigationTabContentView(
@@ -19,6 +20,7 @@ struct NavigationDestinationFactory {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
+            albumNavigationNamespace: albumNavigationNamespace,
             isMoreRoot: isMoreRoot
         ))
     }
@@ -30,7 +32,8 @@ struct NavigationDestinationFactory {
         nowPlayingVM: NowPlayingViewModel,
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
-        pinnedVM: PinnedViewModel? = nil
+        pinnedVM: PinnedViewModel? = nil,
+        albumNavigationNamespace: Namespace.ID? = nil
     ) -> AnyView {
         switch destination {
         case .displayArtist(let id):
@@ -57,7 +60,17 @@ struct NavigationDestinationFactory {
         case .album(let id, let sourceKey):
             return AnyView(AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .albumDetail(let album):
-            return AnyView(AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM))
+            let detailView = AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+            #if os(iOS)
+            if #available(iOS 18.0, *), let albumNavigationNamespace {
+                return AnyView(
+                    detailView.navigationTransition(
+                        .zoom(sourceID: album.sourceScopedID, in: albumNavigationNamespace)
+                    )
+                )
+            }
+            #endif
+            return AnyView(detailView)
         case .song(let id, let sourceKey):
             return AnyView(SongPermalinkLoader(songId: id, songSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlist(let id, let sourceKey):
@@ -76,6 +89,7 @@ struct NavigationDestinationFactory {
                 homeVM: homeVM,
                 searchVM: searchVM,
                 pinnedVM: pinnedVM,
+                albumNavigationNamespace: albumNavigationNamespace,
                 isMoreRoot: false
             ))
         }
@@ -103,6 +117,7 @@ private struct NavigationTabContentView: View {
     let homeVM: HomeViewModel?
     let searchVM: SearchViewModel
     let pinnedVM: PinnedViewModel?
+    let albumNavigationNamespace: Namespace.ID?
     let isMoreRoot: Bool
 
     var body: some View {
@@ -123,7 +138,11 @@ private struct NavigationTabContentView: View {
         case .artists:
             ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .albums:
-            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
+            AlbumsView(
+                libraryVM: libraryVM,
+                nowPlayingVM: nowPlayingVM,
+                navigationTransitionNamespace: albumNavigationNamespace
+            )
         case .genres:
             GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .playlists:
