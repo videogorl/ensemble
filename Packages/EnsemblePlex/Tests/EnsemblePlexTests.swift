@@ -30,6 +30,25 @@ final class EnsemblePlexTests: XCTestCase {
         XCTAssertEqual(filteredArtists.map(\.ratingKey), ["artist-1"])
     }
 
+    func testWatchTrackPreservesPlaylistAndAlbumPosition() throws {
+        let track: PlexTrack = try decodeJSON("""
+        {
+          "ratingKey":"track-1",
+          "key":"/library/metadata/track-1",
+          "playlistItemID":"playlist-item-7",
+          "title":"Track",
+          "index":4,
+          "parentIndex":2
+        }
+        """)
+
+        let watchTrack = track.watchTrack(sourceKey: "source")
+
+        XCTAssertEqual(watchTrack.playlistItemID, "playlist-item-7")
+        XCTAssertEqual(watchTrack.trackNumber, 4)
+        XCTAssertEqual(watchTrack.discNumber, 2)
+    }
+
     func testWatchPrivatePlexDirectHostPolicyCoversPrivateRangesOnly() {
         let privateHosts = [
             "192-168-1-5.abc.plex.direct",

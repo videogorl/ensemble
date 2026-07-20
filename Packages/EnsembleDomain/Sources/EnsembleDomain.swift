@@ -109,10 +109,13 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
 /// Track payload with the minimal fields required for watch playback.
 public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
     public let id: String
+    public let playlistItemID: String?
     public let title: String
     public let artistName: String?
     public let albumID: String?
     public let albumTitle: String?
+    public let trackNumber: Int?
+    public let discNumber: Int?
     public let duration: TimeInterval
     public let artworkPath: String?
     public let streamKey: String?
@@ -120,20 +123,26 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
 
     public init(
         id: String,
+        playlistItemID: String? = nil,
         title: String,
         artistName: String? = nil,
         albumID: String? = nil,
         albumTitle: String? = nil,
+        trackNumber: Int? = nil,
+        discNumber: Int? = nil,
         duration: TimeInterval = 0,
         artworkPath: String? = nil,
         streamKey: String? = nil,
         sourceKey: String
     ) {
         self.id = id
+        self.playlistItemID = playlistItemID
         self.title = title
         self.artistName = artistName
         self.albumID = albumID
         self.albumTitle = albumTitle
+        self.trackNumber = trackNumber
+        self.discNumber = discNumber
         self.duration = duration
         self.artworkPath = artworkPath
         self.streamKey = streamKey
@@ -142,9 +151,12 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
 
     public init(
         id: String,
+        playlistItemID: String? = nil,
         title: String,
         artistName: String? = nil,
         albumTitle: String? = nil,
+        trackNumber: Int? = nil,
+        discNumber: Int? = nil,
         duration: TimeInterval = 0,
         artworkPath: String? = nil,
         streamKey: String? = nil,
@@ -152,10 +164,13 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
     ) {
         self.init(
             id: id,
+            playlistItemID: playlistItemID,
             title: title,
             artistName: artistName,
             albumID: nil,
             albumTitle: albumTitle,
+            trackNumber: trackNumber,
+            discNumber: discNumber,
             duration: duration,
             artworkPath: artworkPath,
             streamKey: streamKey,

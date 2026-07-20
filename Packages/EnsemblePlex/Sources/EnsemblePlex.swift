@@ -650,14 +650,17 @@ private extension PlexHubMetadata {
     }
 }
 
-private extension PlexTrack {
+extension PlexTrack {
     func watchTrack(sourceKey: String) -> EnsembleTrack {
         EnsembleTrack(
             id: ratingKey,
+            playlistItemID: playlistItemID,
             title: title,
             artistName: originalTitle ?? grandparentTitle,
             albumID: parentRatingKey,
             albumTitle: parentTitle,
+            trackNumber: index,
+            discNumber: parentIndex,
             duration: durationSeconds,
             artworkPath: thumb ?? parentThumb ?? grandparentThumb ?? art,
             streamKey: streamURL,

@@ -364,7 +364,6 @@ private struct WatchMediaDetailView: View {
         } else {
             WatchTrackCollectionDetailView(
                 title: item.title,
-                subtitle: item.subtitle,
                 navigationTitle: item.kind.title,
                 source: .media(item)
             )
@@ -446,7 +445,6 @@ private struct WatchArtistAlbumNavigationRow: View {
             NavigationLink(isActive: isSelected) {
                 WatchTrackCollectionDetailView(
                     title: album.title,
-                    subtitle: album.artistName,
                     navigationTitle: "Album",
                     source: .tracks(album.tracks)
                 )
@@ -474,34 +472,19 @@ private struct WatchArtistAlbumNavigationRow: View {
 private struct WatchTrackCollectionDetailView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let title: String
-    let subtitle: String?
     let navigationTitle: String
     let source: WatchTrackCollectionSource
 
     var body: some View {
         List {
-            WatchCollectionHeaderSection(
+            WatchCollectionHeroSection(
                 title: title,
-                subtitle: subtitle,
+                artworkItem: artworkItem,
+                fallbackArtworkTrack: tracks.first,
                 actionTarget: headerActionTarget
             )
 
-            Section {
-                if tracks.isEmpty {
-                    Text(emptyMessage)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(tracks) { track in
-                        Button {
-                            experience.play(track)
-                        } label: {
-                            WatchTrackRow(track: track)
-                        }
-                        .watchMediaSwipeActions(.track(track))
-                    }
-                }
-            }
+            trackSections
         }
         .navigationTitle(navigationTitle)
         .watchNowPlayingToolbar()
@@ -509,6 +492,62 @@ private struct WatchTrackCollectionDetailView: View {
             if case let .media(item) = source {
                 experience.tracks(for: item)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var trackSections: some View {
+        if tracks.isEmpty {
+            Section {
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        } else if isAlbum {
+            ForEach(albumDiscs, id: \.number) { disc in
+                Section("Disc \(disc.number)") {
+                    ForEach(disc.tracks, id: \.watchListID) { track in
+                        trackButton(track) {
+                            WatchAlbumTrackRow(track: track)
+                        }
+                    }
+                }
+            }
+        } else {
+            Section {
+                ForEach(tracks, id: \.watchListID) { track in
+                    trackButton(track) {
+                        WatchTrackRow(track: track)
+                    }
+                }
+            }
+        }
+    }
+
+    private func trackButton<Row: View>(
+        _ track: EnsembleTrack,
+        @ViewBuilder row: () -> Row
+    ) -> some View {
+        Button {
+            experience.play(track)
+        } label: {
+            row()
+        }
+        .watchMediaSwipeActions(.track(track))
+    }
+
+    private var albumDiscs: [(number: Int, tracks: [EnsembleTrack])] {
+        Dictionary(grouping: tracks) { max(1, $0.discNumber ?? 1) }
+            .map { (number: $0.key, tracks: $0.value) }
+            .sorted { $0.number < $1.number }
+    }
+
+    private var isAlbum: Bool {
+        switch source {
+        case .media(let item):
+            return item.kind == .album
+        case .tracks, .artistAlbum:
+            return true
         }
     }
 
@@ -533,8 +572,27 @@ private struct WatchTrackCollectionDetailView: View {
     }
 
     private var headerActionTarget: WatchMediaActionTarget? {
-        guard case .media(let item) = source else { return nil }
-        return .media(item)
+        switch source {
+        case .media(let item):
+            return .media(item)
+        case .artistAlbum(let id):
+            return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks).map {
+                .artistAlbum($0)
+            }
+        case .tracks:
+            return nil
+        }
+    }
+
+    private var artworkItem: EnsembleMediaSummary? {
+        switch source {
+        case .media(let item):
+            return item
+        case .artistAlbum(let id):
+            return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.mediaSummary
+        case .tracks:
+            return nil
+        }
     }
 }
 
@@ -613,7 +671,6 @@ private enum WatchMediaActionTarget: Identifiable {
 }
 
 private struct WatchMediaSwipeActionsModifier: ViewModifier {
-    @EnvironmentObject private var experience: WatchExperienceModel
     let target: WatchMediaActionTarget
     @State private var showsActions = false
 
@@ -627,38 +684,134 @@ private struct WatchMediaSwipeActionsModifier: ViewModifier {
                 }
                 .tint(.gray)
             }
-            .confirmationDialog(target.title, isPresented: $showsActions, titleVisibility: .visible) {
-                Button {
-                    target.play(in: experience)
-                } label: {
-                    Label("Play", systemImage: "play.fill")
-                }
-
-                if target.supportsShuffle {
-                    Button {
-                        target.play(in: experience, shuffled: true)
-                    } label: {
-                        Label("Shuffle", systemImage: "shuffle")
-                    }
-                }
-
-                if let item = target.pinnableItem, experience.canPin(item) {
-                    Button {
-                        experience.togglePin(item)
-                    } label: {
-                        Label(
-                            experience.isPinned(item) ? "Unpin" : "Pin",
-                            systemImage: experience.isPinned(item) ? "pin.slash" : "pin"
-                        )
-                    }
-                }
-            }
+            .watchMediaActions(target, isPresented: $showsActions)
     }
 }
 
 private extension View {
     func watchMediaSwipeActions(_ target: WatchMediaActionTarget) -> some View {
         modifier(WatchMediaSwipeActionsModifier(target: target))
+    }
+
+    func watchMediaActions(
+        _ target: WatchMediaActionTarget,
+        isPresented: Binding<Bool>
+    ) -> some View {
+        confirmationDialog(target.title, isPresented: isPresented, titleVisibility: .visible) {
+            WatchMediaActionButtons(target: target)
+        }
+    }
+
+    @ViewBuilder
+    func watchCircularButtonStyle() -> some View {
+        if #available(watchOS 10.0, *) {
+            buttonStyle(.bordered)
+                .buttonBorderShape(.circle)
+        } else {
+            buttonStyle(.bordered)
+        }
+    }
+}
+
+private struct WatchMediaActionButtons: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let target: WatchMediaActionTarget
+
+    var body: some View {
+        Button {
+            target.play(in: experience)
+        } label: {
+            Label("Play", systemImage: "play.fill")
+        }
+
+        if target.supportsShuffle {
+            Button {
+                target.play(in: experience, shuffled: true)
+            } label: {
+                Label("Shuffle", systemImage: "shuffle")
+            }
+        }
+
+        if let item = target.pinnableItem, experience.canPin(item) {
+            Button {
+                experience.togglePin(item)
+            } label: {
+                Label(
+                    experience.isPinned(item) ? "Unpin" : "Pin",
+                    systemImage: experience.isPinned(item) ? "pin.slash" : "pin"
+                )
+            }
+        }
+    }
+}
+
+private struct WatchMediaMoreButton: View {
+    let target: WatchMediaActionTarget
+    @State private var showsActions = false
+
+    var body: some View {
+        Button {
+            showsActions = true
+        } label: {
+            Image(systemName: "ellipsis")
+        }
+        .watchCircularButtonStyle()
+        .accessibilityLabel("More Actions")
+        .watchMediaActions(target, isPresented: $showsActions)
+    }
+}
+
+private struct WatchCollectionHeroSection: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let title: String
+    let artworkItem: EnsembleMediaSummary?
+    let fallbackArtworkTrack: EnsembleTrack?
+    let actionTarget: WatchMediaActionTarget?
+    @State private var artworkURL: URL?
+
+    var body: some View {
+        Section {
+            VStack(spacing: 10) {
+                WatchArtworkImage(url: artworkURL)
+                    .frame(width: 96, height: 96)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                HStack(spacing: 8) {
+                    if let actionTarget {
+                        Button {
+                            actionTarget.play(in: experience)
+                        } label: {
+                            Image(systemName: "play.fill")
+                        }
+                        .watchCircularButtonStyle()
+                        .accessibilityLabel("Play \(title)")
+                    }
+
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let actionTarget {
+                        WatchMediaMoreButton(target: actionTarget)
+                    }
+                }
+            }
+            .listRowBackground(Color.clear)
+        }
+        .task(id: artworkTaskID) {
+            if let artworkItem, artworkItem.artworkPath != nil {
+                artworkURL = await experience.artworkURL(for: artworkItem, size: 320)
+            } else if let fallbackArtworkTrack {
+                artworkURL = await experience.artworkURL(for: fallbackArtworkTrack, size: 320)
+            } else {
+                artworkURL = nil
+            }
+        }
+    }
+
+    private var artworkTaskID: String {
+        "\(artworkItem?.id ?? "none")-\(fallbackArtworkTrack?.id ?? "none")-\(experience.artworkContextID)"
     }
 }
 
@@ -703,7 +856,7 @@ private struct WatchCollectionHeaderSection: View {
 }
 
 private enum WatchRoute: Hashable {
-    case artistAlbum(id: String, title: String, artistName: String?)
+    case artistAlbum(id: String, title: String)
 }
 
 @MainActor
@@ -717,10 +870,9 @@ private extension View {
         if #available(watchOS 9.0, *) {
             navigationDestination(for: WatchRoute.self) { route in
                 switch route {
-                case .artistAlbum(let id, let title, let artistName):
+                case .artistAlbum(let id, let title):
                     WatchTrackCollectionDetailView(
                         title: title,
-                        subtitle: artistName,
                         navigationTitle: "Album",
                         source: .artistAlbum(id)
                     )
@@ -761,7 +913,7 @@ private struct WatchArtistAlbumSummary: Identifiable {
     }
 
     var route: WatchRoute {
-        .artistAlbum(id: id, title: title, artistName: artistName)
+        .artistAlbum(id: id, title: title)
     }
 
     static func albums(from tracks: [EnsembleTrack]) -> [WatchArtistAlbumSummary] {
@@ -1268,6 +1420,30 @@ private struct WatchTrackRow: View {
         .task(id: "\(track.id)-\(experience.artworkContextID)") {
             artworkURL = await experience.artworkURL(for: track, size: 80)
         }
+    }
+}
+
+private struct WatchAlbumTrackRow: View {
+    let track: EnsembleTrack
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(track.trackNumber.map(String.init) ?? "")
+                .font(.headline.monospacedDigit())
+                .foregroundColor(.secondary)
+                .frame(width: 24, alignment: .trailing)
+
+            Text(track.title)
+                .font(.headline)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private extension EnsembleTrack {
+    var watchListID: String {
+        "\(sourceKey):\(playlistItemID ?? id)"
     }
 }
 
