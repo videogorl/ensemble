@@ -21,6 +21,8 @@ final class PersistentLogServiceTests: XCTestCase {
             .filter { !existingFiles.contains($0) }
 
         XCTAssertFalse(createdFiles.isEmpty)
+        let contents = createdFiles.first.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+        XCTAssertTrue(contents?.contains("Source commit:") == true)
 
         service.endSession()
         for url in createdFiles {

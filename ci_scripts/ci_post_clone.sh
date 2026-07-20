@@ -9,5 +9,6 @@ BUILD_NUMBER="$(TZ="$TZ_REGION" date +"%Y%m%d%H%M")"
 
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 xcrun agvtool new-version -all "$BUILD_NUMBER"
+plutil -replace EnsembleSourceCommit -string "$CI_COMMIT" Ensemble/Info.plist
 
 echo "Xcode Cloud: Set build number to $BUILD_NUMBER"

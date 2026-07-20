@@ -228,6 +228,7 @@ public final class PersistentLogService: ObservableObject {
         header += "Session start: \(displayFormatter.string(from: startDate))\n"
         header += "Device: \(deviceDescription())\n"
         header += "App version: \(appVersionString)\n"
+        header += "Source commit: \(Bundle.main.infoDictionary?["EnsembleSourceCommit"] as? String ?? "unknown")\n"
         header += "---\n"
         return header
     }
