@@ -8,6 +8,10 @@ struct StreamingRenderHealth {
     private(set) var missingFrameCount: AVAudioFramePosition = 0
     private var didReportUnderrun = false
 
+    init(recoveryThresholdFrames: AVAudioFramePosition) {
+        self.recoveryThresholdFrames = recoveryThresholdFrames
+    }
+
     mutating func observe(
         renderedFrames: Int,
         requestedFrames: AVAudioFrameCount,
