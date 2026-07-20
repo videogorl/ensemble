@@ -100,6 +100,30 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertTrue(filtered.recentlyAdded.isEmpty)
     }
 
+    func testFilteredSnapshotCollapsesLegacyPerLibraryPlaylistCopiesToServerScope() {
+        let firstLibrary = makeLibrary(accountId: "account", serverId: "server", libraryKey: "3")
+        let secondLibrary = makeLibrary(accountId: "account", serverId: "server", libraryKey: "5")
+        let snapshot = EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [],
+            albums: [],
+            artists: [],
+            playlists: [
+                makeSummary(id: "playlist", sourceKey: firstLibrary.sourceKey),
+                makeSummary(id: "playlist", sourceKey: secondLibrary.sourceKey)
+            ],
+            recentlyAdded: []
+        )
+
+        let filtered = WatchExperienceModel.filteredSnapshot(
+            snapshot,
+            for: [firstLibrary, secondLibrary]
+        )
+
+        XCTAssertEqual(filtered.playlists.map(\.id), ["playlist"])
+        XCTAssertEqual(filtered.playlists.map(\.sourceKey), ["plex:account:server"])
+    }
+
     func testClockFormatting() {
         XCTAssertEqual(TimeInterval(65).ensembleWatchClockText, "1:05")
     }

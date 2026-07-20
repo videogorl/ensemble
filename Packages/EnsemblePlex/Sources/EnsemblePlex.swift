@@ -49,6 +49,10 @@ public struct EnsemblePlexServer: Equatable, Sendable, Identifiable {
         self.libraries = libraries
     }
 
+    public var sourceKey: String {
+        EnsemblePlexSourceKey.buildServer(accountId: account.accountId, serverId: id)
+    }
+
     public static func == (lhs: EnsemblePlexServer, rhs: EnsemblePlexServer) -> Bool {
         lhs.account == rhs.account
             && lhs.id == rhs.id
@@ -82,8 +86,12 @@ public struct EnsemblePlexLibrary: Equatable, Sendable, Identifiable {
 }
 
 public enum EnsemblePlexSourceKey {
+    public static func buildServer(accountId: String, serverId: String) -> String {
+        "plex:\(accountId):\(serverId)"
+    }
+
     public static func build(accountId: String, serverId: String, libraryKey: String) -> String {
-        "plex:\(accountId):\(serverId):\(libraryKey)"
+        "\(buildServer(accountId: accountId, serverId: serverId)):\(libraryKey)"
     }
 }
 
@@ -459,6 +467,7 @@ public actor EnsemblePlexCatalogService {
         var artists: [EnsembleMediaSummary] = []
         var playlists: [EnsembleMediaSummary] = []
         var recentlyAdded: [EnsembleMediaSummary] = []
+        var fetchedPlaylistSourceKeys = Set<String>()
 
         for library in libraries {
             libraryRefs.append(EnsembleLibraryReference(id: library.id, key: library.key, title: library.title, isEnabled: true))
@@ -466,7 +475,8 @@ public actor EnsemblePlexCatalogService {
 
             async let libraryArtists = client.getArtists(sectionKey: library.key)
             async let libraryAlbums = client.getAlbums(sectionKey: library.key)
-            async let serverPlaylists = client.getPlaylists()
+            let shouldFetchPlaylists = fetchedPlaylistSourceKeys.insert(library.server.sourceKey).inserted
+            async let serverPlaylists: [PlexPlaylist] = shouldFetchPlaylists ? client.getPlaylists() : []
             async let hubItems = recentlyAddedItems(client: client, library: library, limit: limits.recentlyAdded)
 
             let sourceKey = library.sourceKey
@@ -479,7 +489,7 @@ public actor EnsemblePlexCatalogService {
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
             let mappedPlaylists = try await serverPlaylists
                 .filter(\.isAudioPlaylist)
-                .map { $0.watchSummary(sourceKey: sourceKey) }
+                .map { $0.watchSummary(sourceKey: library.server.sourceKey) }
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
             let mappedRecent = try await hubItems
 
@@ -505,7 +515,7 @@ public actor EnsemblePlexCatalogService {
     }
 
     public func tracks(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary]) async throws -> [EnsembleTrack] {
-        guard let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) else {
+        guard let library = Self.library(for: item.sourceKey, in: libraries) else {
             return []
         }
 
@@ -525,12 +535,12 @@ public actor EnsemblePlexCatalogService {
                 tracks = []
             }
         }
-        return tracks.map { $0.watchTrack(sourceKey: library.sourceKey) }
+        return tracks.map { $0.watchTrack(sourceKey: item.sourceKey) }
     }
 
     public func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
         guard let artworkPath = item.artworkPath,
-              let library = libraries.first(where: { $0.sourceKey == item.sourceKey }) else {
+              let library = Self.library(for: item.sourceKey, in: libraries) else {
             return nil
         }
 
@@ -540,7 +550,7 @@ public actor EnsemblePlexCatalogService {
 
     public func artworkURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary], size: Int = 96) async -> URL? {
         guard let artworkPath = track.artworkPath,
-              let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) else {
+              let library = Self.library(for: track.sourceKey, in: libraries) else {
             return nil
         }
 
@@ -549,7 +559,7 @@ public actor EnsemblePlexCatalogService {
     }
 
     public func streamURL(for track: EnsembleTrack, in libraries: [EnsemblePlexLibrary]) async throws -> URL {
-        guard let library = libraries.first(where: { $0.sourceKey == track.sourceKey }) else {
+        guard let library = Self.library(for: track.sourceKey, in: libraries) else {
             throw EnsemblePlexError.noSelectedLibraries
         }
 
@@ -584,6 +594,15 @@ public actor EnsemblePlexCatalogService {
             .compactMap { $0.watchSummary(sourceKey: sourceKey) }
             .prefix(limit)
             .map { $0 }
+    }
+
+    static func library(
+        for sourceKey: String,
+        in libraries: [EnsemblePlexLibrary]
+    ) -> EnsemblePlexLibrary? {
+        libraries.first {
+            $0.sourceKey == sourceKey || $0.server.sourceKey == sourceKey
+        }
     }
 }
 

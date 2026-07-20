@@ -723,7 +723,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func pruneMediaToSelectedLibraries() {
-        let selectedSourceKeys = Set(libraries.map(\.sourceKey))
+        let selectedSourceKeys = Set(libraries.flatMap { [$0.sourceKey, $0.server.sourceKey] })
         let selectedTracks = detailTracks.filter { selectedSourceKeys.contains($0.sourceKey) }
         if selectedTracks != detailTracks {
             detailTracks = selectedTracks
@@ -828,7 +828,7 @@ public final class WatchExperienceModel: ObservableObject {
         _ snapshot: EnsemblePlexCatalogSnapshot,
         for libraries: [EnsemblePlexLibrary]
     ) -> EnsemblePlexCatalogSnapshot {
-        let selectedSourceKeys = Set(libraries.map(\.sourceKey))
+        let selectedSourceKeys = Set(libraries.flatMap { [$0.sourceKey, $0.server.sourceKey] })
         let libraryRefs = libraries.map {
             EnsembleLibraryReference(id: $0.id, key: $0.key, title: $0.title, isEnabled: true)
         }
@@ -845,13 +845,35 @@ public final class WatchExperienceModel: ObservableObject {
             )
         }
 
+        var playlistServerKeys: [String: String] = [:]
+        for library in libraries {
+            playlistServerKeys[library.sourceKey] = library.server.sourceKey
+            playlistServerKeys[library.server.sourceKey] = library.server.sourceKey
+        }
+        var seenPlaylists = Set<String>()
+        let playlists = snapshot.playlists.compactMap { playlist -> EnsembleMediaSummary? in
+            guard let serverKey = playlistServerKeys[playlist.sourceKey],
+                  seenPlaylists.insert("\(serverKey)||\(playlist.id)").inserted else {
+                return nil
+            }
+            guard playlist.sourceKey != serverKey else { return playlist }
+            return EnsembleMediaSummary(
+                id: playlist.id,
+                kind: playlist.kind,
+                title: playlist.title,
+                subtitle: playlist.subtitle,
+                artworkPath: playlist.artworkPath,
+                sourceKey: serverKey
+            )
+        }
+
         return EnsemblePlexCatalogSnapshot(
             fetchedAt: snapshot.fetchedAt,
             libraries: libraryRefs,
             pins: snapshot.pins.filter { selectedSourceKeys.contains($0.sourceKey) },
             albums: snapshot.albums.filter { selectedSourceKeys.contains($0.sourceKey) },
             artists: snapshot.artists.filter { selectedSourceKeys.contains($0.sourceKey) },
-            playlists: snapshot.playlists.filter { selectedSourceKeys.contains($0.sourceKey) },
+            playlists: playlists,
             recentlyAdded: snapshot.recentlyAdded.filter { selectedSourceKeys.contains($0.sourceKey) }
         )
     }

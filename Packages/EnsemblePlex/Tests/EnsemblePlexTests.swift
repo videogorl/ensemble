@@ -6,6 +6,10 @@ import EnsembleDomain
 final class EnsemblePlexTests: XCTestCase {
     func testSourceKeyIncludesAccountServerAndLibrary() {
         XCTAssertEqual(
+            EnsemblePlexSourceKey.buildServer(accountId: "a", serverId: "s"),
+            "plex:a:s"
+        )
+        XCTAssertEqual(
             EnsemblePlexSourceKey.build(accountId: "a", serverId: "s", libraryKey: "3"),
             "plex:a:s:3"
         )
@@ -158,6 +162,17 @@ final class EnsemblePlexTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testServerScopedPlaylistSourceResolvesThroughASelectedLibrary() {
+        let library = makeLibrary(accountId: "account", serverId: "server", libraryKey: "3")
+
+        let resolved = EnsemblePlexCatalogService.library(
+            for: library.server.sourceKey,
+            in: [library]
+        )
+
+        XCTAssertEqual(resolved?.sourceKey, library.sourceKey)
     }
 
     private func makeLibrary(
