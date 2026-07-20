@@ -1027,16 +1027,18 @@ private struct WatchNowPlayingView: View {
                             .frame(width: artworkSide, height: artworkSide)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                        Text(presentation.title)
-                            .font(.headline)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
+                        VStack(spacing: 0) {
+                            Text(presentation.title)
+                                .font(.headline)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
 
-                        Text(presentation.artist)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(1)
+                            Text(presentation.artist)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                        }
 
                         Spacer(minLength: 0)
                     }
