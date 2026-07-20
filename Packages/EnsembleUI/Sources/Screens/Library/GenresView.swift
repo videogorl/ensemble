@@ -204,6 +204,7 @@ struct GenreDetailContentView: View {
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
     let presentationStyle: PresentationStyle
+    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
 
     init(
@@ -310,7 +311,8 @@ struct GenreDetailContentView: View {
                                 Section(header: sectionHeader(section.letter)) {
                                     AlbumGrid(
                                         albums: section.albums,
-                                        nowPlayingVM: nowPlayingVM
+                                        nowPlayingVM: nowPlayingVM,
+                                        navigationCoordinator: navigationCoordinator
                                     )
                                     .id(section.letter)
                                 }
@@ -318,7 +320,8 @@ struct GenreDetailContentView: View {
                         } else {
                             AlbumGrid(
                                 albums: albums,
-                                nowPlayingVM: nowPlayingVM
+                                nowPlayingVM: nowPlayingVM,
+                                navigationCoordinator: navigationCoordinator
                             )
                         }
                     }

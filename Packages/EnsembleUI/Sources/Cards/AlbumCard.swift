@@ -151,12 +151,12 @@ struct AlbumBrowseItem: Identifiable {
 public struct AlbumGrid: View {
     let albums: [Album]
     let nowPlayingVM: NowPlayingViewModel
+    let navigationCoordinator: NavigationCoordinator
     let onAlbumTap: ((Album) -> Void)?
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
 
     @Environment(\.dependencies) private var deps
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
@@ -165,12 +165,14 @@ public struct AlbumGrid: View {
     public init(
         albums: [Album],
         nowPlayingVM: NowPlayingViewModel,
+        navigationCoordinator: NavigationCoordinator,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
         onAlbumTap: ((Album) -> Void)? = nil
     ) {
         self.albums = albums
         self.nowPlayingVM = nowPlayingVM
+        self.navigationCoordinator = navigationCoordinator
         self.layout = layout
         self.horizontalPadding = horizontalPadding
         self.onAlbumTap = onAlbumTap

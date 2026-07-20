@@ -118,10 +118,16 @@ public struct AlbumsView: View {
     }
 
     private var isBrowseToolbarVisible: Bool {
-        albumSnapshot.hasVisibleContent &&
-        !isStageFlowActive &&
-        navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
-        !navigationCoordinator.isRouteTransitionActive(for: .albums)
+        guard albumSnapshot.hasVisibleContent, !isStageFlowActive else { return false }
+
+        #if os(iOS)
+        if #available(iOS 16.0, *) {
+            return true
+        }
+        #endif
+
+        return navigationCoordinator.pathSnapshot(for: .albums).isEmpty &&
+            !navigationCoordinator.isRouteTransitionActive(for: .albums)
     }
 
     private var emptyView: some View {
@@ -159,7 +165,8 @@ public struct AlbumsView: View {
 
                                         AlbumGrid(
                                             albums: section.albums,
-                                            nowPlayingVM: nowPlayingVM
+                                            nowPlayingVM: nowPlayingVM,
+                                            navigationCoordinator: navigationCoordinator
                                         )
                                     }
                                 }
@@ -168,7 +175,8 @@ public struct AlbumsView: View {
                         } else {
                             AlbumGrid(
                                 albums: albumSnapshot.albums,
-                                nowPlayingVM: nowPlayingVM
+                                nowPlayingVM: nowPlayingVM,
+                                navigationCoordinator: navigationCoordinator
                             )
                                 .padding(.vertical)
                         }

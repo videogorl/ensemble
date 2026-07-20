@@ -1520,7 +1520,8 @@ public struct ArtistDetailView: View {
 
             AlbumGrid(
                 albums: albums,
-                nowPlayingVM: nowPlayingVM
+                nowPlayingVM: nowPlayingVM,
+                navigationCoordinator: navigationCoordinator
             )
         }
     }
