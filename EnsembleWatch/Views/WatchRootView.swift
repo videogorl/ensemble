@@ -1190,19 +1190,18 @@ private struct WatchNowPlayingView: View {
                 remoteSession.send(.togglePlayPause)
             }
         } label: {
-            ZStack {
-                Circle()
-                    .stroke(.primary.opacity(0.2), lineWidth: 2)
-
-                Circle()
-                    .trim(from: 0, to: playbackProgress)
-                    .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-            }
-            .frame(width: 28, height: 28)
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.headline)
+                .overlay {
+                    Circle()
+                        .trim(from: 0, to: playbackProgress)
+                        .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 32, height: 32)
+                }
         }
+        .buttonBorderShape(.circle)
+        .scaleEffect(1.15)
         .accessibilityLabel(isPlaying ? "Pause" : "Play")
         .accessibilityValue("\(Int(playbackProgress * 100)) percent")
         .disabled(playPauseDisabled)
