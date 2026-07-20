@@ -476,22 +476,45 @@ private struct WatchTrackCollectionDetailView: View {
     let source: WatchTrackCollectionSource
 
     var body: some View {
-        List {
-            WatchCollectionHeroSection(
-                title: title,
-                artworkItem: artworkItem,
-                fallbackArtworkTrack: tracks.first,
-                actionTarget: headerActionTarget
-            )
+        Group {
+            if #available(watchOS 10.0, *) {
+                TabView {
+                    collectionHero
+                    trackList
+                }
+                .tabViewStyle(.verticalPage)
+            } else {
+                List {
+                    Section {
+                        collectionHero
+                            .listRowBackground(Color.clear)
+                    }
 
-            trackSections
+                    trackSections
+                }
+                .navigationTitle(navigationTitle)
+            }
         }
-        .navigationTitle(navigationTitle)
         .watchNowPlayingToolbar()
         .onAppear {
             if case let .media(item) = source {
                 experience.tracks(for: item)
             }
+        }
+    }
+
+    private var collectionHero: some View {
+        WatchCollectionHero(
+            title: title,
+            artworkItem: artworkItem,
+            fallbackArtworkTrack: tracks.first,
+            actionTarget: headerActionTarget
+        )
+    }
+
+    private var trackList: some View {
+        List {
+            trackSections
         }
     }
 
@@ -761,7 +784,7 @@ private struct WatchMediaMoreButton: View {
     }
 }
 
-private struct WatchCollectionHeroSection: View {
+private struct WatchCollectionHero: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let title: String
     let artworkItem: EnsembleMediaSummary?
@@ -770,35 +793,33 @@ private struct WatchCollectionHeroSection: View {
     @State private var artworkURL: URL?
 
     var body: some View {
-        Section {
-            VStack(spacing: 10) {
-                WatchArtworkImage(url: artworkURL)
-                    .frame(width: 96, height: 96)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        VStack(spacing: 10) {
+            WatchArtworkImage(url: artworkURL)
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-                HStack(spacing: 8) {
-                    if let actionTarget {
-                        Button {
-                            actionTarget.play(in: experience)
-                        } label: {
-                            Image(systemName: "play.fill")
-                        }
-                        .watchCircularButtonStyle()
-                        .accessibilityLabel("Play \(title)")
+            HStack(spacing: 8) {
+                if let actionTarget {
+                    Button {
+                        actionTarget.play(in: experience)
+                    } label: {
+                        Image(systemName: "play.fill")
                     }
+                    .watchCircularButtonStyle()
+                    .accessibilityLabel("Play \(title)")
+                }
 
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                    if let actionTarget {
-                        WatchMediaMoreButton(target: actionTarget)
-                    }
+                if let actionTarget {
+                    WatchMediaMoreButton(target: actionTarget)
                 }
             }
-            .listRowBackground(Color.clear)
         }
+        .padding(.horizontal, 8)
         .task(id: artworkTaskID) {
             if let artworkItem, artworkItem.artworkPath != nil {
                 artworkURL = await experience.artworkURL(for: artworkItem, size: 320)
