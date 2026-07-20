@@ -1081,7 +1081,7 @@ private struct WatchNowPlayingToolbarLink: View {
     var body: some View {
         if usesNativeToolbarButton, #available(watchOS 10.0, *) {
             NavigationLink(destination: WatchNowPlayingView()) {
-                Image(systemName: "waveform.path")
+                Image(systemName: "waveform")
                     .font(.system(size: 13, weight: .semibold))
                     .imageScale(.medium)
             }
@@ -1094,7 +1094,7 @@ private struct WatchNowPlayingToolbarLink: View {
                 ZStack {
                     Circle()
                         .fill(Color.secondary.opacity(0.24))
-                    Image(systemName: "waveform.path")
+                    Image(systemName: "waveform")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.primary)
                 }
