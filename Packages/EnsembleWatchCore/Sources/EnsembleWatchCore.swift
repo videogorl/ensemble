@@ -245,6 +245,11 @@ struct WatchPlaybackQueue {
         return tracks.indices.contains(currentIndex + 1)
     }
 
+    var nextTrack: EnsembleTrack? {
+        guard let currentIndex, tracks.indices.contains(currentIndex + 1) else { return nil }
+        return tracks[currentIndex + 1]
+    }
+
     mutating func replace(
         with tracks: [EnsembleTrack],
         startingAt requestedTrack: EnsembleTrack? = nil,
@@ -286,7 +291,11 @@ struct WatchPlaybackQueue {
         return currentTrack
     }
 
-    private static func sameTrack(_ lhs: EnsembleTrack, _ rhs: EnsembleTrack) -> Bool {
+    func isNext(_ track: EnsembleTrack) -> Bool {
+        nextTrack.map { Self.sameTrack($0, track) } == true
+    }
+
+    static func sameTrack(_ lhs: EnsembleTrack, _ rhs: EnsembleTrack) -> Bool {
         lhs.id == rhs.id && lhs.playlistItemID == rhs.playlistItemID && lhs.sourceKey == rhs.sourceKey
     }
 }
@@ -298,12 +307,16 @@ public final class WatchPlaybackController: ObservableObject {
     @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var errorMessage: String?
 
-    private var player: AVPlayer?
+    private var player: AVQueuePlayer?
     private weak var timeObserverPlayer: AVPlayer?
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
     private var storedVolume: Float = 1
+    private var currentItem: AVPlayerItem?
+    private var preloadedItem: AVPlayerItem?
+    private var preloadedTrack: EnsembleTrack?
     var playbackEndedHandler: (() -> Void)?
+    var playbackAdvancedHandler: ((EnsembleTrack) -> Void)?
 
     public init() {}
 
@@ -330,6 +343,9 @@ public final class WatchPlaybackController: ObservableObject {
         player?.pause()
         tearDownPlaybackObservers()
         player = nil
+        currentItem = nil
+        preloadedItem = nil
+        preloadedTrack = nil
         currentTrack = track
         currentTime = 0
         errorMessage = nil
@@ -346,11 +362,40 @@ public final class WatchPlaybackController: ObservableObject {
         prepare(track: track)
 
         let item = AVPlayerItem(url: url)
-        let player = AVPlayer(playerItem: item)
+        let player = AVQueuePlayer(items: [item])
+        player.actionAtItemEnd = .advance
         player.volume = storedVolume
         self.player = player
+        currentItem = item
         observe(player: player, item: item)
         start(player)
+    }
+
+    @discardableResult
+    func preload(track: EnsembleTrack, url: URL) -> Bool {
+        guard let player, preloadedItem == nil, player.items().count == 1 else { return false }
+
+        let item = AVPlayerItem(url: url)
+        guard player.canInsert(item, after: player.items().last) else { return false }
+        preloadedItem = item
+        preloadedTrack = track
+        observe(item: item, player: player)
+        player.insert(item, after: player.items().last)
+        return true
+    }
+
+    @discardableResult
+    func advanceToPreloadedTrack(_ track: EnsembleTrack) -> Bool {
+        guard let player,
+              let preloadedTrack,
+              WatchPlaybackQueue.sameTrack(preloadedTrack, track) else {
+            return false
+        }
+
+        player.advanceToNextItem()
+        handleCurrentItemChange(player.currentItem)
+        player.play()
+        return true
     }
 
     public func togglePlayPause() {
@@ -381,11 +426,14 @@ public final class WatchPlaybackController: ObservableObject {
         player?.pause()
         tearDownPlaybackObservers()
         player = nil
+        currentItem = nil
+        preloadedItem = nil
+        preloadedTrack = nil
         currentTime = 0
         status = .idle
     }
 
-    private func start(_ player: AVPlayer) {
+    private func start(_ player: AVQueuePlayer) {
         #if os(watchOS)
         let audioSession = AVAudioSession.sharedInstance()
         do {
@@ -412,7 +460,7 @@ public final class WatchPlaybackController: ObservableObject {
         #endif
     }
 
-    private func observe(player: AVPlayer, item: AVPlayerItem) {
+    private func observe(player: AVQueuePlayer, item: AVPlayerItem) {
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 1, preferredTimescale: 1),
             queue: .main
@@ -443,35 +491,68 @@ public final class WatchPlaybackController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        item.publisher(for: \.status, options: [.initial, .new])
-            .sink { [weak self, weak item] itemStatus in
+        player.publisher(for: \.currentItem, options: [.initial, .new])
+            .sink { [weak self, weak player] item in
                 Task { @MainActor in
-                    guard let self, self.player?.currentItem === item, itemStatus == .failed else { return }
-                    self.status = .failed
-                    self.errorMessage = item?.error?.localizedDescription ?? "Playback failed."
+                    guard let self, self.player === player else { return }
+                    self.handleCurrentItemChange(item)
                 }
             }
             .store(in: &cancellables)
 
-        NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime, object: item)
-            .sink { [weak self] _ in
+        observe(item: item, player: player)
+    }
+
+    private func observe(item: AVPlayerItem, player: AVQueuePlayer) {
+        item.publisher(for: \.status, options: [.initial, .new])
+            .sink { [weak self, weak item] itemStatus in
                 Task { @MainActor in
-                    self?.status = .idle
-                    self?.currentTime = 0
-                    self?.playbackEndedHandler?()
+                    guard let self, let item, self.player === player, itemStatus == .failed else { return }
+                    if self.preloadedItem === item, player.currentItem !== item {
+                        player.remove(item)
+                        self.preloadedItem = nil
+                        self.preloadedTrack = nil
+                        return
+                    }
+                    guard player.currentItem === item else { return }
+                    self.status = .failed
+                    self.errorMessage = item.error?.localizedDescription ?? "Playback failed."
                 }
             }
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: .AVPlayerItemFailedToPlayToEndTime, object: item)
-            .sink { [weak self] notification in
+            .sink { [weak self, weak player, weak item] notification in
                 Task { @MainActor in
+                    guard let self, let player, self.player === player, player.currentItem === item else { return }
                     let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
-                    self?.status = .failed
-                    self?.errorMessage = error?.localizedDescription ?? "Playback failed."
+                    self.status = .failed
+                    self.errorMessage = error?.localizedDescription ?? "Playback failed."
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func handleCurrentItemChange(_ item: AVPlayerItem?) {
+        guard let item else {
+            guard currentItem != nil else { return }
+            currentItem = nil
+            currentTime = 0
+            status = .idle
+            playbackEndedHandler?()
+            return
+        }
+
+        guard currentItem !== item else { return }
+        currentItem = item
+        currentTime = 0
+        errorMessage = nil
+
+        guard preloadedItem === item, let track = preloadedTrack else { return }
+        preloadedItem = nil
+        preloadedTrack = nil
+        currentTrack = track
+        playbackAdvancedHandler?(track)
     }
 
     private func tearDownPlaybackObservers() {
@@ -511,7 +592,9 @@ public final class WatchExperienceModel: ObservableObject {
     private var playbackStatusCancellable: AnyCancellable?
     private var queuePreparationTask: Task<Void, Never>?
     private var playbackTask: Task<Void, Never>?
+    private var playbackPrefetchTask: Task<Void, Never>?
     private var playbackRequestID: UUID?
+    private var playbackPrefetchRequestID: UUID?
     private var playbackQueue = WatchPlaybackQueue()
 
     public init(
@@ -533,6 +616,9 @@ public final class WatchExperienceModel: ObservableObject {
         }
         playback.playbackEndedHandler = { [weak self] in
             self?.advanceAfterPlaybackEnded()
+        }
+        playback.playbackAdvancedHandler = { [weak self] track in
+            self?.didAdvancePlayback(to: track)
         }
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
@@ -683,7 +769,9 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func playNext() {
-        guard let track = playbackQueue.advance() else { return }
+        guard let track = playbackQueue.nextTrack else { return }
+        if playback.advanceToPreloadedTrack(track) { return }
+        _ = playbackQueue.advance()
         startPlayback(track)
     }
 
@@ -706,6 +794,7 @@ public final class WatchExperienceModel: ObservableObject {
 
     private func startPlayback(_ track: EnsembleTrack) {
         playbackTask?.cancel()
+        playbackPrefetchTask?.cancel()
         let requestID = UUID()
         playbackRequestID = requestID
         playback.prepare(track: track)
@@ -718,6 +807,7 @@ public final class WatchExperienceModel: ObservableObject {
                 guard !Task.isCancelled, playbackRequestID == requestID else { return }
                 playback.play(track: track, url: url)
                 statusMessage = "Playing on Apple Watch"
+                preloadNextTrack()
             } catch is CancellationError {
                 return
             } catch {
@@ -726,6 +816,33 @@ public final class WatchExperienceModel: ObservableObject {
                 statusMessage = error.localizedDescription
             }
         }
+    }
+
+    private func preloadNextTrack() {
+        playbackPrefetchTask?.cancel()
+        guard let track = playbackQueue.nextTrack else { return }
+
+        let requestID = UUID()
+        playbackPrefetchRequestID = requestID
+        playbackPrefetchTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let url = try await catalog.streamURL(for: track, in: libraries)
+                guard !Task.isCancelled,
+                      playbackPrefetchRequestID == requestID,
+                      playbackQueue.isNext(track) else { return }
+                playback.preload(track: track, url: url)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func didAdvancePlayback(to track: EnsembleTrack) {
+        guard playbackQueue.isNext(track) else { return }
+        _ = playbackQueue.advance()
+        statusMessage = "Playing on Apple Watch"
+        preloadNextTrack()
     }
 
     private func advanceAfterPlaybackEnded() {

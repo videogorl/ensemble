@@ -189,12 +189,31 @@ final class EnsembleWatchCoreTests: XCTestCase {
             "duplicate"
         )
         XCTAssertEqual(queue.currentIndex, 1)
+        XCTAssertEqual(queue.nextTrack?.id, "duplicate")
         XCTAssertEqual(queue.advance()?.id, "duplicate")
         XCTAssertEqual(queue.currentIndex, 2)
         XCTAssertEqual(queue.advance()?.id, "last")
         XCTAssertFalse(queue.canAdvance)
         XCTAssertNil(queue.advance())
         XCTAssertEqual(queue.movePrevious()?.id, "duplicate")
+    }
+
+    @MainActor
+    func testWatchPlaybackControllerAutomaticallyAdvancesToPreloadedTrack() async {
+        let playback = WatchPlaybackController()
+        let first = makeTrack(id: "first")
+        let second = makeTrack(id: "second")
+        let audioURL = URL(fileURLWithPath: "/System/Library/Sounds/Glass.aiff")
+        let advanced = expectation(description: "Preloaded track became current")
+        playback.playbackAdvancedHandler = { track in
+            if track.id == second.id { advanced.fulfill() }
+        }
+
+        playback.play(track: first, url: audioURL)
+        XCTAssertTrue(playback.preload(track: second, url: audioURL))
+        await fulfillment(of: [advanced], timeout: 3)
+        XCTAssertEqual(playback.currentTrack?.id, "second")
+        playback.stop()
     }
 
     func testWatchPlaybackQueueShufflePreservesEveryTrack() {
