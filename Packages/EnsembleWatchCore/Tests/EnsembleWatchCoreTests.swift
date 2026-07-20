@@ -178,6 +178,41 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(playback.volume, 0)
     }
 
+    func testWatchPlaybackQueueStartsAtRequestedTrackAndAdvancesByIndex() {
+        let first = makeTrack(id: "first")
+        let duplicate = makeTrack(id: "duplicate", playlistItemID: "item")
+        let last = makeTrack(id: "last")
+        var queue = WatchPlaybackQueue()
+
+        XCTAssertEqual(
+            queue.replace(with: [first, duplicate, duplicate, last], startingAt: duplicate)?.id,
+            "duplicate"
+        )
+        XCTAssertEqual(queue.currentIndex, 1)
+        XCTAssertEqual(queue.advance()?.id, "duplicate")
+        XCTAssertEqual(queue.currentIndex, 2)
+        XCTAssertEqual(queue.advance()?.id, "last")
+        XCTAssertFalse(queue.canAdvance)
+        XCTAssertNil(queue.advance())
+        XCTAssertEqual(queue.movePrevious()?.id, "duplicate")
+    }
+
+    func testWatchPlaybackQueueShufflePreservesEveryTrack() {
+        let tracks = (1...12).map { makeTrack(id: "track-\($0)") }
+        var queue = WatchPlaybackQueue()
+
+        XCTAssertNotNil(queue.replace(with: tracks, shuffled: true))
+        XCTAssertEqual(queue.currentIndex, 0)
+        XCTAssertEqual(Set(queue.tracks.map(\.id)), Set(tracks.map(\.id)))
+
+        var playedTrackIDs = [queue.currentTrack?.id].compactMap { $0 }
+        while let track = queue.advance() {
+            playedTrackIDs.append(track.id)
+        }
+        XCTAssertEqual(Set(playedTrackIDs), Set(tracks.map(\.id)))
+        XCTAssertEqual(playedTrackIDs.count, tracks.count)
+    }
+
     func testWatchPlaylistGroupsMergeRegularSourcesButKeepSmartPlaylistsSeparate() {
         let playlists = [
             EnsembleMediaSummary(id: "a", kind: .playlist, title: "Café Mix", sourceKey: "plex:a:s1", isSmart: false),
@@ -254,6 +289,15 @@ final class EnsembleWatchCoreTests: XCTestCase {
             kind: .album,
             title: id,
             sourceKey: sourceKey
+        )
+    }
+
+    private func makeTrack(id: String, playlistItemID: String? = nil) -> EnsembleTrack {
+        EnsembleTrack(
+            id: id,
+            playlistItemID: playlistItemID,
+            title: id,
+            sourceKey: "plex:account:server:3"
         )
     }
 }

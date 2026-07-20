@@ -231,6 +231,66 @@ public actor WatchCloudPreferenceStore {
     }
 }
 
+struct WatchPlaybackQueue {
+    private(set) var tracks: [EnsembleTrack] = []
+    private(set) var currentIndex: Int?
+
+    var currentTrack: EnsembleTrack? {
+        guard let currentIndex, tracks.indices.contains(currentIndex) else { return nil }
+        return tracks[currentIndex]
+    }
+
+    var canAdvance: Bool {
+        guard let currentIndex else { return false }
+        return tracks.indices.contains(currentIndex + 1)
+    }
+
+    mutating func replace(
+        with tracks: [EnsembleTrack],
+        startingAt requestedTrack: EnsembleTrack? = nil,
+        shuffled: Bool = false
+    ) -> EnsembleTrack? {
+        guard !tracks.isEmpty else {
+            self.tracks = []
+            currentIndex = nil
+            return nil
+        }
+
+        if shuffled {
+            self.tracks = tracks.shuffled()
+            currentIndex = 0
+        } else if let requestedTrack,
+                  let requestedIndex = tracks.firstIndex(where: { Self.sameTrack($0, requestedTrack) }) {
+            self.tracks = tracks
+            currentIndex = requestedIndex
+        } else if let requestedTrack {
+            self.tracks = [requestedTrack]
+            currentIndex = 0
+        } else {
+            self.tracks = tracks
+            currentIndex = 0
+        }
+
+        return currentTrack
+    }
+
+    mutating func advance() -> EnsembleTrack? {
+        guard canAdvance, let currentIndex else { return nil }
+        self.currentIndex = currentIndex + 1
+        return currentTrack
+    }
+
+    mutating func movePrevious() -> EnsembleTrack? {
+        guard let currentIndex, currentIndex > 0 else { return nil }
+        self.currentIndex = currentIndex - 1
+        return currentTrack
+    }
+
+    private static func sameTrack(_ lhs: EnsembleTrack, _ rhs: EnsembleTrack) -> Bool {
+        lhs.id == rhs.id && lhs.playlistItemID == rhs.playlistItemID && lhs.sourceKey == rhs.sourceKey
+    }
+}
+
 @MainActor
 public final class WatchPlaybackController: ObservableObject {
     @Published public private(set) var status: EnsemblePlaybackStatus = .idle
@@ -243,6 +303,7 @@ public final class WatchPlaybackController: ObservableObject {
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
     private var storedVolume: Float = 1
+    var playbackEndedHandler: (() -> Void)?
 
     public init() {}
 
@@ -265,13 +326,24 @@ public final class WatchPlaybackController: ObservableObject {
         Double(player?.volume ?? storedVolume)
     }
 
-    public func play(track: EnsembleTrack, url: URL) {
+    func prepare(track: EnsembleTrack) {
+        player?.pause()
+        tearDownPlaybackObservers()
+        player = nil
         currentTrack = track
         currentTime = 0
         errorMessage = nil
         status = .loading
+    }
 
-        tearDownPlaybackObservers()
+    func fail(track: EnsembleTrack, error: Error) {
+        guard currentTrack == track else { return }
+        status = .failed
+        errorMessage = error.localizedDescription
+    }
+
+    public func play(track: EnsembleTrack, url: URL) {
+        prepare(track: track)
 
         let item = AVPlayerItem(url: url)
         let player = AVPlayer(playerItem: item)
@@ -386,6 +458,7 @@ public final class WatchPlaybackController: ObservableObject {
                 Task { @MainActor in
                     self?.status = .idle
                     self?.currentTime = 0
+                    self?.playbackEndedHandler?()
                 }
             }
             .store(in: &cancellables)
@@ -436,7 +509,10 @@ public final class WatchExperienceModel: ObservableObject {
     private var bootstrapTaskID: UUID?
     private var linkPollTask: Task<Void, Never>?
     private var playbackStatusCancellable: AnyCancellable?
-    private var playbackQueue: [EnsembleTrack] = []
+    private var queuePreparationTask: Task<Void, Never>?
+    private var playbackTask: Task<Void, Never>?
+    private var playbackRequestID: UUID?
+    private var playbackQueue = WatchPlaybackQueue()
 
     public init(
         discovery: EnsemblePlexDiscoveryService = EnsemblePlexDiscoveryService(),
@@ -454,6 +530,9 @@ public final class WatchExperienceModel: ObservableObject {
         if catalogSnapshot != nil {
             bootstrapState = .ready
             statusMessage = "Ready"
+        }
+        playback.playbackEndedHandler = { [weak self] in
+            self?.advanceAfterPlaybackEnded()
         }
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
@@ -536,84 +615,122 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func play(_ track: EnsembleTrack, in queue: [EnsembleTrack]) {
-        playbackTarget = .local
-        playbackQueue = queue.contains(where: { Self.sameTrack($0, track) }) ? queue : [track]
-        statusMessage = "Preparing stream"
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let url = try await catalog.streamURL(for: track, in: libraries)
-                playback.play(track: track, url: url)
-                statusMessage = "Playing on Apple Watch"
-            } catch {
-                statusMessage = error.localizedDescription
-            }
-        }
+        queuePreparationTask?.cancel()
+        replacePlaybackQueue(with: queue, startingAt: track)
     }
 
     public func play(_ item: EnsembleMediaSummary, shuffled: Bool = false) {
+        playbackTarget = .local
         statusMessage = "Preparing \(item.title)"
-        Task { [weak self] in
+        queuePreparationTask?.cancel()
+        playbackTask?.cancel()
+        queuePreparationTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let tracks = try await catalog.tracks(for: item, in: libraries)
-                guard let track = shuffled ? tracks.randomElement() : tracks.first else {
+                guard !Task.isCancelled else { return }
+                guard !tracks.isEmpty else {
                     statusMessage = "No tracks found."
                     return
                 }
-                play(track, in: tracks)
+                replacePlaybackQueue(with: tracks, shuffled: shuffled)
+            } catch is CancellationError {
+                return
             } catch {
+                guard !Task.isCancelled else { return }
                 statusMessage = error.localizedDescription
             }
         }
     }
 
     public func play(_ group: WatchPlaylistGroup, shuffled: Bool = false) {
+        playbackTarget = .local
         statusMessage = "Preparing \(group.title)"
-        Task { [weak self] in
+        queuePreparationTask?.cancel()
+        playbackTask?.cancel()
+        queuePreparationTask = Task { [weak self] in
             guard let self else { return }
             let result = await mergedTracks(for: group)
-            guard let track = shuffled ? result.tracks.randomElement() : result.tracks.first else {
+            guard !Task.isCancelled else { return }
+            guard !result.tracks.isEmpty else {
                 statusMessage = Self.trackLoadStatus(trackCount: 0, failureCount: result.failureCount)
                 return
             }
-            play(track, in: result.tracks)
+            replacePlaybackQueue(with: result.tracks, shuffled: shuffled)
         }
     }
 
     public var canPlayPrevious: Bool {
-        playback.currentTrack != nil
+        playbackQueue.currentTrack != nil
     }
 
     public var canPlayNext: Bool {
-        guard let currentTrack = playback.currentTrack,
-              let index = playbackQueue.firstIndex(where: { Self.sameTrack($0, currentTrack) }) else {
-            return false
-        }
-        return playbackQueue.indices.contains(index + 1)
+        playbackQueue.canAdvance
     }
 
     public func playPrevious() {
-        guard let currentTrack = playback.currentTrack else { return }
+        guard playbackQueue.currentTrack != nil else { return }
         if playback.currentTime > 3 {
             playback.restart()
             return
         }
 
-        guard let index = playbackQueue.firstIndex(where: { Self.sameTrack($0, currentTrack) }), index > 0 else {
+        guard let track = playbackQueue.movePrevious() else {
             playback.restart()
             return
         }
-        play(playbackQueue[index - 1], in: playbackQueue)
+        startPlayback(track)
     }
 
     public func playNext() {
-        guard let currentTrack = playback.currentTrack,
-              let index = playbackQueue.firstIndex(where: { Self.sameTrack($0, currentTrack) }),
-              playbackQueue.indices.contains(index + 1) else {
+        guard let track = playbackQueue.advance() else { return }
+        startPlayback(track)
+    }
+
+    private func replacePlaybackQueue(
+        with tracks: [EnsembleTrack],
+        startingAt track: EnsembleTrack? = nil,
+        shuffled: Bool = false
+    ) {
+        playbackTarget = .local
+        guard let track = playbackQueue.replace(
+            with: tracks,
+            startingAt: track,
+            shuffled: shuffled
+        ) else {
+            statusMessage = "No tracks found."
             return
         }
-        play(playbackQueue[index + 1], in: playbackQueue)
+        startPlayback(track)
+    }
+
+    private func startPlayback(_ track: EnsembleTrack) {
+        playbackTask?.cancel()
+        let requestID = UUID()
+        playbackRequestID = requestID
+        playback.prepare(track: track)
+        statusMessage = "Preparing stream"
+
+        playbackTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let url = try await catalog.streamURL(for: track, in: libraries)
+                guard !Task.isCancelled, playbackRequestID == requestID else { return }
+                playback.play(track: track, url: url)
+                statusMessage = "Playing on Apple Watch"
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, playbackRequestID == requestID else { return }
+                playback.fail(track: track, error: error)
+                statusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func advanceAfterPlaybackEnded() {
+        guard let track = playbackQueue.advance() else { return }
+        startPlayback(track)
     }
 
     public func isPinned(_ item: EnsembleMediaSummary) -> Bool {
