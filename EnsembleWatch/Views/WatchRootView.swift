@@ -9,15 +9,22 @@ import UIKit
 struct WatchRootView: View {
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
+    @State private var showsNowPlaying = false
 
     var body: some View {
         NavigationStack {
             rootContent
                 .watchRouteDestinations()
+                .navigationDestination(isPresented: $showsNowPlaying) {
+                    WatchNowPlayingView()
+                }
         }
         .environmentObject(experience)
         .environmentObject(experience.playback)
         .environmentObject(remoteSession)
+        .environment(\.watchOpenNowPlaying) {
+            showsNowPlaying = true
+        }
         .onAppear {
             experience.start()
         }
@@ -450,6 +457,7 @@ private struct WatchArtistAlbumNavigationRow: View {
 
 private struct WatchTrackCollectionDetailView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
+    @Environment(\.watchOpenNowPlaying) private var openNowPlaying
     let title: String
     let source: WatchTrackCollectionSource
 
@@ -461,6 +469,7 @@ private struct WatchTrackCollectionDetailView: View {
                         ToolbarItemGroup(placement: .bottomBar) {
                             Button {
                                 headerActionTarget.play(in: experience)
+                                openNowPlaying()
                             } label: {
                                 Image(systemName: "play.fill")
                             }
@@ -754,11 +763,13 @@ private extension View {
 
 private struct WatchMediaActionButtons: View {
     @EnvironmentObject private var experience: WatchExperienceModel
+    @Environment(\.watchOpenNowPlaying) private var openNowPlaying
     let target: WatchMediaActionTarget
 
     var body: some View {
         Button {
             target.play(in: experience)
+            openNowPlaying()
         } label: {
             Label("Play", systemImage: "play.fill")
         }
@@ -766,6 +777,7 @@ private struct WatchMediaActionButtons: View {
         if target.supportsShuffle {
             Button {
                 target.play(in: experience, shuffled: true)
+                openNowPlaying()
             } label: {
                 Label("Shuffle", systemImage: "shuffle")
             }
@@ -883,6 +895,17 @@ private enum WatchRoute: Hashable {
     case artistAlbum(id: String, title: String)
 }
 
+private struct WatchOpenNowPlayingKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+private extension EnvironmentValues {
+    var watchOpenNowPlaying: () -> Void {
+        get { self[WatchOpenNowPlayingKey.self] }
+        set { self[WatchOpenNowPlayingKey.self] = newValue }
+    }
+}
+
 private extension View {
     func watchRouteDestinations() -> some View {
         navigationDestination(for: WatchRoute.self) { route in
@@ -995,7 +1018,7 @@ private struct WatchNowPlayingView: View {
 
             if let presentation = currentPresentation {
                 GeometryReader { geometry in
-                    let artworkSide = min(150, min(geometry.size.width * 0.62, geometry.size.height * 0.58))
+                    let artworkSide = min(136, min(geometry.size.width * 0.56, geometry.size.height * 0.48))
 
                     VStack(spacing: 6) {
                         Spacer(minLength: 0)
@@ -1018,6 +1041,7 @@ private struct WatchNowPlayingView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12)
+                    .safeAreaPadding(.bottom, 28)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
