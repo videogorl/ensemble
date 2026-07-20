@@ -167,6 +167,20 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .idle), "Ready")
     }
 
+    func testWatchPlaylistGroupsMergeRegularSourcesButKeepSmartPlaylistsSeparate() {
+        let playlists = [
+            EnsembleMediaSummary(id: "a", kind: .playlist, title: "Café Mix", sourceKey: "plex:a:s1", isSmart: false),
+            EnsembleMediaSummary(id: "b", kind: .playlist, title: " CAFE  MIX ", sourceKey: "plex:a:s2", isSmart: false),
+            EnsembleMediaSummary(id: "c", kind: .playlist, title: "Cafe Mix", sourceKey: "plex:a:s3", isSmart: true)
+        ]
+
+        let groups = WatchPlaylistGroup.grouped(playlists)
+
+        XCTAssertEqual(groups.map { $0.playlists.map(\.id) }, [["a", "b"], ["c"]])
+        XCTAssertEqual(WatchExperienceModel.mergedPinnedItems(playlists).map(\.id), ["a", "c"])
+        XCTAssertEqual(WatchExperienceModel.trackLoadStatus(trackCount: 4, failureCount: 1), "Some sources unavailable.")
+    }
+
     @MainActor
     func testCachedCatalogStartsReadyAndRefreshesOnlyWhenStale() {
         let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"

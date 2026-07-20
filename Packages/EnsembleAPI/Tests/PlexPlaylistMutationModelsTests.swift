@@ -39,4 +39,22 @@ final class PlexPlaylistMutationModelsTests: XCTestCase {
         XCTAssertEqual(server?.isServerScoped, true)
         XCTAssertTrue(PlexSourceIdentity.isSameServer(library?.librarySourceKey, server?.serverSourceKey))
     }
+
+    func testPlaylistMergeRulesPreserveIdentityOrderAndRoundRobinValues() {
+        let items = [
+            (title: "Café Mix", isSmart: false, id: "regular-a"),
+            (title: "Other", isSmart: false, id: "other"),
+            (title: "  CAFE   MIX ", isSmart: false, id: "regular-b"),
+            (title: "Cafe Mix", isSmart: true, id: "smart")
+        ]
+
+        let groups = PlexPlaylistMergeRules.grouped(
+            items,
+            title: \.title,
+            isSmart: \.isSmart
+        )
+
+        XCTAssertEqual(groups.map { $0.map(\.id) }, [["regular-a", "regular-b"], ["other"], ["smart"]])
+        XCTAssertEqual(PlexPlaylistMergeRules.interleaved([["a1", "a2"], ["b1"], ["c1", "c2"]]), ["a1", "b1", "c1", "a2", "c2"])
+    }
 }

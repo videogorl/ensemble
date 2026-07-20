@@ -88,6 +88,7 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
     public let subtitle: String?
     public let artworkPath: String?
     public let sourceKey: String
+    public let isSmart: Bool?
 
     public init(
         id: String,
@@ -95,7 +96,8 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
         title: String,
         subtitle: String? = nil,
         artworkPath: String? = nil,
-        sourceKey: String
+        sourceKey: String,
+        isSmart: Bool? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -103,6 +105,7 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
         self.subtitle = subtitle
         self.artworkPath = artworkPath
         self.sourceKey = sourceKey
+        self.isSmart = isSmart
     }
 }
 

@@ -42,4 +42,12 @@ final class EnsembleDomainTests: XCTestCase {
         XCTAssertEqual("'Til Tuesday".ensembleIndexingLetter, "T")
         XCTAssertEqual("1999".ensembleIndexingLetter, "#")
     }
+
+    func testLegacyMediaSummaryDecodesWithoutSmartPlaylistMetadata() throws {
+        let data = Data(#"{"id":"1","kind":"playlist","title":"Mix","sourceKey":"plex:a:s"}"#.utf8)
+
+        let summary = try JSONDecoder().decode(EnsembleMediaSummary.self, from: data)
+
+        XCTAssertNil(summary.isSmart)
+    }
 }

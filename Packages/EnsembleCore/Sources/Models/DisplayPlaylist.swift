@@ -1,5 +1,6 @@
-import Foundation
+import EnsembleAPI
 import EnsemblePersistence
+import Foundation
 
 /// Represents a playlist entry in the UI — either a single playlist or a merged group
 /// of same-named playlists from different servers. When merging is enabled, playlists
@@ -92,25 +93,15 @@ public struct DisplayPlaylist: Identifiable, Equatable {
             return playlists.map { .single($0) }
         }
 
-        // Group by normalized (title, isSmart) key, preserving insertion order.
-        var groups: [(key: String, title: String, isSmart: Bool, playlists: [Playlist])] = []
-        var keyIndex: [String: Int] = [:]
-
-        for playlist in playlists {
-            let groupKey = "\(normalizedTitle(playlist.title))\u{0}\(playlist.isSmart)"
-            if let index = keyIndex[groupKey] {
-                groups[index].playlists.append(playlist)
-            } else {
-                keyIndex[groupKey] = groups.count
-                groups.append((key: groupKey, title: playlist.title, isSmart: playlist.isSmart, playlists: [playlist]))
+        return PlexPlaylistMergeRules.grouped(
+            playlists,
+            title: \.title,
+            isSmart: \.isSmart
+        ).map { group in
+            if group.count == 1 {
+                return .single(group[0])
             }
-        }
-
-        return groups.map { group in
-            if group.playlists.count == 1 {
-                return .single(group.playlists[0])
-            }
-            return .merged(title: group.title, isSmart: group.isSmart, playlists: group.playlists)
+            return .merged(title: group[0].title, isSmart: group[0].isSmart, playlists: group)
         }
     }
 
@@ -122,7 +113,7 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         var groups: [String: (title: String, sourceKeys: Set<String>)] = [:]
 
         for playlist in playlists {
-            let groupKey = "\(normalizedTitle(playlist.title))\u{0}\(playlist.isSmart)"
+            let groupKey = PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmart)
             let sourceKey = playlist.sourceCompositeKey ?? ""
             if groups[groupKey] == nil {
                 groups[groupKey] = (playlist.title, [])
@@ -139,35 +130,13 @@ public struct DisplayPlaylist: Identifiable, Equatable {
 
     /// Case-, diacritic-, width-, and whitespace-insensitive playlist identity.
     public static func normalizedTitle(_ title: String) -> String {
-        title
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
-            .joined(separator: " ")
-            .lowercased()
+        PlexPlaylistMergeRules.normalizedTitle(title)
     }
 
     /// Round-robin interleaves tracks from multiple playlists.
     /// Alternates one track from each source; when a source runs out, continues with remaining.
     public static func interleave(_ trackSets: [[Track]]) -> [Track] {
-        guard !trackSets.isEmpty else { return [] }
-        if trackSets.count == 1 { return trackSets[0] }
-
-        var result: [Track] = []
-        result.reserveCapacity(trackSets.reduce(0) { $0 + $1.count })
-        var iterators = trackSets.map { $0.makeIterator() }
-        var active = Array(repeating: true, count: iterators.count)
-
-        while active.contains(true) {
-            for i in iterators.indices where active[i] {
-                if let next = iterators[i].next() {
-                    result.append(next)
-                } else {
-                    active[i] = false
-                }
-            }
-        }
-        return result
+        PlexPlaylistMergeRules.interleaved(trackSets)
     }
 
     /// Resolves this display playlist's cached tracks while preserving constituent playlist order.

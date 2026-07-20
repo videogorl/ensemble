@@ -640,7 +640,8 @@ private extension PlexPlaylist {
             title: title,
             subtitle: subtitle,
             artworkPath: composite,
-            sourceKey: sourceKey
+            sourceKey: sourceKey,
+            isSmart: smart
         )
     }
 }

@@ -160,15 +160,25 @@ struct WatchRootView: View {
 }
 
 private struct WatchHomePinCell: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
 
     var body: some View {
-        NavigationLink(destination: WatchMediaDetailView(item: item)) {
+        NavigationLink(destination: destination) {
             WatchPinArtworkTile(item: item)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
+    }
+
+    @ViewBuilder
+    private var destination: some View {
+        if let group = experience.playlistGroup(containing: item) {
+            WatchTrackCollectionDetailView(title: group.title, source: .playlistGroup(group))
+        } else {
+            WatchMediaDetailView(item: item)
+        }
     }
 }
 
@@ -240,7 +250,9 @@ private struct WatchCategoryView: View {
 
     var body: some View {
         Group {
-            if category == .recentlyAdded {
+            if category == .playlists {
+                playlistList
+            } else if category == .recentlyAdded {
                 List(items, id: \.watchListID) { item in
                     row(for: item)
                 }
@@ -268,11 +280,41 @@ private struct WatchCategoryView: View {
         .watchNowPlayingToolbar()
     }
 
+    @ViewBuilder
+    private var playlistList: some View {
+        if #available(watchOS 26.0, *) {
+            List {
+                ForEach(playlistSections, id: \.letter) { section in
+                    Section(section.letter) {
+                        playlistRows(for: section.groups)
+                    }
+                    .sectionIndexLabel(section.letter)
+                }
+            }
+            .listSectionIndexVisibility(.visible)
+        } else {
+            List {
+                ForEach(playlistSections, id: \.letter) { section in
+                    Section(section.letter) {
+                        playlistRows(for: section.groups)
+                    }
+                }
+            }
+        }
+    }
+
     private func row(for item: EnsembleMediaSummary) -> some View {
         NavigationLink(destination: WatchMediaDetailView(item: item)) {
             WatchMediaRow(item: item)
         }
         .watchMediaSwipeActions(.media(item))
+    }
+
+    private func playlistRow(for group: WatchPlaylistGroup) -> some View {
+        NavigationLink(destination: WatchTrackCollectionDetailView(title: group.title, source: .playlistGroup(group))) {
+            WatchMediaRow(item: group.primaryPlaylist, subtitle: group.subtitle)
+        }
+        .watchMediaSwipeActions(.playlistGroup(group))
     }
 
     @ViewBuilder
@@ -282,9 +324,22 @@ private struct WatchCategoryView: View {
         }
     }
 
+    @ViewBuilder
+    private func playlistRows(for groups: [WatchPlaylistGroup]) -> some View {
+        ForEach(groups) { group in
+            playlistRow(for: group)
+        }
+    }
+
     private var sections: [(letter: String, items: [EnsembleMediaSummary])] {
         Dictionary(grouping: sortedItems) { $0.title.ensembleIndexingLetter }
             .map { (letter: $0.key, items: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
+    private var playlistSections: [(letter: String, groups: [WatchPlaylistGroup])] {
+        Dictionary(grouping: sortedPlaylistGroups) { $0.title.ensembleIndexingLetter }
+            .map { (letter: $0.key, groups: $0.value) }
             .sorted { $0.letter < $1.letter }
     }
 
@@ -295,6 +350,13 @@ private struct WatchCategoryView: View {
                 return lhs.watchListID < rhs.watchListID
             }
             return comparison == .orderedAscending
+        }
+    }
+
+    private var sortedPlaylistGroups: [WatchPlaylistGroup] {
+        experience.playlistGroups.sorted { lhs, rhs in
+            let comparison = lhs.title.ensembleSortingKey.localizedStandardCompare(rhs.title.ensembleSortingKey)
+            return comparison == .orderedSame ? lhs.id < rhs.id : comparison == .orderedAscending
         }
     }
 
@@ -416,8 +478,13 @@ private struct WatchTrackCollectionDetailView: View {
         .tabViewStyle(.verticalPage)
         .watchNowPlayingToolbar()
         .onAppear {
-            if case let .media(item) = source {
+            switch source {
+            case .media(let item):
                 experience.tracks(for: item)
+            case .playlistGroup(let group):
+                experience.tracks(for: group)
+            case .artistAlbum:
+                break
             }
         }
     }
@@ -488,6 +555,8 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media(let item):
             return item.kind == .album
+        case .playlistGroup:
+            return false
         case .artistAlbum:
             return true
         }
@@ -495,7 +564,7 @@ private struct WatchTrackCollectionDetailView: View {
 
     private var tracks: [EnsembleTrack] {
         switch source {
-        case .media:
+        case .media, .playlistGroup:
             return experience.detailTracks
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.tracks ?? []
@@ -504,7 +573,7 @@ private struct WatchTrackCollectionDetailView: View {
 
     private var emptyMessage: String {
         switch source {
-        case .media:
+        case .media, .playlistGroup:
             return experience.statusMessage
         case .artistAlbum:
             return "No tracks found."
@@ -515,6 +584,8 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media(let item):
             return .media(item)
+        case .playlistGroup(let group):
+            return .playlistGroup(group)
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks).map {
                 .artistAlbum($0)
@@ -526,6 +597,8 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media(let item):
             return item
+        case .playlistGroup(let group):
+            return group.primaryPlaylist
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.mediaSummary
         }
@@ -534,11 +607,13 @@ private struct WatchTrackCollectionDetailView: View {
 
 private enum WatchTrackCollectionSource {
     case media(EnsembleMediaSummary)
+    case playlistGroup(WatchPlaylistGroup)
     case artistAlbum(String)
 }
 
 private enum WatchMediaActionTarget: Identifiable {
     case media(EnsembleMediaSummary)
+    case playlistGroup(WatchPlaylistGroup)
     case artistAlbum(WatchArtistAlbumSummary)
     case track(EnsembleTrack)
 
@@ -546,6 +621,8 @@ private enum WatchMediaActionTarget: Identifiable {
         switch self {
         case .media(let item):
             return "media:\(item.id)"
+        case .playlistGroup(let group):
+            return "playlistGroup:\(group.id)"
         case .artistAlbum(let album):
             return "artistAlbum:\(album.id)"
         case .track(let track):
@@ -557,6 +634,8 @@ private enum WatchMediaActionTarget: Identifiable {
         switch self {
         case .media(let item):
             return item.title
+        case .playlistGroup(let group):
+            return group.title
         case .artistAlbum(let album):
             return album.title
         case .track(let track):
@@ -564,19 +643,45 @@ private enum WatchMediaActionTarget: Identifiable {
         }
     }
 
-    var pinnableItem: EnsembleMediaSummary? {
+    @MainActor
+    func canPin(in experience: WatchExperienceModel) -> Bool {
         switch self {
         case .media(let item):
-            switch item.kind {
-            case .album, .artist, .playlist:
-                return item
-            case .track:
-                return nil
-            }
+            return experience.canPin(item)
+        case .playlistGroup(let group):
+            return experience.canPin(group)
         case .artistAlbum(let album):
-            return album.mediaSummary
+            return album.mediaSummary.map(experience.canPin) ?? false
         case .track:
-            return nil
+            return false
+        }
+    }
+
+    @MainActor
+    func isPinned(in experience: WatchExperienceModel) -> Bool {
+        switch self {
+        case .media(let item):
+            return experience.isPinned(item)
+        case .playlistGroup(let group):
+            return experience.isPinned(group)
+        case .artistAlbum(let album):
+            return album.mediaSummary.map(experience.isPinned) ?? false
+        case .track:
+            return false
+        }
+    }
+
+    @MainActor
+    func togglePin(in experience: WatchExperienceModel) {
+        switch self {
+        case .media(let item):
+            experience.togglePin(item)
+        case .playlistGroup(let group):
+            experience.togglePin(group)
+        case .artistAlbum(let album):
+            if let item = album.mediaSummary { experience.togglePin(item) }
+        case .track:
+            break
         }
     }
 
@@ -584,6 +689,8 @@ private enum WatchMediaActionTarget: Identifiable {
         switch self {
         case .media(let item):
             return item.kind != .track
+        case .playlistGroup:
+            return true
         case .artistAlbum:
             return true
         case .track:
@@ -596,6 +703,8 @@ private enum WatchMediaActionTarget: Identifiable {
         switch self {
         case .media(let item):
             experience.play(item, shuffled: shuffled)
+        case .playlistGroup(let group):
+            experience.play(group, shuffled: shuffled)
         case .artistAlbum(let album):
             guard let track = shuffled ? album.tracks.randomElement() : album.tracks.first else { return }
             experience.play(track)
@@ -658,13 +767,13 @@ private struct WatchMediaActionButtons: View {
             }
         }
 
-        if let item = target.pinnableItem, experience.canPin(item) {
+        if target.canPin(in: experience) {
             Button {
-                experience.togglePin(item)
+                target.togglePin(in: experience)
             } label: {
                 Label(
-                    experience.isPinned(item) ? "Unpin" : "Pin",
-                    systemImage: experience.isPinned(item) ? "pin.slash" : "pin"
+                    target.isPinned(in: experience) ? "Unpin" : "Pin",
+                    systemImage: target.isPinned(in: experience) ? "pin.slash" : "pin"
                 )
             }
         }
@@ -1214,8 +1323,14 @@ private struct WatchPinArtworkFrame: View {
 private struct WatchMediaRow: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
+    let subtitle: String?
 
     @State private var artworkURL: URL?
+
+    init(item: EnsembleMediaSummary, subtitle: String? = nil) {
+        self.item = item
+        self.subtitle = subtitle ?? item.subtitle
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1228,7 +1343,7 @@ private struct WatchMediaRow: View {
                 Text(item.title)
                     .font(.headline)
                     .lineLimit(2)
-                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.caption2)
                         .foregroundColor(.secondary)
