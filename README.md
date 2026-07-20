@@ -70,7 +70,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **iOS** 15.0+ (optimized for iOS 16+)
 - **iPadOS** 15.0+
 - **macOS** 12.0+
-- **watchOS** 8.0+
+- **watchOS** 10.0+
 - **Xcode** 15.0+
 - **Swift** 5.9+
 

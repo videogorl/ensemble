@@ -8,26 +8,15 @@ import UIKit
 struct WatchRootView: View {
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
-    @StateObject private var navigation = WatchNavigationModel()
-    @State private var selectedHomePinID: String?
 
     var body: some View {
-        Group {
-            if #available(watchOS 9.0, *) {
-                NavigationStack(path: $navigation.path) {
-                    rootContent
-                        .watchRouteDestinations()
-                }
-            } else {
-                NavigationView {
-                    rootContent
-                }
-            }
+        NavigationStack {
+            rootContent
+                .watchRouteDestinations()
         }
         .environmentObject(experience)
         .environmentObject(experience.playback)
         .environmentObject(remoteSession)
-        .environmentObject(navigation)
         .onAppear {
             experience.start()
         }
@@ -131,7 +120,7 @@ struct WatchRootView: View {
                 Section("Pins") {
                     LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
                         ForEach(snapshot.pins) { item in
-                            WatchHomePinCell(item: item, selectedPinID: $selectedHomePinID)
+                            WatchHomePinCell(item: item)
                         }
                     }
                     .padding(.vertical, 4)
@@ -172,38 +161,14 @@ struct WatchRootView: View {
 
 private struct WatchHomePinCell: View {
     let item: EnsembleMediaSummary
-    @Binding var selectedPinID: String?
 
     var body: some View {
-        Button {
-            selectedPinID = item.id
-        } label: {
+        NavigationLink(destination: WatchMediaDetailView(item: item)) {
             WatchPinArtworkTile(item: item)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
-        .background {
-            NavigationLink(isActive: isSelected) {
-                WatchMediaDetailView(item: item)
-            } label: {
-                EmptyView()
-            }
-            .hidden()
-        }
-    }
-
-    private var isSelected: Binding<Bool> {
-        Binding(
-            get: { selectedPinID == item.id },
-            set: { isActive in
-                if isActive {
-                    selectedPinID = item.id
-                } else if selectedPinID == item.id {
-                    selectedPinID = nil
-                }
-            }
-        )
     }
 }
 
@@ -364,7 +329,6 @@ private struct WatchMediaDetailView: View {
         } else {
             WatchTrackCollectionDetailView(
                 title: item.title,
-                navigationTitle: item.kind.title,
                 source: .media(item)
             )
         }
@@ -374,7 +338,6 @@ private struct WatchMediaDetailView: View {
 private struct WatchArtistAlbumsView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
-    @State private var selectedAlbumID: String?
 
     var body: some View {
         List {
@@ -391,14 +354,13 @@ private struct WatchArtistAlbumsView: View {
                         .foregroundColor(.secondary)
                 } else {
                     ForEach(artistAlbums) { album in
-                        WatchArtistAlbumNavigationRow(album: album, selectedAlbumID: $selectedAlbumID)
+                        WatchArtistAlbumNavigationRow(album: album)
                     }
                 }
             }
         }
         .navigationTitle("Artist")
         .watchNowPlayingToolbar()
-        .watchRouteDestinations()
         .onAppear {
             experience.tracks(for: item)
         }
@@ -410,91 +372,48 @@ private struct WatchArtistAlbumsView: View {
 }
 
 private struct WatchArtistAlbumNavigationRow: View {
-    @EnvironmentObject private var navigation: WatchNavigationModel
     let album: WatchArtistAlbumSummary
-    @Binding var selectedAlbumID: String?
 
-    @ViewBuilder
     var body: some View {
-        if #available(watchOS 9.0, *) {
-            Button {
-                navigation.path.append(album.route)
-            } label: {
-                WatchArtistAlbumRow(album: album)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .watchMediaSwipeActions(.artistAlbum(album))
-        } else {
-            legacyNavigationButton
-                .watchMediaSwipeActions(.artistAlbum(album))
-        }
-    }
-
-    private var legacyNavigationButton: some View {
-        Button {
-            selectedAlbumID = album.id
-        } label: {
+        NavigationLink(value: album.route) {
             WatchArtistAlbumRow(album: album)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background {
-            NavigationLink(isActive: isSelected) {
-                WatchTrackCollectionDetailView(
-                    title: album.title,
-                    navigationTitle: "Album",
-                    source: .tracks(album.tracks)
-                )
-            } label: {
-                EmptyView()
-            }
-            .hidden()
-        }
-    }
-
-    private var isSelected: Binding<Bool> {
-        Binding(
-            get: { selectedAlbumID == album.id },
-            set: { isActive in
-                if isActive {
-                    selectedAlbumID = album.id
-                } else if selectedAlbumID == album.id {
-                    selectedAlbumID = nil
-                }
-            }
-        )
+        .watchMediaSwipeActions(.artistAlbum(album))
     }
 }
 
 private struct WatchTrackCollectionDetailView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let title: String
-    let navigationTitle: String
     let source: WatchTrackCollectionSource
 
     var body: some View {
-        Group {
-            if #available(watchOS 10.0, *) {
-                TabView {
-                    collectionHero
-                    trackList
-                }
-                .tabViewStyle(.verticalPage)
-            } else {
-                List {
-                    Section {
-                        collectionHero
-                            .listRowBackground(Color.clear)
-                    }
+        TabView {
+            collectionHero
+                .toolbar {
+                    if let headerActionTarget {
+                        ToolbarItemGroup(placement: .bottomBar) {
+                            Button {
+                                headerActionTarget.play(in: experience)
+                            } label: {
+                                Image(systemName: "play.fill")
+                            }
+                            .accessibilityLabel("Play \(title)")
 
-                    trackSections
+                            Text(title)
+                                .font(.headline)
+                                .lineLimit(1)
+
+                            WatchMediaMoreButton(target: headerActionTarget)
+                        }
+                    }
                 }
-                .navigationTitle(navigationTitle)
-            }
+            trackList
         }
+        .tabViewStyle(.verticalPage)
         .watchNowPlayingToolbar()
         .onAppear {
             if case let .media(item) = source {
@@ -569,7 +488,7 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media(let item):
             return item.kind == .album
-        case .tracks, .artistAlbum:
+        case .artistAlbum:
             return true
         }
     }
@@ -578,8 +497,6 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media:
             return experience.detailTracks
-        case .tracks(let tracks):
-            return tracks
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.tracks ?? []
         }
@@ -589,7 +506,7 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media:
             return experience.statusMessage
-        case .tracks, .artistAlbum:
+        case .artistAlbum:
             return "No tracks found."
         }
     }
@@ -602,8 +519,6 @@ private struct WatchTrackCollectionDetailView: View {
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks).map {
                 .artistAlbum($0)
             }
-        case .tracks:
-            return nil
         }
     }
 
@@ -613,15 +528,12 @@ private struct WatchTrackCollectionDetailView: View {
             return item
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.mediaSummary
-        case .tracks:
-            return nil
         }
     }
 }
 
 private enum WatchTrackCollectionSource {
     case media(EnsembleMediaSummary)
-    case tracks([EnsembleTrack])
     case artistAlbum(String)
 }
 
@@ -725,15 +637,6 @@ private extension View {
         }
     }
 
-    @ViewBuilder
-    func watchCircularButtonStyle() -> some View {
-        if #available(watchOS 10.0, *) {
-            buttonStyle(.bordered)
-                .buttonBorderShape(.circle)
-        } else {
-            buttonStyle(.bordered)
-        }
-    }
 }
 
 private struct WatchMediaActionButtons: View {
@@ -778,7 +681,6 @@ private struct WatchMediaMoreButton: View {
         } label: {
             Image(systemName: "ellipsis")
         }
-        .watchCircularButtonStyle()
         .accessibilityLabel("More Actions")
         .watchMediaActions(target, isPresented: $showsActions)
     }
@@ -798,24 +700,12 @@ private struct WatchCollectionHero: View {
                 .frame(width: 96, height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            HStack(spacing: 8) {
-                if let actionTarget {
-                    Button {
-                        actionTarget.play(in: experience)
-                    } label: {
-                        Image(systemName: "play.fill")
-                    }
-                    .watchCircularButtonStyle()
-                    .accessibilityLabel("Play \(title)")
-                }
-
-                Text(title)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                if let actionTarget {
-                    WatchMediaMoreButton(target: actionTarget)
+            if actionTarget == nil {
+                HStack {
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -880,27 +770,16 @@ private enum WatchRoute: Hashable {
     case artistAlbum(id: String, title: String)
 }
 
-@MainActor
-private final class WatchNavigationModel: ObservableObject {
-    @Published var path: [WatchRoute] = []
-}
-
 private extension View {
-    @ViewBuilder
     func watchRouteDestinations() -> some View {
-        if #available(watchOS 9.0, *) {
-            navigationDestination(for: WatchRoute.self) { route in
-                switch route {
-                case .artistAlbum(let id, let title):
-                    WatchTrackCollectionDetailView(
-                        title: title,
-                        navigationTitle: "Album",
-                        source: .artistAlbum(id)
-                    )
-                }
+        navigationDestination(for: WatchRoute.self) { route in
+            switch route {
+            case .artistAlbum(let id, let title):
+                WatchTrackCollectionDetailView(
+                    title: title,
+                    source: .artistAlbum(id)
+                )
             }
-        } else {
-            self
         }
     }
 }
@@ -1080,47 +959,24 @@ private struct WatchNowPlayingView: View {
             }
         }
 
-        if #available(watchOS 10.0, *) {
-            baseView.toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close Now Playing")
+        baseView.toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
                 }
-
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showsQueueActions = true
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel("More Actions")
-                    .disabled(experience.playbackTarget == .local)
-                }
+                .accessibilityLabel("Close Now Playing")
             }
-        } else {
-            baseView.toolbar {
-                ToolbarItem {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close Now Playing")
-                }
 
-                ToolbarItem {
-                    Button {
-                        showsQueueActions = true
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                    .accessibilityLabel("More Actions")
-                    .disabled(experience.playbackTarget == .local)
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsQueueActions = true
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("More Actions")
+                .disabled(experience.playbackTarget == .local)
             }
         }
     }
@@ -1285,53 +1141,21 @@ private struct WatchNowPlayingArtwork: View {
 }
 
 private extension View {
-    @ViewBuilder
     func watchNowPlayingToolbar() -> some View {
-        if #available(watchOS 10.0, *) {
-            toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    WatchNowPlayingToolbarLink(usesNativeToolbarButton: true)
-                }
-            }
-        } else {
-            overlay(alignment: .topTrailing) {
-                WatchNowPlayingToolbarLink(usesNativeToolbarButton: false)
-                    .padding(.top, 2)
-                    .padding(.trailing, 4)
+        toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                WatchNowPlayingToolbarLink()
             }
         }
     }
 }
 
 private struct WatchNowPlayingToolbarLink: View {
-    let usesNativeToolbarButton: Bool
-
     var body: some View {
-        if usesNativeToolbarButton, #available(watchOS 10.0, *) {
-            NavigationLink(destination: WatchNowPlayingView()) {
-                Image(systemName: "waveform")
-                    .font(.system(size: 13, weight: .semibold))
-                    .imageScale(.medium)
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
-            .controlSize(.small)
-            .accessibilityLabel("Now Playing")
-        } else {
-            NavigationLink(destination: WatchNowPlayingView()) {
-                ZStack {
-                    Circle()
-                        .fill(Color.secondary.opacity(0.24))
-                    Image(systemName: "waveform")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(.primary)
-                }
-                .frame(width: 34, height: 34)
-                .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Now Playing")
+        NavigationLink(destination: WatchNowPlayingView()) {
+            Image(systemName: "waveform")
         }
+        .accessibilityLabel("Now Playing")
     }
 }
 

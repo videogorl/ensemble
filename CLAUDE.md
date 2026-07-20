@@ -4,7 +4,7 @@ Repository guidance for AI agents working on Ensemble.
 
 ## Product And Constraints
 
-Ensemble is a Plex music player for iOS 15+, iPadOS 15+, macOS 12+, and watchOS 9+. It should feel native, information-dense, customizable, and reliable on 2 GB RAM devices such as iPhone 6s and iPad Air 2.
+Ensemble is a Plex music player for iOS 15+, iPadOS 15+, macOS 12+, and watchOS 10+. It should feel native, information-dense, customizable, and reliable on 2 GB RAM devices such as iPhone 6s and iPad Air 2.
 
 The app is in beta. Handle data and migration edge cases defensively; asking testers to reset can be acceptable, but do not silently discard functionality or data.
 
