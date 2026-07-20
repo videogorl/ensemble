@@ -202,6 +202,37 @@ public enum EnsembleLibraryCategory: String, Codable, CaseIterable, Equatable, S
     }
 }
 
+public extension String {
+    /// Matches the iOS library's title sorting by ignoring common leading articles.
+    var ensembleSortingKey: String {
+        let lowercased = lowercased()
+        for prefix in ["the ", "a ", "an "] where lowercased.hasPrefix(prefix) {
+            return String(dropFirst(prefix.count))
+        }
+        return self
+    }
+
+    /// Matches the iOS library's alphabetical section labels.
+    var ensembleIndexingLetter: String {
+        let key = ensembleSortingKey
+        let ignoredCharacters = CharacterSet(charactersIn: "\"'()[]")
+        var cleanedKey = key
+
+        while let firstScalar = cleanedKey.first?.unicodeScalars.first,
+              ignoredCharacters.contains(firstScalar)
+        {
+            cleanedKey.removeFirst()
+        }
+
+        if cleanedKey.isEmpty {
+            cleanedKey = key
+        }
+
+        let firstCharacter = cleanedKey.prefix(1).uppercased()
+        return firstCharacter.rangeOfCharacter(from: .letters) == nil ? "#" : firstCharacter
+    }
+}
+
 public enum EnsemblePlaybackTarget: String, Codable, Equatable, Sendable {
     case local
     case remote

@@ -274,14 +274,63 @@ private struct WatchCategoryView: View {
     let category: EnsembleLibraryCategory
 
     var body: some View {
-        List(items) { item in
-            NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                WatchMediaRow(item: item)
+        Group {
+            if category == .recentlyAdded {
+                List(items, id: \.watchListID) { item in
+                    row(for: item)
+                }
+            } else if #available(watchOS 26.0, *) {
+                List {
+                    ForEach(sections, id: \.letter) { section in
+                        Section(section.letter) {
+                            rows(for: section.items)
+                        }
+                        .sectionIndexLabel(section.letter)
+                    }
+                }
+                .listSectionIndexVisibility(.visible)
+            } else {
+                List {
+                    ForEach(sections, id: \.letter) { section in
+                        Section(section.letter) {
+                            rows(for: section.items)
+                        }
+                    }
+                }
             }
-            .watchMediaSwipeActions(.media(item))
         }
         .navigationTitle(category.title)
         .watchNowPlayingToolbar()
+    }
+
+    private func row(for item: EnsembleMediaSummary) -> some View {
+        NavigationLink(destination: WatchMediaDetailView(item: item)) {
+            WatchMediaRow(item: item)
+        }
+        .watchMediaSwipeActions(.media(item))
+    }
+
+    @ViewBuilder
+    private func rows(for items: [EnsembleMediaSummary]) -> some View {
+        ForEach(items, id: \.watchListID) { item in
+            row(for: item)
+        }
+    }
+
+    private var sections: [(letter: String, items: [EnsembleMediaSummary])] {
+        Dictionary(grouping: sortedItems) { $0.title.ensembleIndexingLetter }
+            .map { (letter: $0.key, items: $0.value) }
+            .sorted { $0.letter < $1.letter }
+    }
+
+    private var sortedItems: [EnsembleMediaSummary] {
+        items.sorted { lhs, rhs in
+            let comparison = lhs.title.ensembleSortingKey.localizedStandardCompare(rhs.title.ensembleSortingKey)
+            if comparison == .orderedSame {
+                return lhs.watchListID < rhs.watchListID
+            }
+            return comparison == .orderedAscending
+        }
     }
 
     private var items: [EnsembleMediaSummary] {
@@ -296,6 +345,12 @@ private struct WatchCategoryView: View {
         case .recentlyAdded:
             return snapshot.recentlyAdded
         }
+    }
+}
+
+private extension EnsembleMediaSummary {
+    var watchListID: String {
+        "\(sourceKey):\(kind.rawValue):\(id)"
     }
 }
 
