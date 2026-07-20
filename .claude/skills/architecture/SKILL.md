@@ -76,6 +76,7 @@ Dependency flow is one-way:
   - `Plex*` API models live in `EnsembleAPI`.
   - `CD*` models live in `EnsemblePersistence`.
   - UI-facing domain models live in `EnsembleCore`.
+- `EnsembleAPI.PlexSourceIdentity` owns Plex source-key parsing and server/library scope comparison for both app clients.
 - Source identity must include account/server/library scope where applicable. Plex library section keys are per-server integers and are not globally unique.
 - Feed and library surfaces should use stale-while-revalidate behavior: show cached/last-good committed snapshots first, then refresh in background.
 - Empty or failed network results must not overwrite last-good Feed snapshots.

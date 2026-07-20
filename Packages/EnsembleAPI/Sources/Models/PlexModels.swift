@@ -735,6 +735,66 @@ public struct PlexPlaylist: Codable, Sendable, Identifiable {
     public var isAudioPlaylist: Bool {
         playlistType == "audio"
     }
+
+    /// Removes duplicate Plex playlist records while preserving server order.
+    public static func deduplicated(_ playlists: [PlexPlaylist]) -> [PlexPlaylist] {
+        var seen = Set<String>()
+        return playlists.filter { seen.insert($0.ratingKey).inserted }
+    }
+}
+
+/// Parsed account, server, and optional library scope for a Plex source key.
+public struct PlexSourceIdentity: Equatable, Sendable {
+    public let type: String
+    public let accountId: String
+    public let serverId: String
+    public let libraryId: String?
+
+    public init(type: String, accountId: String, serverId: String, libraryId: String? = nil) {
+        self.type = type
+        self.accountId = accountId
+        self.serverId = serverId
+        self.libraryId = libraryId
+    }
+
+    public var serverSourceKey: String {
+        "\(type):\(accountId):\(serverId)"
+    }
+
+    public var accountServerKey: String {
+        "\(accountId):\(serverId)"
+    }
+
+    public var isServerScoped: Bool {
+        libraryId == nil
+    }
+
+    public var librarySourceKey: String? {
+        guard let libraryId else { return nil }
+        return "\(serverSourceKey):\(libraryId)"
+    }
+
+    public static func parse(_ sourceKey: String?) -> PlexSourceIdentity? {
+        guard let sourceKey else { return nil }
+        let components = sourceKey.split(separator: ":")
+        guard components.count >= 3 else { return nil }
+        return PlexSourceIdentity(
+            type: String(components[0]),
+            accountId: String(components[1]),
+            serverId: String(components[2]),
+            libraryId: components.count >= 4 ? String(components[3]) : nil
+        )
+    }
+
+    public static func serverSourceKey(from sourceKey: String?) -> String? {
+        parse(sourceKey)?.serverSourceKey
+    }
+
+    public static func isSameServer(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhsServer = serverSourceKey(from: lhs),
+              let rhsServer = serverSourceKey(from: rhs) else { return false }
+        return lhsServer == rhsServer
+    }
 }
 
 // MARK: - User Info

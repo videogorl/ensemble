@@ -87,7 +87,7 @@ public struct EnsemblePlexLibrary: Equatable, Sendable, Identifiable {
 
 public enum EnsemblePlexSourceKey {
     public static func buildServer(accountId: String, serverId: String) -> String {
-        "plex:\(accountId):\(serverId)"
+        PlexSourceIdentity(type: "plex", accountId: accountId, serverId: serverId).serverSourceKey
     }
 
     public static func build(accountId: String, serverId: String, libraryKey: String) -> String {
@@ -488,7 +488,6 @@ public actor EnsemblePlexCatalogService {
                 .map { $0.watchSummary(sourceKey: sourceKey) }
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
             let mappedPlaylists = try await serverPlaylists
-                .filter(\.isAudioPlaylist)
                 .map { $0.watchSummary(sourceKey: library.server.sourceKey) }
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
             let mappedRecent = try await hubItems
