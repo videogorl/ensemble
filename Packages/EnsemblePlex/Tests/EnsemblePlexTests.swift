@@ -53,37 +53,22 @@ final class EnsemblePlexTests: XCTestCase {
         XCTAssertEqual(watchTrack.discNumber, 2)
     }
 
-    func testWatchPrivatePlexDirectHostPolicyCoversPrivateRangesOnly() {
-        let privateHosts = [
-            "192-168-1-5.abc.plex.direct",
-            "10-0-0-5.abc.plex.direct",
-            "172-16-0-5.abc.plex.direct",
-            "172-31-255-5.abc.plex.direct",
-            "fd00--1.abc.plex.direct",
-            "fe80--1.abc.plex.direct",
-            "2601-1-2-3.abc.plex.direct",
-        ]
-
-        for host in privateHosts {
-            XCTAssertTrue(
-                WatchPlexConnectionPolicy.looksLikePrivatePlexDirectHost(host),
-                "Expected \(host) to be treated as watch-private"
-            )
+    func testSharedConnectionPolicyPrefersLocalSecureEndpoint() throws {
+        let device: PlexDevice = try decodeJSON("""
+        {
+          "name":"Minibar",
+          "product":"Plex Media Server",
+          "clientIdentifier":"server",
+          "provides":"server",
+          "owned":true,
+          "connections":[
+            {"uri":"https://remote.example.com:32400","local":false,"relay":false,"protocol":"https"},
+            {"uri":"https://192-168-1-5.example.plex.direct:32400","local":true,"relay":false,"protocol":"https"}
+          ]
         }
+        """)
 
-        let publicHosts = [
-            "172-15-255-5.abc.plex.direct",
-            "172-32-0-5.abc.plex.direct",
-            "203-0-113-5.abc.plex.direct",
-            "public.example.com",
-        ]
-
-        for host in publicHosts {
-            XCTAssertFalse(
-                WatchPlexConnectionPolicy.looksLikePrivatePlexDirectHost(host),
-                "Expected \(host) to remain eligible"
-            )
-        }
+        XCTAssertEqual(device.bestConnection?.uri, "https://192-168-1-5.example.plex.direct:32400")
     }
 
     func testSelectedLibrariesFallsBackToDiscoveredLibrariesWhenAllHintsDisabled() throws {

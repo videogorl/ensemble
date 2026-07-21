@@ -167,7 +167,7 @@ public actor EnsemblePlexDiscoveryService {
             let devices = try await api.getResources(token: account.authToken)
             for device in devices {
                 guard let token = device.accessToken ?? account.servers.first(where: { $0.serverId == device.clientIdentifier })?.serverToken,
-                      let connection = Self.preferredWatchConnection(for: device) else {
+                      let connection = device.bestConnection else {
                     continue
                 }
 
@@ -186,6 +186,7 @@ public actor EnsemblePlexDiscoveryService {
 
                 let sections: [PlexLibrarySection]
                 do {
+                    _ = try await client.refreshConnection()
                     sections = try await client.getLibrarySections()
                 } catch {
                     continue
@@ -228,7 +229,7 @@ public actor EnsemblePlexDiscoveryService {
                     .map { $0.libraryKey }
                 guard !matchedKeys.isEmpty,
                       let token = device.accessToken ?? account.servers.first(where: { $0.serverId == device.clientIdentifier })?.serverToken,
-                      let connection = Self.preferredWatchConnection(for: device) else {
+                      let connection = device.bestConnection else {
                     continue
                 }
 
@@ -372,16 +373,6 @@ public actor EnsemblePlexDiscoveryService {
         }
     }
 
-    private static func preferredWatchConnection(for device: PlexDevice) -> PlexConnection? {
-        device.connections.first {
-            $0.local == false && ($0.relay ?? false) == false && $0.isSecure && !$0.looksLikePrivatePlexDirectHost
-        } ?? device.connections.first {
-            ($0.relay ?? false) == true && $0.isSecure
-        } ?? device.connections.first {
-            $0.local == false && $0.isSecure
-        } ?? device.bestConnection
-    }
-
     private struct SourceComponents: Hashable {
         let accountId: String
         let serverId: String
@@ -398,37 +389,6 @@ public actor EnsemblePlexDiscoveryService {
 private extension EnsemblePlexCatalogSnapshot {
     var watchSourceKeys: [String] {
         (pins + albums + artists + playlists + recentlyAdded).map(\.sourceKey)
-    }
-}
-
-private extension PlexConnection {
-    var isSecure: Bool {
-        self.protocol == "https" || uri.lowercased().hasPrefix("https://")
-    }
-
-    var looksLikePrivatePlexDirectHost: Bool {
-        guard let host = URLComponents(string: uri)?.host?.lowercased() else { return false }
-        return WatchPlexConnectionPolicy.looksLikePrivatePlexDirectHost(host)
-    }
-}
-
-enum WatchPlexConnectionPolicy {
-    static func looksLikePrivatePlexDirectHost(_ host: String) -> Bool {
-        let host = host.lowercased()
-        return host.hasPrefix("192-168-")
-            || host.hasPrefix("10-")
-            || isPrivate172PlexDirectHost(host)
-            || host.hasPrefix("fd")
-            || host.hasPrefix("fe80-")
-            || host.hasPrefix("2601-")
-    }
-
-    private static func isPrivate172PlexDirectHost(_ host: String) -> Bool {
-        guard host.hasPrefix("172-") else { return false }
-        let remainder = host.dropFirst("172-".count)
-        let secondOctet = remainder.prefix { $0 != "-" }
-        guard let value = Int(secondOctet) else { return false }
-        return (16...31).contains(value)
     }
 }
 
