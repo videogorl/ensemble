@@ -89,6 +89,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 | `scripts/design_token_audit.sh` | Inventory design-token/raw literal hotspots. |
 | `scripts/plex_hls_spike.sh` | Bounded PMS music-HLS viability probe. |
 | `scripts/update_build_number.sh` | Deterministic build-number update for app and Siri extension. |
+| `ci_scripts/test_ci_post_xcodebuild.sh` | Verify repeated Xcode Cloud tag creation remains idempotent. |
 
 ## Current Certified Build Surface
 
