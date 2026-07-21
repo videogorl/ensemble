@@ -271,6 +271,7 @@ private struct WatchCategoryView: View {
     let category: EnsembleLibraryCategory
 
     @State private var centeredAlbumID: String?
+    @State private var isAlbumScrolling = false
 
     var body: some View {
         Group {
@@ -312,53 +313,58 @@ private struct WatchCategoryView: View {
             let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
 
             ZStack {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(albums, id: \.watchListID) { item in
-                            NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                                WatchAlbumBrowseCard(item: item, artworkSize: artworkSize)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(item.title)
-                            .accessibilityHint("Opens album")
-                            .containerRelativeFrame(.vertical)
-                            .visualEffect { content, proxy in
-                                content.offset(y: max(-proxy.frame(in: .scrollView(axis: .vertical)).minY, 0))
-                            }
-                            .scrollTransition(.interactive(timingCurve: .linear), axis: .vertical) { content, phase in
-                                content
-                                    .rotation3DEffect(
-                                        .degrees(-45 * max(phase.value, 0)),
-                                        axis: (x: 1, y: 0, z: 0),
-                                        anchor: .bottom,
-                                        perspective: 0.4
+                observedAlbumScrollView(
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(albums, id: \.watchListID) { item in
+                                NavigationLink(destination: WatchMediaDetailView(item: item)) {
+                                    WatchAlbumBrowseCard(
+                                        item: item,
+                                        artworkSize: artworkSize,
+                                        pageWidth: geometry.size.width,
+                                        pageHeight: geometry.size.height
                                     )
-                                    .offset(
-                                        y: CGFloat(max(phase.value, 0)) * geometry.size.height * 0.12
-                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(item.title)
+                                .accessibilityHint("Opens album")
+                                .containerRelativeFrame(.vertical)
                             }
                         }
+                        .scrollTargetLayout()
                     }
-                    .scrollTargetLayout()
-                }
-                .scrollTargetBehavior(.paging)
-                .scrollPosition(id: $centeredAlbumID)
-                .scrollIndicators(.hidden)
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $centeredAlbumID)
+                    .scrollIndicators(.hidden)
+                )
 
                 if let album = albums.first(where: { $0.watchListID == centeredAlbumID }) ?? albums.first {
-                    VStack(spacing: 1) {
+                    VStack(spacing: 0) {
                         Color.clear
-                            .frame(width: artworkSize, height: artworkSize)
+                            .frame(height: artworkSize + 1)
 
                         Text(album.title)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
+                            .frame(maxWidth: .infinity)
                             .background(Color.black)
                     }
-                    .padding(1)
+                    .opacity(isAlbumScrolling ? 0 : 1)
                     .allowsHitTesting(false)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func observedAlbumScrollView<Content: View>(_ content: Content) -> some View {
+        if #available(watchOS 11.0, *) {
+            content
+                .onScrollPhaseChange { _, phase in
+                    isAlbumScrolling = phase != .idle
+                }
+        } else {
+            content
         }
     }
 
@@ -1483,15 +1489,37 @@ private struct WatchAlbumBrowseCard: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
     let artworkSize: CGFloat
+    let pageWidth: CGFloat
+    let pageHeight: CGFloat
 
     @State private var artworkURL: URL?
 
     var body: some View {
-        WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
-            .frame(width: artworkSize, height: artworkSize)
-            .task(id: "\(item.id)-\(experience.artworkContextID)") {
-                artworkURL = await experience.artworkURL(for: item, size: 320)
+        VStack(spacing: 1) {
+            ZStack {
+                Color.black
+                WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
+                    .frame(width: artworkSize, height: artworkSize)
             }
+            .frame(width: pageWidth, height: artworkSize)
+            .visualEffect { content, proxy in
+                content.offset(y: max(-proxy.frame(in: .scrollView(axis: .vertical)).minY, 0))
+            }
+            .scrollTransition(.interactive(timingCurve: .linear), axis: .vertical) { content, phase in
+                content
+                    .rotation3DEffect(
+                        .degrees(-45 * max(phase.value, 0)),
+                        axis: (x: 1, y: 0, z: 0),
+                        anchor: .bottom,
+                        perspective: 0.4
+                    )
+                    .offset(y: CGFloat(max(phase.value, 0)) * pageHeight * 0.12)
+            }
+        }
+        .padding(1)
+        .task(id: "\(item.id)-\(experience.artworkContextID)") {
+            artworkURL = await experience.artworkURL(for: item, size: 320)
+        }
     }
 }
 
