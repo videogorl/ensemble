@@ -543,11 +543,15 @@ private struct WatchTrackCollectionDetailView: View {
             }
         } else if isAlbum {
             ForEach(albumDiscs, id: \.number) { disc in
-                Section("Disc \(disc.number)") {
+                Section {
                     ForEach(disc.tracks, id: \.watchListID) { track in
                         trackButton(track) {
                             WatchAlbumTrackRow(track: track)
                         }
+                    }
+                } header: {
+                    if albumDiscs.count > 1 {
+                        Text("Disc \(disc.number)")
                     }
                 }
             }
