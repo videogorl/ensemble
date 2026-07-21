@@ -306,7 +306,7 @@ private struct WatchCategoryView: View {
 
     private var albumStack: some View {
         GeometryReader { geometry in
-            let albums = sortedItems
+            let albums = sections.flatMap(\.items)
             let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
 
             if albums.isEmpty {
@@ -1446,12 +1446,35 @@ private struct WatchCrownAlbumStack: View {
     let artworkSize: CGFloat
     let pageWidth: CGFloat
     let pageHeight: CGFloat
+    private let sectionStartIndices: [Int]
 
     @State private var selection = 0
     @State private var currentIndex = 0
     @State private var baseIndex = 0
     @State private var overlayIndex = 0
     @State private var overlayLift: CGFloat = 0
+    @State private var isApplyingIndexJump = false
+
+    private static let indexScrollVelocityThreshold = 50.0
+
+    init(
+        albums: [EnsembleMediaSummary],
+        artworkSize: CGFloat,
+        pageWidth: CGFloat,
+        pageHeight: CGFloat
+    ) {
+        self.albums = albums
+        self.artworkSize = artworkSize
+        self.pageWidth = pageWidth
+        self.pageHeight = pageHeight
+
+        var previousLetter: String?
+        sectionStartIndices = albums.indices.filter { index in
+            let letter = albums[index].title.ensembleIndexingLetter
+            defer { previousLetter = letter }
+            return letter != previousLetter
+        }
+    }
 
     var body: some View {
         Group {
@@ -1475,19 +1498,59 @@ private struct WatchCrownAlbumStack: View {
             by: 1,
             sensitivity: .medium,
             isContinuous: false,
-            isHapticFeedbackEnabled: true
+            isHapticFeedbackEnabled: true,
+            onChange: { event in
+                handleCrownEvent(event)
+            },
+            onIdle: finishCrownScrolling
         )
         .digitalCrownAccessory {
             if let selectedAlbum = album(at: currentIndex) {
                 Text(selectedAlbum.title.ensembleIndexingLetter)
             }
         }
-        .onChange(of: selection) { _, newIndex in showAlbum(at: newIndex) }
+        .onChange(of: selection, showSelectionChange)
         .onChange(of: albums.count) { _, _ in clampSelection() }
     }
 
     private func album(at index: Int) -> EnsembleMediaSummary? {
         albums.indices.contains(index) ? albums[index] : albums.first
+    }
+
+    private func showSelectionChange(from _: Int, to newIndex: Int) {
+        if isApplyingIndexJump {
+            isApplyingIndexJump = false
+        } else {
+            showAlbum(at: newIndex)
+        }
+    }
+
+    private func handleCrownEvent(_ event: DigitalCrownEvent) {
+        guard abs(event.velocity) >= Self.indexScrollVelocityThreshold else { return }
+        moveToAdjacentSection(forward: event.velocity > 0)
+    }
+
+    private func moveToAdjacentSection(forward: Bool) {
+        guard !sectionStartIndices.isEmpty else { return }
+        let currentSection = sectionStartIndices.lastIndex { $0 <= currentIndex } ?? 0
+        let targetSection = min(
+            max(currentSection + (forward ? 1 : -1), 0),
+            sectionStartIndices.count - 1
+        )
+        let targetIndex = sectionStartIndices[targetSection]
+
+        if selection != targetIndex {
+            isApplyingIndexJump = true
+            selection = targetIndex
+        }
+        showAlbum(at: targetIndex)
+    }
+
+    private func finishCrownScrolling() {
+        if selection != currentIndex {
+            isApplyingIndexJump = true
+            selection = currentIndex
+        }
     }
 
     private func showAlbum(at newIndex: Int) {
@@ -1521,6 +1584,7 @@ private struct WatchCrownAlbumStack: View {
         baseIndex = clampedIndex
         overlayIndex = clampedIndex
         overlayLift = 0
+        isApplyingIndexJump = false
     }
 }
 
