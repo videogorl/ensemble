@@ -15,7 +15,6 @@ struct WatchRootView: View {
     var body: some View {
         NavigationStack {
             rootContent
-                .watchRouteDestinations()
                 .navigationDestination(isPresented: $showsNowPlaying) {
                     WatchNowPlayingView()
                 }
@@ -460,7 +459,12 @@ private struct WatchArtistAlbumNavigationRow: View {
     let album: WatchArtistAlbumSummary
 
     var body: some View {
-        NavigationLink(value: album.route) {
+        NavigationLink {
+            WatchTrackCollectionDetailView(
+                title: album.title,
+                source: .artistAlbum(album.id)
+            )
+        } label: {
             WatchArtistAlbumRow(album: album)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -906,10 +910,6 @@ private struct WatchCollectionHeaderSection: View {
     }
 }
 
-private enum WatchRoute: Hashable {
-    case artistAlbum(id: String, title: String)
-}
-
 private struct WatchOpenNowPlayingKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
@@ -918,20 +918,6 @@ private extension EnvironmentValues {
     var watchOpenNowPlaying: () -> Void {
         get { self[WatchOpenNowPlayingKey.self] }
         set { self[WatchOpenNowPlayingKey.self] = newValue }
-    }
-}
-
-private extension View {
-    func watchRouteDestinations() -> some View {
-        navigationDestination(for: WatchRoute.self) { route in
-            switch route {
-            case .artistAlbum(let id, let title):
-                WatchTrackCollectionDetailView(
-                    title: title,
-                    source: .artistAlbum(id)
-                )
-            }
-        }
     }
 }
 
@@ -961,10 +947,6 @@ private struct WatchArtistAlbumSummary: Identifiable {
     var subtitle: String {
         let count = tracks.count
         return count == 1 ? "1 track" : "\(count) tracks"
-    }
-
-    var route: WatchRoute {
-        .artistAlbum(id: id, title: title)
     }
 
     static func albums(from tracks: [EnsembleTrack]) -> [WatchArtistAlbumSummary] {
