@@ -330,6 +330,9 @@ private struct WatchCategoryView: View {
                                     anchor: .bottom,
                                     perspective: 0.4
                                 )
+                                .offset(
+                                    y: CGFloat(max(phase.value, 0)) * geometry.size.height * 0.12
+                                )
                         }
                     }
                 }
