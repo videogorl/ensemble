@@ -307,7 +307,7 @@ private struct WatchCategoryView: View {
     private var albumStack: some View {
         GeometryReader { geometry in
             let albums = sections.flatMap(\.items)
-            let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
+            let artworkSize = min(geometry.size.width - 4, geometry.size.height - 4)
 
             if albums.isEmpty {
                 Text("No Albums")
