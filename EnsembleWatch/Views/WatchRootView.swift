@@ -1449,13 +1449,11 @@ private struct WatchCrownAlbumStack: View {
     private let sectionStartIndices: [Int]
 
     @State private var selection = 0
-    @State private var currentIndex = 0
-    @State private var baseIndex = 0
-    @State private var overlayIndex = 0
-    @State private var overlayLift: CGFloat = 0
-    @State private var isApplyingIndexJump = false
+    @State private var crownOffset = 0.0
+    @State private var previousCrownEventOffset: Double?
 
     private static let indexScrollVelocityThreshold = 50.0
+    private static let indexScrollOffsetDeltaThreshold = 1.0
 
     init(
         albums: [EnsembleMediaSummary],
@@ -1478,7 +1476,7 @@ private struct WatchCrownAlbumStack: View {
 
     var body: some View {
         Group {
-            if let selectedAlbum = album(at: currentIndex) {
+            if let selectedAlbum = album(at: selection) {
                 WatchAlbumNavigationCard(
                     album: selectedAlbum,
                     baseAlbum: album(at: baseIndex),
@@ -1505,86 +1503,71 @@ private struct WatchCrownAlbumStack: View {
             onIdle: finishCrownScrolling
         )
         .digitalCrownAccessory {
-            if let selectedAlbum = album(at: currentIndex) {
+            if let selectedAlbum = album(at: selection) {
                 Text(selectedAlbum.title.ensembleIndexingLetter)
             }
         }
-        .onChange(of: selection, showSelectionChange)
         .onChange(of: albums.count) { _, _ in clampSelection() }
+    }
+
+    private var clampedCrownOffset: Double {
+        min(max(crownOffset, 0), Double(max(albums.count - 1, 0)))
+    }
+
+    private var baseIndex: Int {
+        Int(clampedCrownOffset.rounded(.down))
+    }
+
+    private var overlayIndex: Int {
+        min(baseIndex + 1, max(albums.count - 1, 0))
+    }
+
+    private var overlayLift: CGFloat {
+        CGFloat(1 - (clampedCrownOffset - Double(baseIndex)))
     }
 
     private func album(at index: Int) -> EnsembleMediaSummary? {
         albums.indices.contains(index) ? albums[index] : albums.first
     }
 
-    private func showSelectionChange(from _: Int, to newIndex: Int) {
-        if isApplyingIndexJump {
-            isApplyingIndexJump = false
-        } else {
-            showAlbum(at: newIndex)
-        }
-    }
-
     private func handleCrownEvent(_ event: DigitalCrownEvent) {
-        guard abs(event.velocity) >= Self.indexScrollVelocityThreshold else { return }
-        moveToAdjacentSection(forward: event.velocity > 0)
+        let offsetDelta = event.offset - (previousCrownEventOffset ?? event.offset)
+        previousCrownEventOffset = event.offset
+        crownOffset = min(max(event.offset, 0), Double(max(albums.count - 1, 0)))
+
+        let isFastScroll = abs(event.velocity) >= Self.indexScrollVelocityThreshold
+            || abs(offsetDelta) >= Self.indexScrollOffsetDeltaThreshold
+        guard isFastScroll else { return }
+        moveToAdjacentSection(forward: event.velocity == 0 ? offsetDelta > 0 : event.velocity > 0)
     }
 
     private func moveToAdjacentSection(forward: Bool) {
         guard !sectionStartIndices.isEmpty else { return }
-        let currentSection = sectionStartIndices.lastIndex { $0 <= currentIndex } ?? 0
+        let currentSection = sectionStartIndices.lastIndex { $0 <= selection } ?? 0
         let targetSection = min(
             max(currentSection + (forward ? 1 : -1), 0),
             sectionStartIndices.count - 1
         )
         let targetIndex = sectionStartIndices[targetSection]
 
-        if selection != targetIndex {
-            isApplyingIndexJump = true
-            selection = targetIndex
+        selection = targetIndex
+        withAnimation(.snappy(duration: 0.18)) {
+            crownOffset = Double(targetIndex)
         }
-        showAlbum(at: targetIndex)
     }
 
     private func finishCrownScrolling() {
-        if selection != currentIndex {
-            isApplyingIndexJump = true
-            selection = currentIndex
-        }
-    }
-
-    private func showAlbum(at newIndex: Int) {
-        guard albums.indices.contains(newIndex), newIndex != currentIndex else { return }
-        let previousIndex = currentIndex
-        currentIndex = newIndex
-
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            if newIndex > previousIndex {
-                baseIndex = previousIndex
-                overlayIndex = newIndex
-                overlayLift = 1
-            } else {
-                baseIndex = newIndex
-                overlayIndex = previousIndex
-                overlayLift = 0
-            }
-        }
-
-        withAnimation(.easeOut(duration: 0.16)) {
-            overlayLift = newIndex > previousIndex ? 0 : 1
+        previousCrownEventOffset = nil
+        withAnimation(.snappy(duration: 0.18)) {
+            crownOffset = Double(selection)
         }
     }
 
     private func clampSelection() {
         let clampedIndex = min(selection, max(albums.count - 1, 0))
         selection = clampedIndex
-        currentIndex = clampedIndex
-        baseIndex = clampedIndex
-        overlayIndex = clampedIndex
-        overlayLift = 0
-        isApplyingIndexJump = false
+        crownOffset = Double(clampedIndex)
+        previousCrownEventOffset = nil
     }
 }
 
