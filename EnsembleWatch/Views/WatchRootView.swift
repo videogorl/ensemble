@@ -342,7 +342,7 @@ private struct WatchCategoryView: View {
                     .scrollTargetLayout()
                 }
                 .scrollTargetBehavior(.paging)
-                .scrollPosition(id: $centeredAlbumID, anchor: .center)
+                .scrollPosition(id: $centeredAlbumID)
                 .scrollIndicators(.hidden)
 
                 if let album = albums.first(where: { $0.watchListID == centeredAlbumID }) ?? albums.first {
