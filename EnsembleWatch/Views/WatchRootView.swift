@@ -1480,14 +1480,6 @@ private struct WatchCrownAlbumStack: View {
         .digitalCrownAccessory {
             if let selectedAlbum = album(at: currentIndex) {
                 Text(selectedAlbum.title.ensembleIndexingLetter)
-                    .font(.title3.weight(.semibold))
-                    .foregroundColor(.green)
-                    .frame(width: 44, height: 44)
-                    .background {
-                        Circle()
-                            .fill(Color.green.opacity(0.3))
-                    }
-                    .offset(x: -12)
             }
         }
         .onChange(of: selection) { _, newIndex in showAlbum(at: newIndex) }
