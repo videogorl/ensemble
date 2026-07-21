@@ -305,30 +305,35 @@ private struct WatchCategoryView: View {
     }
 
     private var albumStack: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(sortedItems, id: \.watchListID) { item in
-                    NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                        WatchAlbumBrowseCard(item: item)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(item.title)
-                    .accessibilityHint("Opens album")
-                    .containerRelativeFrame(.vertical)
-                    .scrollTransition(.interactive, axis: .vertical) { content, phase in
-                        content.rotation3DEffect(
-                            .degrees(75 * phase.value),
-                            axis: (x: 1, y: 0, z: 0),
-                            anchor: .bottom,
-                            perspective: 0.4
-                        )
+        GeometryReader { geometry in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(sortedItems, id: \.watchListID) { item in
+                        NavigationLink(destination: WatchMediaDetailView(item: item)) {
+                            WatchAlbumBrowseCard(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(item.title)
+                        .accessibilityHint("Opens album")
+                        .containerRelativeFrame(.vertical)
+                        .background(Color.black)
+                        .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                            content
+                                .offset(y: phase.value < 0 ? -CGFloat(phase.value) * geometry.size.height : 0)
+                                .rotation3DEffect(
+                                    .degrees(75 * max(phase.value, 0)),
+                                    axis: (x: 1, y: 0, z: 0),
+                                    anchor: .bottom,
+                                    perspective: 0.4
+                                )
+                        }
                     }
                 }
+                .scrollTargetLayout()
             }
-            .scrollTargetLayout()
+            .scrollTargetBehavior(.paging)
+            .scrollIndicators(.hidden)
         }
-        .scrollTargetBehavior(.paging)
-        .scrollIndicators(.hidden)
     }
 
     @ViewBuilder
