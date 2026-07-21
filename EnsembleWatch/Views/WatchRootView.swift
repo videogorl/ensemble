@@ -270,6 +270,8 @@ private struct WatchCategoryView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let category: EnsembleLibraryCategory
 
+    @State private var centeredAlbumID: String?
+
     var body: some View {
         Group {
             if category == .albums {
@@ -306,40 +308,57 @@ private struct WatchCategoryView: View {
 
     private var albumStack: some View {
         GeometryReader { geometry in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(sortedItems, id: \.watchListID) { item in
-                        NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                            WatchAlbumBrowseCard(
-                                item: item,
-                                artworkSize: min(geometry.size.width - 4, geometry.size.height - 16)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(item.title)
-                        .accessibilityHint("Opens album")
-                        .containerRelativeFrame(.vertical)
-                        .visualEffect { content, proxy in
-                            content.offset(y: max(-proxy.frame(in: .scrollView(axis: .vertical)).minY, 0))
-                        }
-                        .scrollTransition(.interactive(timingCurve: .linear), axis: .vertical) { content, phase in
-                            content
-                                .rotation3DEffect(
-                                    .degrees(-45 * max(phase.value, 0)),
-                                    axis: (x: 1, y: 0, z: 0),
-                                    anchor: .bottom,
-                                    perspective: 0.4
-                                )
-                                .offset(
-                                    y: CGFloat(max(phase.value, 0)) * geometry.size.height * 0.12
-                                )
+            let albums = sortedItems
+            let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
+
+            ZStack {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(albums, id: \.watchListID) { item in
+                            NavigationLink(destination: WatchMediaDetailView(item: item)) {
+                                WatchAlbumBrowseCard(item: item, artworkSize: artworkSize)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(item.title)
+                            .accessibilityHint("Opens album")
+                            .containerRelativeFrame(.vertical)
+                            .visualEffect { content, proxy in
+                                content.offset(y: max(-proxy.frame(in: .scrollView(axis: .vertical)).minY, 0))
+                            }
+                            .scrollTransition(.interactive(timingCurve: .linear), axis: .vertical) { content, phase in
+                                content
+                                    .rotation3DEffect(
+                                        .degrees(-45 * max(phase.value, 0)),
+                                        axis: (x: 1, y: 0, z: 0),
+                                        anchor: .bottom,
+                                        perspective: 0.4
+                                    )
+                                    .offset(
+                                        y: CGFloat(max(phase.value, 0)) * geometry.size.height * 0.12
+                                    )
+                            }
                         }
                     }
+                    .scrollTargetLayout()
                 }
-                .scrollTargetLayout()
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: $centeredAlbumID, anchor: .center)
+                .scrollIndicators(.hidden)
+
+                if let album = albums.first(where: { $0.watchListID == centeredAlbumID }) ?? albums.first {
+                    VStack(spacing: 1) {
+                        Color.clear
+                            .frame(width: artworkSize, height: artworkSize)
+
+                        Text(album.title)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .background(Color.black)
+                    }
+                    .padding(1)
+                    .allowsHitTesting(false)
+                }
             }
-            .scrollTargetBehavior(.paging)
-            .scrollIndicators(.hidden)
         }
     }
 
@@ -1468,19 +1487,11 @@ private struct WatchAlbumBrowseCard: View {
     @State private var artworkURL: URL?
 
     var body: some View {
-        VStack(spacing: 1) {
-            WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
-                .frame(width: artworkSize, height: artworkSize)
-
-            Text(item.title)
-                .font(.caption.weight(.semibold))
-                .lineLimit(1)
-        }
-        .padding(1)
-        .background(Color.black)
-        .task(id: "\(item.id)-\(experience.artworkContextID)") {
-            artworkURL = await experience.artworkURL(for: item, size: 320)
-        }
+        WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
+            .frame(width: artworkSize, height: artworkSize)
+            .task(id: "\(item.id)-\(experience.artworkContextID)") {
+                artworkURL = await experience.artworkURL(for: item, size: 320)
+            }
     }
 }
 
