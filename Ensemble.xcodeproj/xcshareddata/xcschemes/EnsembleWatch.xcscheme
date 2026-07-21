@@ -46,6 +46,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E0200002"
             BuildableName = "Ensemble Watch.app"
+            BlueprintName = "EnsembleWatch"
             ReferencedContainer = "container:Ensemble.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,6 +63,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E0200002"
             BuildableName = "Ensemble Watch.app"
+            BlueprintName = "EnsembleWatch"
             ReferencedContainer = "container:Ensemble.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
