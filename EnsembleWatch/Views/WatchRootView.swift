@@ -10,6 +10,7 @@ struct WatchRootView: View {
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
     @State private var showsNowPlaying = false
+    @State private var selectedPin: EnsembleMediaSummary?
 
     var body: some View {
         NavigationStack {
@@ -17,6 +18,9 @@ struct WatchRootView: View {
                 .watchRouteDestinations()
                 .navigationDestination(isPresented: $showsNowPlaying) {
                     WatchNowPlayingView()
+                }
+                .navigationDestination(isPresented: showsPinDetail) {
+                    selectedPinDestination
                 }
         }
         .environmentObject(experience)
@@ -128,7 +132,9 @@ struct WatchRootView: View {
                 Section("Pins") {
                     LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
                         ForEach(snapshot.pins) { item in
-                            WatchHomePinCell(item: item)
+                            WatchHomePinCell(item: item) {
+                                selectedPin = item
+                            }
                         }
                     }
                     .padding(.vertical, 4)
@@ -165,28 +171,37 @@ struct WatchRootView: View {
             experience.refresh()
         }
     }
+
+    private var showsPinDetail: Binding<Bool> {
+        Binding(
+            get: { selectedPin != nil },
+            set: { if !$0 { selectedPin = nil } }
+        )
+    }
+
+    @ViewBuilder
+    private var selectedPinDestination: some View {
+        if let selectedPin {
+            if let group = experience.playlistGroup(containing: selectedPin) {
+                WatchTrackCollectionDetailView(title: group.title, source: .playlistGroup(group))
+            } else {
+                WatchMediaDetailView(item: selectedPin)
+            }
+        }
+    }
 }
 
 private struct WatchHomePinCell: View {
-    @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
+    let select: () -> Void
 
     var body: some View {
-        NavigationLink(destination: destination) {
+        Button(action: select) {
             WatchPinArtworkTile(item: item)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.title)
-    }
-
-    @ViewBuilder
-    private var destination: some View {
-        if let group = experience.playlistGroup(containing: item) {
-            WatchTrackCollectionDetailView(title: group.title, source: .playlistGroup(group))
-        } else {
-            WatchMediaDetailView(item: item)
-        }
     }
 }
 
