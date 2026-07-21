@@ -310,16 +310,20 @@ private struct WatchCategoryView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(sortedItems, id: \.watchListID) { item in
                         NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                            WatchAlbumBrowseCard(item: item)
+                            WatchAlbumBrowseCard(
+                                item: item,
+                                artworkSize: min(geometry.size.width - 4, geometry.size.height - 16)
+                            )
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(item.title)
                         .accessibilityHint("Opens album")
                         .containerRelativeFrame(.vertical)
-                        .background(Color.black)
+                        .visualEffect { content, proxy in
+                            content.offset(y: max(-proxy.frame(in: .scrollView(axis: .vertical)).minY, 0))
+                        }
                         .scrollTransition(.interactive(timingCurve: .linear), axis: .vertical) { content, phase in
                             content
-                                .offset(y: phase.value < 0 ? -CGFloat(phase.value) * geometry.size.height : 0)
                                 .rotation3DEffect(
                                     .degrees(-45 * max(phase.value, 0)),
                                     axis: (x: 1, y: 0, z: 0),
@@ -1456,20 +1460,21 @@ private struct WatchMediaRow: View {
 private struct WatchAlbumBrowseCard: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     let item: EnsembleMediaSummary
+    let artworkSize: CGFloat
 
     @State private var artworkURL: URL?
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 1) {
             WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
-                .aspectRatio(1, contentMode: .fit)
+                .frame(width: artworkSize, height: artworkSize)
 
             Text(item.title)
-                .font(.headline)
+                .font(.caption.weight(.semibold))
                 .lineLimit(1)
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
+        .padding(1)
+        .background(Color.black)
         .task(id: "\(item.id)-\(experience.artworkContextID)") {
             artworkURL = await experience.artworkURL(for: item, size: 320)
         }
