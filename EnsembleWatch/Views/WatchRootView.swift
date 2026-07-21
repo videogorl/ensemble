@@ -273,7 +273,7 @@ private struct WatchCategoryView: View {
     var body: some View {
         Group {
             if category == .albums {
-                albumPager
+                albumStack
             } else if category == .playlists {
                 playlistList
             } else if category == .recentlyAdded {
@@ -304,27 +304,31 @@ private struct WatchCategoryView: View {
         .watchNowPlayingToolbar()
     }
 
-    private var albumPager: some View {
-        TabView {
-            ForEach(sortedItems, id: \.watchListID) { item in
-                NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                    WatchAlbumBrowseCard(item: item)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(item.title)
-                .accessibilityHint("Opens album")
-                .toolbar {
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        Text(item.title)
-                            .font(.headline)
-                            .lineLimit(1)
-
-                        WatchMediaMoreButton(target: .media(item))
+    private var albumStack: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(sortedItems, id: \.watchListID) { item in
+                    NavigationLink(destination: WatchMediaDetailView(item: item)) {
+                        WatchAlbumBrowseCard(item: item)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.title)
+                    .accessibilityHint("Opens album")
+                    .containerRelativeFrame(.vertical)
+                    .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                        content.rotation3DEffect(
+                            .degrees(75 * phase.value),
+                            axis: (x: 1, y: 0, z: 0),
+                            anchor: .bottom,
+                            perspective: 0.4
+                        )
                     }
                 }
             }
+            .scrollTargetLayout()
         }
-        .tabViewStyle(.verticalPage(transitionStyle: .blur))
+        .scrollTargetBehavior(.paging)
+        .scrollIndicators(.hidden)
     }
 
     @ViewBuilder
@@ -1451,12 +1455,19 @@ private struct WatchAlbumBrowseCard: View {
     @State private var artworkURL: URL?
 
     var body: some View {
-        WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
-            .aspectRatio(1, contentMode: .fit)
-            .padding(.horizontal, 8)
-            .task(id: "\(item.id)-\(experience.artworkContextID)") {
-                artworkURL = await experience.artworkURL(for: item, size: 320)
-            }
+        VStack(spacing: 6) {
+            WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
+                .aspectRatio(1, contentMode: .fit)
+
+            Text(item.title)
+                .font(.headline)
+                .lineLimit(1)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .task(id: "\(item.id)-\(experience.artworkContextID)") {
+            artworkURL = await experience.artworkURL(for: item, size: 320)
+        }
     }
 }
 
