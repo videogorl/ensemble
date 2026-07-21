@@ -272,7 +272,9 @@ private struct WatchCategoryView: View {
 
     var body: some View {
         Group {
-            if category == .playlists {
+            if category == .albums {
+                albumPager
+            } else if category == .playlists {
                 playlistList
             } else if category == .recentlyAdded {
                 List(items, id: \.watchListID) { item in
@@ -300,6 +302,29 @@ private struct WatchCategoryView: View {
         }
         .navigationTitle(category.title)
         .watchNowPlayingToolbar()
+    }
+
+    private var albumPager: some View {
+        TabView {
+            ForEach(sortedItems, id: \.watchListID) { item in
+                NavigationLink(destination: WatchMediaDetailView(item: item)) {
+                    WatchAlbumBrowseCard(item: item)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .accessibilityHint("Opens album")
+                .toolbar {
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Text(item.title)
+                            .font(.headline)
+                            .lineLimit(1)
+
+                        WatchMediaMoreButton(target: .media(item))
+                    }
+                }
+            }
+        }
+        .tabViewStyle(.verticalPage(transitionStyle: .blur))
     }
 
     @ViewBuilder
@@ -1416,6 +1441,22 @@ private struct WatchMediaRow: View {
         .task(id: "\(item.id)-\(experience.artworkContextID)") {
             artworkURL = await experience.artworkURL(for: item, size: 80)
         }
+    }
+}
+
+private struct WatchAlbumBrowseCard: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let item: EnsembleMediaSummary
+
+    @State private var artworkURL: URL?
+
+    var body: some View {
+        WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
+            .aspectRatio(1, contentMode: .fit)
+            .padding(.horizontal, 8)
+            .task(id: "\(item.id)-\(experience.artworkContextID)") {
+                artworkURL = await experience.artworkURL(for: item, size: 320)
+            }
     }
 }
 
