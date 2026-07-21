@@ -271,7 +271,6 @@ private struct WatchCategoryView: View {
     let category: EnsembleLibraryCategory
 
     @State private var centeredAlbumID: String?
-    @State private var isAlbumScrolling = false
 
     var body: some View {
         Group {
@@ -312,59 +311,28 @@ private struct WatchCategoryView: View {
             let albums = sortedItems
             let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
 
-            ZStack {
-                observedAlbumScrollView(
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(albums, id: \.watchListID) { item in
-                                NavigationLink(destination: WatchMediaDetailView(item: item)) {
-                                    WatchAlbumBrowseCard(
-                                        item: item,
-                                        artworkSize: artworkSize,
-                                        pageWidth: geometry.size.width,
-                                        pageHeight: geometry.size.height
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(item.title)
-                                .accessibilityHint("Opens album")
-                                .containerRelativeFrame(.vertical)
-                            }
-                        }
-                        .scrollTargetLayout()
-                    }
-                    .scrollTargetBehavior(.paging)
-                    .scrollPosition(id: $centeredAlbumID)
-                    .scrollIndicators(.hidden)
+            if #available(watchOS 11.0, *) {
+                WatchModernAlbumStack(
+                    albums: albums,
+                    artworkSize: artworkSize,
+                    pageWidth: geometry.size.width,
+                    pageHeight: geometry.size.height
                 )
+            } else {
+                ZStack {
+                    WatchAlbumPages(
+                        albums: albums,
+                        artworkSize: artworkSize,
+                        pageWidth: geometry.size.width,
+                        pageHeight: geometry.size.height
+                    )
+                    .scrollPosition(id: $centeredAlbumID, anchor: .top)
 
-                if let album = albums.first(where: { $0.watchListID == centeredAlbumID }) ?? albums.first {
-                    VStack(spacing: 0) {
-                        Color.clear
-                            .frame(height: artworkSize + 1)
-
-                        Text(album.title)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity)
-                            .background(Color.black)
+                    if let album = albums.first(where: { $0.watchListID == centeredAlbumID }) ?? albums.first {
+                        WatchAlbumTitleLane(album: album, artworkSize: artworkSize)
                     }
-                    .opacity(isAlbumScrolling ? 0 : 1)
-                    .allowsHitTesting(false)
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func observedAlbumScrollView<Content: View>(_ content: Content) -> some View {
-        if #available(watchOS 11.0, *) {
-            content
-                .onScrollPhaseChange { _, phase in
-                    isAlbumScrolling = phase != .idle
-                }
-        } else {
-            content
         }
     }
 
@@ -1482,6 +1450,101 @@ private struct WatchMediaRow: View {
         .task(id: "\(item.id)-\(experience.artworkContextID)") {
             artworkURL = await experience.artworkURL(for: item, size: 80)
         }
+    }
+}
+
+private struct WatchAlbumPages: View {
+    let albums: [EnsembleMediaSummary]
+    let artworkSize: CGFloat
+    let pageWidth: CGFloat
+    let pageHeight: CGFloat
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(albums, id: \.watchListID) { item in
+                    NavigationLink(destination: WatchMediaDetailView(item: item)) {
+                        WatchAlbumBrowseCard(
+                            item: item,
+                            artworkSize: artworkSize,
+                            pageWidth: pageWidth,
+                            pageHeight: pageHeight
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(item.title)
+                    .accessibilityHint("Opens album")
+                    .containerRelativeFrame(.vertical)
+                    .id(item.watchListID)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .scrollIndicators(.hidden)
+    }
+}
+
+@available(watchOS 11.0, *)
+private struct WatchModernAlbumStack: View {
+    let albums: [EnsembleMediaSummary]
+    let artworkSize: CGFloat
+    let pageWidth: CGFloat
+    let pageHeight: CGFloat
+
+    @State private var position = ScrollPosition(idType: String.self)
+    @State private var isScrolling = false
+
+    var body: some View {
+        ZStack {
+            WatchAlbumPages(
+                albums: albums,
+                artworkSize: artworkSize,
+                pageWidth: pageWidth,
+                pageHeight: pageHeight
+            )
+            .scrollPosition($position, anchor: .top)
+            .onScrollPhaseChange { _, phase in
+                guard phase == .idle else {
+                    isScrolling = true
+                    return
+                }
+
+                if let albumID = position.viewID(type: String.self) {
+                    position.scrollTo(id: albumID, anchor: .top)
+                }
+                isScrolling = false
+            }
+
+            if let album = centeredAlbum {
+                WatchAlbumTitleLane(album: album, artworkSize: artworkSize)
+                    .opacity(isScrolling ? 0 : 1)
+            }
+        }
+    }
+
+    private var centeredAlbum: EnsembleMediaSummary? {
+        guard let albumID = position.viewID(type: String.self) else { return albums.first }
+        return albums.first(where: { $0.watchListID == albumID }) ?? albums.first
+    }
+}
+
+private struct WatchAlbumTitleLane: View {
+    let album: EnsembleMediaSummary
+    let artworkSize: CGFloat
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Color.clear
+                .frame(height: artworkSize + 1)
+
+            Text(album.title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .background(Color.black)
+        }
+        .allowsHitTesting(false)
     }
 }
 
