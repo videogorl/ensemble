@@ -1477,6 +1477,12 @@ private struct WatchCrownAlbumStack: View {
             isContinuous: false,
             isHapticFeedbackEnabled: true
         )
+        .digitalCrownAccessory {
+            if let selectedAlbum = album(at: currentIndex) {
+                Text(selectedAlbum.title.ensembleIndexingLetter)
+                    .font(.caption2.weight(.semibold))
+            }
+        }
         .onChange(of: selection) { _, newIndex in showAlbum(at: newIndex) }
         .onChange(of: albums.count) { _, _ in clampSelection() }
     }
@@ -1588,7 +1594,6 @@ private struct WatchAlbumTitleLane: View {
                 .font(.caption.weight(.semibold))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
-                .background(Color.black)
         }
         .allowsHitTesting(false)
     }
