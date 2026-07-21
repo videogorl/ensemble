@@ -317,11 +317,11 @@ private struct WatchCategoryView: View {
                         .accessibilityHint("Opens album")
                         .containerRelativeFrame(.vertical)
                         .background(Color.black)
-                        .scrollTransition(.interactive, axis: .vertical) { content, phase in
+                        .scrollTransition(.interactive(timingCurve: .linear), axis: .vertical) { content, phase in
                             content
                                 .offset(y: phase.value < 0 ? -CGFloat(phase.value) * geometry.size.height : 0)
                                 .rotation3DEffect(
-                                    .degrees(75 * max(phase.value, 0)),
+                                    .degrees(-45 * max(phase.value, 0)),
                                     axis: (x: 1, y: 0, z: 0),
                                     anchor: .bottom,
                                     perspective: 0.4
