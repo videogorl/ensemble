@@ -297,7 +297,7 @@ struct GenreDetailContentView: View {
         ScrollViewReader { proxy in
             GeometryReader { geometry in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                    VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
                         if presentationStyle == .splitPane {
                             genreHeader(albums: albums)
                         }
@@ -308,13 +308,15 @@ struct GenreDetailContentView: View {
                             LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Matching Albums")
                         } else if isSortIndexed {
                             ForEach(sections) { section in
-                                Section(header: sectionHeader(section.letter)) {
+                                VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
+                                    sectionHeader(section.letter)
+                                        .id(section.letter)
+
                                     AlbumGrid(
                                         albums: section.albums,
                                         nowPlayingVM: nowPlayingVM,
                                         navigationCoordinator: navigationCoordinator
                                     )
-                                    .id(section.letter)
                                 }
                             }
                         } else {
