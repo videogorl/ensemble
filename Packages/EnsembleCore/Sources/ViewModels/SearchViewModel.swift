@@ -385,30 +385,17 @@ public final class SearchViewModel: ObservableObject {
         UserDefaults.standard.removeObject(forKey: recentSearchesKey)
     }
     
-    /// Orders search sections with artists always first, then remaining by match count
+    /// Keeps search result categories in a stable, predictable order.
     private func determineSearchSectionOrder() {
-        var sectionCounts: [(section: SearchSection, count: Int)] = [
-            (.artists, displayArtistResults.count),
-            (.albums, albumResults.count),
-            (.playlists, playlistResults.count),
-            (.songs, trackResults.count)
+        let sectionCounts: [SearchSection: Int] = [
+            .artists: displayArtistResults.count,
+            .albums: albumResults.count,
+            .playlists: playlistResults.count,
+            .songs: trackResults.count
         ]
-
-        // Artists always first, then sort remaining by count descending, with default order as tiebreaker
-        sectionCounts.sort { lhs, rhs in
-            // Artists always come first
-            if lhs.section == .artists { return true }
-            if rhs.section == .artists { return false }
-
-            if lhs.count == rhs.count {
-                // Default order for non-artist sections: Albums, Playlists, Songs
-                return lhs.section.sortPriority < rhs.section.sortPriority
-            }
-            return lhs.count > rhs.count
-        }
-
-        // Only include sections with results
-        orderedSections = sectionCounts.filter { $0.count > 0 }.map { $0.section }
+        orderedSections = SearchSection.allCases
+            .filter { sectionCounts[$0, default: 0] > 0 }
+            .sorted { $0.sortPriority < $1.sortPriority }
     }
 
     private func applyVisibilityToSearchResults() {

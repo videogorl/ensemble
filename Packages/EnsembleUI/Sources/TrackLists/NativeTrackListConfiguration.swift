@@ -19,6 +19,7 @@ public struct NativeTrackListConfiguration {
     public var usesDynamicTableHeaderHeight: Bool
     public var supplementalMetadataWidth: CGFloat?
     public var currentTrackId: String?
+    public var selectedTrackId: String?
     public var availabilityGeneration: UInt64
     public var activeDownloadTrackIdentities: Set<String>
     public var interactionModel: TrackRowInteractionModel
@@ -36,6 +37,7 @@ public struct NativeTrackListConfiguration {
         usesDynamicTableHeaderHeight: Bool = false,
         supplementalMetadataWidth: CGFloat? = nil,
         currentTrackId: String? = nil,
+        selectedTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         interactionModel: TrackRowInteractionModel = TrackRowInteractionModel()
@@ -52,6 +54,7 @@ public struct NativeTrackListConfiguration {
         self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.currentTrackId = currentTrackId
+        self.selectedTrackId = selectedTrackId
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.interactionModel = interactionModel

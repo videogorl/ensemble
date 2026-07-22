@@ -4,6 +4,7 @@ import SwiftUI
 struct AlbumDetailLoader: View {
     let albumId: String
     let albumSourceKey: String?
+    let selectedTrackId: String?
     let nowPlayingVM: NowPlayingViewModel
     @State private var album: Album?
     @State private var initialTracks: [Track]?
@@ -12,16 +13,27 @@ struct AlbumDetailLoader: View {
     
     @Environment(\.dependencies) private var deps
 
-    init(albumId: String, albumSourceKey: String? = nil, nowPlayingVM: NowPlayingViewModel) {
+    init(
+        albumId: String,
+        albumSourceKey: String? = nil,
+        selectedTrackId: String? = nil,
+        nowPlayingVM: NowPlayingViewModel
+    ) {
         self.albumId = albumId
         self.albumSourceKey = albumSourceKey
+        self.selectedTrackId = selectedTrackId
         self.nowPlayingVM = nowPlayingVM
     }
     
     var body: some View {
         Group {
             if let album = album {
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM, initialTracks: initialTracks)
+                AlbumDetailView(
+                    album: album,
+                    nowPlayingVM: nowPlayingVM,
+                    initialTracks: initialTracks,
+                    selectedTrackId: selectedTrackId
+                )
             } else if isLoading {
                 MediaDetailSurface<EmptyView>.LoadingState(title: "Loading album…")
             } else if let error = error {

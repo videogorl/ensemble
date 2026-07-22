@@ -273,9 +273,16 @@ public struct AlbumDetailView: View {
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album
+    private let selectedTrackId: String?
 
-    public init(album: Album, nowPlayingVM: NowPlayingViewModel, initialTracks: [Track]? = nil) {
+    public init(
+        album: Album,
+        nowPlayingVM: NowPlayingViewModel,
+        initialTracks: [Track]? = nil,
+        selectedTrackId: String? = nil
+    ) {
         self.album = album
+        self.selectedTrackId = selectedTrackId
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
                 album: album,
@@ -287,6 +294,7 @@ public struct AlbumDetailView: View {
 
     public init(viewModel: AlbumDetailViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.album = viewModel.album
+        self.selectedTrackId = nil
         self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
@@ -302,6 +310,7 @@ public struct AlbumDetailView: View {
             groupByDisc: true,
             showFilter: false,
             mediaType: .album,
+            selectedTrackId: selectedTrackId,
             albumMenuActions: AlbumDetailMenuActions(
                 onEditMetadata: {
                     metadataEditorRequest = ContextMenuMetadataEditorRequest(

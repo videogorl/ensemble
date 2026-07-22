@@ -78,6 +78,7 @@ struct EnsembleApp: App {
                         handleIncomingURL(url)
                     }
                 }
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
                 .userActivity("com.videogorl.ensemble.active") { activity in
                     // This registers a user activity so we can track if the app becomes active
                     activity.title = "Ensemble Active"

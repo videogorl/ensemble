@@ -12,6 +12,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let tableHeaderContent: AnyView?
     let tableFooterContent: AnyView?
     let currentTrackId: String?
+    let selectedTrackId: String?
     let availabilityGeneration: UInt64
     let activeDownloadTrackIdentities: Set<String>
     let bottomContentInset: CGFloat
@@ -127,6 +128,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableView.scrollRowToVisible(targetRow)
             context.coordinator.consumedSectionScrollRequestID = sectionScrollRequest.id
         }
+
+        if let selectedTrackId,
+           context.coordinator.consumedSelectedTrackId != selectedTrackId,
+           let targetRow = context.coordinator.rowIndex(forTrackId: selectedTrackId) {
+            tableView.selectRowIndexes(IndexSet(integer: targetRow), byExtendingSelection: false)
+            tableView.scrollRowToVisible(targetRow)
+            context.coordinator.consumedSelectedTrackId = selectedTrackId
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -180,6 +189,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         let onTrackTap: (Track, Int) -> Void
         weak var tableView: NSTableView?
         var consumedSectionScrollRequestID: Int?
+        var consumedSelectedTrackId: String?
         private(set) var rows: [NativeTrackListFlattenedRow] = []
 
         init(
@@ -243,6 +253,15 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             rows.firstIndex { row in
                 if case let .section(sectionID, _) = row {
                     return sectionID == id
+                }
+                return false
+            }
+        }
+
+        func rowIndex(forTrackId id: String) -> Int? {
+            rows.firstIndex { row in
+                if case let .track(track, _) = row {
+                    return track.playbackIdentity == id
                 }
                 return false
             }

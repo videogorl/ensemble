@@ -9,6 +9,7 @@ struct SongPermalinkLoader: View {
 
     @Environment(\.dependencies) private var deps
     @State private var albumId: String?
+    @State private var selectedTrackId: String?
     @State private var isLoading = true
 
     var body: some View {
@@ -17,6 +18,7 @@ struct SongPermalinkLoader: View {
                 AlbumDetailLoader(
                     albumId: albumId,
                     albumSourceKey: songSourceKey,
+                    selectedTrackId: selectedTrackId,
                     nowPlayingVM: nowPlayingVM
                 )
             } else if isLoading {
@@ -35,7 +37,9 @@ struct SongPermalinkLoader: View {
                 sourceCompositeKey: songSourceKey
             )
             guard !Task.isCancelled else { return }
-            albumId = track.map(Track.init(from:))?.albumRatingKey
+            let resolvedTrack = track.map(Track.init(from:))
+            albumId = resolvedTrack?.albumRatingKey
+            selectedTrackId = resolvedTrack?.playbackIdentity
             isLoading = false
         }
     }

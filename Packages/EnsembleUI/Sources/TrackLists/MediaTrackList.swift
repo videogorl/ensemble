@@ -539,6 +539,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let showAlbumName: Bool
     let groupByDisc: Bool
     let currentTrackId: String?
+    let selectedTrackId: String?
     let onTrackTap: (Track, Int) -> Void
     let onPlayNext: ((Track) -> Void)?
     let onPlayLast: ((Track) -> Void)?
@@ -601,6 +602,7 @@ public struct MediaTrackList: UIViewRepresentable {
         showAlbumName: Bool = true,
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
+        selectedTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         managesOwnScrolling: Bool = false,
@@ -635,6 +637,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showAlbumName = showAlbumName
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
+        self.selectedTrackId = selectedTrackId
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = managesOwnScrolling
@@ -686,6 +689,7 @@ public struct MediaTrackList: UIViewRepresentable {
         showTrackNumbers: Bool = false,
         showAlbumName: Bool = true,
         currentTrackId: String? = nil,
+        selectedTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         topContentInset: CGFloat = 0,
@@ -709,6 +713,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.showAlbumName = showAlbumName
         self.groupByDisc = false
         self.currentTrackId = currentTrackId
+        self.selectedTrackId = selectedTrackId
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = true
@@ -967,6 +972,13 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
+        if let selectedTrackId,
+           context.coordinator.consumedSelectedTrackId != selectedTrackId,
+           let indexPath = context.coordinator.indexPath(forTrackId: selectedTrackId) {
+            context.coordinator.consumedSelectedTrackId = selectedTrackId
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .middle)
+        }
+
         if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || favoriteStateChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
             // Bounds-check indexPaths since visible cells may reference stale geometry.
@@ -1102,6 +1114,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var recentPlaylistTitle: String?
         var showsNativeSectionIndex: Bool
         var consumedSectionScrollRequestID: Int?
+        var consumedSelectedTrackId: String?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
         var artworkLoader: ArtworkLoaderProtocol
@@ -1219,6 +1232,15 @@ public struct MediaTrackList: UIViewRepresentable {
 
         func sectionIndex(forID sectionID: String) -> Int? {
             groupedTracks.firstIndex { $0.id == sectionID }
+        }
+
+        func indexPath(forTrackId id: String) -> IndexPath? {
+            for (section, group) in groupedTracks.enumerated() {
+                if let row = group.tracks.firstIndex(where: { $0.playbackIdentity == id }) {
+                    return IndexPath(row: row, section: section)
+                }
+            }
+            return nil
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {

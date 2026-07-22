@@ -8,21 +8,16 @@ final class SearchSectionOrderingTests: XCTestCase {
         XCTAssertLessThan(SearchSection.playlists.sortPriority, SearchSection.songs.sortPriority)
     }
 
-    func testSearchSectionTieBreakOrderingUsesSortPriority() {
+    func testSearchSectionOrderingDoesNotDependOnResultCount() {
         let unordered: [(section: SearchSection, count: Int)] = [
-            (.songs, 5),
-            (.playlists, 5),
-            (.albums, 5),
-            (.artists, 5),
+            (.songs, 100),
+            (.playlists, 20),
+            (.albums, 1),
+            (.artists, 2),
         ]
 
         let ordered = unordered.sorted { lhs, rhs in
-            if lhs.section == .artists { return true }
-            if rhs.section == .artists { return false }
-            if lhs.count == rhs.count {
-                return lhs.section.sortPriority < rhs.section.sortPriority
-            }
-            return lhs.count > rhs.count
+            lhs.section.sortPriority < rhs.section.sortPriority
         }
 
         XCTAssertEqual(ordered.map(\.section), [.artists, .albums, .playlists, .songs])

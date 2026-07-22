@@ -74,6 +74,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let groupByDisc: Bool
     let showFilter: Bool
     let mediaType: PinnedItemType?
+    let selectedTrackId: String?
     let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
@@ -120,6 +121,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         groupByDisc: Bool = false,
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
+        selectedTrackId: String? = nil,
         genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
@@ -138,6 +140,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.groupByDisc = groupByDisc
         self.showFilter = showFilter
         self.mediaType = mediaType
+        self.selectedTrackId = selectedTrackId
         self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
@@ -1268,6 +1271,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             showAlbumName: !(viewModel is AlbumDetailViewModel),
             groupByDisc: groupByDisc,
             currentTrackId: currentTrackId,
+            selectedTrackId: selectedTrackId,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             managesOwnScrolling: true,
@@ -1301,6 +1305,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 tableHeaderExtraHeight: macTableHeaderExtraHeight,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
                 currentTrackId: currentTrackId,
+                selectedTrackId: selectedTrackId,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 interactionModel: trackInteractionModel
