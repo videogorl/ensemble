@@ -358,6 +358,51 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             return MediaDragPayload.trackPasteboardWriter(for: track, shareService: shareService)
         }
 
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            sourceOperationMaskFor context: NSDraggingContext
+        ) -> NSDragOperation {
+            .copy
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            willBeginAt screenPoint: NSPoint,
+            forRowIndexes rowIndexes: IndexSet
+        ) {
+            let items = rowIndexes.compactMap { row -> MediaDragPayload.Item? in
+                guard row < rows.count,
+                      case let .track(track, _) = rows[row] else {
+                    return nil
+                }
+                return MediaDragPayload.track(track).items.first
+            }
+            guard !items.isEmpty else { return }
+            MacSidebarPlaylistDropRegistry.shared.beginDragging(MediaDragPayload(items: items))
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            movedTo screenPoint: NSPoint
+        ) {
+            MacSidebarPlaylistDropRegistry.shared.updateTarget(at: screenPoint)
+        }
+
+        func tableView(
+            _ tableView: NSTableView,
+            draggingSession session: NSDraggingSession,
+            endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            // SwiftUI's outline view consumes the native drop without invoking its
+            // row handler, so this registered sidebar target owns the local result.
+            _ = MacSidebarPlaylistDropRegistry.shared.performDrop(at: screenPoint)
+            MacSidebarPlaylistDropRegistry.shared.endDragging()
+        }
+
         func configure(view: NSView?, row: Int) {
             guard row < rows.count,
                   let view = view as? MacNativeTrackTableCell,

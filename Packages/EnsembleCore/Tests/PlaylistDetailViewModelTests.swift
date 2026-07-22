@@ -1064,4 +1064,39 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertFalse(didReplace)
         XCTAssertEqual(viewModel.error, "Could not determine which server playlist owns this track.")
     }
+
+    func testOptimisticPlaylistAddImmediatelyRemembersItsTarget() async throws {
+        let syncCoordinator = makeSyncCoordinator()
+        let networkMonitor = NetworkMonitor()
+        networkMonitor.simulateOffline(true)
+        let mutationCoordinator = MutationCoordinator(
+            repository: MockPendingMutationRepository(),
+            networkMonitor: networkMonitor,
+            syncCoordinator: syncCoordinator
+        )
+        let playlist = makePlaylist(id: "recent", title: "Recent Playlist")
+        let track = makeTrack(id: "track")
+
+        let outcome = try await mutationCoordinator.enqueuePlaylistAddOptimistically(
+            [track],
+            playlist: playlist
+        )
+
+        XCTAssertEqual(outcome, .queued)
+        XCTAssertEqual(syncCoordinator.lastPlaylistTarget?.id, playlist.id)
+        XCTAssertEqual(syncCoordinator.lastPlaylistTarget?.title, playlist.title)
+
+        syncCoordinator.rememberLastPlaylistTarget(
+            makePlaylist(id: playlist.id, title: "", sourceCompositeKey: playlist.sourceCompositeKey ?? "")
+        )
+        XCTAssertEqual(syncCoordinator.lastPlaylistTarget?.title, playlist.title)
+    }
+
+    func testPlaylistMutationPayloadDecodesLegacyPayloadWithoutTitle() throws {
+        let data = Data(#"{"playlistRatingKey":"playlist","playlistSourceCompositeKey":"source","trackRatingKeys":["track"],"trackSourceCompositeKey":"track-source"}"#.utf8)
+
+        let payload = try JSONDecoder().decode(PlaylistMutationPayload.self, from: data)
+
+        XCTAssertNil(payload.playlistTitle)
+    }
 }

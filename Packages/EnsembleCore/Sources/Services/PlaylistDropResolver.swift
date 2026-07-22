@@ -145,6 +145,7 @@ public enum PlaylistDropResolutionError: Error, Equatable, Sendable {
     case unresolvedItem(title: String)
     case smartSource(title: String)
     case crossSource(itemTitle: String, playlistTitle: String)
+    case alreadyContainsSelection(playlistTitle: String)
     case emptyDrop
 }
 
@@ -217,7 +218,13 @@ public struct PlaylistDropResolver {
             )
         }
 
-        return PlaylistDropResolution(targetPlaylist: targetPlaylist, tracks: compatibleTracks)
+        let existingTracks = await loadPlaylistTracks(targetPlaylist)
+        let newTracks = playlistActionService.tracks(compatibleTracks, excluding: existingTracks)
+        guard !newTracks.isEmpty else {
+            throw PlaylistDropResolutionError.alreadyContainsSelection(playlistTitle: targetPlaylist.title)
+        }
+
+        return PlaylistDropResolution(targetPlaylist: targetPlaylist, tracks: newTracks)
     }
 
     @MainActor

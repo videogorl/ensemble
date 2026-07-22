@@ -1856,6 +1856,8 @@ public struct SidebarView: View {
         let nowPlayingVM: NowPlayingViewModel
         private let playlistDropResolver = PlaylistDropResolver()
         @State private var isDropTargeted = false
+        @State private var isDropDisabled = false
+        @State private var cachedTrackIDs: Set<String>?
 
         var body: some View {
             content
@@ -1868,17 +1870,30 @@ public struct SidebarView: View {
                     isMerged: playlist.isMerged
                 ))
                 .background(dropTargetBackground)
+                .opacity(isDropDisabled ? 0.45 : 1)
                 .onDrop(of: MediaDragPayload.contentTypes, isTargeted: $isDropTargeted) { providers in
                     handleSidebarPlaylistDrop(providers, onto: playlist)
                 }
                 #if os(macOS)
-                .background {
-                    MacSidebarPlaylistDropBridge(isTargeted: $isDropTargeted) { payload in
+                .overlay {
+                    MacSidebarPlaylistDropBridge(
+                        isTargeted: $isDropTargeted,
+                        isDisabled: $isDropDisabled,
+                        canAccept: canAcceptDrop
+                    ) { payload in
                         handleSidebarPlaylistDrop(payload, onto: playlist)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .help("Drop songs, albums, or playlists here to add tracks.")
+                .help(
+                    isDropDisabled
+                        ? "Those songs are already in this playlist."
+                        : "Drop songs, albums, or playlists here to add tracks."
+                )
                 #endif
+                .task(id: playlist.id) {
+                    await loadCachedTrackIDs()
+                }
         }
 
         private var dropTargetBackground: some View {
@@ -1949,6 +1964,7 @@ public struct SidebarView: View {
                 EnsembleLogger.debug(
                     "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
                 )
+                cachedTrackIDs?.formUnion(resolution.tracks.map(\.id))
             } catch let error as PlaylistDropResolutionError {
                 handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
             } catch {
@@ -1970,6 +1986,34 @@ public struct SidebarView: View {
                 isSmart: item.isSmart,
                 isMerged: item.isMerged
             )
+        }
+
+        private func canAcceptDrop(_ payload: MediaDragPayload) -> Bool {
+            guard !playlist.isSmart, !playlist.isMerged else { return false }
+            guard let cachedTrackIDs else { return true }
+            let references = payload.dropReferences
+            let trackReferences = references.filter { $0.kind == .track }
+            guard !trackReferences.isEmpty, trackReferences.count == references.count else { return true }
+            return trackReferences.contains { !cachedTrackIDs.contains($0.id) }
+        }
+
+        @MainActor
+        private func loadCachedTrackIDs() async {
+            guard !playlist.isSmart, !playlist.isMerged else {
+                cachedTrackIDs = []
+                return
+            }
+            do {
+                let cachedPlaylist = try await deps.playlistRepository.fetchPlaylist(
+                    ratingKey: playlist.playlistID,
+                    sourceCompositeKey: playlist.sourceKey
+                )
+                cachedTrackIDs = cachedPlaylist.map { cached in
+                    Set(cached.tracksArray.compactMap(\.ratingKey))
+                }
+            } catch {
+                cachedTrackIDs = nil
+            }
         }
 
         private func handleSidebarDropResolutionError(
@@ -2017,6 +2061,14 @@ public struct SidebarView: View {
 
             case .crossSource(let itemTitle, let playlistTitle):
                 showCrossSourceDropToast(itemTitle: itemTitle, playlistTitle: playlistTitle)
+
+            case .alreadyContainsSelection(let playlistTitle):
+                showSidebarDropToast(
+                    style: .warning,
+                    title: "Already in playlist",
+                    message: "The selected tracks are already in \"\(playlistTitle)\".",
+                    dedupeKey: "playlist-drop-already-contained-\(sidebarPlaylist.playlistID)"
+                )
 
             case .emptyDrop:
                 showSidebarDropToast(

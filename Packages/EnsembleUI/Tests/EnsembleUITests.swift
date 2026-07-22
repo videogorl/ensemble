@@ -452,6 +452,57 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(jsonDecoded, expected)
     }
 
+    @MainActor
+    func testMacSidebarPlaylistDropRegistryTargetsAndDisablesRows() {
+        let registry = MacSidebarPlaylistDropRegistry.shared
+        let acceptableID = UUID()
+        let duplicateID = UUID()
+        let payload = MediaDragPayload.track(Track(id: "track", key: "/tracks/1", title: "Track"))
+        var acceptableTargeted = false
+        var duplicateDisabled = false
+        var didDrop = false
+        defer {
+            registry.endDragging()
+            registry.remove(id: acceptableID)
+            registry.remove(id: duplicateID)
+        }
+
+        registry.update(
+            id: acceptableID,
+            frame: NSRect(x: 0, y: 0, width: 100, height: 40),
+            canAccept: { _ in true },
+            onTargetedChange: { acceptableTargeted = $0 },
+            onDisabledChange: { _ in },
+            onDrop: { _ in
+                didDrop = true
+                return true
+            }
+        )
+        registry.update(
+            id: duplicateID,
+            frame: NSRect(x: 0, y: 50, width: 100, height: 40),
+            canAccept: { _ in false },
+            onTargetedChange: { _ in XCTFail("Duplicate target should not highlight") },
+            onDisabledChange: { duplicateDisabled = $0 },
+            onDrop: { _ in
+                XCTFail("Duplicate target should not receive a drop")
+                return false
+            }
+        )
+
+        registry.beginDragging(payload)
+        XCTAssertTrue(duplicateDisabled)
+
+        registry.updateTarget(at: NSPoint(x: 20, y: 20))
+        XCTAssertTrue(acceptableTargeted)
+        XCTAssertTrue(registry.performDrop(at: NSPoint(x: 20, y: 20)))
+        XCTAssertTrue(didDrop)
+
+        registry.updateTarget(at: NSPoint(x: 20, y: 60))
+        XCTAssertFalse(acceptableTargeted)
+        XCTAssertFalse(registry.performDrop(at: NSPoint(x: 20, y: 60)))
+    }
+
     func testMacTrailingSwipeSlotsUseAppKitOrdering() {
         let configured: [TrackSwipeAction?] = [.favoriteToggle, .addToPlaylist]
 

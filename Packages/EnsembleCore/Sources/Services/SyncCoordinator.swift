@@ -1541,9 +1541,13 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     private func persistLastPlaylistTarget(from playlist: Playlist) {
+        let previousTarget = lastPlaylistTarget(forServerSourceKey: playlist.sourceCompositeKey)
+        let title = playlist.title.isEmpty && previousTarget?.id == playlist.id
+            ? previousTarget?.title ?? ""
+            : playlist.title
         let target = LastPlaylistTarget(
             id: playlist.id,
-            title: playlist.title,
+            title: title,
             sourceCompositeKey: playlist.sourceCompositeKey
         )
         if let serverSourceKey = playlist.sourceCompositeKey {
@@ -1552,6 +1556,10 @@ public final class SyncCoordinator: ObservableObject {
         }
         Self.saveLastPlaylistTarget(target)
         lastPlaylistTarget = target
+    }
+
+    public func rememberLastPlaylistTarget(_ playlist: Playlist) {
+        persistLastPlaylistTarget(from: playlist)
     }
 
     private func clearLastPlaylistTargetIfNeeded(deletedPlaylist: Playlist) {

@@ -24,11 +24,45 @@ final class PlaylistDropResolverTests: XCTestCase {
             albums: [album],
             playlists: [target, sourcePlaylist],
             loadAlbumTracks: { _ in [trackTwo, trackOne] },
-            loadPlaylistTracks: { _ in [trackThree, trackTwo] }
+            loadPlaylistTracks: { playlist in
+                playlist.id == sourcePlaylist.id ? [trackThree, trackTwo] : []
+            }
         )
 
         XCTAssertEqual(resolution.targetPlaylist.id, target.id)
         XCTAssertEqual(resolution.tracks.map(\.id), ["track-1", "track-2", "track-3"])
+    }
+
+    func testExcludesCachedTargetTracksAndRejectsAnAllDuplicateDrop() async throws {
+        let target = makePlaylist(id: "target", title: "Road Trip")
+        let existingTrack = makeTrack(id: "existing")
+        let newTrack = makeTrack(id: "new")
+
+        let resolution = try await resolver.resolve(
+            references: [
+                .init(kind: .track, id: existingTrack.id, sourceKey: existingTrack.sourceCompositeKey, title: existingTrack.title),
+                .init(kind: .track, id: newTrack.id, sourceKey: newTrack.sourceCompositeKey, title: newTrack.title)
+            ],
+            target: makeTarget(target),
+            tracks: [existingTrack, newTrack],
+            albums: [],
+            playlists: [target],
+            loadAlbumTracks: { _ in [] },
+            loadPlaylistTracks: { _ in [existingTrack] }
+        )
+
+        XCTAssertEqual(resolution.tracks.map(\.id), [newTrack.id])
+
+        await assertDropError(
+            expected: .alreadyContainsSelection(playlistTitle: target.title),
+            references: [
+                .init(kind: .track, id: existingTrack.id, sourceKey: existingTrack.sourceCompositeKey, title: existingTrack.title)
+            ],
+            target: makeTarget(target),
+            tracks: [existingTrack],
+            playlists: [target],
+            loadPlaylistTracks: { _ in [existingTrack] }
+        )
     }
 
     func testRejectsMergedSmartAndUnresolvedTargets() async throws {
@@ -132,6 +166,7 @@ final class PlaylistDropResolverTests: XCTestCase {
         tracks: [Track] = [],
         albums: [Album] = [],
         playlists: [Playlist],
+        loadPlaylistTracks: @escaping (Playlist) async -> [Track] = { _ in [] },
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
@@ -143,7 +178,7 @@ final class PlaylistDropResolverTests: XCTestCase {
                 albums: albums,
                 playlists: playlists,
                 loadAlbumTracks: { _ in [] },
-                loadPlaylistTracks: { _ in [] }
+                loadPlaylistTracks: loadPlaylistTracks
             )
             XCTFail("Expected \(expected)", file: file, line: line)
         } catch let error as PlaylistDropResolutionError {

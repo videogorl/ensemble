@@ -44,17 +44,20 @@ public struct TrackRatingMutationPayload: Codable, Sendable {
 /// Payload for a playlist add/remove mutation
 public struct PlaylistMutationPayload: Codable, Sendable {
     public let playlistRatingKey: String
+    public let playlistTitle: String?
     public let playlistSourceCompositeKey: String
     public let trackRatingKeys: [String]
     public let trackSourceCompositeKey: String
 
     public init(
         playlistRatingKey: String,
+        playlistTitle: String? = nil,
         playlistSourceCompositeKey: String,
         trackRatingKeys: [String],
         trackSourceCompositeKey: String
     ) {
         self.playlistRatingKey = playlistRatingKey
+        self.playlistTitle = playlistTitle
         self.playlistSourceCompositeKey = playlistSourceCompositeKey
         self.trackRatingKeys = trackRatingKeys
         self.trackSourceCompositeKey = trackSourceCompositeKey
@@ -204,6 +207,7 @@ public final class MutationCoordinator: ObservableObject {
     private func makePlaylistAddPayload(tracks: [Track], playlist: Playlist, sourceKey: String) -> PlaylistMutationPayload {
         PlaylistMutationPayload(
             playlistRatingKey: playlist.id,
+            playlistTitle: playlist.title,
             playlistSourceCompositeKey: sourceKey,
             trackRatingKeys: tracks.map(\.id),
             trackSourceCompositeKey: tracks.first?.sourceCompositeKey ?? sourceKey
@@ -223,6 +227,7 @@ public final class MutationCoordinator: ObservableObject {
 
         let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
         await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
+        syncCoordinator.rememberLastPlaylistTarget(playlist)
 
         if networkMonitor.isConnected {
             Task { @MainActor [weak self] in
@@ -598,7 +603,7 @@ public final class MutationCoordinator: ObservableObject {
         let playlist = Playlist(
             id: payload.playlistRatingKey,
             key: "/playlists/\(payload.playlistRatingKey)",
-            title: "",
+            title: payload.playlistTitle ?? "",
             summary: nil,
             isSmart: false,
             trackCount: 0,
