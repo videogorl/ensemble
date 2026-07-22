@@ -62,6 +62,9 @@ public struct DownloadTargetDetailView: View {
             .refreshable {
                 await viewModel.refresh()
             }
+            .refreshCommand {
+                await viewModel.refresh()
+            }
     }
 
     // MARK: - Header

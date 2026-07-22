@@ -50,6 +50,9 @@ public struct PendingMutationsView: View {
         .refreshable {
             await viewModel.loadMutations()
         }
+        .refreshCommand {
+            await viewModel.loadMutations()
+        }
     }
 
     // MARK: - Empty State

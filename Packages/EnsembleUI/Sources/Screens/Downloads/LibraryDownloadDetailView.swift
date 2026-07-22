@@ -60,6 +60,9 @@ struct LibraryDownloadDetailView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .refreshCommand {
+            await viewModel.refresh()
+        }
     }
 
     // MARK: - Background

@@ -16,25 +16,24 @@ final class WebSocketSyncController {
         let playlistResult: PlaylistSyncResult
     }
 
-    func resolveSection(
+    func resolveSections(
         sectionKey: String,
         serverKey: String,
         providers: [String: MusicSourceSyncProvider],
         knownSources: Set<MusicSourceIdentifier>
-    ) -> SectionResolution? {
-        guard let (compositeKey, provider) = providers.first(where: { (_, provider) in
-            let source = provider.sourceIdentifier
-            return source.libraryId == sectionKey && "\(source.accountId):\(source.serverId)" == serverKey
-        }) else {
-            return nil
-        }
+    ) -> [SectionResolution] {
+        let parts = serverKey.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return [] }
+        let serverId = String(parts[1])
 
-        let sourceId = provider.sourceIdentifier
-        guard knownSources.contains(sourceId) else {
-            return nil
+        return providers.compactMap { compositeKey, provider in
+            let sourceId = provider.sourceIdentifier
+            guard sourceId.serverId == serverId,
+                  sourceId.libraryId == sectionKey,
+                  knownSources.contains(sourceId) else { return nil }
+            return SectionResolution(sourceId: sourceId, compositeKey: compositeKey)
         }
-
-        return SectionResolution(sourceId: sourceId, compositeKey: compositeKey)
+        .sorted { $0.compositeKey < $1.compositeKey }
     }
 
     func refreshServerPlaylists(

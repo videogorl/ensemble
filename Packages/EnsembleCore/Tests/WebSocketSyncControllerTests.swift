@@ -17,14 +17,14 @@ struct WebSocketSyncControllerTests {
         )
         let provider = MockWebSocketProvider(sourceIdentifier: sourceId)
 
-        let resolution = controller.resolveSection(
+        let resolutions = controller.resolveSections(
             sectionKey: "12",
             serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
             knownSources: [sourceId]
         )
 
-        #expect(resolution == WebSocketSyncController.SectionResolution(sourceId: sourceId, compositeKey: sourceId.compositeKey))
+        #expect(resolutions == [WebSocketSyncController.SectionResolution(sourceId: sourceId, compositeKey: sourceId.compositeKey)])
     }
 
     @Test
@@ -38,14 +38,14 @@ struct WebSocketSyncControllerTests {
         )
         let provider = MockWebSocketProvider(sourceIdentifier: sourceId)
 
-        let resolution = controller.resolveSection(
+        let resolutions = controller.resolveSections(
             sectionKey: "12",
             serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
             knownSources: []
         )
 
-        #expect(resolution == nil)
+        #expect(resolutions.isEmpty)
     }
 
     @Test
@@ -55,7 +55,7 @@ struct WebSocketSyncControllerTests {
         let secondSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "second", libraryId: "5")
         let secondProvider = MockWebSocketProvider(sourceIdentifier: secondSource)
 
-        let resolution = controller.resolveSection(
+        let resolutions = controller.resolveSections(
             sectionKey: "5",
             serverKey: "account:second",
             providers: [
@@ -65,10 +65,31 @@ struct WebSocketSyncControllerTests {
             knownSources: [firstSource, secondSource]
         )
 
-        #expect(resolution == WebSocketSyncController.SectionResolution(
+        #expect(resolutions == [WebSocketSyncController.SectionResolution(
             sourceId: secondSource,
             compositeKey: secondSource.compositeKey
-        ))
+        )])
+    }
+
+    @Test
+    func resolveSectionsReturnsEveryAccountForPhysicalServer() {
+        let controller = WebSocketSyncController()
+        let firstSource = MusicSourceIdentifier(type: .plex, accountId: "first", serverId: "server", libraryId: "5")
+        let secondSource = MusicSourceIdentifier(type: .plex, accountId: "second", serverId: "server", libraryId: "5")
+        let otherServer = MusicSourceIdentifier(type: .plex, accountId: "first", serverId: "other", libraryId: "5")
+
+        let resolutions = controller.resolveSections(
+            sectionKey: "5",
+            serverKey: "first:server",
+            providers: [
+                firstSource.compositeKey: MockWebSocketProvider(sourceIdentifier: firstSource),
+                secondSource.compositeKey: MockWebSocketProvider(sourceIdentifier: secondSource),
+                otherServer.compositeKey: MockWebSocketProvider(sourceIdentifier: otherServer),
+            ],
+            knownSources: [firstSource, secondSource, otherServer]
+        )
+
+        #expect(resolutions.map(\.sourceId) == [firstSource, secondSource])
     }
 
     @Test

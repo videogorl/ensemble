@@ -2108,21 +2108,23 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        guard let resolution = webSocketSyncController.resolveSection(
+        let resolutions = webSocketSyncController.resolveSections(
             sectionKey: sectionKey,
             serverKey: serverKey,
             providers: syncProviders,
             knownSources: Set(sourceStatuses.keys)
-        ) else {
+        )
+        guard !resolutions.isEmpty else {
             EnsembleLogger.error("🔌 SyncCoordinator: No provider found for server \(serverKey) section \(sectionKey) — providers: \(syncProviders.keys.joined(separator: ", "))")
             return
         }
 
-        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (source=\(resolution.compositeKey))")
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (sources=\(resolutions.count))")
 
-        await syncIncremental(source: resolution.sourceId)
-
-        EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey)")
+        for resolution in resolutions {
+            await syncIncremental(source: resolution.sourceId)
+            EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey) (source=\(resolution.compositeKey))")
+        }
     }
 
     /// Trigger a playlist-only sync for a specific server.

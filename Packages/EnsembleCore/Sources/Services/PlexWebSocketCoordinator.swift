@@ -410,14 +410,16 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private func triggerSyncForServer(serverKey: String) {
         let parts = serverKey.split(separator: ":", maxSplits: 1)
         guard parts.count == 2 else { return }
-        let accountId = String(parts[0])
         let serverId = String(parts[1])
 
-        guard let account = accountManager.plexAccounts.first(where: { $0.id == accountId }),
-              let server = account.servers.first(where: { $0.id == serverId }) else { return }
+        var sectionKeys = Set<String>()
+        for account in accountManager.plexAccounts {
+            guard let server = account.servers.first(where: { $0.id == serverId }) else { continue }
+            sectionKeys.formUnion(server.libraries.filter(\.isEnabled).map(\.key))
+        }
 
-        for library in server.libraries where library.isEnabled {
-            debouncedLibraryUpdate(sectionKey: library.key, serverKey: serverKey)
+        for sectionKey in sectionKeys.sorted() {
+            debouncedLibraryUpdate(sectionKey: sectionKey, serverKey: serverKey)
         }
     }
 

@@ -345,6 +345,9 @@ public struct SearchView: View {
             .refreshable {
                 await viewModel.loadExploreContent()
             }
+            .refreshCommand {
+                await viewModel.loadExploreContent()
+            }
             .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
         }
     }

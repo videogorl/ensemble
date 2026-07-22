@@ -137,6 +137,9 @@ public struct MergedPlaylistDetailView: View {
         .refreshable {
             await viewModel.refreshFromServer()
         }
+        .refreshCommand {
+            await viewModel.refreshFromServer()
+        }
     }
 
     // MARK: - Header
