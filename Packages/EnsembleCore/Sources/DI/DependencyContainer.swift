@@ -806,8 +806,8 @@ public final class DependencyContainer: @unchecked Sendable {
 
     @MainActor
     private func wireWebSocketCallbacks() {
-        webSocketCoordinator.onLibraryUpdate = { [weak syncCoordinator] sectionKey in
-            await syncCoordinator?.syncSectionIncremental(sectionKey: sectionKey)
+        webSocketCoordinator.onLibraryUpdate = { [weak syncCoordinator] sectionKey, serverKey in
+            await syncCoordinator?.syncSectionIncremental(sectionKey: sectionKey, serverKey: serverKey)
         }
         webSocketCoordinator.onPlaylistUpdate = { [weak syncCoordinator] serverKey in
             await syncCoordinator?.syncServerPlaylistsIncremental(serverKey: serverKey)

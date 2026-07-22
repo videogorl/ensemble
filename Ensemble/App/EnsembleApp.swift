@@ -317,6 +317,7 @@ struct EnsembleApp: App {
 
                 // Start monitoring when app becomes active (macOS)
                 DependencyContainer.shared.networkMonitor.startMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.start()
                 DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
                 await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
                 await DependencyContainer.shared.reconcileSyncOnForeground()
@@ -407,6 +408,7 @@ struct EnsembleApp: App {
 
                 // Stop monitoring when app goes to background (macOS)
                 DependencyContainer.shared.networkMonitor.stopMonitoring()
+                DependencyContainer.shared.webSocketCoordinator.stop()
 
                 // Stop periodic sync timer
                 DependencyContainer.shared.syncCoordinator.stopPeriodicSync()

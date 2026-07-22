@@ -19,6 +19,7 @@ struct WebSocketSyncControllerTests {
 
         let resolution = controller.resolveSection(
             sectionKey: "12",
+            serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
             knownSources: [sourceId]
         )
@@ -39,11 +40,35 @@ struct WebSocketSyncControllerTests {
 
         let resolution = controller.resolveSection(
             sectionKey: "12",
+            serverKey: "account:server",
             providers: [sourceId.compositeKey: provider],
             knownSources: []
         )
 
         #expect(resolution == nil)
+    }
+
+    @Test
+    func resolveSectionUsesServerScopeWhenLibraryKeysMatch() {
+        let controller = WebSocketSyncController()
+        let firstSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "first", libraryId: "5")
+        let secondSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "second", libraryId: "5")
+        let secondProvider = MockWebSocketProvider(sourceIdentifier: secondSource)
+
+        let resolution = controller.resolveSection(
+            sectionKey: "5",
+            serverKey: "account:second",
+            providers: [
+                firstSource.compositeKey: MockWebSocketProvider(sourceIdentifier: firstSource),
+                secondSource.compositeKey: secondProvider,
+            ],
+            knownSources: [firstSource, secondSource]
+        )
+
+        #expect(resolution == WebSocketSyncController.SectionResolution(
+            sourceId: secondSource,
+            compositeKey: secondSource.compositeKey
+        ))
     }
 
     @Test

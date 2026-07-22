@@ -2102,7 +2102,7 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Trigger an incremental sync for a specific library section.
     /// Called by `PlexWebSocketCoordinator` when a library update notification arrives.
-    public func syncSectionIncremental(sectionKey: String) async {
+    public func syncSectionIncremental(sectionKey: String, serverKey: String) async {
         guard !isOffline else {
             EnsembleLogger.debug("🔌 SyncCoordinator: Skipping WebSocket-triggered sync for section \(sectionKey) while offline")
             return
@@ -2110,10 +2110,11 @@ public final class SyncCoordinator: ObservableObject {
 
         guard let resolution = webSocketSyncController.resolveSection(
             sectionKey: sectionKey,
+            serverKey: serverKey,
             providers: syncProviders,
             knownSources: Set(sourceStatuses.keys)
         ) else {
-            EnsembleLogger.error("🔌 SyncCoordinator: No provider found for section \(sectionKey) — providers: \(syncProviders.keys.joined(separator: ", "))")
+            EnsembleLogger.error("🔌 SyncCoordinator: No provider found for server \(serverKey) section \(sectionKey) — providers: \(syncProviders.keys.joined(separator: ", "))")
             return
         }
 

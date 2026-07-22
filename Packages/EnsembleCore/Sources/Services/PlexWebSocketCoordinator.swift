@@ -25,9 +25,9 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     private let networkMonitor: NetworkMonitor
     private let clientIdentifier: String
 
-    /// Called when a library update notification arrives. Parameters: (sectionKey: String).
+    /// Called when a library update notification arrives. Parameters: section key, account/server key.
     /// SyncCoordinator wires this to trigger incremental sync for the affected section.
-    public var onLibraryUpdate: ((String) async -> Void)?
+    public var onLibraryUpdate: ((String, String) async -> Void)?
 
     /// Called when a playlist update notification arrives. Parameter: serverKey (accountId:serverId).
     /// SyncCoordinator wires this to trigger playlist-only sync for the affected server.
@@ -342,7 +342,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             EnsembleLogger.debug("🔌 WebSocketCoordinator: Triggering incremental sync for section \(sectionKey)")
 
             if let onLibraryUpdate = self.onLibraryUpdate {
-                await onLibraryUpdate(sectionKey)
+                await onLibraryUpdate(sectionKey, serverKey)
             } else {
                 EnsembleLogger.error("🔌 WebSocketCoordinator: onLibraryUpdate callback is nil — sync not triggered!")
             }

@@ -18,11 +18,13 @@ final class WebSocketSyncController {
 
     func resolveSection(
         sectionKey: String,
+        serverKey: String,
         providers: [String: MusicSourceSyncProvider],
         knownSources: Set<MusicSourceIdentifier>
     ) -> SectionResolution? {
         guard let (compositeKey, provider) = providers.first(where: { (_, provider) in
-            provider.sourceIdentifier.libraryId == sectionKey
+            let source = provider.sourceIdentifier
+            return source.libraryId == sectionKey && "\(source.accountId):\(source.serverId)" == serverKey
         }) else {
             return nil
         }

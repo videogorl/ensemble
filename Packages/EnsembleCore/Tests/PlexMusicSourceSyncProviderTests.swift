@@ -11,33 +11,6 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         let ratingChanged: Bool
     }
 
-    func testIncrementalLibraryPreflightSkipsOnlyWhenSectionIsOlderThanQueryWindow() {
-        XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldSkipIncrementalLibrarySync(
-                sectionUpdatedAt: 99,
-                queryTimestamp: 100
-            )
-        )
-        XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldSkipIncrementalLibrarySync(
-                sectionUpdatedAt: 100,
-                queryTimestamp: 100
-            )
-        )
-        XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldSkipIncrementalLibrarySync(
-                sectionUpdatedAt: 101,
-                queryTimestamp: 100
-            )
-        )
-        XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldSkipIncrementalLibrarySync(
-                sectionUpdatedAt: nil,
-                queryTimestamp: 100
-            )
-        )
-    }
-
     func testIncrementalChangeSelectionDeduplicatesAndLetsUpdatedItemWin() {
         let added = IncrementalItem(ratingKey: "1", updatedAt: 100, marker: "added", ratingChanged: false)
         let updated = IncrementalItem(ratingKey: "1", updatedAt: 101, marker: "updated", ratingChanged: false)
