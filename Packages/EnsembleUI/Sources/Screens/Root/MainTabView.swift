@@ -582,6 +582,7 @@ public struct SidebarView: View {
         let isSmart: Bool
         let isMerged: Bool
         let compositePath: String?
+        let dropTargets: [PlaylistDropTargetReference]
     }
 
     @StateObject private var libraryVM: LibraryViewModel
@@ -726,12 +727,12 @@ public struct SidebarView: View {
         // reloads with showLoading:true, which briefly sets playlists=[]
         // and fires this handler. Allowing the clear would wipe the sidebar.
         if !newSmart.isEmpty || cachedSmartPlaylists.isEmpty {
-            if newSmart.map(\.id) != cachedSmartPlaylists.map(\.id) {
+            if newSmart != cachedSmartPlaylists {
                 cachedSmartPlaylists = newSmart
             }
         }
         if !newRegular.isEmpty || cachedRegularPlaylists.isEmpty {
-            if newRegular.map(\.id) != cachedRegularPlaylists.map(\.id) {
+            if newRegular != cachedRegularPlaylists {
                 cachedRegularPlaylists = newRegular
             }
         }
@@ -764,7 +765,8 @@ public struct SidebarView: View {
                 title: dp.title,
                 isSmart: dp.isSmart,
                 isMerged: dp.isMerged,
-                compositePath: dp.primaryPlaylist.compositePath
+                compositePath: dp.primaryPlaylist.compositePath,
+                dropTargets: sidebarDropTargets(for: dp.playlists)
             )
         }
     }
@@ -801,7 +803,20 @@ public struct SidebarView: View {
                 title: resolvedTitle,
                 isSmart: playlist.isSmart,
                 isMerged: false,
-                compositePath: playlist.compositePath
+                compositePath: playlist.compositePath,
+                dropTargets: sidebarDropTargets(for: [playlist])
+            )
+        }
+    }
+
+    private func sidebarDropTargets(for playlists: [Playlist]) -> [PlaylistDropTargetReference] {
+        playlists.map { playlist in
+            PlaylistDropTargetReference(
+                id: playlist.id,
+                sourceKey: playlist.sourceCompositeKey,
+                title: playlist.title,
+                isSmart: playlist.isSmart,
+                isMerged: false
             )
         }
     }
@@ -1857,7 +1872,7 @@ public struct SidebarView: View {
         private let playlistDropResolver = PlaylistDropResolver()
         @State private var isDropTargeted = false
         @State private var isDropDisabled = false
-        @State private var cachedTrackIDs: Set<String>?
+        @State private var cachedTrackIDsByTarget: [String: Set<String>] = [:]
 
         var body: some View {
             content
@@ -1887,11 +1902,11 @@ public struct SidebarView: View {
                 }
                 .help(
                     isDropDisabled
-                        ? "Those songs are already in this playlist."
+                        ? "That item can't be added to this playlist."
                         : "Drop songs, albums, or playlists here to add tracks."
                 )
                 #endif
-                .task(id: playlist.id) {
+                .task(id: playlist.dropTargets.map(dropTargetIdentity).joined(separator: ";")) {
                     await loadCachedTrackIDs()
                 }
         }
@@ -1942,7 +1957,7 @@ public struct SidebarView: View {
             do {
                 let resolution = try await playlistDropResolver.resolve(
                     references: payload.dropReferences,
-                    target: dropTargetReference(for: sidebarPlaylist),
+                    targets: sidebarPlaylist.dropTargets,
                     tracks: libraryVM.tracks,
                     albums: libraryVM.albums,
                     playlists: playlistsVM.playlists,
@@ -1964,7 +1979,14 @@ public struct SidebarView: View {
                 EnsembleLogger.debug(
                     "Sidebar playlist drop completed: target=\(resolution.targetPlaylist.id) tracks=\(resolution.tracks.count) outcome=\(String(describing: outcome))"
                 )
-                cachedTrackIDs?.formUnion(resolution.tracks.map(\.id))
+                let targetIdentity = dropTargetIdentity(
+                    id: resolution.targetPlaylist.id,
+                    sourceKey: resolution.targetPlaylist.sourceCompositeKey
+                )
+                if var cachedTrackIDs = cachedTrackIDsByTarget[targetIdentity] {
+                    cachedTrackIDs.formUnion(resolution.tracks.map(\.id))
+                    cachedTrackIDsByTarget[targetIdentity] = cachedTrackIDs
+                }
             } catch let error as PlaylistDropResolutionError {
                 handleSidebarDropResolutionError(error, sidebarPlaylist: sidebarPlaylist)
             } catch {
@@ -1978,42 +2000,43 @@ public struct SidebarView: View {
             }
         }
 
-        private func dropTargetReference(for item: SidebarPlaylistItem) -> PlaylistDropTargetReference {
-            PlaylistDropTargetReference(
-                id: item.playlistID,
-                sourceKey: item.sourceKey,
-                title: item.title,
-                isSmart: item.isSmart,
-                isMerged: item.isMerged
-            )
-        }
-
         private func canAcceptDrop(_ payload: MediaDragPayload) -> Bool {
-            guard !playlist.isSmart, !playlist.isMerged else { return false }
-            guard let cachedTrackIDs else { return true }
-            let references = payload.dropReferences
-            let trackReferences = references.filter { $0.kind == .track }
-            guard !trackReferences.isEmpty, trackReferences.count == references.count else { return true }
-            return trackReferences.contains { !cachedTrackIDs.contains($0.id) }
+            playlist.dropTargets.contains { target in
+                playlistDropResolver.canAccept(
+                    references: payload.dropReferences,
+                    target: target,
+                    existingTrackIDs: cachedTrackIDsByTarget[dropTargetIdentity(target)]
+                )
+            }
         }
 
         @MainActor
         private func loadCachedTrackIDs() async {
-            guard !playlist.isSmart, !playlist.isMerged else {
-                cachedTrackIDs = []
-                return
-            }
-            do {
-                let cachedPlaylist = try await deps.playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.playlistID,
-                    sourceCompositeKey: playlist.sourceKey
-                )
-                cachedTrackIDs = cachedPlaylist.map { cached in
-                    Set(cached.tracksArray.compactMap(\.ratingKey))
+            var loadedTrackIDs: [String: Set<String>] = [:]
+            for target in playlist.dropTargets where !target.isSmart {
+                do {
+                    let cachedPlaylist = try await deps.playlistRepository.fetchPlaylist(
+                        ratingKey: target.id,
+                        sourceCompositeKey: target.sourceKey
+                    )
+                    if let cachedPlaylist {
+                        loadedTrackIDs[dropTargetIdentity(target)] = Set(
+                            cachedPlaylist.tracksArray.compactMap(\.ratingKey)
+                        )
+                    }
+                } catch {
+                    continue
                 }
-            } catch {
-                cachedTrackIDs = nil
             }
+            cachedTrackIDsByTarget = loadedTrackIDs
+        }
+
+        private func dropTargetIdentity(_ target: PlaylistDropTargetReference) -> String {
+            dropTargetIdentity(id: target.id, sourceKey: target.sourceKey)
+        }
+
+        private func dropTargetIdentity(id: String, sourceKey: String?) -> String {
+            "\(MediaTrackResolver.normalizedSourceKey(sourceKey) ?? "")|\(id)"
         }
 
         private func handleSidebarDropResolutionError(
@@ -2025,8 +2048,8 @@ public struct SidebarView: View {
                 EnsembleLogger.debug("Sidebar playlist drop rejected: merged target=\(sidebarPlaylist.id)")
                 showSidebarDropToast(
                     style: .warning,
-                    title: "Choose a playlist",
-                    message: "Drop onto one editable playlist, not a merged group.",
+                    title: "Playlist unavailable",
+                    message: "This merged playlist has no editable destination.",
                     dedupeKey: "playlist-drop-merged-target"
                 )
 

@@ -88,6 +88,69 @@ final class PlaylistDropResolverTests: XCTestCase {
         )
     }
 
+    func testMergedTargetsSelectACompatibleConstituentThatCanAcceptTheTrack() async throws {
+        let foreignTarget = makePlaylist(
+            id: "foreign",
+            title: "Road Trip",
+            sourceCompositeKey: "plex:account:server-a"
+        )
+        let duplicateTarget = makePlaylist(
+            id: "duplicate",
+            title: "Road Trip",
+            sourceCompositeKey: "plex:account:server-b"
+        )
+        let availableTarget = makePlaylist(
+            id: "available",
+            title: "Road Trip",
+            sourceCompositeKey: "plex:account:server-b"
+        )
+        let track = makeTrack(
+            id: "track",
+            sourceCompositeKey: "plex:account:server-b:library"
+        )
+        let reference = MediaDropItemReference(
+            kind: .track,
+            id: track.id,
+            sourceKey: track.sourceCompositeKey,
+            title: track.title
+        )
+
+        XCTAssertFalse(resolver.canAccept(
+            references: [reference],
+            target: makeTarget(foreignTarget),
+            existingTrackIDs: []
+        ))
+        XCTAssertFalse(resolver.canAccept(
+            references: [reference],
+            target: makeTarget(duplicateTarget),
+            existingTrackIDs: [track.id]
+        ))
+        XCTAssertTrue(resolver.canAccept(
+            references: [reference],
+            target: makeTarget(availableTarget),
+            existingTrackIDs: []
+        ))
+
+        let resolution = try await resolver.resolve(
+            references: [reference],
+            targets: [
+                makeTarget(foreignTarget),
+                makeTarget(duplicateTarget),
+                makeTarget(availableTarget)
+            ],
+            tracks: [track],
+            albums: [],
+            playlists: [foreignTarget, duplicateTarget, availableTarget],
+            loadAlbumTracks: { _ in [] },
+            loadPlaylistTracks: { playlist in
+                playlist.id == duplicateTarget.id ? [track] : []
+            }
+        )
+
+        XCTAssertEqual(resolution.targetPlaylist.id, availableTarget.id)
+        XCTAssertEqual(resolution.tracks.map(\.id), [track.id])
+    }
+
     func testRejectsCrossSourceTrackStrictly() async throws {
         let target = makePlaylist(id: "target", title: "Road Trip", sourceCompositeKey: "plex:account:server-a")
         let foreignTrack = makeTrack(

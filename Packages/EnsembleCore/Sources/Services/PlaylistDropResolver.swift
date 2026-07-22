@@ -159,6 +159,83 @@ public struct PlaylistDropResolver {
         self.playlistActionService = playlistActionService
     }
 
+    /// Returns whether the destination can handle the referenced media using
+    /// source information and any cached direct-track membership available.
+    public func canAccept(
+        references: [MediaDropItemReference],
+        target: PlaylistDropTargetReference,
+        existingTrackIDs: Set<String>?
+    ) -> Bool {
+        guard !target.isSmart,
+              !target.isMerged,
+              !references.isEmpty,
+              MediaTrackResolver.normalizedServerSourceKey(target.sourceKey) != nil,
+              references.allSatisfy({ reference in
+                  reference.isSmartPlaylist != true && (
+                      reference.kind == .track && MediaTrackResolver.normalizedServerSourceKey(reference.sourceKey) == nil ||
+                      isSourceCompatible(reference.sourceKey, with: target.sourceKey)
+                  )
+              }) else {
+            return false
+        }
+
+        guard let existingTrackIDs,
+              references.allSatisfy({ $0.kind == .track }) else {
+            return true
+        }
+        return references.contains { !existingTrackIDs.contains($0.id) }
+    }
+
+    /// Resolves a drop against the first compatible concrete destination.
+    /// Merged UI rows pass their constituent playlists in display order.
+    @MainActor
+    public func resolve(
+        references: [MediaDropItemReference],
+        targets: [PlaylistDropTargetReference],
+        tracks cachedTracks: [Track],
+        albums cachedAlbums: [Album],
+        playlists cachedPlaylists: [Playlist],
+        loadAlbumTracks: (Album) async -> [Track],
+        loadPlaylistTracks: (Playlist) async -> [Track]
+    ) async throws -> PlaylistDropResolution {
+        let compatibleTargets = targets.filter {
+            canAccept(references: references, target: $0, existingTrackIDs: nil)
+        }
+
+        guard !compatibleTargets.isEmpty else {
+            guard let target = targets.first else {
+                throw PlaylistDropResolutionError.emptyDrop
+            }
+            return try await resolve(
+                references: references,
+                target: target,
+                tracks: cachedTracks,
+                albums: cachedAlbums,
+                playlists: cachedPlaylists,
+                loadAlbumTracks: loadAlbumTracks,
+                loadPlaylistTracks: loadPlaylistTracks
+            )
+        }
+
+        var firstError: Error?
+        for target in compatibleTargets {
+            do {
+                return try await resolve(
+                    references: references,
+                    target: target,
+                    tracks: cachedTracks,
+                    albums: cachedAlbums,
+                    playlists: cachedPlaylists,
+                    loadAlbumTracks: loadAlbumTracks,
+                    loadPlaylistTracks: loadPlaylistTracks
+                )
+            } catch {
+                firstError = firstError ?? error
+            }
+        }
+        throw firstError ?? PlaylistDropResolutionError.emptyDrop
+    }
+
     @MainActor
     public func resolve(
         references: [MediaDropItemReference],
