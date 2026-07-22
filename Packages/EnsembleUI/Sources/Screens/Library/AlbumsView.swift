@@ -4,7 +4,6 @@ import SwiftUI
 public struct AlbumsView: View {
     @ObservedObject var libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
-    let navigationTransitionNamespace: Namespace.ID?
     @Environment(\.dependencies) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -13,12 +12,10 @@ public struct AlbumsView: View {
 
     public init(
         libraryVM: LibraryViewModel,
-        nowPlayingVM: NowPlayingViewModel,
-        navigationTransitionNamespace: Namespace.ID? = nil
+        nowPlayingVM: NowPlayingViewModel
     ) {
         self.libraryVM = libraryVM
         self.nowPlayingVM = nowPlayingVM
-        self.navigationTransitionNamespace = navigationTransitionNamespace
     }
     
     // Get unique artist names for filter
@@ -169,8 +166,7 @@ public struct AlbumsView: View {
                                         AlbumGrid(
                                             albums: section.albums,
                                             nowPlayingVM: nowPlayingVM,
-                                            navigationCoordinator: navigationCoordinator,
-                                            navigationTransitionNamespace: navigationTransitionNamespace
+                                            navigationCoordinator: navigationCoordinator
                                         )
                                     }
                                 }
@@ -180,8 +176,7 @@ public struct AlbumsView: View {
                             AlbumGrid(
                                 albums: albumSnapshot.albums,
                                 nowPlayingVM: nowPlayingVM,
-                                navigationCoordinator: navigationCoordinator,
-                                navigationTransitionNamespace: navigationTransitionNamespace
+                                navigationCoordinator: navigationCoordinator
                             )
                                 .padding(.vertical)
                         }

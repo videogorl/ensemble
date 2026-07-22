@@ -20,6 +20,17 @@ private struct StageFlowActiveKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct MediaNavigationTransitionNamespaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    var mediaNavigationTransitionNamespace: Namespace.ID? {
+        get { self[MediaNavigationTransitionNamespaceKey.self] }
+        set { self[MediaNavigationTransitionNamespaceKey.self] = newValue }
+    }
+}
+
 public extension EnvironmentValues {
     var isViewportNowPlayingPresented: Bool {
         get { self[ViewportNowPlayingPresentedKey.self] }
@@ -39,6 +50,30 @@ public extension EnvironmentValues {
     var isStageFlowActive: Bool {
         get { self[StageFlowActiveKey.self] }
         set { self[StageFlowActiveKey.self] = newValue }
+    }
+}
+
+private struct MediaNavigationTransitionSourceModifier: ViewModifier {
+    @Environment(\.mediaNavigationTransitionNamespace) private var namespace
+    let id: String?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 18.0, *), let namespace, let id {
+            content.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+extension View {
+    func mediaNavigationTransitionSource(id: String?) -> some View {
+        modifier(MediaNavigationTransitionSourceModifier(id: id))
     }
 }
 

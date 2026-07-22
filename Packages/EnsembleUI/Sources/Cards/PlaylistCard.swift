@@ -13,6 +13,7 @@ public struct PlaylistCard: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
             ArtworkView(playlist: playlist, size: .thumbnail)
+                .mediaNavigationTransitionSource(id: playlist.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(playlist.title)
@@ -97,6 +98,9 @@ public struct PlaylistRow: View {
                 displayPlaylist: displayPlaylist,
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.square(for: .tiny)
+            )
+            .mediaNavigationTransitionSource(
+                id: displayPlaylist.isMerged ? nil : displayPlaylist.primaryPlaylist.sourceScopedID
             )
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {

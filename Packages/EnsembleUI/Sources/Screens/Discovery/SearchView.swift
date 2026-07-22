@@ -432,7 +432,7 @@ public struct SearchView: View {
                 }
             } else if let playlist = item.playlist {
                 navigationCoordinator.routeLink(
-                    to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                    to: .playlistDetail(playlist)
                 ) {
                     PlaylistCard(playlist: playlist)
                 }
@@ -655,7 +655,7 @@ public struct SearchView: View {
             .disabled(isEditingPins)
         case let .playlist(playlist, _):
             navigationCoordinator.routeLink(
-                to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
+                to: .playlistDetail(playlist)
             ) {
                 PlaylistCard(playlist: playlist)
             }
@@ -758,7 +758,7 @@ public struct SearchView: View {
                     items: Array(viewModel.playlistResults.prefix(5))
                 ) { playlist in
                     Button {
-                        routeSearchResult(to: .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey))
+                        routeSearchResult(to: .playlistDetail(playlist))
                     } label: {
                         CompactPlaylistRow(playlist: playlist)
                     }

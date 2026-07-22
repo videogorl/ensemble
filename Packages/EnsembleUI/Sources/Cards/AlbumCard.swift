@@ -67,16 +67,13 @@ public enum AlbumCardLayoutMetrics {
 public struct AlbumCard: View {
     let album: Album
     let layout: AlbumCardLayoutMetrics
-    let navigationTransitionNamespace: Namespace.ID?
 
     public init(
         album: Album,
-        layout: AlbumCardLayoutMetrics = .compact,
-        navigationTransitionNamespace: Namespace.ID? = nil
+        layout: AlbumCardLayoutMetrics = .compact
     ) {
         self.album = album
         self.layout = layout
-        self.navigationTransitionNamespace = navigationTransitionNamespace
     }
 
     public var body: some View {
@@ -86,7 +83,13 @@ public struct AlbumCard: View {
         let artworkWidth = layout.artworkSize.cgSize.width
 
         let cardContent = VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
-            artwork(cornerRadius: artworkCornerRadius)
+            ArtworkView(
+                album: album,
+                size: layout.artworkSize,
+                cornerRadius: artworkCornerRadius,
+                isResponsive: true
+            )
+            .mediaNavigationTransitionSource(id: album.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(album.title)
@@ -137,25 +140,6 @@ public struct AlbumCard: View {
         }
     }
 
-    @ViewBuilder
-    private func artwork(cornerRadius: CGFloat) -> some View {
-        let artwork = ArtworkView(
-            album: album,
-            size: layout.artworkSize,
-            cornerRadius: cornerRadius,
-            isResponsive: true
-        )
-
-        #if os(iOS)
-        if #available(iOS 18.0, *), let navigationTransitionNamespace {
-            artwork.matchedTransitionSource(id: album.sourceScopedID, in: navigationTransitionNamespace)
-        } else {
-            artwork
-        }
-        #else
-        artwork
-        #endif
-    }
 }
 
 // MARK: - Album Grid
@@ -178,7 +162,6 @@ public struct AlbumGrid: View {
     let albums: [Album]
     let nowPlayingVM: NowPlayingViewModel
     let navigationCoordinator: NavigationCoordinator
-    let navigationTransitionNamespace: Namespace.ID?
     let onAlbumTap: ((Album) -> Void)?
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
@@ -193,7 +176,6 @@ public struct AlbumGrid: View {
         albums: [Album],
         nowPlayingVM: NowPlayingViewModel,
         navigationCoordinator: NavigationCoordinator,
-        navigationTransitionNamespace: Namespace.ID? = nil,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
         onAlbumTap: ((Album) -> Void)? = nil
@@ -201,7 +183,6 @@ public struct AlbumGrid: View {
         self.albums = albums
         self.nowPlayingVM = nowPlayingVM
         self.navigationCoordinator = navigationCoordinator
-        self.navigationTransitionNamespace = navigationTransitionNamespace
         self.layout = layout
         self.horizontalPadding = horizontalPadding
         self.onAlbumTap = onAlbumTap
@@ -223,11 +204,7 @@ public struct AlbumGrid: View {
                     }
                 } else {
                     navigationCoordinator.routeLink(to: .albumDetail(album)) {
-                        AlbumCard(
-                            album: album,
-                            layout: layout,
-                            navigationTransitionNamespace: navigationTransitionNamespace
-                        )
+                        AlbumCard(album: album, layout: layout)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {

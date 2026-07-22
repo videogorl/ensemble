@@ -407,6 +407,7 @@ struct HubItemCard: View {
             )
             .frame(width: artworkDimension, height: artworkDimension)
             .ensembleCardShadow()
+            .mediaNavigationTransitionSource(id: mediaNavigationTransitionID)
 
             // Text content
             VStack(alignment: isArtist ? .center : .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
@@ -448,10 +449,17 @@ struct HubItemCard: View {
             }
             return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
-            return .playlist(id: item.playlist?.id ?? item.id, sourceKey: item.sourceCompositeKey)
+            if let playlist = item.playlist {
+                return .playlistDetail(playlist)
+            }
+            return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
         default:
             return nil
         }
+    }
+
+    private var mediaNavigationTransitionID: String? {
+        item.album?.sourceScopedID ?? item.playlist?.sourceScopedID
     }
 
     private var artworkCacheHint: PersistentArtworkCacheHint? {

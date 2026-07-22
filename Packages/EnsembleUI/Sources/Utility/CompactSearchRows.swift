@@ -58,6 +58,7 @@ public struct CompactAlbumRow: View {
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(album: album, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
+                .mediaNavigationTransitionSource(id: album.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(album.title)
@@ -96,6 +97,7 @@ public struct CompactPlaylistRow: View {
     public var body: some View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             ArtworkView(playlist: playlist, size: .tiny, cornerRadius: ArtworkCornerRadius.square(for: .tiny))
+                .mediaNavigationTransitionSource(id: playlist.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(playlist.title)

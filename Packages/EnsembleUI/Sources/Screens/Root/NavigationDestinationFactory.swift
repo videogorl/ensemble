@@ -10,7 +10,7 @@ struct NavigationDestinationFactory {
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil,
-        albumNavigationNamespace: Namespace.ID? = nil,
+        mediaNavigationNamespace: Namespace.ID? = nil,
         isMoreRoot: Bool = false
     ) -> AnyView {
         AnyView(NavigationTabContentView(
@@ -20,7 +20,7 @@ struct NavigationDestinationFactory {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
-            albumNavigationNamespace: albumNavigationNamespace,
+            mediaNavigationNamespace: mediaNavigationNamespace,
             isMoreRoot: isMoreRoot
         ))
     }
@@ -33,7 +33,7 @@ struct NavigationDestinationFactory {
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil,
-        albumNavigationNamespace: Namespace.ID? = nil
+        mediaNavigationNamespace: Namespace.ID? = nil
     ) -> AnyView {
         switch destination {
         case .displayArtist(let id):
@@ -62,10 +62,10 @@ struct NavigationDestinationFactory {
         case .albumDetail(let album):
             let detailView = AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
             #if os(iOS)
-            if #available(iOS 18.0, *), let albumNavigationNamespace {
+            if #available(iOS 18.0, *), let mediaNavigationNamespace {
                 return AnyView(
                     detailView.navigationTransition(
-                        .zoom(sourceID: album.sourceScopedID, in: albumNavigationNamespace)
+                        .zoom(sourceID: album.sourceScopedID, in: mediaNavigationNamespace)
                     )
                 )
             }
@@ -76,7 +76,17 @@ struct NavigationDestinationFactory {
         case .playlist(let id, let sourceKey):
             return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlistDetail(let playlist):
-            return AnyView(PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM))
+            let detailView = PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+            #if os(iOS)
+            if #available(iOS 18.0, *), let mediaNavigationNamespace {
+                return AnyView(
+                    detailView.navigationTransition(
+                        .zoom(sourceID: playlist.sourceScopedID, in: mediaNavigationNamespace)
+                    )
+                )
+            }
+            #endif
+            return AnyView(detailView)
         case .mergedPlaylist(let title, let isSmart):
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):
@@ -89,7 +99,7 @@ struct NavigationDestinationFactory {
                 homeVM: homeVM,
                 searchVM: searchVM,
                 pinnedVM: pinnedVM,
-                albumNavigationNamespace: albumNavigationNamespace,
+                mediaNavigationNamespace: mediaNavigationNamespace,
                 isMoreRoot: false
             ))
         }
@@ -117,7 +127,7 @@ private struct NavigationTabContentView: View {
     let homeVM: HomeViewModel?
     let searchVM: SearchViewModel
     let pinnedVM: PinnedViewModel?
-    let albumNavigationNamespace: Namespace.ID?
+    let mediaNavigationNamespace: Namespace.ID?
     let isMoreRoot: Bool
 
     var body: some View {
@@ -138,11 +148,7 @@ private struct NavigationTabContentView: View {
         case .artists:
             ArtistsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .albums:
-            AlbumsView(
-                libraryVM: libraryVM,
-                nowPlayingVM: nowPlayingVM,
-                navigationTransitionNamespace: albumNavigationNamespace
-            )
+            AlbumsView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .genres:
             GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .playlists:
