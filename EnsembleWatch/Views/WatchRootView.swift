@@ -1476,14 +1476,12 @@ private struct WatchCrownAlbumStack: View {
 
     var body: some View {
         Group {
-            if let selectedAlbum = album(at: selection) {
+            if !albums.isEmpty {
                 WatchAlbumNavigationCard(
-                    album: selectedAlbum,
-                    baseAlbum: album(at: baseIndex),
-                    overlayAlbum: album(at: overlayIndex),
+                    albums: albums,
+                    crownOffset: clampedCrownOffset,
                     artworkSize: artworkSize,
-                    pageWidth: pageWidth,
-                    overlayLift: overlayLift
+                    pageWidth: pageWidth
                 )
             }
         }
@@ -1514,18 +1512,6 @@ private struct WatchCrownAlbumStack: View {
         min(max(crownOffset, 0), Double(max(albums.count - 1, 0)))
     }
 
-    private var baseIndex: Int {
-        Int(clampedCrownOffset.rounded(.down))
-    }
-
-    private var overlayIndex: Int {
-        min(baseIndex + 1, max(albums.count - 1, 0))
-    }
-
-    private var overlayLift: CGFloat {
-        CGFloat(1 - (clampedCrownOffset - Double(baseIndex)))
-    }
-
     private func album(at index: Int) -> EnsembleMediaSummary? {
         albums.indices.contains(index) ? albums[index] : albums.first
     }
@@ -1533,7 +1519,9 @@ private struct WatchCrownAlbumStack: View {
     private func handleCrownEvent(_ event: DigitalCrownEvent) {
         let offsetDelta = event.offset - (previousCrownEventOffset ?? event.offset)
         previousCrownEventOffset = event.offset
-        crownOffset = min(max(event.offset, 0), Double(max(albums.count - 1, 0)))
+        withAnimation(.smooth(duration: 0.14)) {
+            crownOffset = min(max(event.offset, 0), Double(max(albums.count - 1, 0)))
+        }
 
         let isFastScroll = abs(event.velocity) >= Self.indexScrollVelocityThreshold
             || abs(offsetDelta) >= Self.indexScrollOffsetDeltaThreshold
@@ -1551,14 +1539,12 @@ private struct WatchCrownAlbumStack: View {
         let targetIndex = sectionStartIndices[targetSection]
 
         selection = targetIndex
-        withAnimation(.snappy(duration: 0.18)) {
-            crownOffset = Double(targetIndex)
-        }
+        crownOffset = Double(targetIndex)
     }
 
     private func finishCrownScrolling() {
         previousCrownEventOffset = nil
-        withAnimation(.snappy(duration: 0.18)) {
+        withAnimation(.smooth(duration: 0.22)) {
             crownOffset = Double(selection)
         }
     }
@@ -1571,31 +1557,60 @@ private struct WatchCrownAlbumStack: View {
     }
 }
 
-private struct WatchAlbumNavigationCard: View {
-    let album: EnsembleMediaSummary
-    let baseAlbum: EnsembleMediaSummary?
-    let overlayAlbum: EnsembleMediaSummary?
+private struct WatchAlbumNavigationCard: View, Animatable {
+    let albums: [EnsembleMediaSummary]
+    var crownOffset: Double
     let artworkSize: CGFloat
     let pageWidth: CGFloat
-    let overlayLift: CGFloat
+
+    var animatableData: Double {
+        get { crownOffset }
+        set { crownOffset = newValue }
+    }
 
     var body: some View {
-        NavigationLink(destination: WatchMediaDetailView(item: album)) {
-            ZStack(alignment: .top) {
-                WatchAlbumCoverStack(
-                    baseAlbum: baseAlbum,
-                    overlayAlbum: overlayAlbum,
-                    artworkSize: artworkSize,
-                    pageWidth: pageWidth,
-                    overlayLift: overlayLift
-                )
+        if let displayedAlbum = album(at: displayedIndex) {
+            NavigationLink(destination: WatchMediaDetailView(item: displayedAlbum)) {
+                ZStack(alignment: .top) {
+                    WatchAlbumCoverStack(
+                        baseAlbum: album(at: baseIndex),
+                        overlayAlbum: album(at: overlayIndex),
+                        artworkSize: artworkSize,
+                        pageWidth: pageWidth,
+                        overlayLift: overlayLift
+                    )
 
-                WatchAlbumTitleLane(album: album, artworkSize: artworkSize)
+                    WatchAlbumTitleLane(album: displayedAlbum, artworkSize: artworkSize)
+                }
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(displayedAlbum.title)
+            .accessibilityHint("Opens album")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(album.title)
-        .accessibilityHint("Opens album")
+    }
+
+    private var clampedCrownOffset: Double {
+        min(max(crownOffset, 0), Double(max(albums.count - 1, 0)))
+    }
+
+    private var baseIndex: Int {
+        Int(clampedCrownOffset.rounded(.down))
+    }
+
+    private var overlayIndex: Int {
+        min(baseIndex + 1, max(albums.count - 1, 0))
+    }
+
+    private var displayedIndex: Int {
+        Int(clampedCrownOffset.rounded())
+    }
+
+    private var overlayLift: CGFloat {
+        CGFloat(1 - (clampedCrownOffset - Double(baseIndex)))
+    }
+
+    private func album(at index: Int) -> EnsembleMediaSummary? {
+        albums.indices.contains(index) ? albums[index] : albums.first
     }
 }
 
