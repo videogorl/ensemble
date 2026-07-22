@@ -1,6 +1,7 @@
 import XCTest
 import EnsembleDomain
 import EnsemblePlex
+import MediaPlayer
 @testable import EnsembleWatchCore
 
 final class EnsembleWatchCoreTests: XCTestCase {
@@ -165,6 +166,35 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .playing), "Playing on Apple Watch")
         XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .paused), "Paused on Apple Watch")
         XCTAssertEqual(WatchExperienceModel.playbackStatusMessage(for: .idle), "Ready")
+    }
+
+    @MainActor
+    func testNowPlayingInfoPublishesTrackPlaybackAndQueueMetadata() {
+        let track = EnsembleTrack(
+            id: "track",
+            title: "Track",
+            artistName: "Artist",
+            albumTitle: "Album",
+            duration: 180,
+            sourceKey: "plex:account:server:3"
+        )
+        let info = WatchPlaybackController.nowPlayingInfo(
+            for: track,
+            status: .playing,
+            elapsedTime: 12,
+            queueIndex: 2,
+            queueCount: 8
+        )
+
+        XCTAssertEqual(info[MPMediaItemPropertyTitle] as? String, track.title)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackRate] as? Double, 1)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double, 12)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackQueueIndex] as? Int, 2)
+        XCTAssertEqual(info[MPNowPlayingInfoPropertyPlaybackQueueCount] as? Int, 8)
+        XCTAssertEqual(
+            info[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String,
+            "\(track.sourceKey):\(track.id)"
+        )
     }
 
     @MainActor

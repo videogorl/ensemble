@@ -4,6 +4,10 @@ import EnsembleAPI
 import EnsembleDomain
 import EnsemblePlex
 import Foundation
+import MediaPlayer
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public enum WatchBootstrapState: Equatable, Sendable {
     case idle
@@ -315,14 +319,34 @@ public final class WatchPlaybackController: ObservableObject {
     private var currentItem: AVPlayerItem?
     private var preloadedItem: AVPlayerItem?
     private var preloadedTrack: EnsembleTrack?
+    private var nowPlayingArtwork: MPMediaItemArtwork?
+    private var queueIndex: Int?
+    private var queueCount = 0
+    #if os(watchOS)
+    private var audioSessionCancellables = Set<AnyCancellable>()
+    private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
+    private var shouldResumeAfterInterruption = false
+    #endif
     var playbackEndedHandler: (() -> Void)?
     var playbackAdvancedHandler: ((EnsembleTrack) -> Void)?
+    var playNextHandler: (() -> Void)?
+    var playPreviousHandler: (() -> Void)?
 
-    public init() {}
+    public init() {
+        #if os(watchOS)
+        observeAudioSession()
+        configureRemoteCommands()
+        #endif
+    }
 
     deinit {
         MainActor.assumeIsolated {
             tearDownPlaybackObservers()
+            #if os(watchOS)
+            for (command, target) in remoteCommandTargets {
+                command.removeTarget(target)
+            }
+            #endif
         }
     }
 
@@ -346,16 +370,19 @@ public final class WatchPlaybackController: ObservableObject {
         currentItem = nil
         preloadedItem = nil
         preloadedTrack = nil
+        nowPlayingArtwork = nil
         currentTrack = track
         currentTime = 0
         errorMessage = nil
         status = .loading
+        updateNowPlayingInfo()
     }
 
     func fail(track: EnsembleTrack, error: Error) {
         guard currentTrack == track else { return }
         status = .failed
         errorMessage = error.localizedDescription
+        updateNowPlayingInfo()
     }
 
     public func play(track: EnsembleTrack, url: URL) {
@@ -403,6 +430,7 @@ public final class WatchPlaybackController: ObservableObject {
         if status == .playing {
             player.pause()
             status = .paused
+            updateNowPlayingInfo()
         } else {
             player.play()
         }
@@ -412,6 +440,7 @@ public final class WatchPlaybackController: ObservableObject {
         guard let player else { return }
         player.seek(to: .zero)
         currentTime = 0
+        updateNowPlayingInfo()
         if status != .playing {
             player.play()
         }
@@ -429,9 +458,27 @@ public final class WatchPlaybackController: ObservableObject {
         currentItem = nil
         preloadedItem = nil
         preloadedTrack = nil
+        nowPlayingArtwork = nil
+        currentTrack = nil
         currentTime = 0
+        errorMessage = nil
         status = .idle
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
+
+    func updateQueue(index: Int?, count: Int) {
+        queueIndex = index
+        queueCount = count
+        updateNowPlayingInfo()
+    }
+
+    #if canImport(UIKit)
+    public func setNowPlayingArtwork(_ image: UIImage, for track: EnsembleTrack) {
+        guard currentTrack == track else { return }
+        nowPlayingArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        updateNowPlayingInfo()
+    }
+    #endif
 
     private func start(_ player: AVQueuePlayer) {
         #if os(watchOS)
@@ -487,6 +534,7 @@ public final class WatchPlaybackController: ObservableObject {
                     @unknown default:
                         break
                     }
+                    self.updateNowPlayingInfo()
                 }
             }
             .store(in: &cancellables)
@@ -517,6 +565,7 @@ public final class WatchPlaybackController: ObservableObject {
                     guard player.currentItem === item else { return }
                     self.status = .failed
                     self.errorMessage = item.error?.localizedDescription ?? "Playback failed."
+                    self.updateNowPlayingInfo()
                 }
             }
             .store(in: &cancellables)
@@ -528,6 +577,7 @@ public final class WatchPlaybackController: ObservableObject {
                     let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
                     self.status = .failed
                     self.errorMessage = error?.localizedDescription ?? "Playback failed."
+                    self.updateNowPlayingInfo()
                 }
             }
             .store(in: &cancellables)
@@ -539,6 +589,7 @@ public final class WatchPlaybackController: ObservableObject {
             currentItem = nil
             currentTime = 0
             status = .idle
+            updateNowPlayingInfo()
             playbackEndedHandler?()
             return
         }
@@ -551,9 +602,139 @@ public final class WatchPlaybackController: ObservableObject {
         guard preloadedItem === item, let track = preloadedTrack else { return }
         preloadedItem = nil
         preloadedTrack = nil
+        nowPlayingArtwork = nil
         currentTrack = track
+        updateNowPlayingInfo()
         playbackAdvancedHandler?(track)
     }
+
+    static func nowPlayingInfo(
+        for track: EnsembleTrack,
+        status: EnsemblePlaybackStatus,
+        elapsedTime: TimeInterval,
+        queueIndex: Int?,
+        queueCount: Int
+    ) -> [String: Any] {
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyPlaybackDuration: track.duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: min(max(elapsedTime, 0), track.duration),
+            MPNowPlayingInfoPropertyPlaybackRate: status == .playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyExternalContentIdentifier: "\(track.sourceKey):\(track.id)"
+        ]
+
+        if let artistName = track.artistName { info[MPMediaItemPropertyArtist] = artistName }
+        if let albumTitle = track.albumTitle { info[MPMediaItemPropertyAlbumTitle] = albumTitle }
+        if let trackNumber = track.trackNumber { info[MPMediaItemPropertyAlbumTrackNumber] = trackNumber }
+        if let discNumber = track.discNumber { info[MPMediaItemPropertyDiscNumber] = discNumber }
+        if let queueIndex { info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queueIndex }
+        if queueCount > 0 { info[MPNowPlayingInfoPropertyPlaybackQueueCount] = queueCount }
+        return info
+    }
+
+    private func updateNowPlayingInfo() {
+        #if os(watchOS)
+        updateRemoteCommandAvailability()
+        #endif
+        guard let currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info = Self.nowPlayingInfo(
+            for: currentTrack,
+            status: status,
+            elapsedTime: currentTime,
+            queueIndex: queueIndex,
+            queueCount: queueCount
+        )
+        if let nowPlayingArtwork { info[MPMediaItemPropertyArtwork] = nowPlayingArtwork }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    #if os(watchOS)
+    private func configureRemoteCommands() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.stopCommand.isEnabled = false
+
+        addTarget(to: commandCenter.playCommand) { [weak self] in self?.resume() }
+        addTarget(to: commandCenter.pauseCommand) { [weak self] in self?.pause() }
+        addTarget(to: commandCenter.togglePlayPauseCommand) { [weak self] in self?.togglePlayPause() }
+        addTarget(to: commandCenter.nextTrackCommand) { [weak self] in self?.playNextHandler?() }
+        addTarget(to: commandCenter.previousTrackCommand) { [weak self] in self?.playPreviousHandler?() }
+        updateRemoteCommandAvailability()
+    }
+
+    private func updateRemoteCommandAvailability() {
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.isEnabled = currentTrack != nil && status != .playing
+        commandCenter.pauseCommand.isEnabled = status == .playing
+        commandCenter.togglePlayPauseCommand.isEnabled = currentTrack != nil
+        commandCenter.nextTrackCommand.isEnabled = queueIndex.map { $0 + 1 < queueCount } == true
+        commandCenter.previousTrackCommand.isEnabled = currentTrack != nil
+    }
+
+    private func addTarget(to command: MPRemoteCommand, action: @escaping @MainActor () -> Void) {
+        let target = command.addTarget { _ in
+            Task { @MainActor in action() }
+            return .success
+        }
+        remoteCommandTargets.append((command, target))
+    }
+
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        center.publisher(for: AVAudioSession.interruptionNotification)
+            .sink { [weak self] notification in
+                Task { @MainActor in self?.handleAudioInterruption(notification) }
+            }
+            .store(in: &audioSessionCancellables)
+
+        center.publisher(for: AVAudioSession.routeChangeNotification)
+            .sink { [weak self] notification in
+                Task { @MainActor in self?.handleAudioRouteChange(notification) }
+            }
+            .store(in: &audioSessionCancellables)
+    }
+
+    private func handleAudioInterruption(_ notification: Notification) {
+        guard let rawType = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+        switch type {
+        case .began:
+            shouldResumeAfterInterruption = status == .playing
+            pause()
+        case .ended:
+            let rawOptions = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            if shouldResumeAfterInterruption,
+               AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume) {
+                resume()
+            }
+            shouldResumeAfterInterruption = false
+        @unknown default:
+            break
+        }
+    }
+
+    private func handleAudioRouteChange(_ notification: Notification) {
+        guard let rawReason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable else { return }
+        pause()
+    }
+
+    private func pause() {
+        guard let player, status != .paused else { return }
+        player.pause()
+        status = .paused
+        updateNowPlayingInfo()
+    }
+
+    private func resume() {
+        guard let player, status != .playing else { return }
+        player.play()
+    }
+    #endif
 
     private func tearDownPlaybackObservers() {
         if let timeObserver {
@@ -619,6 +800,12 @@ public final class WatchExperienceModel: ObservableObject {
         }
         playback.playbackAdvancedHandler = { [weak self] track in
             self?.didAdvancePlayback(to: track)
+        }
+        playback.playNextHandler = { [weak self] in
+            self?.playNext()
+        }
+        playback.playPreviousHandler = { [weak self] in
+            self?.playPrevious()
         }
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
@@ -797,6 +984,7 @@ public final class WatchExperienceModel: ObservableObject {
         playbackPrefetchTask?.cancel()
         let requestID = UUID()
         playbackRequestID = requestID
+        playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.tracks.count)
         playback.prepare(track: track)
         statusMessage = "Preparing stream"
 
@@ -841,6 +1029,7 @@ public final class WatchExperienceModel: ObservableObject {
     private func didAdvancePlayback(to track: EnsembleTrack) {
         guard playbackQueue.isNext(track) else { return }
         _ = playbackQueue.advance()
+        playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.tracks.count)
         statusMessage = "Playing on Apple Watch"
         preloadNextTrack()
     }

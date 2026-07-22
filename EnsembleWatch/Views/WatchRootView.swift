@@ -1,6 +1,7 @@
 import EnsembleDomain
 import EnsembleWatchCore
 import SwiftUI
+import WatchKit
 #if canImport(UIKit)
 import CoreGraphics
 import UIKit
@@ -15,12 +16,14 @@ struct WatchRootView: View {
     var body: some View {
         NavigationStack {
             rootContent
-                .navigationDestination(isPresented: $showsNowPlaying) {
-                    WatchNowPlayingView()
-                }
                 .navigationDestination(isPresented: showsPinDetail) {
                     selectedPinDestination
                 }
+        }
+        .sheet(isPresented: $showsNowPlaying) {
+            NavigationStack {
+                WatchNowPlayingView()
+            }
         }
         .environmentObject(experience)
         .environmentObject(experience.playback)
@@ -592,14 +595,13 @@ private struct WatchTrackCollectionDetailView: View {
         _ track: EnsembleTrack,
         @ViewBuilder row: () -> Row
     ) -> some View {
-        NavigationLink {
-            WatchNowPlayingView()
-                .task {
-                    experience.play(track, in: tracks)
-                }
+        Button {
+            experience.play(track, in: tracks)
+            openNowPlaying()
         } label: {
             row()
         }
+        .buttonStyle(.plain)
         .watchMediaSwipeActions(.track(track))
     }
 
@@ -1030,13 +1032,17 @@ private struct WatchNowPlayingView: View {
     @EnvironmentObject private var playback: WatchPlaybackController
     @EnvironmentObject private var remoteSession: WatchSessionModel
     @Environment(\.dismiss) private var dismiss
-    @State private var volume = 1.0
     @State private var artwork: UIImage?
     @State private var blurredArtwork: UIImage?
     @State private var showsMoreActions = false
 
     var body: some View {
         ZStack {
+            WatchSystemVolumeControl(origin: volumeControlOrigin)
+                .id(volumeControlOrigin)
+                .frame(width: 44, height: 44)
+                .accessibilityHidden(true)
+
             nowPlayingBackground
 
             if let presentation = currentPresentation {
@@ -1123,22 +1129,6 @@ private struct WatchNowPlayingView: View {
                     remoteSession.send(.cycleRepeatMode)
                 }
             }
-        }
-        .focusable(true)
-        .digitalCrownRotation(
-            $volume,
-            from: 0,
-            through: 1,
-            by: 0.02,
-            sensitivity: .medium,
-            isContinuous: true,
-            isHapticFeedbackEnabled: true
-        )
-        .onAppear {
-            volume = playback.volume
-        }
-        .onChange(of: volume) { _, newVolume in
-            playback.setVolume(newVolume)
         }
         .task(id: artworkIdentity) {
             await loadArtwork()
@@ -1299,6 +1289,10 @@ private struct WatchNowPlayingView: View {
         }
     }
 
+    private var volumeControlOrigin: WKInterfaceVolumeControl.Origin {
+        experience.playbackTarget == .local ? .local : .companion
+    }
+
     private var artworkIdentity: String {
         guard experience.playbackTarget == .local, let track = playback.currentTrack else {
             return "remote"
@@ -1315,6 +1309,7 @@ private struct WatchNowPlayingView: View {
               let image = await WatchArtworkLoader.image(from: url) else {
             return
         }
+        playback.setNowPlayingArtwork(image, for: track)
         artwork = image
         blurredArtwork = WatchArtworkLoader.blurred(image)
     }
@@ -1333,6 +1328,33 @@ private struct WatchNowPlayingPresentation {
     }
 }
 
+private struct WatchSystemVolumeControl: WKInterfaceObjectRepresentable {
+    let origin: WKInterfaceVolumeControl.Origin
+
+    func makeWKInterfaceObject(context: Context) -> WKInterfaceVolumeControl {
+        let control = WKInterfaceVolumeControl(origin: origin)
+        focus(control)
+        return control
+    }
+
+    func updateWKInterfaceObject(_ control: WKInterfaceVolumeControl, context: Context) {
+        focus(control)
+    }
+
+    static func dismantleWKInterfaceObject(
+        _ control: WKInterfaceVolumeControl,
+        coordinator: Void
+    ) {
+        control.resignFocus()
+    }
+
+    private func focus(_ control: WKInterfaceVolumeControl) {
+        DispatchQueue.main.async {
+            control.focus()
+        }
+    }
+}
+
 private extension View {
     func watchNowPlayingToolbar() -> some View {
         toolbar {
@@ -1344,8 +1366,12 @@ private extension View {
 }
 
 private struct WatchNowPlayingToolbarLink: View {
+    @Environment(\.watchOpenNowPlaying) private var openNowPlaying
+
     var body: some View {
-        NavigationLink(destination: WatchNowPlayingView()) {
+        Button {
+            openNowPlaying()
+        } label: {
             Image(systemName: "waveform")
         }
         .accessibilityLabel("Now Playing")

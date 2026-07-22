@@ -45,7 +45,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
-- **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, indexed library browsing, cross-server playlist merging, artwork-rich details and Now Playing, gapless album/playlist queues, crown volume, sleep-safe watch-local streaming, and phone remote control through WatchConnectivity
+- **Apple Watch App** — Standalone watchOS experience with iCloud Keychain/Plex Link setup, indexed library browsing, cross-server playlist merging, artwork-rich details and modal Now Playing, gapless album/playlist queues, system Crown volume and media controls, sleep-safe watch-local streaming, and phone remote control through WatchConnectivity
 
 **Management:**
 - **Account-Centric Music Sources** — Manage Plex accounts as sources, with account identifier subtitles, server-grouped library checklists, per-library sync/connection status, and an explicit “Force Full Sync” action in one detail screen
