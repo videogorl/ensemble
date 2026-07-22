@@ -54,7 +54,7 @@ public struct ScrollIndex: View {
             Color.clear
                 .frame(width: hitTargetWidth, height: indexHeight)
                 .contentShape(Rectangle())
-                .highPriorityGesture(
+                .simultaneousGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             guard let index = letterIndex(for: value.location.y),
