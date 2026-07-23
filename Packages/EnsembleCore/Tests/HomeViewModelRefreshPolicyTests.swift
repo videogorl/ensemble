@@ -520,6 +520,43 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(merged.filter { $0.title == "More by Artist" }.count, 2)
     }
 
+    func testFeedMergedHubsDeduplicateAccountAliasesForOnePhysicalLibrary() {
+        func hub(source: String) -> Hub {
+            Hub(
+                id: "\(source):music.recent.added.1",
+                title: "Recently Added",
+                type: "album",
+                items: [
+                    HubItem(
+                        id: "album-1",
+                        type: "album",
+                        title: source,
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source
+                    )
+                ]
+            )
+        }
+
+        let merged = HomeHubLoader.mergeAndGroupHubs([
+            hub(source: "plex:account-1:shared-server:library-1"),
+            hub(source: "plex:account-2:shared-server:library-1"),
+            hub(source: "plex:account-2:shared-server:library-2"),
+            hub(source: "plex:account-2:other-server:library-1"),
+        ])
+
+        XCTAssertEqual(
+            merged.first?.items.map(\.sourceCompositeKey),
+            [
+                "plex:account-1:shared-server:library-1",
+                "plex:account-2:other-server:library-1",
+                "plex:account-2:shared-server:library-2",
+            ]
+        )
+    }
+
     func testFeedPriorityHubOrderSurvivesPartialPayloads() {
         let suiteName = "HomeViewModelRefreshPolicyTests.feed-order.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

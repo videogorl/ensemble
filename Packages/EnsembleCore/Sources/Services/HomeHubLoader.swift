@@ -533,7 +533,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
             for hub in group {
                 for item in hub.items {
-                    let itemKey = "\(item.id):\(item.sourceCompositeKey)"
+                    let itemKey = Self.mergedHubItemKey(item)
                     if seenItems.insert(itemKey).inserted {
                         allItems.append(item)
                     }
@@ -569,6 +569,13 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         }
 
         return mergedResults
+    }
+
+    private static func mergedHubItemKey(_ item: HubItem) -> String {
+        guard let source = MediaSourceIdentity.parse(item.sourceCompositeKey) else {
+            return "\(item.sourceCompositeKey):\(item.id)"
+        }
+        return "\(source.type):\(source.serverId):\(source.libraryId ?? ""):\(item.id)"
     }
 }
 
