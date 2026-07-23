@@ -521,10 +521,10 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     }
 
     func testFeedMergedHubsDeduplicateAccountAliasesForOnePhysicalLibrary() {
-        func hub(source: String) -> Hub {
+        func hub(source: String, lastViewedAt: TimeInterval) -> Hub {
             Hub(
-                id: "\(source):music.recent.added.1",
-                title: "Recently Added",
+                id: "\(source):music.recent.played.1",
+                title: "Recently Played Music",
                 type: "album",
                 items: [
                     HubItem(
@@ -534,24 +534,25 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
                         subtitle: nil,
                         thumbPath: nil,
                         year: nil,
-                        sourceCompositeKey: source
+                        sourceCompositeKey: source,
+                        lastViewedAt: Date(timeIntervalSince1970: lastViewedAt)
                     )
                 ]
             )
         }
 
         let merged = HomeHubLoader.mergeAndGroupHubs([
-            hub(source: "plex:account-1:shared-server:library-1"),
-            hub(source: "plex:account-2:shared-server:library-1"),
-            hub(source: "plex:account-2:shared-server:library-2"),
-            hub(source: "plex:account-2:other-server:library-1"),
+            hub(source: "plex:account-1:shared-server:library-1", lastViewedAt: 100),
+            hub(source: "plex:account-2:shared-server:library-1", lastViewedAt: 300),
+            hub(source: "plex:account-2:shared-server:library-2", lastViewedAt: 200),
+            hub(source: "plex:account-2:other-server:library-1", lastViewedAt: 400),
         ])
 
         XCTAssertEqual(
             merged.first?.items.map(\.sourceCompositeKey),
             [
-                "plex:account-1:shared-server:library-1",
                 "plex:account-2:other-server:library-1",
+                "plex:account-2:shared-server:library-1",
                 "plex:account-2:shared-server:library-2",
             ]
         )

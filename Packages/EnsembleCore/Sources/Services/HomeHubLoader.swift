@@ -333,7 +333,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                                 let type = item.type?.lowercased() ?? ""
                                 return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
                             }
-                            hubItems = Array(filteredMetadata.prefix(12)).map {
+                            hubItems = filteredMetadata.map {
                                 HubItem(from: $0, sourceKey: task.sourceKey)
                             }
                         }
@@ -528,35 +528,21 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 continue
             }
 
-            var allItems: [HubItem] = []
-            var seenItems = Set<String>()
+            var itemsByKey: [String: HubItem] = [:]
 
             for hub in group {
                 for item in hub.items {
                     let itemKey = Self.mergedHubItemKey(item)
-                    if seenItems.insert(itemKey).inserted {
-                        allItems.append(item)
+                    if let existing = itemsByKey[itemKey],
+                       !Self.isHigherPriority(item, than: existing, hubType: hubType) {
+                        continue
                     }
+                    itemsByKey[itemKey] = item
                 }
             }
 
-            let usesLastViewedAt = hubType == "music.recent.played" || hubType == "music.popular"
-            allItems.sort {
-                let leftViewCount = $0.viewCount ?? 0
-                let rightViewCount = $1.viewCount ?? 0
-                if hubType == "music.popular", leftViewCount != rightViewCount {
-                    return leftViewCount > rightViewCount
-                }
-
-                let leftDate = usesLastViewedAt
-                    ? $0.lastViewedAt ?? .distantPast
-                    : $0.dateAdded ?? .distantPast
-                let rightDate = usesLastViewedAt
-                    ? $1.lastViewedAt ?? .distantPast
-                    : $1.dateAdded ?? .distantPast
-                if leftDate != rightDate { return leftDate > rightDate }
-                return "\($0.sourceCompositeKey):\($0.id)" < "\($1.sourceCompositeKey):\($1.id)"
-            }
+            var allItems = Array(itemsByKey.values)
+            allItems.sort { Self.isHigherPriority($0, than: $1, hubType: hubType) }
 
             let mergedHub = Hub(
                 id: "\(mergesAcrossServers ? Self.feedOrderKey : serverKey(firstHub.id)):merged:\(hubType):\(normalizedTitle)",
@@ -569,6 +555,20 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         }
 
         return mergedResults
+    }
+
+    private static func isHigherPriority(_ lhs: HubItem, than rhs: HubItem, hubType: String) -> Bool {
+        let leftViewCount = lhs.viewCount ?? 0
+        let rightViewCount = rhs.viewCount ?? 0
+        if hubType == "music.popular", leftViewCount != rightViewCount {
+            return leftViewCount > rightViewCount
+        }
+
+        let usesLastViewedAt = hubType == "music.recent.played" || hubType == "music.popular"
+        let leftDate = usesLastViewedAt ? lhs.lastViewedAt ?? .distantPast : lhs.dateAdded ?? .distantPast
+        let rightDate = usesLastViewedAt ? rhs.lastViewedAt ?? .distantPast : rhs.dateAdded ?? .distantPast
+        if leftDate != rightDate { return leftDate > rightDate }
+        return "\(lhs.sourceCompositeKey):\(lhs.id)" < "\(rhs.sourceCompositeKey):\(rhs.id)"
     }
 
     private static func mergedHubItemKey(_ item: HubItem) -> String {
