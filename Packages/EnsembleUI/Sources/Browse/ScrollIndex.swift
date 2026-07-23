@@ -7,6 +7,10 @@ public struct ScrollIndex: View {
     let letters: [String]
     @Binding var currentLetter: String?
     let onLetterTap: (String) -> Void
+
+    #if os(iOS)
+    @StateObject private var scrollInterrupter = ScrollIndexScrollInterrupter()
+    #endif
     
     @State private var dragLetter: String?
     private let verticalPadding = EnsembleScaffold.ScrollIndex.verticalPadding
@@ -69,6 +73,12 @@ public struct ScrollIndex: View {
                 .accessibilityHidden(true)
         }
         .padding(.trailing, EnsembleDesign.Spacing.none)
+        #if os(iOS)
+        .background {
+            ScrollIndexScrollProbe(interrupter: scrollInterrupter)
+                .allowsHitTesting(false)
+        }
+        #endif
     }
 
     private var indexHeight: CGFloat {
@@ -83,6 +93,9 @@ public struct ScrollIndex: View {
         guard letter != dragLetter else { return }
 
         dragLetter = letter
+        #if os(iOS)
+        scrollInterrupter.stopDeceleration()
+        #endif
         onLetterTap(letter)
 
         #if os(iOS)
@@ -123,6 +136,48 @@ public struct ScrollIndex: View {
         return min(max(containingSlot, 0), letterCount - 1)
     }
 }
+
+#if os(iOS)
+@MainActor
+private final class ScrollIndexScrollInterrupter: ObservableObject {
+    weak var probeView: UIView?
+
+    func stopDeceleration() {
+        guard let probeView,
+              let window = probeView.window else { return }
+
+        let point = probeView.convert(
+            CGPoint(x: -1, y: probeView.bounds.midY),
+            to: window
+        )
+        var candidate = window.hitTest(point, with: nil)
+
+        while let view = candidate {
+            if let scrollView = view as? UIScrollView {
+                guard scrollView.isDecelerating, scrollView.isScrollEnabled else { return }
+                scrollView.isScrollEnabled = false
+                scrollView.isScrollEnabled = true
+                return
+            }
+            candidate = view.superview
+        }
+    }
+}
+
+private struct ScrollIndexScrollProbe: UIViewRepresentable {
+    let interrupter: ScrollIndexScrollInterrupter
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        interrupter.probeView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        interrupter.probeView = uiView
+    }
+}
+#endif
 
 public enum ScrollIndexPlacement {
     case bottomChrome
