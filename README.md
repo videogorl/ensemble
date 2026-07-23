@@ -16,6 +16,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Hub-Based Home Screen** — Personalized sections: Recently Added, Recently Played, Most Played, etc.
   - Horizontally—scrolling hub sections with type-specific card layouts
   - Offline-first loading with cached hub data
+  - Recently Added, Recent Plays, and Most Played merge across enabled libraries and servers using Plex timestamps and play counts
   - Async DetailLoader components for smooth navigation
   - Intelligent fallback from section hubs to global hubs
   - **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to-default

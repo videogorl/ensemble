@@ -26,7 +26,7 @@ final class ModelMappersTests: XCTestCase {
         XCTAssertEqual(album.sourceScopedID, "plex:account:server:library||album-1")
     }
 
-    func testPlexHubAlbumMapperPreservesSourceIdentityForRelatedAlbums() throws {
+    func testPlexHubAlbumMapperPreservesSourceIdentityAndOrderingMetadata() throws {
         let data = Data("""
         {
             "ratingKey": "album-2",
@@ -36,16 +36,23 @@ final class ModelMappersTests: XCTestCase {
             "parentRatingKey": "artist-2",
             "parentTitle": "Artist Two",
             "thumb": "/library/metadata/album-2/thumb",
-            "leafCount": 9
+            "leafCount": 9,
+            "addedAt": 100,
+            "lastViewedAt": 200,
+            "viewCount": 3
         }
         """.utf8)
         let hubAlbum = try JSONDecoder().decode(PlexHubMetadata.self, from: data)
 
         let album = Album(from: hubAlbum, sourceKey: "plex:account:server:library")
+        let hubItem = HubItem(from: hubAlbum, sourceKey: "plex:account:server:library")
 
         XCTAssertEqual(album.sourceCompositeKey, "plex:account:server:library")
         XCTAssertEqual(album.artistRatingKey, "artist-2")
         XCTAssertEqual(album.sourceScopedID, "plex:account:server:library||album-2")
+        XCTAssertEqual(hubItem.addedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(hubItem.lastViewedAt, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(hubItem.viewCount, 3)
     }
 
     func testTrackMapperReadsPersistedStreamId() async throws {

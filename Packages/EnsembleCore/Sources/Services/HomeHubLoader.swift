@@ -182,7 +182,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
         persistFailedHubKeys(updatedFailedHubKeys)
 
-        let mergedHubs = mergeAndGroupHubs(collectedHubs)
+        let mergedHubs = Self.mergeAndGroupHubs(collectedHubs)
         EnsembleLogger.debug(
             "🏠 Hub loader merged result count=\(mergedHubs.count)"
         )
@@ -484,7 +484,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         hubOrderManager.migrateOrder(remapping: remapping, for: sourceKey)
     }
 
-    private func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
+    static func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
         func serverKey(_ hubId: String) -> String {
             MediaSourceIdentity.serverSourceKey(from: hubId) ?? "global"
         }
@@ -493,7 +493,11 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         var groupOrder: [String] = []
 
         for hub in hubs {
-            let groupingKey = "\(serverKey(hub.id))|\(Self.hubTypeIdentifier(from: hub.id))|\(Self.normalizeHubTitle(hub.title))"
+            let hubType = Self.hubTypeIdentifier(from: hub.id)
+            let mergesAcrossServers = hubType == "music.recent.added"
+                || hubType == "music.recent.played"
+                || hubType == "music.popular"
+            let groupingKey = "\(mergesAcrossServers ? "global" : serverKey(hub.id))|\(hubType)|\(Self.normalizeHubTitle(hub.title))"
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
                 groupOrder.append(groupingKey)
@@ -533,9 +537,21 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 }
             }
 
+            let hubType = Self.hubTypeIdentifier(from: firstHub.id)
+            let usesLastViewedAt = hubType == "music.recent.played" || hubType == "music.popular"
             allItems.sort {
-                let leftDate = $0.dateAdded ?? .distantPast
-                let rightDate = $1.dateAdded ?? .distantPast
+                let leftViewCount = $0.viewCount ?? 0
+                let rightViewCount = $1.viewCount ?? 0
+                if hubType == "music.popular", leftViewCount != rightViewCount {
+                    return leftViewCount > rightViewCount
+                }
+
+                let leftDate = usesLastViewedAt
+                    ? $0.lastViewedAt ?? .distantPast
+                    : $0.dateAdded ?? .distantPast
+                let rightDate = usesLastViewedAt
+                    ? $1.lastViewedAt ?? .distantPast
+                    : $1.dateAdded ?? .distantPast
                 if leftDate != rightDate { return leftDate > rightDate }
                 return "\($0.sourceCompositeKey):\($0.id)" < "\($1.sourceCompositeKey):\($1.id)"
             }

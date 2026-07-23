@@ -437,6 +437,52 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.orderedHubs.map(\.id), [cachedHub.id])
     }
 
+    func testFeedMergesPriorityHubsAcrossServersUsingPlexOrderingMetadata() {
+        func item(
+            _ id: String,
+            source: String,
+            addedAt: TimeInterval? = nil,
+            lastViewedAt: TimeInterval? = nil,
+            viewCount: Int? = nil
+        ) -> HubItem {
+            HubItem(
+                id: id,
+                type: "album",
+                title: id,
+                subtitle: nil,
+                thumbPath: nil,
+                year: nil,
+                sourceCompositeKey: source,
+                addedAt: addedAt.map(Date.init(timeIntervalSince1970:)),
+                lastViewedAt: lastViewedAt.map(Date.init(timeIntervalSince1970:)),
+                viewCount: viewCount
+            )
+        }
+
+        let firstSource = "plex:account-1:server-1:library-1"
+        let secondSource = "plex:account-2:server-2:library-2"
+        let hubs = [
+            Hub(id: "\(firstSource):music.recent.added.1", title: "Recently Added in One", type: "album", items: [item("added-old", source: firstSource, addedAt: 100)]),
+            Hub(id: "\(secondSource):music.recent.added.2", title: "Recently Added in Two", type: "album", items: [item("added-new", source: secondSource, addedAt: 300)]),
+            Hub(id: "\(firstSource):music.recent.played.1", title: "Recently Played Music", type: "album", items: [item("played-new", source: firstSource, lastViewedAt: 400)]),
+            Hub(id: "\(secondSource):music.recent.played.2", title: "Recently Played Music", type: "album", items: [item("played-old", source: secondSource, lastViewedAt: 200)]),
+            Hub(id: "\(firstSource):music.popular.1", title: "Most Played in June", type: "album", items: [item("popular-four", source: firstSource, lastViewedAt: 500, viewCount: 4)]),
+            Hub(id: "\(secondSource):music.popular.2", title: "Most Played in July", type: "album", items: [
+                item("popular-nine-old", source: secondSource, lastViewedAt: 100, viewCount: 9),
+                item("popular-nine-new", source: secondSource, lastViewedAt: 300, viewCount: 9),
+            ]),
+            Hub(id: "\(firstSource):music.recent.artist.1", title: "More by Artist", type: "album", items: [item("artist-one", source: firstSource)]),
+            Hub(id: "\(secondSource):music.recent.artist.2", title: "More by Artist", type: "album", items: [item("artist-two", source: secondSource)]),
+        ]
+
+        let merged = HomeHubLoader.mergeAndGroupHubs(hubs)
+
+        XCTAssertEqual(merged.first { $0.title == "Recently Added" }?.items.map(\.id), ["added-new", "added-old"])
+        XCTAssertEqual(merged.first { $0.title == "Recently Played Music" }?.items.map(\.id), ["played-new", "played-old"])
+        XCTAssertEqual(merged.first { $0.title == "Most Played" }?.items.map(\.id), ["popular-nine-new", "popular-nine-old", "popular-four"])
+        XCTAssertEqual(merged.filter { $0.title == "More by Artist" }.count, 2)
+    }
+
     private func makeSourceIdentifier() -> MusicSourceIdentifier {
         MusicSourceIdentifier(
             type: .plex,

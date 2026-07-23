@@ -1147,6 +1147,9 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
     public let thumbPath: String?
     public let year: Int?
     public let sourceCompositeKey: String
+    public let addedAt: Date?
+    public let lastViewedAt: Date?
+    public let viewCount: Int?
 
     // Reference to actual domain object
     public let album: Album?
@@ -1161,7 +1164,7 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
 
     /// Helper to get the date added from the underlying media object
     public var dateAdded: Date? {
-        album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
+        addedAt ?? album?.dateAdded ?? track?.dateAdded ?? artist?.dateAdded ?? playlist?.dateAdded
     }
 
     public init(
@@ -1172,6 +1175,9 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
         thumbPath: String?,
         year: Int?,
         sourceCompositeKey: String,
+        addedAt: Date? = nil,
+        lastViewedAt: Date? = nil,
+        viewCount: Int? = nil,
         album: Album? = nil,
         track: Track? = nil,
         artist: Artist? = nil,
@@ -1184,6 +1190,9 @@ public struct HubItem: Identifiable, Sendable, Equatable, Codable {
         self.thumbPath = thumbPath
         self.year = year
         self.sourceCompositeKey = sourceCompositeKey
+        self.addedAt = addedAt
+        self.lastViewedAt = lastViewedAt
+        self.viewCount = viewCount
         self.album = album
         self.track = track
         self.artist = artist
