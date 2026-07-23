@@ -19,7 +19,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
   - Recently Added, Recent Plays, and Most Played merge across enabled libraries and servers using Plex timestamps and play counts
   - Async DetailLoader components for smooth navigation
   - Intelligent fallback from section hubs to global hubs
-  - **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to-default
+  - **Customizable Hub Order** — Drag-to-reorder the combined Feed with reset-to-default
 - **Favorites** — Quick access to your highly-rated tracks (4+ stars)
 - **Rich Metadata** — Browse by artists, albums, genres, playlists with beautiful artwork
 - **StageFlow** — Immersive landscape browsing with a centered stage, snapping, and slide-out track details
@@ -252,7 +252,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [x] watchOS standalone authentication, browsing, and independent playback
 - [ ] watchOS manual downloads
 - [x] **Hub-Based Home Screen** — Personalized content discovery (Recently Added, Recently Played, etc.)
-- [x] **Customizable Hub Order** — Drag-to-reorder hub sections per music source with reset-to—default
+- [x] **Customizable Hub Order** — Drag-to-reorder the combined Feed with reset-to—default
 - [x] **StageFlow** — Immersive landscape browsing with centered snapping, inward-facing side cards, and a slide-out track panel
 - [x] **Favorites System** — Quick access to highly-rated tracks
 - [x] **Advanced Filtering** — Multi-select genres/artists, year ranges, sort persistence

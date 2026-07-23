@@ -78,6 +78,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     private let hubOrderManager: HubOrderManager
 
     private static let failedHubKeysKey = "failedHubKeys"
+    static let feedOrderKey = "plex:feed:global"
 
     public init(
         accountManager: AccountManager,
@@ -103,13 +104,14 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         let filtered = accountManager.isSourceConfigurationAuthoritative && accountManager.hasAnySources
             ? Self.filterHubsToEnabledSources(cached, enabledSourceCompositeKeys: enabledSourceKeys)
             : cached
+        let merged = Self.mergeAndGroupHubs(filtered)
 
         EnsembleLogger.debug(
-            "🏠 Hub loader cache \(filtered.isEmpty ? "miss" : "hit") count=\(filtered.count)"
+            "🏠 Hub loader cache \(merged.isEmpty ? "miss" : "hit") count=\(merged.count)"
         )
 
         let orderedHubs = orderedSnapshot(
-            from: filtered,
+            from: merged,
             sourceContext: sourceContext,
             applySavedOrder: true,
             persistDefaultOrder: false
@@ -377,24 +379,20 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     ) -> [Hub] {
         guard !hubs.isEmpty else { return [] }
 
-        if let sourceKey = sourceContext.sourceKey, persistDefaultOrder {
-            let defaultHubs = hubOrderManager.hubs(for: sourceKey, in: hubs)
-            hubOrderManager.saveDefaultOrder(defaultHubs.map(\.id), for: sourceKey)
-            migrateHubOrderIfNeeded(for: sourceKey, currentHubs: defaultHubs)
+        if hubOrderManager.loadOrder(for: Self.feedOrderKey) == nil,
+           let legacySourceKey = sourceContext.sourceKey,
+           let legacyOrder = hubOrderManager.loadOrder(for: legacySourceKey) {
+            hubOrderManager.saveOrder(legacyOrder, for: Self.feedOrderKey)
+        }
+        migrateHubOrderIfNeeded(for: Self.feedOrderKey, currentHubs: hubs)
+
+        if persistDefaultOrder {
+            hubOrderManager.saveDefaultOrder(hubs.map(\.id), for: Self.feedOrderKey)
         }
 
-        guard let sourceKey = sourceContext.sourceKey else { return hubs }
-
-        let serverHubs = hubOrderManager.hubs(for: sourceKey, in: hubs)
-        let orderedServerHubs = applySavedOrder
-            ? hubOrderManager.applyOrder(to: serverHubs, for: sourceKey)
-            : hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
-
-        return hubOrderManager.replacingHubs(
-            for: sourceKey,
-            in: hubs,
-            with: orderedServerHubs
-        )
+        return applySavedOrder
+            ? hubOrderManager.applyOrder(to: hubs, for: Self.feedOrderKey)
+            : hubOrderManager.applyDefaultOrder(to: hubs, for: Self.feedOrderKey)
     }
 
     private static func filterHubsToEnabledSources(
@@ -432,6 +430,12 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             return hubIdentifier
         }
         return hubId
+    }
+
+    private static func mergesAcrossServers(_ hubType: String) -> Bool {
+        hubType == "music.recent.added"
+            || hubType == "music.recent.played"
+            || hubType == "music.popular"
     }
 
     private static func rawHubType(from hubId: String) -> String {
@@ -494,10 +498,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
         for hub in hubs {
             let hubType = Self.hubTypeIdentifier(from: hub.id)
-            let mergesAcrossServers = hubType == "music.recent.added"
-                || hubType == "music.recent.played"
-                || hubType == "music.popular"
-            let groupingKey = "\(mergesAcrossServers ? "global" : serverKey(hub.id))|\(hubType)|\(Self.normalizeHubTitle(hub.title))"
+            let groupingKey = "\(Self.mergesAcrossServers(hubType) ? "global" : serverKey(hub.id))|\(hubType)|\(Self.normalizeHubTitle(hub.title))"
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
                 groupOrder.append(groupingKey)
@@ -511,8 +512,10 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
             let firstHub = group[0]
             let normalizedTitle = Self.normalizeHubTitle(firstHub.title)
+            let hubType = Self.hubTypeIdentifier(from: firstHub.id)
+            let mergesAcrossServers = Self.mergesAcrossServers(hubType)
 
-            if group.count == 1 {
+            if group.count == 1, !mergesAcrossServers {
                 mergedResults.append(
                     Hub(
                         id: firstHub.id,
@@ -537,7 +540,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 }
             }
 
-            let hubType = Self.hubTypeIdentifier(from: firstHub.id)
             let usesLastViewedAt = hubType == "music.recent.played" || hubType == "music.popular"
             allItems.sort {
                 let leftViewCount = $0.viewCount ?? 0
@@ -557,7 +559,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             }
 
             let mergedHub = Hub(
-                id: "\(serverKey(firstHub.id)):merged:\(Self.hubTypeIdentifier(from: firstHub.id)):\(normalizedTitle)",
+                id: "\(mergesAcrossServers ? Self.feedOrderKey : serverKey(firstHub.id)):merged:\(hubType):\(normalizedTitle)",
                 title: normalizedTitle,
                 type: firstHub.type,
                 items: Array(allItems.prefix(40)),

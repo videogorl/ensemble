@@ -40,7 +40,6 @@ public final class HomeViewModel: ObservableObject {
     private var cachedSnapshotRestoreTask: Task<Void, Never>?
     private var loadTask: Task<Void, Never>?
     private var lastLoadTime: Date?
-    private var currentSourceKey: String?
     private var isViewVisible = false
     private var pendingAutoRefreshReasons = Set<AutoRefreshReason>()
     private var unfilteredHubs: [Hub] = []
@@ -241,7 +240,6 @@ public final class HomeViewModel: ObservableObject {
                 return
             }
 
-            currentSourceKey = snapshot.metadata.currentSourceKey
             currentSourceName = snapshot.metadata.currentSourceName
             appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: true)
             if isViewVisible || hubs.isEmpty {
@@ -302,7 +300,6 @@ public final class HomeViewModel: ObservableObject {
     private func restoreCachedHubs() async {
         do {
             let cachedSnapshot = try await hubLoader.loadCachedSnapshot()
-            currentSourceKey = cachedSnapshot.metadata.currentSourceKey
             currentSourceName = cachedSnapshot.metadata.currentSourceName
             lastFeedCacheRefreshDate = cachedSnapshot.metadata.cacheFetchedAt
             let cacheIsStale = isCachedFeedStale(cachedSnapshot.metadata)
@@ -741,28 +738,8 @@ public final class HomeViewModel: ObservableObject {
 
     // MARK: - Edit Mode
 
-    /// Determine the primary source key (first enabled server) and its display name.
-    /// Source key format matches the first 3 components of hub IDs: "plex:{acct}:{srv}"
+    /// Use one ordering scope for the combined Feed shown by the editor.
     private func updateCurrentSource() {
-        let servers = accountManager.plexAccounts.flatMap { $0.servers }
-        let hasMultipleServers = servers.count > 1
-
-        for account in accountManager.plexAccounts {
-            for server in account.servers {
-                let enabledLibraries = server.libraries.filter { $0.isEnabled }
-                if !enabledLibraries.isEmpty {
-                    currentSourceKey = "plex:\(account.id):\(server.id)"
-                    if hasMultipleServers {
-                        currentSourceName = "Editing Music (on \(server.name))"
-                    } else {
-                        currentSourceName = "Editing Music"
-                    }
-                    return
-                }
-            }
-        }
-
-        currentSourceKey = nil
         currentSourceName = "Editing Music"
     }
 
@@ -795,7 +772,6 @@ public final class HomeViewModel: ObservableObject {
         cachedSnapshotRestoreTask?.cancel()
         cachedSnapshotRestoreTask = nil
         appReadinessCoordinator?.updateCachedFeedReadiness(hasContent: false)
-        currentSourceKey = nil
         currentSourceName = ""
         initialLoadCompleted = true
         hubLoader.clearFailedHubKeys()
@@ -870,31 +846,22 @@ public final class HomeViewModel: ObservableObject {
         }
     }
     
-    /// Save the hub order for the current source
+    /// Save the order of the combined Feed.
     private func saveHubOrder(_ orderedHubs: [Hub]) async {
-        updateCurrentSource()
-        guard let sourceKey = currentSourceKey else { return }
-        
-        let hubIds = hubOrderManager.hubs(for: sourceKey, in: orderedHubs).map { $0.id }
-        hubOrderManager.saveOrder(hubIds, for: sourceKey)
+        hubOrderManager.saveOrder(orderedHubs.map(\.id), for: HomeHubLoader.feedOrderKey)
     }
     
-    /// Reset the hub order to Plex's default for the current source
+    /// Reset the combined Feed to Plex's default order.
     public func resetOrder() {
         updateCurrentSource()
-        guard let sourceKey = currentSourceKey else { return }
-        
-        EnsembleLogger.debug("[HubOrder] Reset requested for sourceKey=\(sourceKey)")
-        hubOrderManager.resetOrder(for: sourceKey)
+        EnsembleLogger.debug("[HubOrder] Reset requested for sourceKey=\(HomeHubLoader.feedOrderKey)")
+        hubOrderManager.resetOrder(for: HomeHubLoader.feedOrderKey)
 
         // Apply cached default order immediately
-        let serverHubs = hubOrderManager.hubs(for: sourceKey, in: unfilteredHubs)
-        EnsembleLogger.debug("[HubOrder] Applying default order to \(serverHubs.count) server hubs")
-        let orderedServerHubs = hubOrderManager.applyDefaultOrder(to: serverHubs, for: sourceKey)
-        let orderedSnapshot = hubOrderManager.replacingHubs(
-            for: sourceKey,
-            in: unfilteredHubs,
-            with: orderedServerHubs
+        EnsembleLogger.debug("[HubOrder] Applying default order to \(unfilteredHubs.count) Feed hubs")
+        let orderedSnapshot = hubOrderManager.applyDefaultOrder(
+            to: unfilteredHubs,
+            for: HomeHubLoader.feedOrderKey
         )
         Task { @MainActor [weak self] in
             await self?.applyHubSnapshot(orderedSnapshot, source: "resetOrder")

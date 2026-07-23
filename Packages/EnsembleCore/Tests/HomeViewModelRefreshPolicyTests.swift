@@ -437,6 +437,43 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.orderedHubs.map(\.id), [cachedHub.id])
     }
 
+    func testFeedMergesCachedPriorityHubsBeforePublishing() async throws {
+        func hub(_ identifier: String, title: String, source: String) -> Hub {
+            Hub(
+                id: "\(source):\(identifier)",
+                title: title,
+                type: "album",
+                items: [
+                    HubItem(
+                        id: identifier + source,
+                        type: "album",
+                        title: title,
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source
+                    )
+                ]
+            )
+        }
+
+        let firstSource = "plex:account-1:server-1:library-1"
+        let secondSource = "plex:account-2:server-2:library-2"
+        let cachedHubs = [
+            hub("music.recent.added.1", title: "Recently Added in One", source: firstSource),
+            hub("music.recent.added.2", title: "Recently Added in Two", source: secondSource),
+            hub("music.recent.played.1", title: "Recently Played Music", source: firstSource),
+            hub("music.recent.played.2", title: "Recently Played Music", source: secondSource),
+            hub("music.popular.1", title: "Most Played in June", source: firstSource),
+            hub("music.popular.2", title: "Most Played in July", source: secondSource),
+        ]
+
+        let snapshot = try await makeHarness(cachedHubs: cachedHubs).hubLoader.loadCachedSnapshot()
+
+        XCTAssertEqual(snapshot.orderedHubs.map(\.title), ["Recently Added", "Recently Played Music", "Most Played"])
+        XCTAssertEqual(snapshot.orderedHubs.map(\.items.count), [2, 2, 2])
+    }
+
     func testFeedMergesPriorityHubsAcrossServersUsingPlexOrderingMetadata() {
         func item(
             _ id: String,
@@ -481,6 +518,51 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(merged.first { $0.title == "Recently Played Music" }?.items.map(\.id), ["played-new", "played-old"])
         XCTAssertEqual(merged.first { $0.title == "Most Played" }?.items.map(\.id), ["popular-nine-new", "popular-nine-old", "popular-four"])
         XCTAssertEqual(merged.filter { $0.title == "More by Artist" }.count, 2)
+    }
+
+    func testFeedPriorityHubOrderSurvivesPartialPayloads() {
+        let suiteName = "HomeViewModelRefreshPolicyTests.feed-order.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let orderManager = HubOrderManager(userDefaults: defaults)
+
+        func hub(_ identifier: String, title: String, source: String) -> Hub {
+            Hub(
+                id: "\(source):\(identifier)",
+                title: title,
+                type: "album",
+                items: [
+                    HubItem(
+                        id: identifier + source,
+                        type: "album",
+                        title: title,
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source
+                    )
+                ]
+            )
+        }
+
+        let firstSource = "plex:account-1:server-1:library-1"
+        let secondSource = "plex:account-2:server-2:library-2"
+        let initial = HomeHubLoader.mergeAndGroupHubs([
+            hub("music.recent.added.1", title: "Recently Added in One", source: firstSource),
+            hub("music.recent.added.2", title: "Recently Added in Two", source: secondSource),
+            hub("music.popular.1", title: "Most Played in June", source: firstSource),
+            hub("music.popular.2", title: "Most Played in July", source: secondSource),
+        ])
+        orderManager.saveOrder(initial.reversed().map(\.id), for: "plex:feed:global")
+
+        let refreshed = HomeHubLoader.mergeAndGroupHubs([
+            hub("music.recent.added.2", title: "Recently Added in Two", source: secondSource),
+            hub("music.popular.2", title: "Most Played in August", source: secondSource),
+        ])
+        let ordered = orderManager.applyOrder(to: refreshed, for: "plex:feed:global")
+
+        XCTAssertEqual(ordered.map(\.title), ["Most Played", "Recently Added"])
+        XCTAssertTrue(ordered.allSatisfy { $0.id.hasPrefix("plex:feed:global:merged:") })
     }
 
     private func makeSourceIdentifier() -> MusicSourceIdentifier {
