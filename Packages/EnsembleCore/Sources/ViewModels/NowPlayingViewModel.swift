@@ -1235,6 +1235,7 @@ public final class NowPlayingViewModel: ObservableObject {
             return
         }
 
+        logQueueReplacement("queueReplacementConfirmed", action: pendingQueueReplacement)
         self.pendingQueueReplacement = nil
         isQueueReplacementConfirmationPresented = false
         performPlayback(pendingQueueReplacement)
@@ -1242,6 +1243,9 @@ public final class NowPlayingViewModel: ObservableObject {
 
     /// Discards the replacement request and leaves the current queue intact.
     public func cancelQueueReplacement() {
+        if let pendingQueueReplacement {
+            logQueueReplacement("queueReplacementCancelled", action: pendingQueueReplacement)
+        }
         pendingQueueReplacement = nil
         isQueueReplacementConfirmationPresented = false
     }
@@ -1251,25 +1255,77 @@ public final class NowPlayingViewModel: ObservableObject {
         case play(tracks: [Track], startingAt: Int, context: PlaybackStartContext)
         case shuffle(tracks: [Track], context: PlaybackStartContext)
         case radio(tracks: [Track])
+
+        var journeyName: String {
+            switch self {
+            case .track: "track"
+            case .play: "play"
+            case .shuffle: "shuffle"
+            case .radio: "radio"
+            }
+        }
+
+        var origin: PlaybackStartOrigin {
+            switch self {
+            case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
+                context.origin
+            case .radio:
+                .appUI
+            }
+        }
     }
 
     private func requestPlayback(_ action: QueueReplacementAction) {
-        guard shouldConfirmQueueReplacement(for: action) else {
+        let queueProtected = playbackService.shouldConfirmQueueReplacement()
+        let requiresConfirmation = shouldConfirmQueueReplacement(
+            for: action,
+            queueProtected: queueProtected
+        )
+        logQueueReplacement(
+            "queueReplacementDecision",
+            action: action,
+            details: [
+                "queueProtected": "\(queueProtected)",
+                "requiresConfirmation": "\(requiresConfirmation)"
+            ]
+        )
+
+        guard requiresConfirmation else {
             performPlayback(action)
             return
         }
 
         pendingQueueReplacement = action
         isQueueReplacementConfirmationPresented = true
+        logQueueReplacement("queueReplacementConfirmationRequested", action: action)
     }
 
-    private func shouldConfirmQueueReplacement(for action: QueueReplacementAction) -> Bool {
+    private func shouldConfirmQueueReplacement(
+        for action: QueueReplacementAction,
+        queueProtected: Bool
+    ) -> Bool {
         switch action {
         case let .track(_, context), let .play(_, _, context), let .shuffle(_, context):
-            return context.origin == .appUI && playbackService.shouldConfirmQueueReplacement()
+            return context.origin == .appUI && queueProtected
         case .radio:
-            return playbackService.shouldConfirmQueueReplacement()
+            return queueProtected
         }
+    }
+
+    private func logQueueReplacement(
+        _ event: String,
+        action: QueueReplacementAction,
+        details: [String: String] = [:]
+    ) {
+        var journeyDetails = details
+        journeyDetails["action"] = action.journeyName
+        journeyDetails["origin"] = action.origin.rawValue
+        journeyDetails["queueCount"] = "\(playbackService.queue.count)"
+        UserJourneyLogger.log(
+            context: "playback",
+            event: event,
+            details: journeyDetails
+        )
     }
 
     private func performPlayback(_ action: QueueReplacementAction) {
