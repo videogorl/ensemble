@@ -922,6 +922,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Queue limiting: keep small lookahead of auto-generated next suggestions (5 tracks)
     private let maxQueueLookahead = 5 // Max number of future tracks to keep queued
+    #if os(iOS)
+        private var appleMusicPlaybackController: AppleMusicPlaybackControlling?
+    #endif
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
     private static let maxHistorySize = 100 // Cap for 2GB RAM devices
@@ -1099,6 +1102,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioAnalyzer()
         setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
+        setupAppleMusicPlayback()
     }
 
     init(
@@ -1137,6 +1141,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioAnalyzer()
         setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
+        setupAppleMusicPlayback()
     }
 
     deinit {
@@ -2022,7 +2027,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let wasActive = playbackState == .playing || playbackState == .buffering
         guard wasActive || reason == .user || reason == .system else { return }
 
-        audioEngine?.pause()
+        #if os(iOS)
+            if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
+                appleMusicPlaybackController?.pause()
+            } else {
+                audioEngine?.pause()
+            }
+        #else
+            audioEngine?.pause()
+        #endif
         playbackState = .paused
         isInterrupted = reason == .interruption
         updateNowPlayingInfo()
@@ -2810,6 +2823,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func resumeCore() {
         guard playbackState == .paused || playbackState == .buffering else { return }
 
+        #if os(iOS)
+            if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
+                Task { @MainActor [weak self] in
+                    do {
+                        try await self?.appleMusicPlaybackController?.resume()
+                        self?.playbackState = .playing
+                        self?.updateNowPlayingInfo()
+                    } catch {
+                        self?.playbackState = .failed(error.localizedDescription)
+                    }
+                }
+                return
+            }
+        #endif
+
         // Clear pre-buffer flag — user is taking action now
         pendingPreBufferTime = nil
 
@@ -2925,6 +2953,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if isInstrumentalModeActive {
             setInstrumentalMode(false)
         }
+
+        #if os(iOS)
+            if #available(iOS 18, *) { appleMusicPlaybackController?.stop() }
+        #endif
 
         // Cancel any in-flight transport work
         transportCoordinator.clear(removeDecisions: false)
@@ -3336,6 +3368,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         audioEngine?.cancelSmartMixTransition(continueIncoming: audioEngine?.hasPromotedSmartMixTransition == true)
         let effectiveDur = duration
         let clampedTime = effectiveDur > 0 ? max(0, min(time, effectiveDur)) : max(0, time)
+        #if os(iOS)
+            if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
+                appleMusicPlaybackController?.seek(to: clampedTime)
+                updatePlaybackTimes(rawTime: clampedTime)
+                updateNowPlayingInfo()
+                savePlaybackState()
+                return
+            }
+        #endif
         if let trackId = currentTrack?.playbackIdentity {
             PlaybackJourneyLogger.mark("seekRequested", trackId: trackId, detail: "time=\(String(format: "%.2f", clampedTime))")
         }
@@ -3864,6 +3905,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard let provider = await MainActor.run(body: {
             syncCoordinator.makeRadioProvider(for: sourceKey)
         }) else {
+            if await appendAppleMusicAutoplayFallback(for: seedTrack) { return }
             EnsembleLogger.debug("❌ Early return: makeRadioProvider returned nil for key: \(sourceKey)")
             EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
             return
@@ -3923,8 +3965,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             autoplayTracks = []
             // Mark recommendations as exhausted if API returns nothing
             recommendationsExhausted = true
+            _ = await appendAppleMusicAutoplayFallback(for: seedTrack)
         }
         EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
+    }
+
+    private func appendAppleMusicAutoplayFallback(for seed: Track) async -> Bool {
+        #if os(iOS)
+            guard #available(iOS 18, *),
+                  !seed.isAppleMusic,
+                  await MainActor.run(body: { syncCoordinator.accountManager.isAppleMusicEnabled })
+            else { return false }
+
+            guard let results = try? await AppleMusicCatalogSearch.search(
+                [seed.artistName, seed.title].compactMap { $0 }.joined(separator: " ")
+            ) else { return false }
+            let normalizedTitle = DisplayPlaylist.normalizedTitle(seed.title)
+            let normalizedArtist = DisplayPlaylist.normalizedTitle(seed.artistName ?? "")
+            let matches = results.tracks.filter {
+                DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle &&
+                    DisplayPlaylist.normalizedTitle($0.artistName ?? "") == normalizedArtist
+            }
+            guard matches.count == 1, let match = matches.first else { return false }
+            queue.append(makeQueueItem(track: match, source: .autoplay))
+            queueController.markAutoGeneratedTrack(id: match.playbackIdentity)
+            autoplayTracks = [match]
+            recommendationsExhausted = false
+            return true
+        #else
+            return false
+        #endif
     }
 
     public func enableRadio(tracks: [Track]) async {
@@ -4101,6 +4171,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             stop()
             return
         }
+
+        #if os(iOS)
+            if #available(iOS 18, *), queue[currentQueueIndex].track.isAppleMusic {
+                await playCurrentAppleMusicSegment(startTime: startTime)
+                endTrackTransitionBackgroundTask()
+                return
+            }
+            if #available(iOS 18, *) {
+                appleMusicPlaybackController?.stop()
+            }
+        #endif
 
         guard await MainActor.run(body: { self.prepareAudioEngineForPlaybackIfNeeded() }) else {
             endTrackTransitionBackgroundTask()
@@ -5113,6 +5194,121 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.invalidatePrefetchForQualityChange()
         }
     }
+
+    private func setupAppleMusicPlayback() {
+        #if os(iOS)
+            guard #available(iOS 18, *) else { return }
+            let controller = AppleMusicPlaybackController()
+            controller.onTrackChanged = { [weak self] identity in
+                Task { @MainActor in self?.handleAppleMusicTrackChanged(identity) }
+            }
+            controller.onTimeChanged = { [weak self] time in
+                Task { @MainActor in
+                    self?.updatePlaybackTimes(rawTime: time)
+                    self?.updateNowPlayingInfo()
+                }
+            }
+            controller.onEnded = { [weak self] in
+                Task { @MainActor in await self?.advanceAfterAppleMusicSegment() }
+            }
+            controller.onDynamicTrack = { [weak self] track in
+                Task { @MainActor in self?.handleAppleMusicRadioTrack(track) }
+            }
+            appleMusicPlaybackController = controller
+        #endif
+    }
+
+    #if os(iOS)
+        @available(iOS 18, *)
+        @MainActor
+        private func playCurrentAppleMusicSegment(startTime: TimeInterval?) async {
+            let segment = queue[currentQueueIndex...]
+                .prefix { $0.track.isAppleMusic }
+                .map(\.track)
+            guard !segment.isEmpty else { return }
+
+            audioEngine?.pause()
+            audioEngine?.clearScheduledFiles()
+            audioAnalyzer.pauseUpdates()
+            currentTrack = segment[0]
+            updatePlaybackTimes(rawTime: startTime ?? 0)
+            waveformHeights = []
+            frequencyBands = []
+            playbackState = .loading
+            updateNowPlayingInfo()
+
+            do {
+                try await appleMusicPlaybackController?.play(
+                    tracks: segment,
+                    smartMixEnabled: isSmartMixEnabled,
+                    startTime: startTime
+                )
+                playbackState = .playing
+                updateNowPlayingInfo()
+            } catch {
+                playbackState = .failed(error.localizedDescription)
+                updateNowPlayingInfo()
+            }
+        }
+
+        @available(iOS 18, *)
+        @MainActor
+        private func handleAppleMusicTrackChanged(_ identity: String) {
+            guard let index = queue.firstIndex(where: { $0.track.playbackIdentity == identity }),
+                  index != currentQueueIndex else { return }
+            if queue.indices.contains(currentQueueIndex) { recordToHistory(queue[currentQueueIndex]) }
+            currentQueueIndex = index
+            currentTrack = queue[index].track
+            updatePlaybackTimes(rawTime: 0)
+            playbackState = .playing
+            updateNowPlayingInfo()
+            savePlaybackState()
+        }
+
+        @available(iOS 18, *)
+        @MainActor
+        private func advanceAfterAppleMusicSegment() async {
+            let nextIndex = currentQueueIndex + 1
+            guard queue.indices.contains(nextIndex) else {
+                if isAutoplayEnabled, let seed = currentTrack {
+                    do {
+                        try await appleMusicPlaybackController?.startStation(
+                            seed: seed,
+                            smartMixEnabled: isSmartMixEnabled
+                        )
+                        recommendationsExhausted = false
+                    } catch {
+                        recommendationsExhausted = true
+                        stop()
+                    }
+                } else {
+                    stop()
+                }
+                return
+            }
+            recordToHistory(queue[currentQueueIndex])
+            currentQueueIndex = nextIndex
+            await playCurrentQueueItem(caller: "appleMusicSegmentEnded")
+            savePlaybackState()
+        }
+
+        @available(iOS 18, *)
+        @MainActor
+        private func handleAppleMusicRadioTrack(_ track: Track) {
+            if let existing = queue.firstIndex(where: { $0.track.playbackIdentity == track.playbackIdentity }) {
+                currentQueueIndex = existing
+            } else {
+                queue.append(makeQueueItem(track: track, source: .autoplay))
+                currentQueueIndex = queue.count - 1
+                queueController.markAutoGeneratedTrack(id: track.playbackIdentity)
+            }
+            currentTrack = track
+            updatePlaybackTimes(rawTime: 0)
+            playbackState = .playing
+            updateNowPlayingInfo()
+            savePlaybackState()
+        }
+    #endif
 
     /// When a download completes (or is removed), update matching queue items
     /// so they reflect the current localFilePath (downloaded vs streaming).

@@ -15,6 +15,7 @@ public struct SearchView: View {
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
     @State private var hasAnySources: Bool
+    @State private var hasAppleMusic: Bool
     @State private var isSyncing: Bool
     @State private var hasEnabledLibrariesState: Bool
     @State private var isRestoringCloudSources: Bool
@@ -43,6 +44,7 @@ public struct SearchView: View {
         self.nowPlayingVM = nowPlayingVM
         self.pinnedVM = pinnedVM ?? container.makePinnedViewModel()
         _hasAnySources = State(initialValue: container.accountManager.hasAnySources)
+        _hasAppleMusic = State(initialValue: container.accountManager.isAppleMusicEnabled)
         _isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
         _hasEnabledLibrariesState = State(
             initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
@@ -58,6 +60,19 @@ public struct SearchView: View {
 
     public var body: some View {
         let baseContent = VStack(spacing: EnsembleDesign.Spacing.none) {
+            #if os(iOS)
+            if hasAppleMusic {
+                Picker("Search", selection: $viewModel.scope) {
+                    ForEach(SearchScope.allCases, id: \.self) { scope in
+                        Text(scope.rawValue).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, EnsembleDesign.Spacing.sm)
+            }
+            #endif
+
             // Content - either explore or search results
             if viewModel.searchQuery.isEmpty {
                 exploreView
@@ -85,10 +100,17 @@ public struct SearchView: View {
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
         .onReceive(accountManager.$plexAccounts) { accounts in
-            let has = !accounts.isEmpty
+            let has = !accounts.isEmpty || accountManager.isAppleMusicEnabled
             if has != hasAnySources { hasAnySources = has }
             let enabledLibs = Self.computeHasEnabledLibraries(in: accounts)
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
+        }
+        .onReceive(accountManager.$isAppleMusicEnabled) { enabled in
+            hasAppleMusic = enabled
+            hasAnySources = accountManager.hasAnySources
+            if !enabled, viewModel.scope == .appleMusic {
+                viewModel.scope = .library
+            }
         }
         .onReceive(syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }

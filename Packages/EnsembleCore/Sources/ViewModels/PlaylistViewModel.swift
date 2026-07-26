@@ -841,11 +841,25 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': trackCount=\(cachedPlaylist.trackCount), playlistTracks=\(ptCount), items=\(loadedItems.count), tracks=\(tracks.count)")
             } else {
                 hasUnavailableTracks = false
-                if tracks.isEmpty {
+                #if os(iOS)
+                if playlist.sourceType == .appleMusic, #available(iOS 18, *) {
+                    let catalogTracks = try await syncCoordinator.getAppleMusicCatalogPlaylistTracks(
+                        playlistID: playlist.id
+                    )
+                    playlistItems = catalogTracks.enumerated().map { index, track in
+                        PlaylistItem(id: "catalog:\(index):\(track.sourceScopedID)", playlistItemID: nil, track: track)
+                    }
+                    tracks = catalogTracks
+                } else if tracks.isEmpty {
                     tracks = []
                 } else {
                     EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks while cached playlist is temporarily unavailable")
                 }
+                #else
+                if !tracks.isEmpty {
+                    EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks while cached playlist is temporarily unavailable")
+                }
+                #endif
             }
         } catch {
             self.error = error.localizedDescription
@@ -988,7 +1002,9 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public var canEditPlaylistItems: Bool {
-        !playlist.isSmart && !playlistItems.isEmpty && playlistItems.allSatisfy { $0.playlistItemID != nil }
+        !playlist.isSmart && !playlistItems.isEmpty && (
+            playlist.sourceType == .appleMusic || playlistItems.allSatisfy { $0.playlistItemID != nil }
+        )
     }
 
     @discardableResult

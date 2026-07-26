@@ -123,6 +123,12 @@ public final class ShareService: ObservableObject {
     public func prepareTrackLinkPayload(track: Track) async -> SharePayload {
         let fallbackText = formatTrackText(track)
 
+        if track.isAppleMusic,
+           let rawURL = track.streamKey.flatMap(URL.init(string:)) {
+            let url = await songLinkService.resolveAppleMusicURL(rawURL)
+            return .link(url: url, text: fallbackText)
+        }
+
         if let url = await songLinkService.resolveTrackLink(title: track.title, artist: track.artistName) {
             return .link(url: url, text: fallbackText)
         }
@@ -149,6 +155,7 @@ public final class ShareService: ObservableObject {
     /// For non-downloaded tracks, downloads to a temp directory first.
     /// Returns nil on download failure.
     public func prepareTrackFilePayload(track: Track) async -> SharePayload? {
+        guard !track.isAppleMusic else { return nil }
         let originalFileInfo = track.localFilePath == nil ? await originalFileInfo(for: track) : nil
         let exportMetadata = TrackFileExportMetadata(
             track: track,

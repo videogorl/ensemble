@@ -609,7 +609,7 @@ public final class SiriPlaybackCoordinator {
     }
 
     private func enabledLibrarySourceKeys() -> Set<String> {
-        Set(accountManager.enabledSources().map(\.compositeKey))
+        Set(accountManager.enabledSources().filter { $0.type == .plex }.map(\.compositeKey))
     }
 
     private func isPlayable(track: Track, enabledSourceKeys: Set<String>) -> Bool {

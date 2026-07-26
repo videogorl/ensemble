@@ -4,12 +4,19 @@ import Foundation
 
 public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case plex
-    // case appleMusic  // Future
+    case appleMusic
 }
 
 // MARK: - Music Source Identifier
 
 public struct MusicSourceIdentifier: Hashable, Codable, Sendable, Identifiable {
+    public static let appleMusic = MusicSourceIdentifier(
+        type: .appleMusic,
+        accountId: "device",
+        serverId: "system",
+        libraryId: "library"
+    )
+
     public let type: MusicSourceType
     public let accountId: String
     public let serverId: String
@@ -94,5 +101,20 @@ public struct MusicSource: Identifiable, Sendable {
         self.accountName = accountName
         self.sourceType = sourceType
         self.status = status
+    }
+}
+
+public extension Track {
+    var sourceType: MusicSourceType? {
+        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+    }
+
+    var isAppleMusic: Bool { sourceType == .appleMusic }
+
+    var appleMusicCatalogID: String? {
+        if key == "apple-catalog" { return id }
+        guard key.hasPrefix("apple-library:") else { return nil }
+        let value = String(key.dropFirst("apple-library:".count))
+        return value.isEmpty ? nil : value
     }
 }

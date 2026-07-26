@@ -56,7 +56,7 @@ public struct RootView: View {
             nowPlayingVM: nowPlayingVM,
             playbackService: DependencyContainer.shared.playbackService,
             accentColor: settingsManager.accentColor.color,
-            isAuroraEnabled: settingsManager.auroraVisualizationEnabled && showsRootAurora,
+            isAuroraEnabled: settingsManager.auroraVisualizationEnabled && showsRootAurora && nowPlayingVM.currentTrack?.isAppleMusic != true,
             isLowPowerMode: isLowPowerMode,
             isNowPlayingPresented: isNowPlayingPresented,
             isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,

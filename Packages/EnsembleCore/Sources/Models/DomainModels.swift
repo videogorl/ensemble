@@ -768,6 +768,10 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
     }
 
+    public var sourceType: MusicSourceType? {
+        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+    }
+
     /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
     /// Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
     public static func == (lhs: Playlist, rhs: Playlist) -> Bool {

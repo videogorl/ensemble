@@ -30,11 +30,17 @@ public enum SearchSection: String, CaseIterable {
     }
 }
 
+public enum SearchScope: String, CaseIterable, Sendable {
+    case library = "Library"
+    case appleMusic = "Apple Music"
+}
+
 @MainActor
 public final class SearchViewModel: ObservableObject {
     // MARK: - Search Results
     
     @Published public var searchQuery = ""
+    @Published public var scope: SearchScope = .library
     @Published public private(set) var recentSearches: [String] = []
     @Published public private(set) var trackResults: [Track] = []
     @Published public private(set) var artistResults: [Artist] = []
@@ -102,6 +108,15 @@ public final class SearchViewModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] query in
                 self?.prepareForSearchQueryChange(query)
+            }
+            .store(in: &cancellables)
+
+        $scope
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.prepareForSearchQueryChange(self.searchQuery)
+                self.performSearch(query: self.searchQuery)
             }
             .store(in: &cancellables)
 
@@ -222,6 +237,20 @@ public final class SearchViewModel: ObservableObject {
         searchError = nil
 
         do {
+            #if os(iOS)
+            if scope == .appleMusic, #available(iOS 18, *) {
+                let results = try await AppleMusicCatalogSearch.search(query)
+                guard !requireCurrentQuery || isCurrentSearch(query) else { return }
+                unfilteredTrackResults = results.tracks
+                unfilteredArtistResults = results.artists
+                unfilteredAlbumResults = results.albums
+                unfilteredPlaylistResults = results.playlists
+                applyVisibilityToSearchResults()
+                isSearching = false
+                return
+            }
+            #endif
+
             async let localTracks = libraryRepository.searchTracks(query: query)
             async let localArtists = libraryRepository.searchArtists(query: query)
             async let localAlbums = libraryRepository.searchAlbums(query: query)

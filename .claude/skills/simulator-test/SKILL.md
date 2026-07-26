@@ -39,7 +39,7 @@ ENSEMBLE_AUTOMATION_START_SURFACE=profile-storage
 ENSEMBLE_AUTOMATION_DISABLE_ANIMATIONS=1
 ```
 
-Supported start surfaces: `home`, `songs`, `artists`, `albums`, `genres`, `playlists`, `favorites`, `search`, `downloads`, `settings`, `profile`, `profile-storage`.
+Supported start surfaces: `home`, `songs`, `artists`, `albums`, `genres`, `playlists`, `favorites`, `search`, `downloads`, `settings`, `profile`, `profile-storage`, `add-source`.
 
 Debug navigation deep links:
 

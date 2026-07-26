@@ -522,6 +522,34 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(restoredMembership.playlistItemID, "item-2")
     }
 
+    func testSnapshotPreservesExplicitSourceWithoutCachedTrack() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let source = "appleMusic:device:system:library"
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "apple-playlist",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: source
+        )
+
+        try await repository.setPlaylistTrackSnapshots(
+            [PlaylistTrackSnapshot(ratingKey: "song", title: "Song", sourceCompositeKey: source)],
+            forPlaylist: "apple-playlist",
+            sourceCompositeKey: source
+        )
+
+        let fetchedPlaylist = try await repository.fetchPlaylist(
+            ratingKey: "apple-playlist",
+            sourceCompositeKey: source
+        )
+        let playlist = try XCTUnwrap(fetchedPlaylist)
+        let membership = try XCTUnwrap((playlist.playlistTracks as? Set<CDPlaylistTrack>)?.first)
+        XCTAssertNil(membership.track)
+        XCTAssertEqual(membership.trackSourceCompositeKey, source)
+    }
+
     func testUpdatePlaylistTitlePreservesTrackRelationships() async throws {
         let stack = CoreDataStack.inMemory()
         let playlistRepository = PlaylistRepository(coreDataStack: stack)

@@ -5,6 +5,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 ## Policies
 
 - Feed and library surfaces are offline-first: show cached or last-good data immediately, then refresh in the background.
+- Apple Music is an iOS/iPadOS 18+ device-local source. Its enablement stays in local `UserDefaults`; it must not enter KVS, CloudKit, Keychain source sync, Siri shared indexes, or Watch library payloads. Apple Music library and playlist API snapshots are authoritative, and incomplete/failed fetches preserve the last-good local cache.
 - Empty or failed network results must not overwrite last-good Feed snapshots.
 - Browse empty/add-source decisions are readiness-owned. `AppReadinessCoordinator` is the source of truth for bootstrap-settled, cached-library/feed-ready, no-source, and no-enabled-library states; Feed/library views must not infer those states from transient account, hub, playlist, or source arrays.
 - While credentials or iCloud source restoration are unavailable or still loading, Feed and library browse surfaces must preserve or publish cached source content using cached source keys provisionally. A failed Keychain read, or an empty credential store alongside a last-good cache, must not filter cached hubs or rows.
@@ -35,6 +36,7 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 ## Owners
 
 - `SyncCoordinator` is the sync facade and owns actual sync policy.
+- `AppleMusicSourceProvider` owns authenticated MusicKit data requests plus cached Apple library/playlist snapshots on supported iOS devices.
 - `NetworkLifecycleController` owns app-foreground and network-transition refresh/invalidation planning.
 - `PeriodicSyncController` owns foreground timer scheduling and WebSocket-aware polling interval policy.
 - `BackgroundRefreshCoordinator` owns app-refresh and foreground freshness sequencing.

@@ -641,6 +641,11 @@ public struct ControlsCard: View {
         playbackProjection.currentTrack != nil
     }
 
+    private var canChangeFavorite: Bool {
+        guard let track = playbackProjection.currentTrack else { return false }
+        return !track.isAppleMusic || ratingProjection.currentRating == .none
+    }
+
     // MARK: - Secondary Controls
 
     private var secondaryControlsView: some View {
@@ -658,8 +663,8 @@ public struct ControlsCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(ratingProjection.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
             }
-            .disabled(!hasCurrentTrack)
-            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
+            .disabled(!canChangeFavorite)
+            .opacity(canChangeFavorite ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
 
             // Add to Playlist
             Button {

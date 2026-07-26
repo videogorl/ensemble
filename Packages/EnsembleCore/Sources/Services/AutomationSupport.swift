@@ -161,6 +161,7 @@ public enum AutomationSurface: String, CaseIterable, Sendable {
     case settings
     case profile
     case profileStorage = "profile-storage"
+    case addSource = "add-source"
 
     public var tab: TabItem? {
         switch self {
@@ -184,7 +185,7 @@ public enum AutomationSurface: String, CaseIterable, Sendable {
             return .downloads
         case .settings:
             return .settings
-        case .profile, .profileStorage:
+        case .profile, .profileStorage, .addSource:
             return nil
         }
     }

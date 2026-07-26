@@ -66,6 +66,7 @@ public final class AccountManager: ObservableObject {
     }
 
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
+    @Published public private(set) var isAppleMusicEnabled: Bool
     @Published public private(set) var isAwaitingCloudSources = false
     /// Distinguishes a valid empty Keychain from a Keychain access failure.
     @Published public private(set) var credentialLoadState: AccountCredentialLoadState = .loading
@@ -88,6 +89,7 @@ public final class AccountManager: ObservableObject {
     nonisolated private static let authMigrationVersionKey = "plex_auth_migration_version"
     nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
+    private static let appleMusicEnabledKey = "sources.appleMusic.enabled"
 
     public init(
         keychain: KeychainServiceProtocol,
@@ -98,6 +100,11 @@ public final class AccountManager: ObservableObject {
         self.connectionRegistry = connectionRegistry
         self.isNetworkAvailable = isNetworkAvailable
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
+        #if os(iOS)
+        self.isAppleMusicEnabled = UserDefaults.standard.bool(forKey: Self.appleMusicEnabledKey)
+        #else
+        self.isAppleMusicEnabled = false
+        #endif
     }
 
     // MARK: - Load / Save
@@ -273,7 +280,7 @@ public final class AccountManager: ObservableObject {
 
     /// Seed iCloud Keychain from local accounts when this device is the first sync participant.
     public func seedCloudSyncCredentialsFromLocal() {
-        guard hasAnySources else { return }
+        guard !plexAccounts.isEmpty else { return }
         pushSyncCredentials()
     }
 
@@ -545,6 +552,10 @@ public final class AccountManager: ObservableObject {
     }
 
     public func removeMusicSource(_ sourceId: MusicSourceIdentifier) {
+        if sourceId.type == .appleMusic {
+            setAppleMusicEnabled(false)
+            return
+        }
         guard let accountIndex = plexAccounts.firstIndex(where: { $0.id == sourceId.accountId }),
               let serverIndex = plexAccounts[accountIndex].servers.firstIndex(where: { $0.id == sourceId.serverId }),
               let libraryIndex = plexAccounts[accountIndex].servers[serverIndex].libraries.firstIndex(where: { $0.key == sourceId.libraryId }) else {
@@ -634,6 +645,15 @@ public final class AccountManager: ObservableObject {
 
     // MARK: - Source Enumeration
 
+    public func setAppleMusicEnabled(_ isEnabled: Bool) {
+        #if os(iOS)
+        guard isAppleMusicEnabled != isEnabled else { return }
+        isAppleMusicEnabled = isEnabled
+        UserDefaults.standard.set(isEnabled, forKey: Self.appleMusicEnabledKey)
+        SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
+        #endif
+    }
+
     /// Returns all enabled MusicSourceIdentifiers across all accounts
     public func enabledSources() -> [MusicSourceIdentifier] {
         var sources: [MusicSourceIdentifier] = []
@@ -649,6 +669,11 @@ public final class AccountManager: ObservableObject {
                 }
             }
         }
+        #if os(iOS)
+        if isAppleMusicEnabled {
+            sources.append(.appleMusic)
+        }
+        #endif
         return sources
     }
 
@@ -691,6 +716,16 @@ public final class AccountManager: ObservableObject {
                 }
             }
         }
+        #if os(iOS)
+        if isAppleMusicEnabled {
+            sources.append(MusicSource(
+                id: .appleMusic,
+                displayName: "Apple Music",
+                accountName: "This Device",
+                sourceType: .appleMusic
+            ))
+        }
+        #endif
         return sources
     }
 
@@ -749,7 +784,11 @@ public final class AccountManager: ObservableObject {
 
     /// Whether any sources are configured
     public var hasAnySources: Bool {
+        #if os(iOS)
+        !plexAccounts.isEmpty || isAppleMusicEnabled
+        #else
         !plexAccounts.isEmpty
+        #endif
     }
 
     /// Create or retrieve cached PlexAPIClient for a specific server

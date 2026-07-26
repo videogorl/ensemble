@@ -8,6 +8,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Core Functionality:**
 - **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
+- **Apple Music Source (iOS/iPadOS 18+)** — Device-local Apple Music library sync, catalog search, MusicKit playback/AirPlay, playlists, favorites, and cross-source merged playlist views alongside Plex
 - **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS
 - **Secure Authentication** — PIN-based OAuth with keychain token storage
 - **Full Playback Controls** — Queue management with accidental-replacement protection, shuffle, repeat, background audio, remote controls (lock screen)
@@ -20,7 +21,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
   - Async DetailLoader components for smooth navigation
   - Intelligent fallback from section hubs to global hubs
   - **Customizable Hub Order** — Drag-to-reorder the combined Feed with reset-to-default
-- **Favorites** — Quick access to your highly-rated tracks (4+ stars)
+- **Favorites** — Quick access to loved Plex tracks and Apple Music favorites
 - **Rich Metadata** — Browse by artists, albums, genres, playlists with beautiful artwork
 - **StageFlow** — Immersive landscape browsing with a centered stage, snapping, and slide-out track details
 - **Search** — Fast search across your entire library with compact result layouts
@@ -59,7 +60,6 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Offline-Safe Track UX** — While offline, non-downloaded tracks are dimmed and blocked with a toast prompt
 
 ### Planned Features
-- **Apple Music Integration** — Multi-source architecture ready for additional services
 - **Library Visibility Profile Selector** — Add UI to switch and edit visibility presets without changing sync enablement
 - **Advanced Queue Management** — Reordering, playback history, queue persistence
 - **CarPlay Support** — Native CarPlay interface for safe driving
@@ -87,8 +87,8 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 ### First Launch
 1. Launch the app
-2. Tap "Add Plex Account"
-3. Visit `plex.tv/link` and enter the PIN code (the PIN can be tapped to copy)
+2. Tap "Add Source" and choose Plex or Apple Music (Apple Music requires iOS/iPadOS 18+)
+3. For Plex, visit `plex.tv/link` and enter the PIN code (the PIN can be tapped to copy)
 4. Review discovered servers and music libraries in one grouped checklist
 5. Keep at least one library selected and add the account
 6. Wait for initial sync to complete

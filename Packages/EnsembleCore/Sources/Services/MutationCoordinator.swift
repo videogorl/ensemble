@@ -157,6 +157,10 @@ public final class MutationCoordinator: ObservableObject {
     public func rateTrack(_ track: Track, rating: Int?) async throws -> MutationOutcome {
         guard let sourceKey = track.sourceCompositeKey else { return .completed }
 
+        if track.isAppleMusic, syncCoordinator.isOffline {
+            throw URLError(.notConnectedToInternet)
+        }
+
         // Queue immediately if we know we're offline
         if syncCoordinator.isOffline {
             let payload = TrackRatingMutationPayload(
@@ -170,7 +174,7 @@ public final class MutationCoordinator: ObservableObject {
         do {
             try await syncCoordinator.rateTrack(track: track, rating: rating)
             return .completed
-        } catch where isConnectionFailure(error) {
+        } catch where isConnectionFailure(error) && !track.isAppleMusic {
             let payload = TrackRatingMutationPayload(
                 trackRatingKey: track.id, sourceCompositeKey: sourceKey, rating: rating
             )
@@ -188,6 +192,10 @@ public final class MutationCoordinator: ObservableObject {
             return (nil, .completed)
         }
 
+        if playlist.sourceType == .appleMusic, syncCoordinator.isOffline {
+            throw MutationError.unavailableOffline("Add to playlist")
+        }
+
         if syncCoordinator.isOffline {
             let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
             await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
@@ -197,7 +205,7 @@ public final class MutationCoordinator: ObservableObject {
         do {
             let result = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
             return (result, .completed)
-        } catch where isConnectionFailure(error) {
+        } catch where isConnectionFailure(error) && playlist.sourceType != .appleMusic {
             let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
             await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
             return (nil, .queued)
@@ -225,6 +233,11 @@ public final class MutationCoordinator: ObservableObject {
             throw MutationError.unavailableOffline("Add to playlist")
         }
 
+        if playlist.sourceType == .appleMusic {
+            _ = try await syncCoordinator.addTracksToPlaylist(tracks, playlist: playlist)
+            return .completed
+        }
+
         let payload = makePlaylistAddPayload(tracks: tracks, playlist: playlist, sourceKey: sourceKey)
         await enqueueMutation(type: .playlistAdd, payload: payload, sourceCompositeKey: sourceKey)
         syncCoordinator.rememberLastPlaylistTarget(playlist)
@@ -246,6 +259,10 @@ public final class MutationCoordinator: ObservableObject {
             throw MutationError.unavailableOffline("Rename playlist")
         }
 
+        if playlist.sourceType == .appleMusic, syncCoordinator.isOffline {
+            throw MutationError.unavailableOffline("Rename playlist")
+        }
+
         if syncCoordinator.isOffline {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
@@ -259,7 +276,7 @@ public final class MutationCoordinator: ObservableObject {
             try await syncCoordinator.renamePlaylist(playlist, to: newTitle)
             await persistPlaylistRename(playlist, title: newTitle, sourceKey: sourceKey)
             return .completed
-        } catch where isConnectionFailure(error) {
+        } catch where isConnectionFailure(error) && playlist.sourceType != .appleMusic {
             let payload = PlaylistRenameMutationPayload(
                 playlistRatingKey: playlist.id, playlistSourceCompositeKey: sourceKey, newTitle: newTitle
             )
@@ -291,6 +308,11 @@ public final class MutationCoordinator: ObservableObject {
     /// Delete a playlist. Queues when offline or server unreachable, and purges related queued mutations.
     @discardableResult
     public func deletePlaylist(_ playlist: Playlist) async throws -> MutationOutcome {
+        #if os(iOS)
+        if playlist.sourceType == .appleMusic {
+            throw AppleMusicSourceError.playlistDeletionUnsupported
+        }
+        #endif
         guard let sourceKey = playlist.sourceCompositeKey else {
             throw MutationError.unavailableOffline("Delete playlist")
         }
@@ -303,7 +325,7 @@ public final class MutationCoordinator: ObservableObject {
         do {
             try await syncCoordinator.deletePlaylist(playlist)
             return .completed
-        } catch where isConnectionFailure(error) {
+        } catch where isConnectionFailure(error) && playlist.sourceType != .appleMusic {
             await enqueuePlaylistDelete(playlist: playlist, sourceKey: sourceKey)
             return .queued
         }

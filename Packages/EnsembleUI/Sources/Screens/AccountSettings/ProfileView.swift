@@ -210,22 +210,40 @@ public struct ProfileView: View {
                 showingDeleteAlert = true
             }
 
+            #if os(iOS)
+            if accountManager.isAppleMusicEnabled {
+                MusicSourceAccountRow(
+                    sourceName: "Apple Music",
+                    accountIdentifier: "This Device"
+                )
+                .swipeActions {
+                    Button("Remove", role: .destructive) {
+                        accountManager.setAppleMusicEnabled(false)
+                        Task {
+                            await syncCoordinator.cleanupRemovedSource(.appleMusic)
+                            syncCoordinator.refreshProviders()
+                        }
+                    }
+                }
+            }
+            #endif
+
             // Navigate within the profile sheet rather than opening a second sheet.
             // iOS doesn't allow stacking sheets — the add-account sheet won't appear
             // while the profile sheet is already presented.
             NavigationLink {
-                AddPlexAccountView(embedded: true)
+                AddSourceView(embedded: true)
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Plex Account",
+                    title: "Add Source",
                     iconColor: EnsembleDesign.Color.accent
                 )
             }
         } header: {
             EnsembleUtilitySectionHeader("Music Sources")
         } footer: {
-            if accountManager.plexAccounts.isEmpty {
+            if !accountManager.hasAnySources {
                 Text("Add a music source account to access your libraries.")
             }
         }
@@ -554,11 +572,11 @@ public struct ProfileView: View {
             }
 
             macNavigationRow {
-                AddPlexAccountView(embedded: true)
+                AddSourceView(embedded: true)
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Plex Account",
+                    title: "Add Source",
                     iconColor: EnsembleDesign.Color.accent
                 )
             }

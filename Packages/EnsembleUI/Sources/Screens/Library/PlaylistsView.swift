@@ -971,7 +971,7 @@ public struct PlaylistDetailView: View {
                     playlistMenuActions: PlaylistDetailMenuActions(
                         canRename: !viewModel.playlist.isSmart,
                         canEdit: viewModel.canEditPlaylistItems,
-                        canDelete: !viewModel.playlist.isSmart,
+                        canDelete: !viewModel.playlist.isSmart && viewModel.playlist.sourceType != .appleMusic,
                         onRename: {
                             renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true

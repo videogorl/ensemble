@@ -66,6 +66,24 @@ final class PlaylistActionServiceTests: XCTestCase {
         XCTAssertEqual(remaining.map(\.id), ["same-id-other-source", "new"])
     }
 
+    func testAppleMusicPlaylistAcceptsOnlyAppleMusicTracks() {
+        let apple = makeTrack(id: "apple", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+        let plex = makeTrack(id: "plex", sourceCompositeKey: "plex:account:server:library")
+
+        XCTAssertEqual(
+            service.defaultServerSourceKey(for: [apple], currentTrack: nil),
+            MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        XCTAssertEqual(
+            service.tracks([apple, apple, plex], compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey).map(\.id),
+            ["apple"]
+        )
+        XCTAssertEqual(
+            service.compatibleTrackCount([apple, plex], forServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey),
+            1
+        )
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,

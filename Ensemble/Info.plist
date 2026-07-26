@@ -63,7 +63,7 @@
 		<string>_plex._tcp</string>
 	</array>
 	<key>NSAppleMusicUsageDescription</key>
-	<string>Ensemble uses Apple Music to find shareable links for your tracks and albums.</string>
+	<string>Ensemble uses Apple Music to browse and play your library and the Apple Music catalog.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Ensemble needs access to your local network to connect to Plex servers.</string>
 	<key>NSSiriUsageDescription</key>

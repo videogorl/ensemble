@@ -153,7 +153,9 @@ public extension PlaylistItem {
             thumbPath: membership.trackThumbPath,
             fallbackThumbPath: membership.trackThumbPath,
             sourceCompositeKey: sourceKey,
-            unavailableReason: "Library not synced"
+            unavailableReason: sourceKey == MusicSourceIdentifier.appleMusic.compositeKey
+                ? nil
+                : "Library not synced"
         )
         let order = Int(membership.order)
         let itemID = membership.playlistItemID

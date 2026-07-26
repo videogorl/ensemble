@@ -34,6 +34,7 @@ public struct PlaylistTrackSnapshot: Sendable, Equatable {
     public let duration: TimeInterval
     public let thumbPath: String?
     public let librarySectionID: String?
+    public let sourceCompositeKey: String?
 
     public init(
         ratingKey: String,
@@ -44,7 +45,8 @@ public struct PlaylistTrackSnapshot: Sendable, Equatable {
         albumName: String? = nil,
         duration: TimeInterval = 0,
         thumbPath: String? = nil,
-        librarySectionID: String? = nil
+        librarySectionID: String? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.ratingKey = ratingKey
         self.playlistItemID = playlistItemID
@@ -55,6 +57,7 @@ public struct PlaylistTrackSnapshot: Sendable, Equatable {
         self.duration = duration
         self.thumbPath = thumbPath
         self.librarySectionID = librarySectionID
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
@@ -639,6 +642,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                         playlistTrack.playlistItemID = snapshot.playlistItemID
                         playlistTrack.trackRatingKey = snapshot.ratingKey
                         playlistTrack.trackSourceCompositeKey = track?.sourceCompositeKey
+                            ?? snapshot.sourceCompositeKey
                             ?? snapshot.librarySectionID.flatMap { sectionID in
                                 sourceCompositeKey.map { "\($0):\(sectionID)" }
                             }

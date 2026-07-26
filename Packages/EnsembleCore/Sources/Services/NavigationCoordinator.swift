@@ -414,6 +414,9 @@ public final class NavigationCoordinator: ObservableObject {
         )
 
         switch surface {
+        case .addSource:
+            showingAddAccount = true
+            return true
         case .profile, .profileStorage:
             openProfile()
             return true

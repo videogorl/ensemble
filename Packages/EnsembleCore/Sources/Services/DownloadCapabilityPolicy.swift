@@ -19,6 +19,10 @@ public enum DownloadCapabilityPolicy {
             return .unknown
         }
 
+        if MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type == .appleMusic {
+            return .unavailable
+        }
+
         guard let context = accountManager.sourceLibraryContext(for: sourceCompositeKey) else {
             return .unknown
         }

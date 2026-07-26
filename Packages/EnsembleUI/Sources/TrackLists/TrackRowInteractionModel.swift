@@ -134,21 +134,22 @@ public struct TrackRowInteractionModel {
             )
         }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
+        let canToggleFavorite = !track.isAppleMusic || !isFavorited(track)
 
         return ResolvedActions(
             onPlayNext: onPlayNext.map { callback in { callback(track) } },
             onPlayLast: onPlayLast.map { callback in { callback(track) } },
             onAddToPlaylist: onAddToPlaylist.map { callback in { callback(track) } },
             onAddToRecentPlaylist: allowRecentPlaylist ? onAddToRecentPlaylist.map { callback in { callback(track) } } : nil,
-            onToggleFavorite: onToggleFavorite.map { callback in { callback(track) } },
+            onToggleFavorite: canToggleFavorite ? onToggleFavorite.map { callback in { callback(track) } } : nil,
             onGoToAlbum: onGoToAlbum.map { callback in { callback(track) } },
             onGoToArtist: onGoToArtist.map { callback in { callback(track) } },
             onGetInfo: onGetInfo.map { callback in { callback(track) } },
-            onEditMetadata: onEditMetadata.map { callback in { callback(track) } },
+            onEditMetadata: track.isAppleMusic ? nil : onEditMetadata.map { callback in { callback(track) } },
             onShareEnsembleLink: onShareEnsembleLink.map { callback in { callback(track) } },
             onShareLink: onShareLink.map { callback in { callback(track) } },
-            onShareFile: onShareFile.map { callback in { callback(track) } },
-            onDeleteTrack: onDeleteTrack.map { callback in { callback(track) } },
+            onShareFile: track.isAppleMusic ? nil : onShareFile.map { callback in { callback(track) } },
+            onDeleteTrack: track.isAppleMusic ? nil : onDeleteTrack.map { callback in { callback(track) } },
             isFavorited: isFavorited(track),
             recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil
         )

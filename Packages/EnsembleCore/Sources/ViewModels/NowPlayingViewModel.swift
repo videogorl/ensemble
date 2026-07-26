@@ -1664,6 +1664,15 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
+        if track.isAppleMusic, !isFavorite {
+            toastCenter.show(ToastPayload(
+                style: .info,
+                iconSystemName: "heart.fill",
+                title: "Managed by Apple Music",
+                message: "Removing Apple Music favorites is unavailable until Apple provides a supported action."
+            ))
+            return
+        }
         let trackIdentity = track.sourceScopedID
         guard !favoriteUpdatesInFlight.contains(trackIdentity) else { return }
         favoriteUpdatesInFlight.insert(trackIdentity)
@@ -1741,6 +1750,11 @@ public final class NowPlayingViewModel: ObservableObject {
     @MainActor
     private func toggleRatingOnMainActor() async {
         guard !isUpdatingRating, let track = currentTrack else { return }
+
+        if track.isAppleMusic {
+            if !isTrackFavorited(track) { await setTrackFavorite(true, for: track) }
+            return
+        }
 
         let newRating: TrackRating
         switch currentRating {

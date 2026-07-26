@@ -6,12 +6,14 @@ public struct PlaylistActionService {
 
     public func defaultServerSourceKey(for tracks: [Track], currentTrack: Track?) -> String? {
         for track in tracks {
+            if track.isAppleMusic { return MusicSourceIdentifier.appleMusic.compositeKey }
             if let source = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) {
                 return source
             }
         }
 
         if let currentTrack {
+            if currentTrack.isAppleMusic { return MusicSourceIdentifier.appleMusic.compositeKey }
             return MediaSourceIdentity.serverSourceKey(from: currentTrack.sourceCompositeKey)
         }
 
@@ -23,6 +25,9 @@ public struct PlaylistActionService {
     }
 
     public func compatibleTrackCount(_ tracks: [Track], forServerSourceKey serverSourceKey: String?) -> Int {
+        if MusicSourceIdentifier(compositeKey: serverSourceKey ?? "")?.type == .appleMusic {
+            return tracks.filter(\.isAppleMusic).count
+        }
         guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: serverSourceKey) else { return 0 }
         return tracks.reduce(0) { count, track in
             guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) else {
@@ -34,6 +39,10 @@ public struct PlaylistActionService {
     }
 
     public func tracks(_ tracks: [Track], compatibleWithServerSourceKey serverSourceKey: String?) -> [Track] {
+        if MusicSourceIdentifier(compositeKey: serverSourceKey ?? "")?.type == .appleMusic {
+            var seen = Set<String>()
+            return tracks.filter { $0.isAppleMusic && seen.insert($0.sourceScopedID).inserted }
+        }
         guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: serverSourceKey) else { return [] }
         var seen = Set<String>()
         var filtered: [Track] = []

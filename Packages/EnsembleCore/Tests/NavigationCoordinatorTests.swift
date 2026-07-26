@@ -243,6 +243,14 @@ final class NavigationCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAutomationRoutePresentsAddSource() {
+        let coordinator = NavigationCoordinator()
+
+        XCTAssertTrue(coordinator.routeAutomationSurface(.addSource, source: "test"))
+        XCTAssertTrue(coordinator.showingAddAccount)
+    }
+
+    @MainActor
     func testNavigateFromExternalSearchRoutesHiddenDetailThroughMore() {
         let coordinator = NavigationCoordinator()
         coordinator.selectedTab = .home
