@@ -315,7 +315,6 @@ public final class WatchPlaybackController: ObservableObject {
     private weak var timeObserverPlayer: AVPlayer?
     private var timeObserver: Any?
     private var cancellables = Set<AnyCancellable>()
-    private var storedVolume: Float = 1
     private var currentItem: AVPlayerItem?
     private var preloadedItem: AVPlayerItem?
     private var preloadedTrack: EnsembleTrack?
@@ -359,10 +358,6 @@ public final class WatchPlaybackController: ObservableObject {
         return min(max(currentTime / duration, 0), 1)
     }
 
-    public var volume: Double {
-        Double(player?.volume ?? storedVolume)
-    }
-
     func prepare(track: EnsembleTrack) {
         player?.pause()
         tearDownPlaybackObservers()
@@ -391,7 +386,6 @@ public final class WatchPlaybackController: ObservableObject {
         let item = AVPlayerItem(url: url)
         let player = AVQueuePlayer(items: [item])
         player.actionAtItemEnd = .advance
-        player.volume = storedVolume
         self.player = player
         currentItem = item
         observe(player: player, item: item)
@@ -444,11 +438,6 @@ public final class WatchPlaybackController: ObservableObject {
         if status != .playing {
             player.play()
         }
-    }
-
-    public func setVolume(_ volume: Double) {
-        storedVolume = Float(min(max(volume, 0), 1))
-        player?.volume = storedVolume
     }
 
     public func stop() {

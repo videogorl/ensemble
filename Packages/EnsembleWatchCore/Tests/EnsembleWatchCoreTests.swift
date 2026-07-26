@@ -197,17 +197,6 @@ final class EnsembleWatchCoreTests: XCTestCase {
         )
     }
 
-    @MainActor
-    func testPlaybackVolumeClampsToPlayerRange() {
-        let playback = WatchPlaybackController()
-
-        playback.setVolume(1.5)
-        XCTAssertEqual(playback.volume, 1)
-
-        playback.setVolume(-0.5)
-        XCTAssertEqual(playback.volume, 0)
-    }
-
     func testWatchPlaybackQueueStartsAtRequestedTrackAndAdvancesByIndex() {
         let first = makeTrack(id: "first")
         let duplicate = makeTrack(id: "duplicate", playlistItemID: "item")

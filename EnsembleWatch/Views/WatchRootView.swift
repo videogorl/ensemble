@@ -1038,11 +1038,6 @@ private struct WatchNowPlayingView: View {
 
     var body: some View {
         ZStack {
-            WatchSystemVolumeControl(origin: volumeControlOrigin)
-                .id(volumeControlOrigin)
-                .frame(width: 44, height: 44)
-                .accessibilityHidden(true)
-
             nowPlayingBackground
 
             if let presentation = currentPresentation {
@@ -1052,9 +1047,19 @@ private struct WatchNowPlayingView: View {
                     VStack(spacing: 6) {
                         Spacer(minLength: 0)
 
-                        artworkView
-                            .frame(width: artworkSide, height: artworkSide)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        HStack(spacing: 4) {
+                            Color.clear.frame(width: 36, height: 36)
+
+                            artworkView
+                                .frame(width: artworkSide, height: artworkSide)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                            WatchSystemVolumeControl(origin: volumeControlOrigin)
+                                .id(volumeControlOrigin)
+                                .frame(width: 36, height: 36)
+                                .accessibilityLabel("Volume")
+                        }
+                        .frame(maxWidth: .infinity)
 
                         VStack(spacing: 0) {
                             Text(presentation.title)
@@ -1068,10 +1073,10 @@ private struct WatchNowPlayingView: View {
                                 .multilineTextAlignment(.center)
                                 .lineLimit(1)
                         }
+                        .padding(.horizontal, 12)
 
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 12)
                     .safeAreaPadding(.bottom, 28)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
