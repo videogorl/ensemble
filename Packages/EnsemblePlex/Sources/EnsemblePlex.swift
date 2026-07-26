@@ -394,6 +394,11 @@ private extension EnsemblePlexCatalogSnapshot {
 
 /// Loads lightweight Plex catalog data for watch browse surfaces.
 public actor EnsemblePlexCatalogService {
+    private struct RecentlyAddedItem: Sendable {
+        let summary: EnsembleMediaSummary
+        let addedAt: Int
+    }
+
     public init() {}
 
     public nonisolated func selectedLibraries(
@@ -426,7 +431,7 @@ public actor EnsemblePlexCatalogService {
         var albums: [EnsembleMediaSummary] = []
         var artists: [EnsembleMediaSummary] = []
         var playlists: [EnsembleMediaSummary] = []
-        var recentlyAdded: [EnsembleMediaSummary] = []
+        var recentlyAdded: [RecentlyAddedItem] = []
         var fetchedPlaylistSourceKeys = Set<String>()
 
         for library in libraries {
@@ -455,7 +460,7 @@ public actor EnsemblePlexCatalogService {
             artists.append(contentsOf: mappedArtists)
             albums.append(contentsOf: mappedAlbums)
             playlists.append(contentsOf: mappedPlaylists)
-            recentlyAdded.append(contentsOf: mappedRecent.prefix(limits.recentlyAdded))
+            recentlyAdded.append(contentsOf: mappedRecent)
         }
 
         return EnsemblePlexCatalogSnapshot(
@@ -464,7 +469,13 @@ public actor EnsemblePlexCatalogService {
             albums: albums,
             artists: artists,
             playlists: playlists,
-            recentlyAdded: Array(recentlyAdded.prefix(limits.recentlyAdded))
+            recentlyAdded: recentlyAdded
+                .sorted {
+                    if $0.addedAt != $1.addedAt { return $0.addedAt > $1.addedAt }
+                    return $0.summary.title.localizedStandardCompare($1.summary.title) == .orderedAscending
+                }
+                .prefix(limits.recentlyAdded)
+                .map(\.summary)
         )
     }
 
@@ -550,15 +561,18 @@ public actor EnsemblePlexCatalogService {
         client: PlexAPIClient,
         library: EnsemblePlexLibrary,
         limit: Int
-    ) async throws -> [EnsembleMediaSummary] {
+    ) async throws -> [RecentlyAddedItem] {
         let hubs = try await client.getHubs(sectionKey: library.key, count: String(limit))
         let sourceKey = library.sourceKey
         let recentHub = hubs.first {
-            let key = "\($0.hubIdentifier ?? "") \($0.title)".lowercased()
-            return key.contains("recent")
+            PlexHubIdentity.normalized($0.hubIdentifier ?? "") == PlexHubIdentity.recentlyAddedMusic
         }
         return (recentHub?.metadata ?? [])
-            .compactMap { $0.watchSummary(sourceKey: sourceKey) }
+            .compactMap { metadata in
+                metadata.watchSummary(sourceKey: sourceKey).map {
+                    RecentlyAddedItem(summary: $0, addedAt: metadata.addedAt ?? 0)
+                }
+            }
             .prefix(limit)
             .map { $0 }
     }
@@ -629,7 +643,7 @@ private extension PlexHubMetadata {
         return EnsembleMediaSummary(
             id: ratingKey,
             kind: kind,
-            title: title,
+            title: displayTitle,
             subtitle: subtitle,
             artworkPath: thumb ?? parentThumb ?? grandparentThumb ?? art,
             sourceKey: sourceKey

@@ -418,22 +418,11 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     }
 
     private static func hubTypeIdentifier(from hubId: String) -> String {
-        let components = hubId.split(separator: ":")
-        if components.count >= 5 {
-            let hubIdentifier = components[4...].joined(separator: ":")
-            if let lastDot = hubIdentifier.lastIndex(of: ".") {
-                let suffix = hubIdentifier[hubIdentifier.index(after: lastDot)...]
-                if suffix.allSatisfy(\.isNumber) {
-                    return String(hubIdentifier[..<lastDot])
-                }
-            }
-            return hubIdentifier
-        }
-        return hubId
+        PlexHubIdentity.normalizedSourceScopedIdentifier(hubId)
     }
 
     private static func mergesAcrossServers(_ hubType: String) -> Bool {
-        hubType == "music.recent.added"
+        hubType == PlexHubIdentity.recentlyAddedMusic
             || hubType == "music.recent.played"
             || hubType == "music.popular"
     }

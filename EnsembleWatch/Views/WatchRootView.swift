@@ -458,7 +458,7 @@ private struct WatchArtistAlbumsView: View {
 
             Section {
                 if experience.detailTracks.isEmpty {
-                    Text(experience.statusMessage)
+                    Text(experience.detailStatusMessage)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 } else {
@@ -602,7 +602,7 @@ private struct WatchTrackCollectionDetailView: View {
             row()
         }
         .buttonStyle(.plain)
-        .watchMediaSwipeActions(.track(track))
+        .watchMediaSwipeActions(.track(track, queue: tracks))
     }
 
     private var albumDiscs: [(number: Int, tracks: [EnsembleTrack])] {
@@ -634,7 +634,7 @@ private struct WatchTrackCollectionDetailView: View {
     private var emptyMessage: String {
         switch source {
         case .media, .playlistGroup:
-            return experience.statusMessage
+            return experience.detailStatusMessage
         case .artistAlbum:
             return "No tracks found."
         }
@@ -675,7 +675,7 @@ private enum WatchMediaActionTarget: Identifiable {
     case media(EnsembleMediaSummary)
     case playlistGroup(WatchPlaylistGroup)
     case artistAlbum(WatchArtistAlbumSummary)
-    case track(EnsembleTrack)
+    case track(EnsembleTrack, queue: [EnsembleTrack])
 
     var id: String {
         switch self {
@@ -685,7 +685,7 @@ private enum WatchMediaActionTarget: Identifiable {
             return "playlistGroup:\(group.id)"
         case .artistAlbum(let album):
             return "artistAlbum:\(album.id)"
-        case .track(let track):
+        case .track(let track, _):
             return "track:\(track.id)"
         }
     }
@@ -698,7 +698,7 @@ private enum WatchMediaActionTarget: Identifiable {
             return group.title
         case .artistAlbum(let album):
             return album.title
-        case .track(let track):
+        case .track(let track, _):
             return track.title
         }
     }
@@ -766,10 +766,9 @@ private enum WatchMediaActionTarget: Identifiable {
         case .playlistGroup(let group):
             experience.play(group, shuffled: shuffled)
         case .artistAlbum(let album):
-            guard let track = shuffled ? album.tracks.randomElement() : album.tracks.first else { return }
-            experience.play(track, in: album.tracks)
-        case .track(let track):
-            experience.play(track)
+            experience.play(album.tracks, shuffled: shuffled)
+        case .track(let track, let queue):
+            experience.play(track, in: queue)
         }
     }
 }
@@ -1087,7 +1086,7 @@ private struct WatchNowPlayingView: View {
                         .foregroundStyle(.secondary)
                     Text("Nothing Playing")
                         .font(.headline)
-                    Text(experience.statusMessage)
+                    Text(currentEmptyMessage)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -1241,9 +1240,10 @@ private struct WatchNowPlayingView: View {
 
     private var currentPresentation: WatchNowPlayingPresentation? {
         if experience.playbackTarget == .remote {
+            guard let track = remoteSession.snapshot?.currentTrack else { return nil }
             return WatchNowPlayingPresentation(
-                title: remoteSession.currentTrackTitle,
-                artist: remoteSession.snapshot?.currentTrack?.artistName ?? "Unknown Artist"
+                title: track.title,
+                artist: track.artistName ?? "Unknown Artist"
             )
         }
 
@@ -1266,21 +1266,27 @@ private struct WatchNowPlayingView: View {
         if experience.playbackTarget == .local {
             return playback.currentTrack == nil
         }
-        return remoteSession.isSendingCommand
+        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable || remoteSession.isSendingCommand
     }
 
     private var previousDisabled: Bool {
         if experience.playbackTarget == .local {
             return !experience.canPlayPrevious
         }
-        return remoteSession.isSendingCommand
+        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable || remoteSession.isSendingCommand
     }
 
     private var nextDisabled: Bool {
         if experience.playbackTarget == .local {
             return !experience.canPlayNext
         }
-        return remoteSession.isSendingCommand
+        guard remoteSession.isReachable, !remoteSession.isSendingCommand,
+              let snapshot = remoteSession.snapshot else { return true }
+        return snapshot.currentTrack == nil || snapshot.currentQueueIndex >= snapshot.queueCount - 1
+    }
+
+    private var currentEmptyMessage: String {
+        experience.playbackTarget == .local ? experience.playbackStatusMessage : remoteSession.statusMessage
     }
 
     private var remoteRepeatTitle: String {

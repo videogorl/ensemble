@@ -964,6 +964,25 @@ public struct PlexServerCapabilities: Codable, Sendable, Equatable {
 
 // MARK: - Hubs (Home Screen Content)
 
+/// Canonical Plex hub identifiers shared by app and watch catalog loading.
+public enum PlexHubIdentity {
+    public static let recentlyAddedMusic = "music.recent.added"
+
+    /// Removes Plex's per-library numeric suffix from a hub identifier.
+    public static func normalized(_ identifier: String) -> String {
+        guard let lastDot = identifier.lastIndex(of: ".") else { return identifier }
+        let suffix = identifier[identifier.index(after: lastDot)...]
+        return suffix.allSatisfy(\.isNumber) ? String(identifier[..<lastDot]) : identifier
+    }
+
+    /// Extracts and normalizes the hub identifier from Ensemble's source-scoped hub ID.
+    public static func normalizedSourceScopedIdentifier(_ hubID: String) -> String {
+        let components = hubID.split(separator: ":")
+        guard components.count >= 5 else { return normalized(hubID) }
+        return normalized(components[4...].joined(separator: ":"))
+    }
+}
+
 /// Represents a hub on the Plex home screen (Recently Added, Recently Played, etc.)
 public struct PlexHub: Codable, Sendable, Identifiable {
     public let hubKey: String?
@@ -1020,6 +1039,18 @@ public struct PlexHubMetadata: Codable, Sendable, Identifiable {
     public let leafCount: Int?  // Track count for albums
 
     public var id: String { ratingKey }
+
+    /// Non-empty media title for hub rows and lightweight detail models.
+    public var displayTitle: String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedTitle.isEmpty else { return trimmedTitle }
+        switch type?.lowercased() {
+        case "album": return "Unknown Album"
+        case "artist": return "Unknown Artist"
+        case "playlist": return "Untitled Playlist"
+        default: return "Unknown Track"
+        }
+    }
 }
 
 // MARK: - Tag (reusable for Genre/Country/Similar/Style tags)

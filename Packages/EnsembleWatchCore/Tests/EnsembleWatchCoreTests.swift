@@ -314,6 +314,27 @@ final class EnsembleWatchCoreTests: XCTestCase {
         ))
     }
 
+    @MainActor
+    func testCachedPinsAreImmediatelyAvailableBeforeCloudBootstrap() {
+        let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = WatchCatalogStore(defaults: defaults)
+        let pinnedAlbum = makeSummary(id: "pinned", sourceKey: "plex:account:server:3")
+        store.saveSnapshot(EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [pinnedAlbum],
+            albums: [pinnedAlbum],
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        ))
+
+        let model = WatchExperienceModel(catalogStore: store)
+
+        XCTAssertTrue(model.isPinned(pinnedAlbum))
+    }
+
     private func makeLibrary(
         accountId: String,
         serverId: String,

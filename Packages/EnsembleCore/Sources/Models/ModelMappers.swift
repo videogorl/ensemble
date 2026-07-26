@@ -171,7 +171,7 @@ public extension Album {
         self.init(
             id: hub.ratingKey,
             key: hub.key,
-            title: hub.title,
+            title: hub.displayTitle,
             artistName: hub.parentTitle,
             albumArtist: hub.parentTitle,
             artistRatingKey: hub.parentRatingKey,
@@ -511,7 +511,7 @@ public extension HubItem {
             album = Album(
                 id: plex.ratingKey,
                 key: plex.key,
-                title: plex.title,
+                title: plex.displayTitle,
                 artistName: plex.parentTitle,
                 artistRatingKey: plex.parentRatingKey,
                 year: plex.year,
@@ -525,7 +525,7 @@ public extension HubItem {
             track = Track(
                 id: plex.ratingKey,
                 key: plex.key,
-                title: plex.title,
+                title: plex.displayTitle,
                 artistName: plex.originalTitle ?? plex.grandparentTitle,  // Prefer track artist over album artist
                 albumArtistName: plex.grandparentTitle,
                 albumName: plex.parentTitle,
@@ -542,7 +542,7 @@ public extension HubItem {
             artist = Artist(
                 id: plex.ratingKey,
                 key: plex.key,
-                name: plex.title,
+                name: plex.displayTitle,
                 thumbPath: plex.thumb,
                 artPath: plex.art,
                 dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -553,7 +553,7 @@ public extension HubItem {
             playlist = Playlist(
                 id: plex.ratingKey,
                 key: plex.key,
-                title: plex.title,
+                title: plex.displayTitle,
                 dateAdded: plex.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 dateModified: plex.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 lastPlayed: plex.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
@@ -564,7 +564,7 @@ public extension HubItem {
         self.init(
             id: plex.ratingKey,
             type: type,
-            title: plex.title,
+            title: plex.displayTitle,
             subtitle: subtitle,
             thumbPath: thumbPath,
             year: plex.year,

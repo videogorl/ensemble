@@ -745,6 +745,8 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var detailTracks: [EnsembleTrack] = []
     @Published public private(set) var pinnedItemIDs: Set<String> = []
     @Published public private(set) var statusMessage = "Loading Ensemble"
+    @Published public private(set) var detailStatusMessage = "Loading"
+    @Published public private(set) var playbackStatusMessage = "Ready"
     @Published public var playbackTarget: EnsemblePlaybackTarget = .local
 
     public let playback = WatchPlaybackController()
@@ -761,6 +763,8 @@ public final class WatchExperienceModel: ObservableObject {
     private var linkPollTask: Task<Void, Never>?
     private var playbackStatusCancellable: AnyCancellable?
     private var queuePreparationTask: Task<Void, Never>?
+    private var detailTask: Task<Void, Never>?
+    private var detailRequestID: UUID?
     private var playbackTask: Task<Void, Never>?
     private var playbackPrefetchTask: Task<Void, Never>?
     private var playbackRequestID: UUID?
@@ -780,9 +784,12 @@ public final class WatchExperienceModel: ObservableObject {
         self.cloudPreferences = cloudPreferences
         self.authService = authService
         self.catalogSnapshot = catalogStore.loadSnapshot()
-        if catalogSnapshot != nil {
+        if let catalogSnapshot {
             bootstrapState = .ready
             statusMessage = "Ready"
+            pinnedItemIDs = Set(catalogSnapshot.pins.map {
+                Self.pinIdentity(id: $0.id, sourceKey: $0.sourceKey)
+            })
         }
         playback.playbackEndedHandler = { [weak self] in
             self?.advanceAfterPlaybackEnded()
@@ -799,7 +806,7 @@ public final class WatchExperienceModel: ObservableObject {
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
             .sink { [weak self] status in
-                self?.statusMessage = Self.playbackStatusMessage(for: status)
+                self?.playbackStatusMessage = Self.playbackStatusMessage(for: status)
             }
     }
 
@@ -845,29 +852,38 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func tracks(for item: EnsembleMediaSummary) {
-        statusMessage = "Loading \(item.title)"
+        detailTask?.cancel()
+        let requestID = UUID()
+        detailRequestID = requestID
+        detailStatusMessage = "Loading \(item.title)"
         detailTracks = []
-        Task { [weak self] in
+        detailTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let tracks = try await catalog.tracks(for: item, in: libraries)
+                guard !Task.isCancelled, detailRequestID == requestID else { return }
                 detailTracks = tracks
-                statusMessage = tracks.isEmpty ? "No tracks found." : "Ready"
+                detailStatusMessage = tracks.isEmpty ? "No tracks found." : "Ready"
             } catch {
+                guard !Task.isCancelled, detailRequestID == requestID else { return }
                 detailTracks = []
-                statusMessage = error.localizedDescription
+                detailStatusMessage = error.localizedDescription
             }
         }
     }
 
     public func tracks(for group: WatchPlaylistGroup) {
-        statusMessage = "Loading \(group.title)"
+        detailTask?.cancel()
+        let requestID = UUID()
+        detailRequestID = requestID
+        detailStatusMessage = "Loading \(group.title)"
         detailTracks = []
-        Task { [weak self] in
+        detailTask = Task { [weak self] in
             guard let self else { return }
             let result = await mergedTracks(for: group)
+            guard !Task.isCancelled, detailRequestID == requestID else { return }
             detailTracks = result.tracks
-            statusMessage = Self.trackLoadStatus(trackCount: result.tracks.count, failureCount: result.failureCount)
+            detailStatusMessage = Self.trackLoadStatus(trackCount: result.tracks.count, failureCount: result.failureCount)
         }
     }
 
@@ -881,9 +897,15 @@ public final class WatchExperienceModel: ObservableObject {
         replacePlaybackQueue(with: queue, startingAt: track)
     }
 
+    public func play(_ tracks: [EnsembleTrack], shuffled: Bool = false) {
+        queuePreparationTask?.cancel()
+        playbackTask?.cancel()
+        replacePlaybackQueue(with: tracks, shuffled: shuffled)
+    }
+
     public func play(_ item: EnsembleMediaSummary, shuffled: Bool = false) {
         playbackTarget = .local
-        statusMessage = "Preparing \(item.title)"
+        playbackStatusMessage = "Preparing \(item.title)"
         queuePreparationTask?.cancel()
         playbackTask?.cancel()
         queuePreparationTask = Task { [weak self] in
@@ -892,7 +914,7 @@ public final class WatchExperienceModel: ObservableObject {
                 let tracks = try await catalog.tracks(for: item, in: libraries)
                 guard !Task.isCancelled else { return }
                 guard !tracks.isEmpty else {
-                    statusMessage = "No tracks found."
+                    playbackStatusMessage = "No tracks found."
                     return
                 }
                 replacePlaybackQueue(with: tracks, shuffled: shuffled)
@@ -900,14 +922,14 @@ public final class WatchExperienceModel: ObservableObject {
                 return
             } catch {
                 guard !Task.isCancelled else { return }
-                statusMessage = error.localizedDescription
+                playbackStatusMessage = error.localizedDescription
             }
         }
     }
 
     public func play(_ group: WatchPlaylistGroup, shuffled: Bool = false) {
         playbackTarget = .local
-        statusMessage = "Preparing \(group.title)"
+        playbackStatusMessage = "Preparing \(group.title)"
         queuePreparationTask?.cancel()
         playbackTask?.cancel()
         queuePreparationTask = Task { [weak self] in
@@ -915,7 +937,7 @@ public final class WatchExperienceModel: ObservableObject {
             let result = await mergedTracks(for: group)
             guard !Task.isCancelled else { return }
             guard !result.tracks.isEmpty else {
-                statusMessage = Self.trackLoadStatus(trackCount: 0, failureCount: result.failureCount)
+                playbackStatusMessage = Self.trackLoadStatus(trackCount: 0, failureCount: result.failureCount)
                 return
             }
             replacePlaybackQueue(with: result.tracks, shuffled: shuffled)
@@ -962,7 +984,7 @@ public final class WatchExperienceModel: ObservableObject {
             startingAt: track,
             shuffled: shuffled
         ) else {
-            statusMessage = "No tracks found."
+            playbackStatusMessage = "No tracks found."
             return
         }
         startPlayback(track)
@@ -975,7 +997,7 @@ public final class WatchExperienceModel: ObservableObject {
         playbackRequestID = requestID
         playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.tracks.count)
         playback.prepare(track: track)
-        statusMessage = "Preparing stream"
+        playbackStatusMessage = "Preparing stream"
 
         playbackTask = Task { [weak self] in
             guard let self else { return }
@@ -983,14 +1005,14 @@ public final class WatchExperienceModel: ObservableObject {
                 let url = try await catalog.streamURL(for: track, in: libraries)
                 guard !Task.isCancelled, playbackRequestID == requestID else { return }
                 playback.play(track: track, url: url)
-                statusMessage = "Playing on Apple Watch"
+                playbackStatusMessage = "Playing on Apple Watch"
                 preloadNextTrack()
             } catch is CancellationError {
                 return
             } catch {
                 guard !Task.isCancelled, playbackRequestID == requestID else { return }
                 playback.fail(track: track, error: error)
-                statusMessage = error.localizedDescription
+                playbackStatusMessage = error.localizedDescription
             }
         }
     }
@@ -1019,7 +1041,7 @@ public final class WatchExperienceModel: ObservableObject {
         guard playbackQueue.isNext(track) else { return }
         _ = playbackQueue.advance()
         playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.tracks.count)
-        statusMessage = "Playing on Apple Watch"
+        playbackStatusMessage = "Playing on Apple Watch"
         preloadNextTrack()
     }
 
@@ -1279,6 +1301,7 @@ public final class WatchExperienceModel: ObservableObject {
         let pinnedReferences = await cloudPreferences.pinnedReferences()
         let snapshot = try await catalog.refreshSnapshot(libraries: libraries)
         catalogSnapshot = snapshot
+        catalogStore.saveSnapshot(snapshot)
         applyPinnedReferences(pinnedReferences)
         statusMessage = "Ready"
     }
