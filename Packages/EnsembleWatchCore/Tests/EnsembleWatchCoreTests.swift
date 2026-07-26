@@ -265,6 +265,19 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.trackLoadStatus(trackCount: 4, failureCount: 1), "Some sources unavailable.")
     }
 
+    func testMergedPlaylistIsPinnedWhenAnyConstituentIsPinned() {
+        let playlists = [
+            EnsembleMediaSummary(id: "a", kind: .playlist, title: "Mix", sourceKey: "plex:a:s1"),
+            EnsembleMediaSummary(id: "b", kind: .playlist, title: "Mix", sourceKey: "plex:a:s2")
+        ]
+
+        XCTAssertTrue(WatchExperienceModel.containsPinnedItem(
+            playlists,
+            pinnedItemIDs: ["plex:a:s1||a"]
+        ))
+        XCTAssertFalse(WatchExperienceModel.containsPinnedItem(playlists, pinnedItemIDs: []))
+    }
+
     @MainActor
     func testCachedCatalogStartsReadyAndRefreshesOnlyWhenStale() {
         let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"

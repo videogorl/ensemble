@@ -1041,7 +1041,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func isPinned(_ group: WatchPlaylistGroup) -> Bool {
-        group.playlists.allSatisfy(isPinned)
+        Self.containsPinnedItem(group.playlists, pinnedItemIDs: pinnedItemIDs)
     }
 
     public func canPin(_ group: WatchPlaylistGroup) -> Bool {
@@ -1057,7 +1057,10 @@ public final class WatchExperienceModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             var pins = await cloudPreferences.pinnedReferences()
-            let shouldUnpin = items.allSatisfy { item in pins.contains { $0.matches(item) } }
+            let currentPinnedItemIDs = Set(pins.map {
+                Self.pinIdentity(id: $0.id, sourceKey: $0.sourceCompositeKey)
+            })
+            let shouldUnpin = Self.containsPinnedItem(items, pinnedItemIDs: currentPinnedItemIDs)
             if shouldUnpin {
                 pins.removeAll { pin in items.contains { pin.matches($0) } }
             } else {
@@ -1349,6 +1352,13 @@ public final class WatchExperienceModel: ObservableObject {
         now: Date = Date()
     ) -> Bool {
         now.timeIntervalSince(snapshot.fetchedAt) >= 10 * 60
+    }
+
+    nonisolated static func containsPinnedItem(
+        _ items: [EnsembleMediaSummary],
+        pinnedItemIDs: Set<String>
+    ) -> Bool {
+        items.contains { pinnedItemIDs.contains(pinIdentity(id: $0.id, sourceKey: $0.sourceKey)) }
     }
 
     private nonisolated static func pinIdentity(id: String, sourceKey: String) -> String {
