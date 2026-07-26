@@ -1479,9 +1479,12 @@ private struct WatchCrownAlbumStack: View {
     let pageHeight: CGFloat
     private let sectionStartIndices: [Int]
 
-    @State private var selection = 0
+    @State private var crownInput = 0.0
+    @State private var displayedSelection = 0
     @State private var crownOffset = 0.0
     @State private var previousCrownEventOffset: Double?
+    @State private var isIndexScrolling = false
+    @State private var indexScrollsForward: Bool?
 
     private static let indexScrollVelocityThreshold = 50.0
     private static let indexScrollOffsetDeltaThreshold = 1.0
@@ -1508,20 +1511,36 @@ private struct WatchCrownAlbumStack: View {
     var body: some View {
         Group {
             if !albums.isEmpty {
-                WatchAlbumNavigationCard(
-                    albums: albums,
-                    crownOffset: clampedCrownOffset,
-                    artworkSize: artworkSize,
-                    pageWidth: pageWidth
-                )
+                if isIndexScrolling, let selectedAlbum = album(at: displayedSelection) {
+                    NavigationLink(destination: WatchMediaDetailView(item: selectedAlbum)) {
+                        VStack(spacing: 1) {
+                            WatchAlbumBrowseCard(item: selectedAlbum, artworkSize: artworkSize)
+
+                            Text(selectedAlbum.title)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .id(displayedSelection)
+                    .accessibilityLabel(selectedAlbum.title)
+                    .accessibilityHint("Opens album")
+                } else {
+                    WatchAlbumNavigationCard(
+                        albums: albums,
+                        crownOffset: clampedCrownOffset,
+                        artworkSize: artworkSize,
+                        pageWidth: pageWidth
+                    )
+                }
             }
         }
         .frame(width: pageWidth, height: pageHeight, alignment: .top)
         .focusable()
         .digitalCrownRotation(
-            detent: $selection,
-            from: 0,
-            through: max(albums.count - 1, 0),
+            detent: $crownInput,
+            from: -1_000_000,
+            through: 1_000_000,
             by: 1,
             sensitivity: .medium,
             isContinuous: false,
@@ -1532,7 +1551,7 @@ private struct WatchCrownAlbumStack: View {
             onIdle: finishCrownScrolling
         )
         .digitalCrownAccessory {
-            if let selectedAlbum = album(at: selection) {
+            if let selectedAlbum = album(at: displayedSelection) {
                 Text(selectedAlbum.title.ensembleIndexingLetter)
             }
         }
@@ -1550,41 +1569,63 @@ private struct WatchCrownAlbumStack: View {
     private func handleCrownEvent(_ event: DigitalCrownEvent) {
         let offsetDelta = event.offset - (previousCrownEventOffset ?? event.offset)
         previousCrownEventOffset = event.offset
-        withAnimation(.smooth(duration: 0.14)) {
-            crownOffset = min(max(event.offset, 0), Double(max(albums.count - 1, 0)))
-        }
 
         let isFastScroll = abs(event.velocity) >= Self.indexScrollVelocityThreshold
             || abs(offsetDelta) >= Self.indexScrollOffsetDeltaThreshold
-        guard isFastScroll else { return }
-        moveToAdjacentSection(forward: event.velocity == 0 ? offsetDelta > 0 : event.velocity > 0)
+        if isIndexScrolling || isFastScroll {
+            isIndexScrolling = true
+            guard offsetDelta != 0 else { return }
+            let scrollsForward = offsetDelta > 0
+            if let indexScrollsForward,
+               indexScrollsForward != scrollsForward,
+               abs(offsetDelta) < Self.indexScrollOffsetDeltaThreshold
+            {
+                return
+            }
+            indexScrollsForward = scrollsForward
+            moveToAdjacentSection(forward: scrollsForward)
+            return
+        }
+
+        let nextOffset = min(
+            max(crownOffset + offsetDelta, 0),
+            Double(max(albums.count - 1, 0))
+        )
+        displayedSelection = Int(nextOffset.rounded())
+        withAnimation(.smooth(duration: 0.14)) {
+            crownOffset = nextOffset
+        }
     }
 
     private func moveToAdjacentSection(forward: Bool) {
         guard !sectionStartIndices.isEmpty else { return }
-        let currentSection = sectionStartIndices.lastIndex { $0 <= selection } ?? 0
+        let currentSection = sectionStartIndices.lastIndex { $0 <= displayedSelection } ?? 0
         let targetSection = min(
             max(currentSection + (forward ? 1 : -1), 0),
             sectionStartIndices.count - 1
         )
         let targetIndex = sectionStartIndices[targetSection]
 
-        selection = targetIndex
+        displayedSelection = targetIndex
         crownOffset = Double(targetIndex)
     }
 
     private func finishCrownScrolling() {
         previousCrownEventOffset = nil
+        isIndexScrolling = false
+        indexScrollsForward = nil
         withAnimation(.smooth(duration: 0.22)) {
-            crownOffset = Double(selection)
+            crownOffset = Double(displayedSelection)
         }
     }
 
     private func clampSelection() {
-        let clampedIndex = min(selection, max(albums.count - 1, 0))
-        selection = clampedIndex
+        let clampedIndex = min(displayedSelection, max(albums.count - 1, 0))
+        displayedSelection = clampedIndex
         crownOffset = Double(clampedIndex)
         previousCrownEventOffset = nil
+        isIndexScrolling = false
+        indexScrollsForward = nil
     }
 }
 
@@ -1665,11 +1706,10 @@ private struct WatchAlbumCoverStack: View {
                         anchor: .bottom,
                         perspective: 0.4
                     )
-                    .offset(y: overlayLift * artworkSize)
+                    .offset(y: overlayLift * (artworkSize + 24))
             }
         }
         .frame(width: pageWidth, height: artworkSize)
-        .clipped()
     }
 }
 
@@ -1699,11 +1739,7 @@ private struct WatchAlbumBrowseCard: View {
     @State private var artworkURL: URL?
 
     var body: some View {
-        ZStack {
-            Color.black
-            WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
-                .frame(width: artworkSize, height: artworkSize)
-        }
+        WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
         .frame(width: artworkSize, height: artworkSize)
         .task(id: "\(item.id)-\(experience.artworkContextID)") {
             artworkURL = await experience.artworkURL(for: item, size: 320)
