@@ -78,6 +78,30 @@ final class AddPlexAccountViewModelTests: XCTestCase {
         XCTAssertTrue(accountManager.plexAccounts.isEmpty)
     }
 
+    func testConfirmLibrariesRejectsExistingPlexAccount() {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(
+            PlexAccountConfig(
+                id: "user-1",
+                authToken: "existing-token",
+                servers: [makeServer(id: "server-1", name: "Server 1", libraries: [("1", "Library One")])]
+            )
+        )
+        let viewModel = makeViewModel(accountManager: accountManager)
+        viewModel.applyDiscoveryForTesting(
+            authToken: "new-token",
+            identity: PlexAccountIdentity(id: "user-1", email: nil, plexUsername: "felicity", displayTitle: "Felicity"),
+            servers: [makeServer(id: "server-1", name: "Server 1", libraries: [("1", "Library One")])]
+        )
+
+        viewModel.confirmLibraries()
+
+        XCTAssertEqual(viewModel.error, "This Plex account has already been added.")
+        XCTAssertEqual(accountManager.plexAccounts.count, 1)
+        XCTAssertEqual(accountManager.plexAccounts.first?.authToken, "existing-token")
+        XCTAssertEqual(viewModel.state, .ready)
+    }
+
     func testConfirmLibrariesPersistsAllServersWithEnabledSelection() {
         let accountManager = AccountManager(keychain: TestKeychain())
         let viewModel = makeViewModel(accountManager: accountManager)

@@ -219,6 +219,11 @@ public final class AddPlexAccountViewModel: ObservableObject {
 
         let accountId = discoveredIdentity?.id.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedAccountID = (accountId?.isEmpty == false) ? accountId! : UUID().uuidString
+        guard !accountManager.plexAccounts.contains(where: { $0.id == resolvedAccountID }) else {
+            error = "This Plex account has already been added."
+            return
+        }
+
         let tokenMetadata = PlexAuthService.tokenMetadata(from: authToken)
         let account = PlexAccountConfig(
             id: resolvedAccountID,
