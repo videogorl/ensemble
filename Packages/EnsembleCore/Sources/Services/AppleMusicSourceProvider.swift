@@ -148,45 +148,11 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             if libraryPlaylist?.attributes.canEdit == true {
                 editableIDs.insert(id)
             }
-            let detailed = try await playlist.with([.tracks])
-            var musicTracks = detailed.tracks ?? []
-            while musicTracks.hasNextBatch, let next = try await musicTracks.nextBatch(limit: 100) {
-                musicTracks += next
-            }
-            let songs = musicTracks.compactMap { track -> Song? in
-                guard case .song(let song) = track else { return nil }
-                return song
-            }
-            _ = try await repository.upsertPlaylist(
-                ratingKey: id,
-                key: id,
-                title: playlist.name,
-                summary: playlist.standardDescription,
-                compositePath: libraryPlaylist?.attributes.artwork?.url
-                    ?? playlist.artwork?.ensembleResolvableURL(),
-                isSmart: Self.isSmartPlaylist(playlist.kind, canEdit: libraryPlaylist?.attributes.canEdit == true),
-                duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
-                trackCount: songs.count,
-                dateAdded: playlist.libraryAddedDate,
-                dateModified: playlist.lastModifiedDate,
-                lastPlayed: playlist.lastPlayedDate,
-                sourceCompositeKey: sourceKey
-            )
-            try await repository.setPlaylistTrackSnapshots(
-                songs.map {
-                    PlaylistTrackSnapshot(
-                        ratingKey: String(describing: $0.id),
-                        key: Self.trackKey($0),
-                        title: $0.title,
-                        artistName: $0.artistName,
-                        albumName: $0.albumTitle,
-                        duration: $0.duration ?? 0,
-                        thumbPath: $0.artwork?.ensembleResolvableURL(),
-                        sourceCompositeKey: sourceKey
-                    )
-                },
-                forPlaylist: id,
-                sourceCompositeKey: sourceKey
+            try await persistPlaylist(
+                playlist,
+                artworkURL: libraryPlaylist?.attributes.artwork?.url,
+                canEdit: libraryPlaylist?.attributes.canEdit == true,
+                to: repository
             )
             progressHandler(Double(index + 1) / Double(max(playlists.count, 1)))
         }
@@ -195,6 +161,15 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         let removed = try await repository.removeOrphanedPlaylists(notIn: validIDs, forSource: sourceKey)
         progressHandler(1)
         return PlaylistSyncResult(changedPlaylists: playlists.count, removedPlaylists: removed)
+    }
+
+    public func syncPlaylist(id: String, to repository: PlaylistRepositoryProtocol) async throws {
+        try await persistPlaylist(
+            try await libraryPlaylist(id: id),
+            artworkURL: nil,
+            canEdit: true,
+            to: repository
+        )
     }
 
     public func syncPlaylistsIncremental(
@@ -429,6 +404,55 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             throw AppleMusicSourceError.playlistNotFound
         }
         return playlist
+    }
+
+    private func persistPlaylist(
+        _ playlist: MusicKit.Playlist,
+        artworkURL: String?,
+        canEdit: Bool,
+        to repository: PlaylistRepositoryProtocol
+    ) async throws {
+        let id = String(describing: playlist.id)
+        let sourceKey = sourceIdentifier.compositeKey
+        let detailed = try await playlist.with([.tracks])
+        var musicTracks = detailed.tracks ?? []
+        while musicTracks.hasNextBatch, let next = try await musicTracks.nextBatch(limit: 100) {
+            musicTracks += next
+        }
+        let songs = musicTracks.compactMap { track -> Song? in
+            guard case .song(let song) = track else { return nil }
+            return song
+        }
+        _ = try await repository.upsertPlaylist(
+            ratingKey: id,
+            key: id,
+            title: playlist.name,
+            summary: playlist.standardDescription,
+            compositePath: artworkURL ?? playlist.artwork?.ensembleResolvableURL(),
+            isSmart: Self.isSmartPlaylist(playlist.kind, canEdit: canEdit),
+            duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
+            trackCount: songs.count,
+            dateAdded: playlist.libraryAddedDate,
+            dateModified: playlist.lastModifiedDate,
+            lastPlayed: playlist.lastPlayedDate,
+            sourceCompositeKey: sourceKey
+        )
+        try await repository.setPlaylistTrackSnapshots(
+            songs.map {
+                PlaylistTrackSnapshot(
+                    ratingKey: String(describing: $0.id),
+                    key: Self.trackKey($0),
+                    title: $0.title,
+                    artistName: $0.artistName,
+                    albumName: $0.albumTitle,
+                    duration: $0.duration ?? 0,
+                    thumbPath: $0.artwork?.ensembleResolvableURL(),
+                    sourceCompositeKey: sourceKey
+                )
+            },
+            forPlaylist: id,
+            sourceCompositeKey: sourceKey
+        )
     }
 
     private func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Data {

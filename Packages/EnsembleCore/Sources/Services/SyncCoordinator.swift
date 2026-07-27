@@ -526,8 +526,26 @@ public final class SyncCoordinator: ObservableObject {
                   let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
             else { throw PlaylistMutationError.invalidSource }
             let compatible = tracks.filter(\.isAppleMusic)
-            let added = try await provider.addTracks(compatible, to: playlist.id)
-            await refreshAppleMusicPlaylists(provider)
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            EnsembleLogger.info(
+                "Apple Music playlist add started playlist=\(playlist.id) tracks=\(compatible.count)"
+            )
+            let added: Int
+            do {
+                added = try await provider.addTracks(compatible, to: playlist.id)
+            } catch {
+                EnsembleLogger.error(
+                    "Apple Music playlist add failed playlist=\(playlist.id) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)): \(error.localizedDescription)"
+                )
+                throw error
+            }
+            persistLastPlaylistTarget(from: playlist)
+            EnsembleLogger.info(
+                "Apple Music playlist add completed playlist=\(playlist.id) tracks=\(added) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
+            Task { [weak self] in
+                await self?.refreshAppleMusicPlaylist(provider, playlistID: playlist.id)
+            }
             return PlaylistMutationResult(addedCount: added, skippedCount: tracks.count - compatible.count)
         }
         #endif
@@ -574,11 +592,26 @@ public final class SyncCoordinator: ObservableObject {
     @available(iOS 18, *)
     private func refreshAppleMusicPlaylists(_ provider: AppleMusicSourceProvider) async {
         _ = try? await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
-        NotificationCenter.default.post(
-            name: Self.playlistsDidRefresh,
-            object: nil,
-            userInfo: ["serverSourceKey": MusicSourceIdentifier.appleMusic.compositeKey]
-        )
+        notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+    }
+
+    @available(iOS 18, *)
+    private func refreshAppleMusicPlaylist(
+        _ provider: AppleMusicSourceProvider,
+        playlistID: String
+    ) async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        do {
+            try await provider.syncPlaylist(id: playlistID, to: playlistRepository)
+            notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+            EnsembleLogger.info(
+                "Apple Music playlist refresh completed playlist=\(playlistID) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
+        } catch {
+            EnsembleLogger.error(
+                "Apple Music playlist refresh failed playlist=\(playlistID): \(error.localizedDescription)"
+            )
+        }
     }
 
     @available(iOS 18, *)
