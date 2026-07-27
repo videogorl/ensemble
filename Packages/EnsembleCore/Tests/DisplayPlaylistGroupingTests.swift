@@ -113,5 +113,16 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             "/v1/me/favorites?ids%5Bsongs%5D=1613600188"
         )
     }
+
+    @available(iOS 18, *)
+    func testAppleMusicPaginationPreservesRequestedExtensions() {
+        XCTAssertEqual(
+            AppleMusicSourceProvider.continuationPath(
+                "/v1/me/library/songs?offset=100",
+                preservingQueryFrom: "/v1/me/library/songs?limit=100&extend=inFavorites&include=catalog"
+            ),
+            "/v1/me/library/songs?offset=100&limit=100&extend=inFavorites&include=catalog"
+        )
+    }
     #endif
 }

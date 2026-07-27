@@ -228,6 +228,14 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         return path
     }
 
+    static func continuationPath(_ next: String, preservingQueryFrom initial: String) -> String {
+        guard var components = URLComponents(string: next),
+              let initialItems = URLComponents(string: initial)?.queryItems else { return next }
+        let existingNames = Set((components.queryItems ?? []).map(\.name))
+        components.queryItems = (components.queryItems ?? []) + initialItems.filter { !existingNames.contains($0.name) }
+        return components.string ?? next
+    }
+
     public func addToLibrary(catalogID: String) async throws {
         let request = MusicCatalogResourceRequest<Song>(
             matching: \.id,
@@ -333,13 +341,14 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     }
 
     private func fetchAll<Resource: Decodable>(path: String) async throws -> [Resource] {
+        let initialPath = path
         var path: String? = path
         var result: [Resource] = []
         while let current = path {
             let data = try await request(path: current)
             let page = try JSONDecoder().decode(Page<Resource>.self, from: data)
             result.append(contentsOf: page.data)
-            path = page.next
+            path = page.next.map { Self.continuationPath($0, preservingQueryFrom: initialPath) }
         }
         return result
     }
