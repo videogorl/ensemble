@@ -4,7 +4,7 @@ import EnsemblePersistence
 import Foundation
 
 /// Search section types for intelligent ordering
-public enum SearchSection: String, CaseIterable {
+public enum SearchSection: String, CaseIterable, Hashable, Sendable {
     case artists
     case albums
     case playlists

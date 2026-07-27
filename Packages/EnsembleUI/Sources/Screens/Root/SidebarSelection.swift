@@ -45,6 +45,8 @@ public enum SidebarSelection: Hashable {
             return .mergedPlaylist(title: title, isSmart: isSmart)
         case .moodTracks:
             return .library(.home)
+        case .searchResults:
+            return .library(.search)
         case .view(let tab):
             switch tab {
             case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:

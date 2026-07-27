@@ -91,6 +91,13 @@ struct NavigationDestinationFactory {
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):
             return AnyView(MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM))
+        case .searchResults(let section):
+            return AnyView(SearchView(
+                nowPlayingVM: nowPlayingVM,
+                viewModel: searchVM,
+                pinnedVM: pinnedVM,
+                resultSection: section
+            ))
         case .view(let tab):
             return AnyView(NavigationTabContentView(
                 tab: tab,

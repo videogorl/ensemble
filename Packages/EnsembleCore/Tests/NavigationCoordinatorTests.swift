@@ -15,6 +15,7 @@ final class NavigationCoordinatorTests: XCTestCase {
             NavigationCoordinator.targetTab(for: .moodTracks(mood: Mood(id: "focus", key: "/moods/focus", title: "Focus"))),
             .home
         )
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .searchResults(section: .songs)), .search)
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .view(.favorites)), .favorites)
     }
 
