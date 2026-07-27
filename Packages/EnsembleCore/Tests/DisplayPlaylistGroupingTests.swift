@@ -105,5 +105,13 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/cover.png/300x300bb.jpg"
         )
     }
+
+    @available(iOS 18, *)
+    func testAppleMusicFavoriteUsesResourceTypedSongID() throws {
+        XCTAssertEqual(
+            try AppleMusicSourceProvider.favoritePath(catalogID: "1613600188"),
+            "/v1/me/favorites?ids%5Bsongs%5D=1613600188"
+        )
+    }
     #endif
 }

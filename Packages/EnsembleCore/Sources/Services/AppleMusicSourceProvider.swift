@@ -7,6 +7,7 @@ import MusicKit
 public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     public nonisolated let sourceIdentifier = MusicSourceIdentifier.appleMusic
     private var catalogIDsByLibraryID: [String: String] = [:]
+    private var pendingFavoriteCatalogIDs = Set<String>()
 
     public init() {}
 
@@ -31,6 +32,9 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
 
         catalogIDsByLibraryID = Dictionary(uniqueKeysWithValues: songs.compactMap { song in
             song.catalogID.map { (song.id, $0) }
+        })
+        pendingFavoriteCatalogIDs.subtract(songs.compactMap { song in
+            song.attributes.inFavorites == true ? song.catalogID : nil
         })
 
         let artists = Dictionary(grouping: songs, by: \.artistKey).compactMap { key, songs -> ArtistUpsertInput? in
@@ -67,30 +71,22 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             )
         }
         let tracks = songs.map { song in
-            TrackUpsertInput(
-                ratingKey: song.id,
-                key: "apple-library:\(song.catalogID ?? "")",
-                title: song.attributes.name,
-                artistName: song.attributes.artistName,
-                albumName: song.attributes.albumName,
-                albumRatingKey: song.albumKey,
-                trackNumber: song.attributes.trackNumber,
-                discNumber: song.attributes.discNumber,
-                duration: song.attributes.durationInMillis,
-                thumbPath: song.artworkURL,
-                streamKey: song.attributes.url,
-                dateAdded: song.dateAdded,
-                dateModified: nil,
-                lastPlayed: nil,
-                rating: song.attributes.inFavorites == true ? 10 : nil,
-                playCount: nil,
-                genreNames: song.attributes.genreNames?.joined(separator: ", ")
+            trackInput(
+                song,
+                isFavorite: song.attributes.inFavorites == true
+                    || song.catalogID.map(pendingFavoriteCatalogIDs.contains) == true
             )
         }
 
         try await repository.batchUpsertArtists(artists, sourceCompositeKey: sourceKey)
         try await repository.batchUpsertAlbums(albums, sourceCompositeKey: sourceKey)
         try await repository.batchUpsertTracks(tracks, sourceCompositeKey: sourceKey)
+        let pendingFavorites = songs.filter { song in
+            song.catalogID.map(pendingFavoriteCatalogIDs.contains) == true
+        }.map { trackInput($0, isFavorite: true) }
+        if !pendingFavorites.isEmpty {
+            try await repository.batchUpsertTracks(pendingFavorites, sourceCompositeKey: sourceKey)
+        }
         progressHandler(0.85)
 
         let artistKeys = Set(artists.map(\.ratingKey))
@@ -220,7 +216,16 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     }
 
     public func favorite(catalogID: String) async throws {
-        _ = try await request(path: "/v1/me/favorites?ids=\(catalogID)", method: "POST")
+        _ = try await request(path: try Self.favoritePath(catalogID: catalogID), method: "POST")
+        pendingFavoriteCatalogIDs.insert(catalogID)
+    }
+
+    static func favoritePath(catalogID: String) throws -> String {
+        var components = URLComponents()
+        components.path = "/v1/me/favorites"
+        components.queryItems = [URLQueryItem(name: "ids[songs]", value: catalogID)]
+        guard let path = components.string else { throw URLError(.badURL) }
+        return path
     }
 
     public func addToLibrary(catalogID: String) async throws {
@@ -354,6 +359,28 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             streamKey: song.url?.absoluteString,
             genres: song.genreNames,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+    }
+
+    private func trackInput(_ song: LibrarySong, isFavorite: Bool) -> TrackUpsertInput {
+        TrackUpsertInput(
+            ratingKey: song.id,
+            key: "apple-library:\(song.catalogID ?? "")",
+            title: song.attributes.name,
+            artistName: song.attributes.artistName,
+            albumName: song.attributes.albumName,
+            albumRatingKey: song.albumKey,
+            trackNumber: song.attributes.trackNumber,
+            discNumber: song.attributes.discNumber,
+            duration: song.attributes.durationInMillis,
+            thumbPath: song.artworkURL,
+            streamKey: song.attributes.url,
+            dateAdded: song.dateAdded,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: isFavorite ? 10 : nil,
+            playCount: nil,
+            genreNames: song.attributes.genreNames?.joined(separator: ", ")
         )
     }
 

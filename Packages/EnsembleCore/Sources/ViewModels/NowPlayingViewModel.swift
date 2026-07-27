@@ -1706,7 +1706,10 @@ public final class NowPlayingViewModel: ObservableObject {
                 return
             }
 
-            if let updatedTrack = try? await libraryRepository.fetchTrack(
+            if track.isAppleMusic {
+                try await storeTrackRating(track: track, rating: optimisticRating)
+                optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
+            } else if let updatedTrack = try? await libraryRepository.fetchTrack(
                 ratingKey: track.id,
                 sourceCompositeKey: track.sourceCompositeKey
             ) {
