@@ -166,13 +166,15 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     public func syncPlaylist(
         id: String,
         minimumTrackCount: Int,
+        requiredTracks: [Track],
         to repository: PlaylistRepositoryProtocol
-    ) async throws -> Int {
+    ) async throws -> Int? {
         try await persistPlaylist(
             try await libraryPlaylist(id: id),
             artworkURL: nil,
             canEdit: true,
             minimumTrackCount: minimumTrackCount,
+            requiredTracks: requiredTracks,
             to: repository
         )
     }
@@ -416,8 +418,9 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         artworkURL: String?,
         canEdit: Bool,
         minimumTrackCount: Int = 0,
+        requiredTracks: [Track] = [],
         to repository: PlaylistRepositoryProtocol
-    ) async throws -> Int {
+    ) async throws -> Int? {
         let id = String(describing: playlist.id)
         let sourceKey = sourceIdentifier.compositeKey
         let detailed = try await playlist.with([.tracks])
@@ -429,7 +432,10 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             guard case .song(let song) = track else { return nil }
             return song
         }
-        guard songs.count >= minimumTrackCount else { return songs.count }
+        let fetchedTracks = songs.map(Self.domainTrack)
+        guard songs.count >= minimumTrackCount,
+              PlaylistActionService().tracks(requiredTracks, excluding: fetchedTracks).isEmpty
+        else { return nil }
         _ = try await repository.upsertPlaylist(
             ratingKey: id,
             key: id,

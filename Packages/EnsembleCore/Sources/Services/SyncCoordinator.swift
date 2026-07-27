@@ -543,11 +543,24 @@ public final class SyncCoordinator: ObservableObject {
             EnsembleLogger.info(
                 "Apple Music playlist add completed playlist=\(playlist.id) tracks=\(added) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
             )
+            var minimumTrackCount = playlist.trackCount + added
+            do {
+                minimumTrackCount = try await persistOptimisticAppleMusicPlaylistAdd(
+                    compatible,
+                    playlist: playlist
+                )
+            } catch {
+                EnsembleLogger.error(
+                    "Apple Music playlist optimistic cache failed playlist=\(playlist.id): \(error.localizedDescription)"
+                )
+            }
+            let expectedTrackCount = minimumTrackCount
             Task { [weak self] in
                 await self?.refreshAppleMusicPlaylist(
                     provider,
                     playlistID: playlist.id,
-                    minimumTrackCount: playlist.trackCount + added
+                    minimumTrackCount: expectedTrackCount,
+                    requiredTracks: compatible
                 )
             }
             return PlaylistMutationResult(addedCount: added, skippedCount: tracks.count - compatible.count)
@@ -592,6 +605,74 @@ public final class SyncCoordinator: ObservableObject {
         try await playlistMutationController().deletePlaylist(playlist)
     }
 
+    @discardableResult
+    internal func persistOptimisticAppleMusicPlaylistAdd(
+        _ tracks: [Track],
+        playlist: Playlist
+    ) async throws -> Int {
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        guard let cachedPlaylist = try await playlistRepository.fetchPlaylist(
+            ratingKey: playlist.id,
+            sourceCompositeKey: sourceKey
+        ) else {
+            return playlist.trackCount + tracks.count
+        }
+
+        let existingItems = cachedPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
+        let newTracks = PlaylistActionService().tracks(
+            tracks,
+            excluding: existingItems.map(\.track)
+        )
+        guard !newTracks.isEmpty else { return existingItems.count }
+
+        let snapshots = existingItems.map {
+            Self.playlistTrackSnapshot($0.track, playlistItemID: $0.playlistItemID)
+        } + newTracks.map {
+            Self.playlistTrackSnapshot($0, playlistItemID: nil)
+        }
+        try await playlistRepository.setPlaylistTrackSnapshots(
+            snapshots,
+            forPlaylist: playlist.id,
+            sourceCompositeKey: sourceKey
+        )
+        _ = try await playlistRepository.upsertPlaylist(
+            ratingKey: cachedPlaylist.ratingKey,
+            key: cachedPlaylist.key,
+            title: cachedPlaylist.title,
+            summary: cachedPlaylist.summary,
+            compositePath: cachedPlaylist.compositePath,
+            isSmart: cachedPlaylist.isSmart,
+            duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000),
+            trackCount: snapshots.count,
+            dateAdded: cachedPlaylist.dateAdded,
+            dateModified: cachedPlaylist.dateModified,
+            lastPlayed: cachedPlaylist.lastPlayed,
+            sourceCompositeKey: sourceKey
+        )
+        notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
+        EnsembleLogger.info(
+            "Apple Music playlist optimistic cache updated playlist=\(playlist.id) tracks=\(snapshots.count)"
+        )
+        return snapshots.count
+    }
+
+    private static func playlistTrackSnapshot(
+        _ track: Track,
+        playlistItemID: String?
+    ) -> PlaylistTrackSnapshot {
+        PlaylistTrackSnapshot(
+            ratingKey: track.id,
+            playlistItemID: playlistItemID,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            duration: track.duration,
+            thumbPath: track.thumbPath ?? track.fallbackThumbPath,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+    }
+
     #if os(iOS)
     @available(iOS 18, *)
     private func refreshAppleMusicPlaylists(_ provider: AppleMusicSourceProvider) async {
@@ -603,20 +684,23 @@ public final class SyncCoordinator: ObservableObject {
     private func refreshAppleMusicPlaylist(
         _ provider: AppleMusicSourceProvider,
         playlistID: String,
-        minimumTrackCount: Int
+        minimumTrackCount: Int,
+        requiredTracks: [Track]
     ) async {
         let startedAt = ProcessInfo.processInfo.systemUptime
-        for attempt in 1...4 {
+        let retryDelays: [UInt64] = [0, 1, 2, 4, 8, 16]
+        for (index, delay) in retryDelays.enumerated() {
+            let attempt = index + 1
             do {
-                if attempt > 1 {
-                    try await Task.sleep(nanoseconds: UInt64(250 * (1 << (attempt - 2))) * 1_000_000)
+                if delay > 0 {
+                    try await Task.sleep(nanoseconds: delay * 1_000_000_000)
                 }
-                let trackCount = try await provider.syncPlaylist(
+                guard let trackCount = try await provider.syncPlaylist(
                     id: playlistID,
                     minimumTrackCount: minimumTrackCount,
+                    requiredTracks: requiredTracks,
                     to: playlistRepository
-                )
-                guard trackCount >= minimumTrackCount else { continue }
+                ) else { continue }
                 notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
                 EnsembleLogger.info(
                     "Apple Music playlist refresh completed playlist=\(playlistID) tracks=\(trackCount) attempts=\(attempt) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
@@ -631,7 +715,7 @@ public final class SyncCoordinator: ObservableObject {
             }
         }
         EnsembleLogger.error(
-            "Apple Music playlist refresh did not converge playlist=\(playlistID) expectedTracks=\(minimumTrackCount) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            "Apple Music playlist refresh did not converge playlist=\(playlistID) expectedTracks=\(minimumTrackCount) requiredTracks=\(requiredTracks.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
         )
     }
 
