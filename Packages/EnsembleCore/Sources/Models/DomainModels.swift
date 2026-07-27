@@ -778,6 +778,31 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
     }
 
+    /// Apple read-only playlists may still merge with same-named regular Plex playlists.
+    public var isSmartForPlaylistGrouping: Bool {
+        sourceType == .appleMusic ? false : isSmart
+    }
+
+    public var supportsPlaylistTrackAdds: Bool { !isSmart }
+
+    public var supportsPlaylistEditing: Bool {
+        guard !isSmart else { return false }
+        guard sourceType == .appleMusic else { return true }
+        return Set(UserDefaults.standard.stringArray(forKey: Self.appleMusicCreatedPlaylistIDsKey) ?? []).contains(id)
+    }
+
+    public var supportsPlaylistDeletion: Bool {
+        !isSmart && sourceType != .appleMusic
+    }
+
+    public static func markAppleMusicPlaylistCreated(id: String) {
+        var ids = Set(UserDefaults.standard.stringArray(forKey: appleMusicCreatedPlaylistIDsKey) ?? [])
+        ids.insert(id)
+        UserDefaults.standard.set(Array(ids), forKey: appleMusicCreatedPlaylistIDsKey)
+    }
+
+    private static let appleMusicCreatedPlaylistIDsKey = "appleMusicCreatedPlaylistIDs"
+
     /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
     /// Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.
     public static func == (lhs: Playlist, rhs: Playlist) -> Bool {

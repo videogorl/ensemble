@@ -409,8 +409,9 @@ public final class PlaylistViewModel: ObservableObject {
 
     /// Deletes all constituent playlists in a merged DisplayPlaylist
     public func deleteMergedPlaylist(_ dp: DisplayPlaylist) async -> Bool {
+        guard !dp.deletablePlaylists.isEmpty else { return false }
         var allSucceeded = true
-        for playlist in dp.playlists {
+        for playlist in dp.deletablePlaylists {
             let success = await deletePlaylist(playlist)
             if !success { allSucceeded = false }
         }
@@ -419,7 +420,7 @@ public final class PlaylistViewModel: ObservableObject {
 
     /// Applies optimistic rename to all constituents of a merged DisplayPlaylist
     public func applyOptimisticRenameForMerged(_ dp: DisplayPlaylist, newTitle: String) {
-        for playlist in dp.playlists {
+        for playlist in dp.editablePlaylists {
             applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
         }
     }
@@ -1002,14 +1003,14 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public var canEditPlaylistItems: Bool {
-        !playlist.isSmart && !playlistItems.isEmpty && (
+        playlist.supportsPlaylistEditing && !playlistItems.isEmpty && (
             playlist.sourceType == .appleMusic || playlistItems.allSatisfy { $0.playlistItemID != nil }
         )
     }
 
     @discardableResult
     public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
-        guard !playlist.isSmart else {
+        guard playlist.supportsPlaylistEditing else {
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }

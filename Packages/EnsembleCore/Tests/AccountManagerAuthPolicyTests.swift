@@ -17,6 +17,15 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         super.tearDown()
     }
 
+    func testServerNameUsesAppleMusicSourceName() {
+        let manager = AccountManager(keychain: TestKeychain())
+
+        XCTAssertEqual(
+            manager.serverName(for: MusicSourceIdentifier.appleMusic.compositeKey),
+            "Apple Music"
+        )
+    }
+
     func testLoadAccountsAppliesMigrationAndForcesRelogin() throws {
         let keychain = TestKeychain()
         let existing = PlexAccountConfig(

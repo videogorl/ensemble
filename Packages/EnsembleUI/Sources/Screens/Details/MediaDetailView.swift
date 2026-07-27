@@ -674,14 +674,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var playlistTrackRemovalHandler: ((Track, Int) -> Void)? {
         if let playlistViewModel = viewModel as? PlaylistDetailViewModel,
-           !playlistViewModel.playlist.isSmart {
+           playlistViewModel.playlist.supportsPlaylistEditing {
             return { track, displayIndex in
                 removeTrackFromPlaylist(track, displayIndex: displayIndex, playlistViewModel: playlistViewModel)
             }
         }
 
         if let mergedPlaylistViewModel = viewModel as? MergedPlaylistDetailViewModel,
-           !mergedPlaylistViewModel.displayPlaylist.isSmart {
+           !mergedPlaylistViewModel.displayPlaylist.editablePlaylists.isEmpty {
             return { track, displayIndex in
                 removeTrackFromMergedPlaylist(
                     track,

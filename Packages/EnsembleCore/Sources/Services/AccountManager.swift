@@ -773,6 +773,9 @@ public final class AccountManager: ObservableObject {
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
     /// Returns the server's friendly name, or nil if not found.
     public func serverName(for sourceCompositeKey: String) -> String? {
+        if MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type == .appleMusic {
+            return "Apple Music"
+        }
         guard let identity = MediaSourceIdentity.parse(sourceCompositeKey) else { return nil }
 
         guard let account = plexAccounts.first(where: { $0.id == identity.accountId }),

@@ -482,7 +482,7 @@ struct PlaylistActionsContextMenu: View {
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
-                for: .playlist(isSmart: playlist.isSmart),
+                for: .playlist(isSmart: !playlist.supportsPlaylistEditing),
                 context: .library,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: false,
@@ -496,9 +496,9 @@ struct PlaylistActionsContextMenu: View {
                     canDownload: canDownload,
                     canPin: true,
                     canEditMetadata: false,
-                    canDelete: onDelete != nil && playlist.sourceType != .appleMusic,
-                    canRename: onRename != nil,
-                    canEditPlaylist: onEdit != nil,
+                    canDelete: onDelete != nil && playlist.supportsPlaylistDeletion,
+                    canRename: onRename != nil && playlist.supportsPlaylistEditing,
+                    canEditPlaylist: onEdit != nil && playlist.supportsPlaylistEditing,
                     canRemoveFromQueue: false
                 )
             ),
@@ -624,7 +624,7 @@ struct MergedPlaylistActionsContextMenu: View {
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
-                for: .mergedPlaylist(isSmart: displayPlaylist.isSmart),
+                for: .mergedPlaylist(isSmart: displayPlaylist.editablePlaylists.isEmpty),
                 context: context,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: false,
@@ -637,8 +637,8 @@ struct MergedPlaylistActionsContextMenu: View {
                     canDownload: !downloadablePlaylists.isEmpty,
                     canPin: false,
                     canEditMetadata: false,
-                    canDelete: onDelete != nil && !displayPlaylist.playlists.contains { $0.sourceType == .appleMusic },
-                    canRename: onRename != nil,
+                    canDelete: onDelete != nil && !displayPlaylist.deletablePlaylists.isEmpty,
+                    canRename: onRename != nil && !displayPlaylist.editablePlaylists.isEmpty,
                     canEditPlaylist: false,
                     canRemoveFromQueue: false
                 )

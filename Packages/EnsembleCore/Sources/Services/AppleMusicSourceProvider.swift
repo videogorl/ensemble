@@ -125,6 +125,8 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult {
         let sourceKey = sourceIdentifier.compositeKey
+        let libraryPlaylists: [LibraryPlaylist] = try await fetchAll(path: "/v1/me/library/playlists?limit=100")
+        let libraryPlaylistsByID = Dictionary(uniqueKeysWithValues: libraryPlaylists.map { ($0.id, $0) })
         var playlists: [MusicKit.Playlist] = []
         var offset = 0
         while true {
@@ -140,6 +142,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
 
         for (index, playlist) in playlists.enumerated() {
             let id = String(describing: playlist.id)
+            let libraryPlaylist = libraryPlaylistsByID[id]
             validIDs.insert(id)
             let detailed = try await playlist.with([.tracks])
             var musicTracks = detailed.tracks ?? []
@@ -155,8 +158,9 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
                 key: id,
                 title: playlist.name,
                 summary: playlist.standardDescription,
-                compositePath: playlist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
-                isSmart: playlist.kind != nil,
+                compositePath: libraryPlaylist?.attributes.artwork?.url
+                    ?? playlist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                isSmart: libraryPlaylist?.attributes.canEdit != true,
                 duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
                 trackCount: songs.count,
                 dateAdded: playlist.libraryAddedDate,
@@ -207,8 +211,20 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
 
     public func getArtworkURL(path: String?, size: Int) async throws -> URL? {
         guard let path else { return nil }
-        return URL(string: path.replacingOccurrences(of: "{w}", with: "\(size)")
-            .replacingOccurrences(of: "{h}", with: "\(size)"))
+        let resizedPath = path.replacingOccurrences(of: "{w}", with: "\(size)")
+            .replacingOccurrences(of: "{h}", with: "\(size)")
+        guard let sourceURL = URL(string: resizedPath), sourceURL.scheme == "musicKit" else {
+            return URL(string: resizedPath)
+        }
+        guard let assetPath = URLComponents(url: sourceURL, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "aat" })?.value else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "is1-ssl.mzstatic.com"
+        components.path = "/image/thumb/\(assetPath)/\(size)x\(size)bb.jpg"
+        return components.url
     }
 
     public func rateTrack(ratingKey: String, rating: Int?) async throws {
@@ -223,16 +239,21 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     public func createPlaylist(title: String, tracks: [Track]) async throws {
         let songs = try await catalogSongs(for: tracks)
         guard !songs.isEmpty || tracks.isEmpty else { throw PlaylistMutationError.emptySelection }
-        _ = try await MusicLibrary.shared.createPlaylist(name: title, items: songs)
+        let playlist = try await MusicLibrary.shared.createPlaylist(name: title, items: songs)
+        Playlist.markAppleMusicPlaylistCreated(id: String(describing: playlist.id))
     }
 
     public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
-        let playlist = try await libraryPlaylist(id: playlistID)
-        let songs = try await catalogSongs(for: tracks)
-        for song in songs {
-            _ = try await MusicLibrary.shared.add(song, to: playlist)
-        }
-        return songs.count
+        let ids = tracks.compactMap(\.appleMusicCatalogID)
+        guard ids.count == tracks.count else { throw PlaylistMutationError.invalidSource }
+        guard !ids.isEmpty else { return 0 }
+        let encodedID = playlistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlistID
+        _ = try await request(
+            path: "/v1/me/library/playlists/\(encodedID)/tracks",
+            method: "POST",
+            body: ["data": ids.map { ["id": $0, "type": "songs"] }]
+        )
+        return ids.count
     }
 
     public func renamePlaylist(_ playlistID: String, title: String) async throws {
@@ -445,6 +466,17 @@ private struct LibrarySong: Decodable {
     private static func date(_ value: String) -> Date? {
         ISO8601DateFormatter().date(from: value) ?? DateFormatter.appleMusicDay.date(from: value)
     }
+}
+
+@available(iOS 18, *)
+private struct LibraryPlaylist: Decodable {
+    struct Attributes: Decodable {
+        let canEdit: Bool?
+        let artwork: Artwork?
+    }
+
+    let id: String
+    let attributes: Attributes
 }
 
 @available(iOS 18, *)

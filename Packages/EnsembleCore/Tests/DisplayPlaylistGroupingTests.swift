@@ -26,4 +26,41 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertEqual(displayPlaylists.count, 1)
         XCTAssertEqual(Set(displayPlaylists[0].playlists.compactMap(\.sourceType)), [.plex, .appleMusic])
     }
+
+    func testGroupMergesReadOnlyAppleMusicPlaylistWithRegularPlexPlaylist() {
+        let playlists = [
+            Playlist(id: "apple", key: "apple", title: "Ambient Electric", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+            Playlist(id: "plex", key: "/plex", title: "Ambient Electric", sourceCompositeKey: "plex:a:s:l")
+        ]
+
+        let displayPlaylists = DisplayPlaylist.group(playlists, merge: true)
+
+        XCTAssertEqual(displayPlaylists.count, 1)
+        XCTAssertEqual(displayPlaylists[0].playlists.count, 2)
+        XCTAssertTrue(displayPlaylists[0].isSmart)
+        XCTAssertEqual(displayPlaylists[0].editablePlaylists.map(\.id), ["plex"])
+    }
+
+    func testGroupKeepsPlexSmartAndRegularPlaylistsSeparate() {
+        let playlists = [
+            Playlist(id: "smart", key: "/smart", title: "Favorites", isSmart: true, sourceCompositeKey: "plex:a:s:l"),
+            Playlist(id: "regular", key: "/regular", title: "Favorites", sourceCompositeKey: "plex:b:s:l")
+        ]
+
+        XCTAssertEqual(DisplayPlaylist.group(playlists, merge: true).count, 2)
+    }
+
+    #if os(iOS)
+    @available(iOS 18, *)
+    func testAppleMusicArtworkURLConvertsPrivateMusicKitAsset() async throws {
+        let path = "musicKit://artwork/library/example/1200x1200?aat=Music115%2Fv4%2Fcover.png&at=item"
+
+        let url = try await AppleMusicSourceProvider().getArtworkURL(path: path, size: 300)
+
+        XCTAssertEqual(
+            url?.absoluteString,
+            "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/cover.png/300x300bb.jpg"
+        )
+    }
+    #endif
 }

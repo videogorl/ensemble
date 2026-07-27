@@ -183,7 +183,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     @discardableResult
     public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
-        guard !displayPlaylist.isSmart else {
+        guard !displayPlaylist.editablePlaylists.isEmpty else {
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
@@ -191,6 +191,10 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         let selectedTrack = selectedTrack(for: track, displayIndex: displayIndex)
         guard let targetPlaylist = playlistOwningTrack(selectedTrack) else {
             error = "Could not determine which server playlist owns this track."
+            return false
+        }
+        guard targetPlaylist.supportsPlaylistEditing else {
+            error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
         guard !hasUnavailableTracks else {

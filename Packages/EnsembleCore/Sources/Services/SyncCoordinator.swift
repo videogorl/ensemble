@@ -517,6 +517,9 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Add tracks to an existing playlist and refresh local cache for the playlist's server.
     public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
+        guard playlist.supportsPlaylistTrackAdds else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
         #if os(iOS)
         if playlist.sourceType == .appleMusic {
             guard #available(iOS 18, *),
@@ -533,6 +536,9 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Rename a playlist and refresh server playlists.
     public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
+        guard playlist.supportsPlaylistEditing else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
         #if os(iOS)
         if playlist.sourceType == .appleMusic {
             guard #available(iOS 18, *),
@@ -548,6 +554,9 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Delete a playlist and refresh server playlists.
     public func deletePlaylist(_ playlist: Playlist) async throws {
+        guard playlist.supportsPlaylistDeletion else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
         #if os(iOS)
         if playlist.sourceType == .appleMusic {
             guard #available(iOS 18, *),
@@ -582,6 +591,9 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Replace playlist contents in the provided order and refresh local cache.
     public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
+        guard playlist.supportsPlaylistEditing else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
         #if os(iOS)
         if playlist.sourceType == .appleMusic {
             guard #available(iOS 18, *),
