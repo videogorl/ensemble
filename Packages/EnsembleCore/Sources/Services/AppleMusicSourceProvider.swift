@@ -148,7 +148,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             if libraryPlaylist?.attributes.canEdit == true {
                 editableIDs.insert(id)
             }
-            try await persistPlaylist(
+            _ = try await persistPlaylist(
                 playlist,
                 artworkURL: libraryPlaylist?.attributes.artwork?.url,
                 canEdit: libraryPlaylist?.attributes.canEdit == true,
@@ -163,11 +163,16 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         return PlaylistSyncResult(changedPlaylists: playlists.count, removedPlaylists: removed)
     }
 
-    public func syncPlaylist(id: String, to repository: PlaylistRepositoryProtocol) async throws {
+    public func syncPlaylist(
+        id: String,
+        minimumTrackCount: Int,
+        to repository: PlaylistRepositoryProtocol
+    ) async throws -> Int {
         try await persistPlaylist(
             try await libraryPlaylist(id: id),
             artworkURL: nil,
             canEdit: true,
+            minimumTrackCount: minimumTrackCount,
             to: repository
         )
     }
@@ -410,8 +415,9 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         _ playlist: MusicKit.Playlist,
         artworkURL: String?,
         canEdit: Bool,
+        minimumTrackCount: Int = 0,
         to repository: PlaylistRepositoryProtocol
-    ) async throws {
+    ) async throws -> Int {
         let id = String(describing: playlist.id)
         let sourceKey = sourceIdentifier.compositeKey
         let detailed = try await playlist.with([.tracks])
@@ -423,6 +429,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             guard case .song(let song) = track else { return nil }
             return song
         }
+        guard songs.count >= minimumTrackCount else { return songs.count }
         _ = try await repository.upsertPlaylist(
             ratingKey: id,
             key: id,
@@ -453,6 +460,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             forPlaylist: id,
             sourceCompositeKey: sourceKey
         )
+        return songs.count
     }
 
     private func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Data {

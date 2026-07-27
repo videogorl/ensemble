@@ -84,6 +84,21 @@ final class PlaylistActionServiceTests: XCTestCase {
         )
     }
 
+    func testAppleMusicDuplicateMatchesCatalogAndLibraryRepresentations() {
+        let catalogTrack = makeAppleTrack(id: "1752214923", key: "apple-catalog")
+        let libraryTrack = makeAppleTrack(
+            id: "i.kGOb19mSB4rKq9",
+            key: "apple-library:i.kGOb19mSB4rKq9",
+            albumName: "Espresso - Single"
+        )
+
+        XCTAssertTrue(service.tracks([catalogTrack], excluding: [libraryTrack]).isEmpty)
+        XCTAssertEqual(
+            service.tracks([catalogTrack, libraryTrack], compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey).count,
+            1
+        )
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,
@@ -99,6 +114,18 @@ final class PlaylistActionServiceTests: XCTestCase {
             key: "/playlists/playlist",
             title: "Playlist",
             sourceCompositeKey: sourceCompositeKey
+        )
+    }
+
+    private func makeAppleTrack(id: String, key: String, albumName: String = "Short n' Sweet (Deluxe)") -> Track {
+        Track(
+            id: id,
+            key: key,
+            title: "Espresso",
+            artistName: "Sabrina Carpenter",
+            albumName: albumName,
+            duration: 175.5,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
     }
 }

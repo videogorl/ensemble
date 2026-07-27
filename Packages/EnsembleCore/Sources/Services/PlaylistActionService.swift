@@ -40,8 +40,11 @@ public struct PlaylistActionService {
 
     public func tracks(_ tracks: [Track], compatibleWithServerSourceKey serverSourceKey: String?) -> [Track] {
         if MusicSourceIdentifier(compositeKey: serverSourceKey ?? "")?.type == .appleMusic {
-            var seen = Set<String>()
-            return tracks.filter { $0.isAppleMusic && seen.insert($0.sourceScopedID).inserted }
+            var filtered: [Track] = []
+            for track in tracks where track.isAppleMusic && !filtered.contains(where: { tracksMatch($0, track) }) {
+                filtered.append(track)
+            }
+            return filtered
         }
         guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: serverSourceKey) else { return [] }
         var seen = Set<String>()
@@ -70,8 +73,31 @@ public struct PlaylistActionService {
 
     /// Preserves order while removing tracks already present in the selected playlist.
     public func tracks(_ tracks: [Track], excluding existingTracks: [Track]) -> [Track] {
-        let existingIDs = Set(existingTracks.map(\.sourceScopedID))
-        return tracks.filter { !existingIDs.contains($0.sourceScopedID) }
+        tracks.filter { track in
+            !existingTracks.contains { tracksMatch(track, $0) }
+        }
+    }
+
+    private func tracksMatch(_ first: Track, _ second: Track) -> Bool {
+        if first.sourceScopedID == second.sourceScopedID { return true }
+        guard first.isAppleMusic, second.isAppleMusic else { return false }
+        if let firstID = first.appleMusicCatalogID,
+           let secondID = second.appleMusicCatalogID,
+           firstID == secondID {
+            return true
+        }
+
+        // ponytail: MusicKit can expose a library ID without its catalog ID for playlist-only songs;
+        // replace this metadata fallback if Ensemble persists ISRC or catalog relationships later.
+        guard DisplayPlaylist.normalizedTitle(first.title) == DisplayPlaylist.normalizedTitle(second.title),
+              DisplayPlaylist.normalizedTitle(first.artistName ?? "") == DisplayPlaylist.normalizedTitle(second.artistName ?? "")
+        else { return false }
+        if first.duration > 0, second.duration > 0 {
+            return abs(first.duration - second.duration) < 1
+        }
+        let firstAlbum = DisplayPlaylist.normalizedTitle(first.albumName ?? "")
+        let secondAlbum = DisplayPlaylist.normalizedTitle(second.albumName ?? "")
+        return !firstAlbum.isEmpty && firstAlbum == secondAlbum
     }
 }
 

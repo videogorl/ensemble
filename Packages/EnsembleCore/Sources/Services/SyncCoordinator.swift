@@ -544,7 +544,11 @@ public final class SyncCoordinator: ObservableObject {
                 "Apple Music playlist add completed playlist=\(playlist.id) tracks=\(added) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
             )
             Task { [weak self] in
-                await self?.refreshAppleMusicPlaylist(provider, playlistID: playlist.id)
+                await self?.refreshAppleMusicPlaylist(
+                    provider,
+                    playlistID: playlist.id,
+                    minimumTrackCount: playlist.trackCount + added
+                )
             }
             return PlaylistMutationResult(addedCount: added, skippedCount: tracks.count - compatible.count)
         }
@@ -598,20 +602,37 @@ public final class SyncCoordinator: ObservableObject {
     @available(iOS 18, *)
     private func refreshAppleMusicPlaylist(
         _ provider: AppleMusicSourceProvider,
-        playlistID: String
+        playlistID: String,
+        minimumTrackCount: Int
     ) async {
         let startedAt = ProcessInfo.processInfo.systemUptime
-        do {
-            try await provider.syncPlaylist(id: playlistID, to: playlistRepository)
-            notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
-            EnsembleLogger.info(
-                "Apple Music playlist refresh completed playlist=\(playlistID) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
-            )
-        } catch {
-            EnsembleLogger.error(
-                "Apple Music playlist refresh failed playlist=\(playlistID): \(error.localizedDescription)"
-            )
+        for attempt in 1...4 {
+            do {
+                if attempt > 1 {
+                    try await Task.sleep(nanoseconds: UInt64(250 * (1 << (attempt - 2))) * 1_000_000)
+                }
+                let trackCount = try await provider.syncPlaylist(
+                    id: playlistID,
+                    minimumTrackCount: minimumTrackCount,
+                    to: playlistRepository
+                )
+                guard trackCount >= minimumTrackCount else { continue }
+                notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+                EnsembleLogger.info(
+                    "Apple Music playlist refresh completed playlist=\(playlistID) tracks=\(trackCount) attempts=\(attempt) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+                )
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                EnsembleLogger.error(
+                    "Apple Music playlist refresh failed playlist=\(playlistID) attempt=\(attempt): \(error.localizedDescription)"
+                )
+            }
         }
+        EnsembleLogger.error(
+            "Apple Music playlist refresh did not converge playlist=\(playlistID) expectedTracks=\(minimumTrackCount) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+        )
     }
 
     @available(iOS 18, *)
