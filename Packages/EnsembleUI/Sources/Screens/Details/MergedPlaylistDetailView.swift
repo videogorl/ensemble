@@ -217,7 +217,7 @@ public struct MergedPlaylistDetailView: View {
     /// Sheet listing each constituent playlist with server name — tap to edit individually
     private var editPickerSheet: some View {
         List {
-            ForEach(viewModel.displayPlaylist.editablePlaylists, id: \.sourceScopedID) { playlist in
+            ForEach(viewModel.displayPlaylist.playlists, id: \.sourceScopedID) { playlist in
                 Button {
                     pendingEditTarget = playlist
                     showEditPicker = false
@@ -229,6 +229,11 @@ public struct MergedPlaylistDetailView: View {
                             Text("\(playlist.trackCount) songs")
                                 .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            if let reason = playlist.playlistEditingUnavailableReason {
+                                Text(reason)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            }
                         }
                         Spacer()
                         Image(systemName: EnsembleDesign.Icon.chevronRight)
@@ -237,6 +242,7 @@ public struct MergedPlaylistDetailView: View {
                     }
                 }
                 .foregroundColor(EnsembleDesign.Color.primaryText)
+                .disabled(!playlist.supportsPlaylistEditing)
             }
         }
         .listStyle(.plain)

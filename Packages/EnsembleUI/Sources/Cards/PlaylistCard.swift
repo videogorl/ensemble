@@ -149,8 +149,8 @@ public struct PlaylistRowChip: View {
     public enum Style {
         /// Shows the server name (when merge is off and names collide across servers)
         case serverName(String)
-        /// Identifies a device-local Apple Music playlist.
-        case appleMusic
+        /// Identifies the source provider when the server name is not appropriate.
+        case sourceName(String)
         /// Shows a merge icon (when this entry is a merged playlist)
         case merged
     }
@@ -174,8 +174,8 @@ public struct PlaylistRowChip: View {
                         Capsule()
                             .fill(EnsembleDesign.Color.neutralBadge)
                     )
-            case .appleMusic:
-                Text("Apple Music")
+            case .sourceName(let name):
+                Text(name)
                     .font(EnsembleDesign.Typography.cardMetadata)
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .padding(.horizontal, EnsembleScaffold.Chip.badgeHorizontalPadding)

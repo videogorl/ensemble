@@ -27,7 +27,7 @@ struct NowPlayingBackdrop: View {
             readabilityOverlay
                 .allowsHitTesting(false)
 
-            if settingsManager.auroraVisualizationEnabled && viewModel.currentTrack?.isAppleMusic != true {
+            if settingsManager.auroraVisualizationEnabled && viewModel.currentTrack?.sourceCapabilities.supportsWaveform != false {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: consumer,

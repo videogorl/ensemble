@@ -778,12 +778,15 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
     }
 
-    /// Apple read-only playlists may still merge with same-named regular Plex playlists.
     public var isSmartForPlaylistGrouping: Bool {
-        sourceType == .appleMusic ? false : isSmart
+        isSmart
     }
 
-    public var supportsPlaylistTrackAdds: Bool { !isSmart }
+    public var supportsPlaylistTrackAdds: Bool {
+        guard !isSmart else { return false }
+        guard sourceType == .appleMusic else { return true }
+        return Self.appleMusicEditablePlaylistIDs.contains(id)
+    }
 
     public var supportsPlaylistEditing: Bool {
         guard !isSmart else { return false }
@@ -795,13 +798,33 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         !isSmart && sourceType != .appleMusic
     }
 
+    public var playlistEditingUnavailableReason: String? {
+        guard !supportsPlaylistEditing else { return nil }
+        if sourceType == .appleMusic, supportsPlaylistTrackAdds {
+            return "Songs can be added, but Apple only lets Ensemble reorder or rename playlists Ensemble created."
+        }
+        return isSmart ? "Smart playlists are read-only." : "This playlist is read-only."
+    }
+
     public static func markAppleMusicPlaylistCreated(id: String) {
         var ids = Set(UserDefaults.standard.stringArray(forKey: appleMusicCreatedPlaylistIDsKey) ?? [])
         ids.insert(id)
         UserDefaults.standard.set(Array(ids), forKey: appleMusicCreatedPlaylistIDsKey)
+
+        var editableIDs = appleMusicEditablePlaylistIDs
+        editableIDs.insert(id)
+        cacheAppleMusicEditablePlaylistIDs(editableIDs)
+    }
+
+    public static func cacheAppleMusicEditablePlaylistIDs(_ ids: Set<String>) {
+        UserDefaults.standard.set(Array(ids), forKey: appleMusicEditablePlaylistIDsKey)
     }
 
     private static let appleMusicCreatedPlaylistIDsKey = "appleMusicCreatedPlaylistIDs"
+    private static let appleMusicEditablePlaylistIDsKey = "appleMusicEditablePlaylistIDs"
+    private static var appleMusicEditablePlaylistIDs: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: appleMusicEditablePlaylistIDsKey) ?? [])
+    }
 
     /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.
     /// Skips key, summary, dateAdded, dateModified, lastPlayed, sourceCompositeKey.

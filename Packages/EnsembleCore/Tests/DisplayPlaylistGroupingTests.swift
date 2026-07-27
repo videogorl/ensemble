@@ -27,9 +27,9 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertEqual(Set(displayPlaylists[0].playlists.compactMap(\.sourceType)), [.plex, .appleMusic])
     }
 
-    func testGroupMergesReadOnlyAppleMusicPlaylistWithRegularPlexPlaylist() {
+    func testGroupMergesReadOnlyPersonalAppleMusicPlaylistWithRegularPlexPlaylist() {
         let playlists = [
-            Playlist(id: "apple", key: "apple", title: "Ambient Electric", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+            Playlist(id: "apple", key: "apple", title: "Ambient Electric", isSmart: false, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
             Playlist(id: "plex", key: "/plex", title: "Ambient Electric", sourceCompositeKey: "plex:a:s:l")
         ]
 
@@ -37,8 +37,51 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
         XCTAssertEqual(displayPlaylists.count, 1)
         XCTAssertEqual(displayPlaylists[0].playlists.count, 2)
-        XCTAssertTrue(displayPlaylists[0].isSmart)
+        XCTAssertFalse(displayPlaylists[0].isSmart)
         XCTAssertEqual(displayPlaylists[0].editablePlaylists.map(\.id), ["plex"])
+    }
+
+    func testGroupKeepsCuratedAppleMusicPlaylistSeparateFromRegularPlexPlaylist() {
+        let playlists = [
+            Playlist(id: "apple", key: "apple", title: "Ambient Sleep", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+            Playlist(id: "plex", key: "/plex", title: "Ambient Sleep", sourceCompositeKey: "plex:a:s:l")
+        ]
+
+        XCTAssertEqual(DisplayPlaylist.group(playlists, merge: true).count, 2)
+    }
+
+    func testAppleMusicPlaylistCapabilitiesSeparateTrackAddsFromFullEditing() {
+        Playlist.cacheAppleMusicEditablePlaylistIDs(["personal"])
+        defer { Playlist.cacheAppleMusicEditablePlaylistIDs([]) }
+        let personal = Playlist(
+            id: "personal",
+            key: "personal",
+            title: "Ambient Christian",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertTrue(personal.supportsPlaylistTrackAdds)
+        XCTAssertFalse(personal.supportsPlaylistEditing)
+        XCTAssertNotNil(personal.playlistEditingUnavailableReason)
+    }
+
+    func testAppleMusicCatalogTrackExposesNormalizedLibraryAddCapability() {
+        let catalog = Track(
+            id: "catalog",
+            key: "apple-catalog",
+            title: "Catalog Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let library = Track(
+            id: "library",
+            key: "apple-library:catalog",
+            title: "Library Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertTrue(catalog.canAddToSourceLibrary)
+        XCTAssertFalse(library.canAddToSourceLibrary)
+        XCTAssertEqual(catalog.sourceCapabilities.lyricsStatusDescription, "Not Supported")
     }
 
     func testGroupKeepsPlexSmartAndRegularPlaylistsSeparate() {

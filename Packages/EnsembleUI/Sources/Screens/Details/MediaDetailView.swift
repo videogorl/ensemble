@@ -1194,6 +1194,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             onPlayLast: { track in
                 nowPlayingVM.playLast(track)
             },
+            onAddToLibrary: { track in
+                Task { await nowPlayingVM.addTrackToLibrary(track) }
+            },
             onAddToPlaylist: { track in
                 presentPlaylistPicker(with: [track], title: "Add to Playlist")
             },

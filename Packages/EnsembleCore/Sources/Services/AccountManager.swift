@@ -770,19 +770,42 @@ public final class AccountManager: ObservableObject {
         )
     }
 
+    /// Normalized provider presentation for UI and interaction policy.
+    public func sourcePresentation(for sourceCompositeKey: String?) -> MusicSourcePresentation? {
+        guard let sourceCompositeKey else { return nil }
+        if MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type == .appleMusic {
+            let capabilities = MusicSourceType.appleMusic.capabilities
+            return MusicSourcePresentation(
+                capabilities: capabilities,
+                serverName: capabilities.displayName,
+                libraryName: capabilities.defaultLibraryName,
+                accountName: "This Device"
+            )
+        }
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey),
+              identity.type == MusicSourceType.plex.rawValue,
+              let account = plexAccounts.first(where: { $0.id == identity.accountId }),
+              let server = account.servers.first(where: { $0.id == identity.serverId }) else { return nil }
+        let capabilities = MusicSourceType.plex.capabilities
+        let libraryName = identity.libraryId.flatMap { libraryID in
+            server.libraries.first(where: { $0.key == libraryID })?.title
+        } ?? capabilities.defaultLibraryName
+        return MusicSourcePresentation(
+            capabilities: capabilities,
+            serverName: server.name,
+            libraryName: libraryName,
+            accountName: account.accountIdentifier
+        )
+    }
+
+    public var smartMixCrossSourceNotice: String? {
+        enabledSources().lazy.compactMap { $0.type.capabilities.smartMixCrossSourceNotice }.first
+    }
+
     /// Resolves a server name from a sourceCompositeKey (format: "plex:accountId:serverId:libraryId").
     /// Returns the server's friendly name, or nil if not found.
     public func serverName(for sourceCompositeKey: String) -> String? {
-        if MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type == .appleMusic {
-            return "Apple Music"
-        }
-        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey) else { return nil }
-
-        guard let account = plexAccounts.first(where: { $0.id == identity.accountId }),
-              let server = account.servers.first(where: { $0.id == identity.serverId }) else {
-            return nil
-        }
-        return server.name
+        sourcePresentation(for: sourceCompositeKey)?.serverName
     }
 
     /// Whether any sources are configured

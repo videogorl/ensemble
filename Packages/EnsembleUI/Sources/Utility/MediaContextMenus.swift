@@ -37,17 +37,18 @@ struct TrackActionsContextMenu: View {
                 context: context,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: recentTitle != nil,
+                    canAddToLibrary: nowPlayingVM.canAddTrackToLibrary(track),
                     canAddToRecentPlaylist: recentTitle != nil,
                     canGoToAlbum: track.albumRatingKey != nil,
                     canGoToArtist: track.artistRatingKey != nil,
                     canGetInfo: onGetInfo != nil,
                     canShareLink: true,
-                    canShareAudioFile: !track.isAppleMusic,
-                    canFavorite: !track.isAppleMusic || !nowPlayingVM.isTrackFavorited(track),
+                    canShareAudioFile: track.sourceCapabilities.supportsAudioFileSharing,
+                    canFavorite: track.sourceCapabilities.supportsFavoriteRemoval || !nowPlayingVM.isTrackFavorited(track),
                     canDownload: false,
                     canPin: false,
-                    canEditMetadata: onEditMetadata != nil && !track.isAppleMusic,
-                    canDelete: onDelete != nil && !track.isAppleMusic,
+                    canEditMetadata: onEditMetadata != nil && track.sourceCapabilities.supportsMetadataEditing,
+                    canDelete: onDelete != nil && track.sourceCapabilities.supportsTrackDeletion,
                     canRename: false,
                     canEditPlaylist: false,
                     canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
@@ -75,6 +76,9 @@ struct TrackActionsContextMenu: View {
                 },
                 playLast: {
                     nowPlayingVM.playLast(track)
+                },
+                addToLibrary: {
+                    Task { await nowPlayingVM.addTrackToLibrary(track) }
                 },
                 addToRecentPlaylist: {
                     if let recentPlaylistTarget {

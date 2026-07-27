@@ -589,6 +589,20 @@ public final class SyncCoordinator: ObservableObject {
     }
     #endif
 
+    public func addTrackToLibrary(_ track: Track) async throws {
+        #if os(iOS)
+        guard track.canAddToSourceLibrary,
+              #available(iOS 18, *),
+              let catalogID = track.appleMusicCatalogID,
+              let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+        else { throw PlaylistMutationError.invalidSource }
+        try await provider.addToLibrary(catalogID: catalogID)
+        await sync(source: .appleMusic)
+        #else
+        throw PlaylistMutationError.invalidSource
+        #endif
+    }
+
     /// Replace playlist contents in the provided order and refresh local cache.
     public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
         guard playlist.supportsPlaylistEditing else {

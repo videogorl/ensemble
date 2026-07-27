@@ -139,11 +139,15 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             offset += page.count
         }
         var validIDs = Set<String>()
+        var editableIDs = Set<String>()
 
         for (index, playlist) in playlists.enumerated() {
             let id = String(describing: playlist.id)
             let libraryPlaylist = libraryPlaylistsByID[id]
             validIDs.insert(id)
+            if libraryPlaylist?.attributes.canEdit == true {
+                editableIDs.insert(id)
+            }
             let detailed = try await playlist.with([.tracks])
             var musicTracks = detailed.tracks ?? []
             while musicTracks.hasNextBatch, let next = try await musicTracks.nextBatch(limit: 100) {
@@ -160,7 +164,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
                 summary: playlist.standardDescription,
                 compositePath: libraryPlaylist?.attributes.artwork?.url
                     ?? playlist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
-                isSmart: libraryPlaylist?.attributes.canEdit != true,
+                isSmart: Self.isSmartPlaylist(playlist.kind, canEdit: libraryPlaylist?.attributes.canEdit == true),
                 duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
                 trackCount: songs.count,
                 dateAdded: playlist.libraryAddedDate,
@@ -172,7 +176,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
                 songs.map {
                     PlaylistTrackSnapshot(
                         ratingKey: String(describing: $0.id),
-                        key: "apple-catalog",
+                        key: Self.trackKey($0),
                         title: $0.title,
                         artistName: $0.artistName,
                         albumName: $0.albumTitle,
@@ -187,6 +191,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             progressHandler(Double(index + 1) / Double(max(playlists.count, 1)))
         }
 
+        Playlist.cacheAppleMusicEditablePlaylistIDs(editableIDs)
         let removed = try await repository.removeOrphanedPlaylists(notIn: validIDs, forSource: sourceKey)
         progressHandler(1)
         return PlaylistSyncResult(changedPlaylists: playlists.count, removedPlaylists: removed)
@@ -234,6 +239,17 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
 
     public func favorite(catalogID: String) async throws {
         _ = try await request(path: "/v1/me/favorites?ids=\(catalogID)", method: "POST")
+    }
+
+    public func addToLibrary(catalogID: String) async throws {
+        let request = MusicCatalogResourceRequest<Song>(
+            matching: \.id,
+            equalTo: MusicItemID(catalogID)
+        )
+        guard let song = try await request.response().items.first else {
+            throw AppleMusicSourceError.catalogSongNotFound
+        }
+        try await MusicLibrary.shared.add(song)
     }
 
     public func createPlaylist(title: String, tracks: [Track]) async throws {
@@ -344,7 +360,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     private static func domainTrack(_ song: Song) -> Track {
         Track(
             id: String(describing: song.id),
-            key: "apple-catalog",
+            key: trackKey(song),
             title: song.title,
             artistName: song.artistName,
             albumArtistName: song.artistName,
@@ -357,6 +373,10 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             genres: song.genreNames,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
+    }
+
+    private static func trackKey(_ song: Song) -> String {
+        song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(song.id)"
     }
 
     private static func domainAlbum(_ album: MusicKit.Album) -> Album {
@@ -373,6 +393,18 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
             releaseFormat: album.isSingle == true ? .single : .album
         )
+    }
+
+    private static func isSmartPlaylist(_ kind: MusicKit.Playlist.Kind?, canEdit: Bool) -> Bool {
+        guard !canEdit else { return false }
+        return switch kind {
+        case .editorial, .external, .personalMix, .replay:
+            true
+        case .userShared, nil:
+            false
+        @unknown default:
+            true
+        }
     }
 
     private func catalogSongs(for tracks: [Track]) async throws -> [Song] {
@@ -496,6 +528,7 @@ public enum AppleMusicSourceError: LocalizedError {
     case favoriteRemovalUnsupported
     case playlistDeletionUnsupported
     case playlistNotFound
+    case catalogSongNotFound
     case http(Int)
 
     public var errorDescription: String? {
@@ -504,6 +537,7 @@ public enum AppleMusicSourceError: LocalizedError {
         case .favoriteRemovalUnsupported: "Removing Apple Music favorites is unavailable on this device."
         case .playlistDeletionUnsupported: "Delete this Apple Music playlist in the Music app."
         case .playlistNotFound: "The Apple Music playlist could not be found."
+        case .catalogSongNotFound: "The Apple Music song could not be found."
         case .http(let status): "Apple Music returned HTTP \(status)."
         }
     }

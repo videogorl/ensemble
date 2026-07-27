@@ -23,7 +23,7 @@ enum AppleMusicCatalogSearch {
         let tracks: [Track] = response.songs.map { song in
                 Track(
                     id: String(describing: song.id),
-                    key: "apple-catalog",
+                    key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(song.id)",
                     title: song.title,
                     artistName: song.artistName,
                     albumArtistName: song.artistName,

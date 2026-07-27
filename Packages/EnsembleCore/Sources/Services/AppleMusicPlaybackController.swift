@@ -251,7 +251,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             : song.artwork?.url(width: 1200, height: 1200)?.absoluteString
         return Track(
             id: id,
-            key: "apple-catalog",
+            key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(id)",
             title: song.title,
             artistName: song.artistName,
             albumArtistName: song.artistName,

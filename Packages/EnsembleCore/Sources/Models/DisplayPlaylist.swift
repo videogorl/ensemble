@@ -3,8 +3,7 @@ import EnsemblePersistence
 import Foundation
 
 /// Represents a playlist entry in the UI — either a single playlist or a merged group
-/// of same-named playlists from different sources. Apple Music's read-only classification
-/// does not prevent a playlist from merging with a same-named regular Plex playlist.
+/// of same-named playlists from different sources.
 public struct DisplayPlaylist: Identifiable, Equatable {
     public let id: String
     public let title: String
@@ -89,8 +88,7 @@ public struct DisplayPlaylist: Identifiable, Equatable {
 
     /// Groups playlists into DisplayPlaylist entries based on merge toggle.
     /// When merge is enabled, playlists with the same normalized title and grouping kind are grouped.
-    /// Apple Music read-only playlists share the regular grouping kind because read-only is a
-    /// provider capability, not a Plex smart-playlist identity.
+    /// Mutability does not affect grouping; regular and smart classification remains semantic.
     /// When merge is disabled, each playlist becomes its own DisplayPlaylist.
     /// The input order is preserved — the first occurrence of each group key
     /// determines the group's position in the output.

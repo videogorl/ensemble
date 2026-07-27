@@ -61,6 +61,7 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case radio
     case playNext
     case playLast
+    case addToLibrary
     case addToRecentPlaylist
     case addToPlaylist
     case goToAlbum
@@ -133,6 +134,7 @@ struct MediaMenuHandlers {
     var radio: (() -> Void)?
     var playNext: (() -> Void)?
     var playLast: (() -> Void)?
+    var addToLibrary: (() -> Void)?
     var addToRecentPlaylist: (() -> Void)?
     var addToPlaylist: (() -> Void)?
     var goToAlbum: (() -> Void)?
@@ -168,6 +170,7 @@ struct MediaMenuHandlers {
         case .radio: return radio
         case .playNext: return playNext
         case .playLast: return playLast
+        case .addToLibrary: return addToLibrary
         case .addToRecentPlaylist: return addToRecentPlaylist
         case .addToPlaylist: return addToPlaylist
         case .goToAlbum: return goToAlbum
@@ -200,6 +203,7 @@ struct MediaMenuHandlers {
 /// changing the catalog's section policy.
 struct MediaMenuAvailability: Equatable {
     var hasRecentPlaylist = false
+    var canAddToLibrary = false
     var canAddToRecentPlaylist = true
     var canGoToAlbum = false
     var canGoToArtist = false
@@ -219,6 +223,7 @@ struct MediaMenuAvailability: Equatable {
 
     static let full = MediaMenuAvailability(
         hasRecentPlaylist: true,
+        canAddToLibrary: true,
         canAddToRecentPlaylist: true,
         canGoToAlbum: true,
         canGoToArtist: true,
@@ -291,6 +296,9 @@ enum MediaMenuCatalog {
         ]
 
         var playlistActions: [MediaMenuActionID] = []
+        if availability.canAddToLibrary {
+            playlistActions.append(.addToLibrary)
+        }
         if availability.hasRecentPlaylist, availability.canAddToRecentPlaylist {
             playlistActions.append(.addToRecentPlaylist)
         }
@@ -560,6 +568,8 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Play Next", systemImage: EnsembleDesign.Icon.playNext)
         case .playLast:
             return MediaMenuLabel(title: "Play Last", systemImage: EnsembleDesign.Icon.playLast)
+        case .addToLibrary:
+            return MediaMenuLabel(title: "Add to Library", systemImage: "text.badge.plus")
         case .addToRecentPlaylist:
             guard let title = state.recentPlaylistTitle else { return nil }
             return MediaMenuLabel(title: "Add to \(title)", systemImage: EnsembleDesign.Icon.recentPlaylist)
@@ -631,6 +641,7 @@ extension MediaMenuActionDescriptor {
         case .radio: return .radio
         case .playNext: return .playNext
         case .playLast: return .playLast
+        case .addToLibrary: return .addToLibrary
         case .addToRecentPlaylist:
             guard let title = state.recentPlaylistTitle else { return nil }
             return .addToRecentPlaylist(title)

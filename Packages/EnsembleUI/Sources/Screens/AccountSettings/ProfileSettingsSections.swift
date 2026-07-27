@@ -88,6 +88,7 @@ struct AudioQualitySettingsView: View {
 
 struct SmartMixSettingsView: View {
     private let playbackService = DependencyContainer.shared.playbackService
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
     @State private var isSmartMixEnabled = DependencyContainer.shared.playbackService.isSmartMixEnabled
     @State private var isSmartMixDisabledForAlbums = DependencyContainer.shared.playbackService.isSmartMixDisabledForAlbums
 
@@ -103,17 +104,31 @@ struct SmartMixSettingsView: View {
                 } footer: {
                     Text("Keep consecutive tracks from the same album gapless.")
                 }
+
+                if let notice = accountManager.smartMixCrossSourceNotice {
+                    Section {} footer: {
+                        Text(notice)
+                    }
+                }
             }
         } regularContent: {
-            EnsembleUtilityCardSection(nil) {
-                EnsembleUtilityCardRow {
-                    smartMixToggle
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+                EnsembleUtilityCardSection(nil) {
+                    EnsembleUtilityCardRow {
+                        smartMixToggle
+                    }
+
+                    EnsembleUtilityCardDivider()
+
+                    EnsembleUtilityCardRow {
+                        albumToggle
+                    }
                 }
 
-                EnsembleUtilityCardDivider()
-
-                EnsembleUtilityCardRow {
-                    albumToggle
+                if let notice = accountManager.smartMixCrossSourceNotice {
+                    Text(notice)
+                        .font(EnsembleDesign.Typography.stateMessage)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
         }

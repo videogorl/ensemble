@@ -137,8 +137,8 @@ public struct LyricsCard: View {
                 .accessibilityLabel(viewModel.isInstrumentalModeActive
                     ? "Disable instrumental mode"
                     : "Enable instrumental mode")
-                .disabled(viewModel.currentTrack?.isAppleMusic == true)
-                .opacity(viewModel.currentTrack?.isAppleMusic == true
+                .disabled(viewModel.currentTrack?.sourceCapabilities.supportsInstrumentalMode == false)
+                .opacity(viewModel.currentTrack?.sourceCapabilities.supportsInstrumentalMode == false
                     ? EnsembleScaffold.NowPlaying.unavailableControlOpacity
                     : 1)
             }
@@ -160,11 +160,11 @@ public struct LyricsCard: View {
     @ViewBuilder
     private var contentView: some View {
         if shouldRenderContent {
-            if viewModel.currentTrack?.isAppleMusic == true {
+            if let message = viewModel.currentTrack?.sourceCapabilities.lyricsUnavailableMessage {
                 VStack(spacing: EnsembleDesign.Spacing.md) {
                     Image(systemName: EnsembleDesign.Icon.lyricsUnavailable)
                         .font(.largeTitle)
-                    Text("Lyrics aren’t supported for Apple Music tracks in Ensemble.")
+                    Text(message)
                         .multilineTextAlignment(.center)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }

@@ -141,6 +141,7 @@ private func nativeMediaTableMenuAvailability(
 ) -> MediaMenuAvailability {
     MediaMenuAvailability(
         hasRecentPlaylist: resolvedActions.onAddToRecentPlaylist != nil && resolvedActions.recentPlaylistTitle != nil,
+        canAddToLibrary: resolvedActions.onAddToLibrary != nil,
         canAddToRecentPlaylist: true,
         canGoToAlbum: resolvedActions.onGoToAlbum != nil && track.albumRatingKey != nil,
         canGoToArtist: resolvedActions.onGoToArtist != nil && track.artistRatingKey != nil,
@@ -168,6 +169,7 @@ private func nativeMediaTableMenuHandlers(
     MediaMenuHandlers(
         playNext: resolvedActions.onPlayNext,
         playLast: resolvedActions.onPlayLast,
+        addToLibrary: resolvedActions.onAddToLibrary,
         addToRecentPlaylist: resolvedActions.onAddToRecentPlaylist,
         addToPlaylist: resolvedActions.onAddToPlaylist,
         goToAlbum: resolvedActions.onGoToAlbum,

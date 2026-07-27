@@ -233,12 +233,12 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     private func sourceDisplay(for artist: Artist) -> (title: String, subtitle: String) {
-        if MusicSourceIdentifier(compositeKey: artist.sourceCompositeKey ?? "")?.type == .appleMusic {
-            return ("Apple Music", "Apple Music · This Device")
-        }
-        guard let context = accountManager.sourceLibraryContext(for: artist.sourceCompositeKey) else {
+        guard let presentation = accountManager.sourcePresentation(for: artist.sourceCompositeKey) else {
             return ("Unknown Library", "Unknown Source")
         }
-        return (context.libraryTitle, "\(context.serverName) · \(context.accountName)")
+        return (
+            presentation.libraryName,
+            "\(presentation.serverName) · \(presentation.accountName)"
+        )
     }
 }

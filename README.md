@@ -8,7 +8,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Core Functionality:**
 - **Multi-Library Support** — Connect multiple Plex accounts, servers, and music libraries simultaneously
-- **Apple Music Source (iOS/iPadOS 18+)** — Device-local Apple Music library sync, catalog search, MusicKit playback/AirPlay, playlists, favorites, and cross-source merged playlist views alongside Plex
+- **Apple Music Source (iOS/iPadOS 18+)** — Device-local Apple Music library sync, catalog search and add-to-library, MusicKit playback/AirPlay, playlist adds, favorites, and cross-source merged playlist views alongside Plex
 - **Platform-Adaptive UI** — Tab navigation on iPhone, sidebar on iPad/macOS
 - **Secure Authentication** — PIN-based OAuth with keychain token storage
 - **Full Playback Controls** — Queue management with accidental-replacement protection, shuffle, repeat, background audio, remote controls (lock screen)
@@ -43,7 +43,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
 - **SmartMix** — Optional playback mode with Profile settings, silence-aware DJ-style overlaps, crossfading Now Playing artwork, same-album protection by default, an eased outgoing high-pass sweep, and tempo matching when analysis confidence is high
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
-- **Siri Voice Playback + App Intents** — “Play track/album/artist/playlist ... on Ensemble” resolves in SiriKit and executes playback in-app via `handleInApp`; App Intents also expose non-playing media navigation and portable Ensemble-link creation
+- **Siri Voice Playback + App Intents** — “Play track/album/artist/playlist ... on Ensemble” resolves indexed Plex library media in SiriKit and executes playback in-app via `handleInApp`; App Intents also expose non-playing media navigation and portable Ensemble-link creation
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen

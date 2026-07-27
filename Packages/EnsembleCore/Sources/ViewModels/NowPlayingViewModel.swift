@@ -120,6 +120,7 @@ public final class NowPlayingViewModel: ObservableObject {
     /// .saturation(1.9) + .brightness(-0.05) + .blur(80) on every body eval.
     @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
+    @Published private var addedSourceLibraryTrackIdentities = Set<String>()
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
 
@@ -1733,6 +1734,45 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func toggleTrackFavorite(_ track: Track) async {
         await setTrackFavorite(!isTrackFavorited(track), for: track)
+    }
+
+    public func canAddTrackToLibrary(_ track: Track) -> Bool {
+        track.canAddToSourceLibrary && !addedSourceLibraryTrackIdentities.contains(track.sourceScopedID)
+    }
+
+    public func addTrackToLibrary(_ track: Track) async {
+        guard canAddTrackToLibrary(track) else { return }
+        let pending = ToastPayload(
+            style: .info,
+            iconSystemName: "text.badge.plus",
+            title: "Adding to Library...",
+            message: track.title,
+            duration: 1,
+            dedupeKey: "add-to-library-\(track.sourceScopedID)",
+            showsActivityIndicator: true
+        )
+        toastCenter.show(pending)
+        defer { toastCenter.dismiss(id: pending.id) }
+
+        do {
+            try await syncCoordinator.addTrackToLibrary(track)
+            addedSourceLibraryTrackIdentities.insert(track.sourceScopedID)
+            toastCenter.show(ToastPayload(
+                style: .success,
+                iconSystemName: "checkmark.circle.fill",
+                title: "Added to Library",
+                message: track.title,
+                dedupeKey: "added-to-library-\(track.sourceScopedID)"
+            ))
+        } catch {
+            toastCenter.show(ToastPayload(
+                style: .error,
+                iconSystemName: "exclamationmark.triangle.fill",
+                title: "Couldn’t Add to Library",
+                message: error.localizedDescription,
+                dedupeKey: "add-to-library-failed-\(track.sourceScopedID)"
+            ))
+        }
     }
 
     /// Toggle rating through three states: none → loved → disliked → none

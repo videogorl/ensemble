@@ -26,6 +26,25 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         )
     }
 
+    func testSourcePresentationAcceptsServerScopedPlexPlaylistKey() {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(PlexAccountConfig(
+            id: "account",
+            displayTitle: "tester",
+            authToken: "token",
+            servers: [PlexServerConfig(
+                id: "server",
+                name: "Living Room",
+                url: "https://example.com",
+                token: "server-token",
+                libraries: [PlexLibraryConfig(id: "1", key: "1", title: "Music")]
+            )]
+        ))
+
+        XCTAssertEqual(manager.sourcePresentation(for: "plex:account:server")?.serverName, "Living Room")
+        XCTAssertEqual(manager.sourcePresentation(for: "plex:account:server:1")?.libraryName, "Music")
+    }
+
     func testLoadAccountsAppliesMigrationAndForcesRelogin() throws {
         let keychain = TestKeychain()
         let existing = PlexAccountConfig(

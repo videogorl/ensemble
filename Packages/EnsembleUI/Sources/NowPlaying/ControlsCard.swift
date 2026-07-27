@@ -643,7 +643,7 @@ public struct ControlsCard: View {
 
     private var canChangeFavorite: Bool {
         guard let track = playbackProjection.currentTrack else { return false }
-        return !track.isAppleMusic || ratingProjection.currentRating == .none
+        return track.sourceCapabilities.supportsFavoriteRemoval || ratingProjection.currentRating == .none
     }
 
     // MARK: - Secondary Controls
@@ -685,6 +685,14 @@ public struct ControlsCard: View {
             // More menu with navigation, sharing, and quick add
             Menu {
                 if let currentTrack = playbackProjection.currentTrack {
+                    if viewModel.canAddTrackToLibrary(currentTrack) {
+                        Button {
+                            Task { await viewModel.addTrackToLibrary(currentTrack) }
+                        } label: {
+                            MediaActionLabel(kind: .addToLibrary)
+                        }
+                    }
+
                     Section {
                         if currentTrack.albumRatingKey != nil {
                             Button {
@@ -719,10 +727,12 @@ public struct ControlsCard: View {
                             MediaActionLabel(kind: .shareLink)
                         }
 
-                        Button {
-                            ShareActions.shareTrackFile(currentTrack, deps: deps)
-                        } label: {
-                            MediaActionLabel(kind: .shareAudioFile)
+                        if currentTrack.sourceCapabilities.supportsAudioFileSharing {
+                            Button {
+                                ShareActions.shareTrackFile(currentTrack, deps: deps)
+                            } label: {
+                                MediaActionLabel(kind: .shareAudioFile)
+                            }
                         }
                     }
                 }

@@ -191,6 +191,9 @@ public struct QueueCard: View {
                         onPlayLast: { track in
                             viewModel.playLast(track)
                         },
+                        onAddToLibrary: { track in
+                            Task { await viewModel.addTrackToLibrary(track) }
+                        },
                         onAddToPlaylist: { track in
                             presentPlaylistPicker(with: [track], title: "Add to Playlist")
                         },
