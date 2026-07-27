@@ -132,7 +132,7 @@ Ensemble uses a **layered modular architecture** with Swift Package Manager:
 - **Repository Pattern** for CoreData access
 - **Actor-based networking** for thread safety
 - **Protocol-based view reuse** — Single detail view for multiple content types
-- **Multi-source architecture** — Designed to support multiple services (Plex, future Apple Music, etc.)
+- **Multi-source architecture** — Plex and device-local Apple Music sources share library, playlist, search, and queue surfaces
 - **Network resilience** — Multi-layered connectivity monitoring with automatic failover
 - **Persistent artwork caching** — Two-tier caching (filesystem + memory) with local-first loading
 - **Performance optimizations** — Debouncing, background processing, memory-efficient design
@@ -278,7 +278,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - [ ] Waveform seeking (jump to specific parts of track)
 
 ### Phase 5: Ecosystem Integration
-- [ ] Apple Music support
+- [x] Apple Music support on iOS/iPadOS 18+
 - [ ] CarPlay
 - [ ] Lyrics
 - [x] SmartMix silence-aware overlap

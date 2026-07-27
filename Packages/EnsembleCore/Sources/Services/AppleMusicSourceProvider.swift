@@ -125,42 +125,59 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult {
         let sourceKey = sourceIdentifier.compositeKey
-        let playlists: [LibraryPlaylist] = try await fetchAll(path: "/v1/me/library/playlists?limit=100")
+        var playlists: [MusicKit.Playlist] = []
+        var offset = 0
+        while true {
+            var request = MusicLibraryRequest<MusicKit.Playlist>()
+            request.limit = 100
+            request.offset = offset
+            let page = Array(try await request.response().items)
+            playlists.append(contentsOf: page)
+            guard page.count == request.limit else { break }
+            offset += page.count
+        }
         var validIDs = Set<String>()
 
         for (index, playlist) in playlists.enumerated() {
-            validIDs.insert(playlist.id)
+            let id = String(describing: playlist.id)
+            validIDs.insert(id)
+            let detailed = try await playlist.with([.tracks])
+            var musicTracks = detailed.tracks ?? []
+            while musicTracks.hasNextBatch, let next = try await musicTracks.nextBatch(limit: 100) {
+                musicTracks += next
+            }
+            let songs = musicTracks.compactMap { track -> Song? in
+                guard case .song(let song) = track else { return nil }
+                return song
+            }
             _ = try await repository.upsertPlaylist(
-                ratingKey: playlist.id,
-                key: playlist.attributes.playParams?.globalID ?? playlist.id,
-                title: playlist.attributes.name,
-                summary: playlist.attributes.description?.standard,
-                compositePath: playlist.artworkURL,
-                isSmart: playlist.attributes.canEdit == false,
-                duration: playlist.attributes.durationInMillis,
-                trackCount: playlist.attributes.trackCount,
-                dateAdded: playlist.dateAdded,
-                dateModified: nil,
-                lastPlayed: nil,
+                ratingKey: id,
+                key: id,
+                title: playlist.name,
+                summary: playlist.standardDescription,
+                compositePath: playlist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                isSmart: playlist.kind != nil,
+                duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
+                trackCount: songs.count,
+                dateAdded: playlist.libraryAddedDate,
+                dateModified: playlist.lastModifiedDate,
+                lastPlayed: playlist.lastPlayedDate,
                 sourceCompositeKey: sourceKey
             )
-            let tracks: [LibrarySong] = try await fetchAll(
-                path: "/v1/me/library/playlists/\(playlist.id)/tracks?limit=100"
-            )
             try await repository.setPlaylistTrackSnapshots(
-                tracks.map {
+                songs.map {
                     PlaylistTrackSnapshot(
-                        ratingKey: $0.id,
-                        key: "apple-library:\($0.catalogID ?? "")",
-                        title: $0.attributes.name,
-                        artistName: $0.attributes.artistName,
-                        albumName: $0.attributes.albumName,
-                        duration: Double($0.attributes.durationInMillis ?? 0) / 1000,
-                        thumbPath: $0.artworkURL,
+                        ratingKey: String(describing: $0.id),
+                        key: "apple-catalog",
+                        title: $0.title,
+                        artistName: $0.artistName,
+                        albumName: $0.albumTitle,
+                        duration: $0.duration ?? 0,
+                        thumbPath: $0.artwork?.url(width: 1200, height: 1200)?.absoluteString,
                         sourceCompositeKey: sourceKey
                     )
                 },
-                forPlaylist: playlist.id,
+                forPlaylist: id,
                 sourceCompositeKey: sourceKey
             )
             progressHandler(Double(index + 1) / Double(max(playlists.count, 1)))
@@ -246,10 +263,27 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     }
 
     public func getArtistAlbums(artistKey: String) async throws -> [Album] {
-        var request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, equalTo: MusicItemID(artistKey))
+        var catalogArtistKey = artistKey
+        if artistKey.hasPrefix("apple-artist:") {
+            let name = String(artistKey.dropFirst("apple-artist:".count))
+            var search = MusicCatalogSearchRequest(term: name, types: [MusicKit.Artist.self])
+            search.limit = 10
+            let artists = try await search.response().artists
+            let match = artists.first {
+                $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            } ?? artists.first
+            guard let match else { return [] }
+            catalogArtistKey = String(describing: match.id)
+        }
+
+        var request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, equalTo: MusicItemID(catalogArtistKey))
         request.properties = [.albums]
         guard let artist = try await request.response().items.first else { return [] }
-        return artist.albums?.map(Self.domainAlbum) ?? []
+        var albums = artist.albums ?? []
+        while albums.hasNextBatch, let next = try await albums.nextBatch(limit: 100) {
+            albums += next
+        }
+        return albums.map(Self.domainAlbum)
     }
 
     public func getArtistTracks(artistKey: String) async throws -> [Track] {
@@ -411,26 +445,6 @@ private struct LibrarySong: Decodable {
     private static func date(_ value: String) -> Date? {
         ISO8601DateFormatter().date(from: value) ?? DateFormatter.appleMusicDay.date(from: value)
     }
-}
-
-@available(iOS 18, *)
-private struct LibraryPlaylist: Decodable {
-    struct Attributes: Decodable {
-        struct Description: Decodable { let standard: String? }
-        struct PlayParameters: Decodable { let globalID: String? }
-        let name: String
-        let description: Description?
-        let artwork: Artwork?
-        let durationInMillis: Int?
-        let trackCount: Int?
-        let dateAdded: String?
-        let playParams: PlayParameters?
-        let canEdit: Bool?
-    }
-    let id: String
-    let attributes: Attributes
-    var dateAdded: Date? { attributes.dateAdded.flatMap(ISO8601DateFormatter().date) }
-    var artworkURL: String? { attributes.artwork?.url }
 }
 
 @available(iOS 18, *)

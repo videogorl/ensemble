@@ -32,7 +32,17 @@ public struct AddSourceView: View {
                 NavigationLink {
                     AddPlexAccountView(embedded: true)
                 } label: {
-                    Label("Plex", systemImage: "play.rectangle.on.rectangle")
+                    Label {
+                        Text("Plex")
+                    } icon: {
+                        Image("PlexSourceIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(.horizontal, 3)
+                            .frame(width: 30, height: 30)
+                            .background(Color.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
                 }
 
                 #if os(iOS)
@@ -41,7 +51,14 @@ public struct AddSourceView: View {
                         Task { await addAppleMusic() }
                     } label: {
                         HStack {
-                            Label("Apple Music", systemImage: "apple.logo")
+                            Label {
+                                Text("Apple Music")
+                            } icon: {
+                                Image("AppleMusicSourceIcon")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 30, height: 30)
+                            }
                             Spacer()
                             if isAddingAppleMusic {
                                 ProgressView()
@@ -53,7 +70,14 @@ public struct AddSourceView: View {
                     }
                     .disabled(accountManager.isAppleMusicEnabled || isAddingAppleMusic)
                 } else {
-                    Label("Apple Music Requires iOS 18", systemImage: "apple.logo")
+                    Label {
+                        Text("Apple Music Requires iOS 18")
+                    } icon: {
+                        Image("AppleMusicSourceIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 30, height: 30)
+                    }
                         .foregroundStyle(.secondary)
                 }
                 #endif
@@ -76,12 +100,11 @@ public struct AddSourceView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .opacity(isEmbedded ? 0 : 1)
-                    .disabled(isEmbedded)
-                    .accessibilityHidden(isEmbedded)
+        .if(!isEmbedded) { view in
+            view.toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
             }
         }
     }

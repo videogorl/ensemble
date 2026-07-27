@@ -428,10 +428,36 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     static func isTrackSourceAvailable(_ track: Track, enabledSourceCompositeKeys: Set<String>) -> Bool {
+        if track.isAppleMusic { return true }
         guard let sourceCompositeKey = track.sourceCompositeKey else {
             return true
         }
         return enabledSourceCompositeKeys.contains(sourceCompositeKey)
+    }
+
+    static func isQueueTrackPlayable(_ track: Track, serverPossiblyAvailable: Bool) -> Bool {
+        track.isAppleMusic || track.isDownloaded || serverPossiblyAvailable
+    }
+
+    static func appleMusicSegment(from tracks: [Track]) -> [Track] {
+        var identities = Set<String>()
+        return Array(tracks.prefix {
+            $0.isAppleMusic && identities.insert($0.playbackIdentity).inserted
+        })
+    }
+
+    static func shouldStartAppleMusicAutoplay(nextItem: QueueItem?, isEnabled: Bool) -> Bool {
+        isEnabled && (nextItem == nil || nextItem?.source == .autoplay)
+    }
+
+    static func futureQueueIndex(
+        matching playbackIdentity: String,
+        in queue: [QueueItem],
+        after currentQueueIndex: Int
+    ) -> Int? {
+        queue.indices.first {
+            $0 > currentQueueIndex && queue[$0].track.playbackIdentity == playbackIdentity
+        }
     }
 
     static func isSameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
@@ -1563,6 +1589,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func generateWaveform(for trackIdentity: String) {
+        guard currentTrack?.isAppleMusic != true else {
+            waveformHeights = []
+            return
+        }
         EnsembleLogger.debug("🎵 Generating waveform for track: \(trackIdentity)")
 
         // Generate fallback waveform immediately for instant feedback
@@ -2627,7 +2657,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } else {
             hasUnavailableTracks = await MainActor.run {
                 tracks.contains { track in
-                    !track.isDownloaded && !syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                    !Self.isQueueTrackPlayable(
+                        track,
+                        serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                    )
                 }
             }
         }
@@ -2643,7 +2676,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         originalPlayableIndices.reserveCapacity(tracks.count)
 
         for (index, track) in tracks.enumerated() {
-            if isDeviceOffline {
+            if track.isAppleMusic {
+                playableTracks.append(track)
+                originalPlayableIndices.append(index)
+            } else if isDeviceOffline {
                 // Device is fully offline — only downloaded tracks
                 if let offlineTrack = await resolveOfflinePlayableTrack(track) {
                     playableTracks.append(offlineTrack)
@@ -2653,7 +2689,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Downloaded tracks are always playable
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
-            } else if await MainActor.run(body: { syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey) }) {
+            } else if await MainActor.run(body: {
+                Self.isQueueTrackPlayable(
+                    track,
+                    serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                )
+            }) {
                 // Track's server is online — can stream
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
@@ -2714,7 +2755,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Block playback of tracks from offline servers
         let track = queue[index].track
         let isUnavailable = await MainActor.run {
-            !track.isDownloaded && !syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+            !Self.isQueueTrackPlayable(
+                track,
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+            )
         }
         if isUnavailable { return }
 
@@ -3028,6 +3072,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if handleSmartMixNextIfNeeded() {
             return
         }
+
+        #if os(iOS)
+            if #available(iOS 18, *),
+               currentTrack?.isAppleMusic == true,
+               appleMusicPlaybackController?.isStationActive == true {
+                Task { @MainActor [weak self] in
+                    do {
+                        try await self?.appleMusicPlaybackController?.skipToNextEntry()
+                    } catch {
+                        self?.playbackState = .failed(error.localizedDescription)
+                    }
+                }
+                return
+            }
+        #endif
 
         if playbackState == .paused {
             Task { @MainActor in
@@ -3546,6 +3605,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func removeFromQueue(at index: Int) {
+        #if os(iOS)
+            if #available(iOS 18, *),
+               queue.indices.contains(index),
+               queue[index].source == .autoplay,
+               let catalogID = queue[index].track.appleMusicCatalogID,
+               appleMusicPlaybackController?.isStationActive == true,
+               appleMusicPlaybackController?.removeFirstUpcomingEntry(catalogID: catalogID) != true {
+                return
+            }
+        #endif
         guard queueController.removeItem(
             at: index,
             queue: &queue,
@@ -5217,6 +5286,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             controller.onDynamicTrack = { [weak self] track in
                 Task { @MainActor in self?.handleAppleMusicRadioTrack(track) }
             }
+            controller.onTrackMetadataChanged = { [weak self] track in
+                Task { @MainActor in self?.handleAppleMusicTrackMetadata(track) }
+            }
+            controller.onDynamicQueueChanged = { [weak self] tracks in
+                Task { @MainActor in self?.handleAppleMusicRadioQueue(tracks) }
+            }
             appleMusicPlaybackController = controller
         #endif
     }
@@ -5225,13 +5300,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @available(iOS 18, *)
         @MainActor
         private func playCurrentAppleMusicSegment(startTime: TimeInterval?) async {
-            let segment = queue[currentQueueIndex...]
-                .prefix { $0.track.isAppleMusic }
-                .map(\.track)
+            let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
 
-            audioEngine?.pause()
-            audioEngine?.clearScheduledFiles()
+            audioEngine?.stop()
             audioAnalyzer.pauseUpdates()
             currentTrack = segment[0]
             updatePlaybackTimes(rawTime: startTime ?? 0)
@@ -5257,7 +5329,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @available(iOS 18, *)
         @MainActor
         private func handleAppleMusicTrackChanged(_ identity: String) {
-            guard let index = queue.firstIndex(where: { $0.track.playbackIdentity == identity }),
+            guard currentTrack?.playbackIdentity != identity,
+                  let index = queue.firstIndex(where: { $0.track.playbackIdentity == identity }),
                   index != currentQueueIndex else { return }
             if queue.indices.contains(currentQueueIndex) { recordToHistory(queue[currentQueueIndex]) }
             currentQueueIndex = index
@@ -5272,21 +5345,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @MainActor
         private func advanceAfterAppleMusicSegment() async {
             let nextIndex = currentQueueIndex + 1
-            guard queue.indices.contains(nextIndex) else {
-                if isAutoplayEnabled, let seed = currentTrack {
-                    do {
-                        try await appleMusicPlaybackController?.startStation(
-                            seed: seed,
-                            smartMixEnabled: isSmartMixEnabled
-                        )
-                        recommendationsExhausted = false
-                    } catch {
-                        recommendationsExhausted = true
-                        stop()
-                    }
-                } else {
+            let nextItem = queue.indices.contains(nextIndex) ? queue[nextIndex] : nil
+            if Self.shouldStartAppleMusicAutoplay(nextItem: nextItem, isEnabled: isAutoplayEnabled),
+               let seed = currentTrack {
+                if nextIndex < queue.count { queue.removeSubrange(nextIndex...) }
+                do {
+                    try await appleMusicPlaybackController?.startStation(
+                        seed: seed,
+                        smartMixEnabled: isSmartMixEnabled
+                    )
+                    recommendationsExhausted = false
+                } catch {
+                    recommendationsExhausted = true
                     stop()
                 }
+                return
+            }
+            guard nextItem != nil else {
+                stop()
                 return
             }
             recordToHistory(queue[currentQueueIndex])
@@ -5297,8 +5373,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         @available(iOS 18, *)
         @MainActor
+        private func handleAppleMusicTrackMetadata(_ track: Track) {
+            let existing = currentTrack?.playbackIdentity == track.playbackIdentity
+                ? currentTrack
+                : queue.first(where: { $0.track.playbackIdentity == track.playbackIdentity })?.track
+            guard let existing else { return }
+            applyTrackRefresh(track, replacing: existing)
+            if currentTrack?.playbackIdentity == track.playbackIdentity { updateNowPlayingInfo() }
+        }
+
+        @available(iOS 18, *)
+        @MainActor
         private func handleAppleMusicRadioTrack(_ track: Track) {
-            if let existing = queue.firstIndex(where: { $0.track.playbackIdentity == track.playbackIdentity }) {
+            if queue.indices.contains(currentQueueIndex),
+               queue[currentQueueIndex].source == .autoplay,
+               currentTrack?.playbackIdentity == track.playbackIdentity {
+                currentTrack = track
+                updateNowPlayingInfo()
+                return
+            }
+            if let existing = Self.futureQueueIndex(
+                matching: track.playbackIdentity,
+                in: queue,
+                after: currentQueueIndex
+            ) {
                 currentQueueIndex = existing
             } else {
                 queue.append(makeQueueItem(track: track, source: .autoplay))
@@ -5309,6 +5407,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updatePlaybackTimes(rawTime: 0)
             playbackState = .playing
             updateNowPlayingInfo()
+            savePlaybackState()
+        }
+
+        @available(iOS 18, *)
+        @MainActor
+        private func handleAppleMusicRadioQueue(_ tracks: [Track]) {
+            let futureStart = currentQueueIndex + 1
+            if futureStart < queue.count { queue.removeSubrange(futureStart...) }
+            queue.append(contentsOf: tracks.map { makeQueueItem(track: $0, source: .autoplay) })
+            autoplayTracks = tracks
             savePlaybackState()
         }
     #endif
@@ -5498,7 +5606,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard nextIndex < queue.count else { return false }
 
         let hasKnownUnavailableNextTrack = queue[nextIndex...].contains { item in
-            !item.track.isDownloaded && !syncCoordinator.isServerPossiblyAvailable(sourceKey: item.track.sourceCompositeKey)
+            !Self.isQueueTrackPlayable(
+                item.track,
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: item.track.sourceCompositeKey)
+            )
         }
         guard hasKnownUnavailableNextTrack else { return false }
 
@@ -5532,8 +5643,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func findNextPlayableTrackIndex(after startIndex: Int) -> Int? {
         queueController.nextPlayableIndex(in: queue, after: startIndex) { track in
-            track.isDownloaded
-                || syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+            Self.isQueueTrackPlayable(
+                track,
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+            )
         }
     }
 
@@ -6034,7 +6147,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func applyTrackRefresh(_ refreshedTrack: Track, replacing originalTrack: Track) {
-        guard refreshedTrack.localFilePath != originalTrack.localFilePath else { return }
+        guard refreshedTrack != originalTrack else { return }
 
         var queueChanged = false
         for index in queue.indices where Self.isSameTrackIdentity(queue[index].track, originalTrack) {

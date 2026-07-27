@@ -651,6 +651,7 @@ public struct PlaylistsView: View {
     /// Determines the chip style for a DisplayPlaylist row
     private func chipStyle(for dp: DisplayPlaylist) -> PlaylistRowChip.Style? {
         if dp.isMerged { return .merged }
+        if dp.primaryPlaylist.sourceType == .appleMusic { return .appleMusic }
         if viewModel.hasNameCollision(dp.title) {
             let name = accountManager.serverName(for: dp.primaryPlaylist.sourceCompositeKey ?? "") ?? "Unknown"
             return .serverName(DemoModeRedaction.serverName(name, isEnabled: demoModeEnabled))

@@ -793,6 +793,63 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result.removedQueueItemCount, 1)
     }
 
+    func testAppleMusicTracksRemainPlayableWithoutAPlexServer() {
+        let track = Track(
+            id: "apple-track",
+            key: "apple-catalog",
+            title: "Apple Track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertTrue(PlaybackService.isQueueTrackPlayable(track, serverPossiblyAvailable: false))
+        XCTAssertTrue(PlaybackService.isTrackSourceAvailable(track, enabledSourceCompositeKeys: []))
+    }
+
+    func testAppleMusicSegmentStopsBeforeDuplicateQueueEntry() {
+        let apple = Track(
+            id: "apple-track",
+            key: "apple-catalog",
+            title: "Apple Track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
+    }
+
+    func testAppleMusicAutoplayReplacesAnExistingAutoplaySuffix() {
+        let autoplay = QueueItem(
+            id: "plex-autoplay",
+            track: makeTrack(id: "plex", title: "Plex", artist: "Artist", duration: 180),
+            source: .autoplay
+        )
+        let manual = QueueItem(
+            id: "manual",
+            track: makeTrack(id: "manual", title: "Manual", artist: "Artist", duration: 180),
+            source: .continuePlaying
+        )
+
+        XCTAssertTrue(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: autoplay, isEnabled: true))
+        XCTAssertTrue(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: nil, isEnabled: true))
+        XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: manual, isEnabled: true))
+    }
+
+    func testAppleMusicRadioDoesNotReusePlayedDuplicate() {
+        let track = Track(
+            id: "apple-track",
+            key: "apple-catalog",
+            title: "Apple Track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let played = QueueItem(id: "played", track: track, source: .continuePlaying)
+        let current = QueueItem(id: "current", track: track, source: .continuePlaying)
+
+        XCTAssertNil(PlaybackService.futureQueueIndex(
+            matching: track.playbackIdentity,
+            in: [played, current],
+            after: 1
+        ))
+    }
+
     private func makeTrack(
         id: String,
         title: String,

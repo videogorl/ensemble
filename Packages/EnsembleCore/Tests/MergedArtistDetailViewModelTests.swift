@@ -265,6 +265,30 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(snapshot.trackCount, 1)
     }
 
+    func testAppleMusicArtistUsesProviderNameInsteadOfUnknownLibrary() async throws {
+        let source = MusicSourceIdentifier.appleMusic.compositeKey
+        let artist = Artist(id: "apple-artist:ajr", key: "apple-artist:ajr", name: "AJR", sourceCompositeKey: source)
+        let repository = LibraryRepositorySpy()
+        repository.albumsByArtistSource[LibraryRepositorySpy.key(artist.id, source)] = [
+            makeAlbum(ratingKey: "apple-album", title: "The Maybe Man", sourceCompositeKey: source)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key(artist.id, source)] = [
+            makeTrack(ratingKey: "apple-song", title: "Maybe Man", sourceCompositeKey: source)
+        ]
+        let accountManager = makeAccountManager()
+        let viewModel = MergedArtistDetailViewModel(
+            displayArtist: DisplayArtist.group([artist]).first!,
+            libraryRepository: repository,
+            syncCoordinator: makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository),
+            accountManager: accountManager
+        )
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.sourceSections.first?.sourceTitle, "Apple Music")
+        XCTAssertEqual(viewModel.sourceSections.first?.sourceSubtitle, "Apple Music · This Device")
+    }
+
     func testArtistDetailAlbumCollectionsMergeReleaseMetadataAndSortDeterministically() {
         let sourceA = "plex:account:server:1"
         let sourceB = "plex:account:server:2"

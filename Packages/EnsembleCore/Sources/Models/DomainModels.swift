@@ -163,6 +163,10 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         copy(localFilePath: localFilePath, useLocalFilePathOverride: true)
     }
 
+    public func withThumbPath(_ thumbPath: String?) -> Track {
+        copy(thumbPath: thumbPath, useThumbPathOverride: true)
+    }
+
     /// Stable UI identity that distinguishes the same Plex rating key across sources.
     public var sourceScopedID: String {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
@@ -214,6 +218,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
 
     private func copy(
         rating: Int? = nil,
+        thumbPath: String? = nil,
+        useThumbPathOverride: Bool = false,
         localFilePath: String? = nil,
         useLocalFilePathOverride: Bool = false
     ) -> Track {
@@ -229,7 +235,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             trackNumber: trackNumber,
             discNumber: discNumber,
             duration: duration,
-            thumbPath: thumbPath,
+            thumbPath: useThumbPathOverride ? thumbPath : self.thumbPath,
             fallbackThumbPath: fallbackThumbPath,
             fallbackRatingKey: fallbackRatingKey,
             streamKey: streamKey,
