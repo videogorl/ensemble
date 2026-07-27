@@ -163,7 +163,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
                 title: playlist.name,
                 summary: playlist.standardDescription,
                 compositePath: libraryPlaylist?.attributes.artwork?.url
-                    ?? playlist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                    ?? playlist.artwork?.ensembleResolvableURL(),
                 isSmart: Self.isSmartPlaylist(playlist.kind, canEdit: libraryPlaylist?.attributes.canEdit == true),
                 duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
                 trackCount: songs.count,
@@ -181,7 +181,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
                         artistName: $0.artistName,
                         albumName: $0.albumTitle,
                         duration: $0.duration ?? 0,
-                        thumbPath: $0.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                        thumbPath: $0.artwork?.ensembleResolvableURL(),
                         sourceCompositeKey: sourceKey
                     )
                 },
@@ -368,7 +368,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             trackNumber: song.trackNumber ?? 0,
             discNumber: song.discNumber ?? 1,
             duration: song.duration ?? 0,
-            thumbPath: song.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+            thumbPath: song.artwork?.ensembleResolvableURL(),
             streamKey: song.url?.absoluteString,
             genres: song.genreNames,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
@@ -388,7 +388,7 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             albumArtist: album.artistName,
             year: album.releaseDate.map { Calendar.current.component(.year, from: $0) },
             trackCount: album.trackCount,
-            thumbPath: album.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+            thumbPath: album.artwork?.ensembleResolvableURL(),
             genres: album.genreNames,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
             releaseFormat: album.isSingle == true ? .single : .album

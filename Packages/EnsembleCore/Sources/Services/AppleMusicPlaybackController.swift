@@ -29,6 +29,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private var trackByMusicID: [String: Track] = [:]
     private var wasPlaying = false
     private var hasReportedEnd = false
+    private var isPreparingQueue = false
     private var artworkRequestMusicID: String?
     private var enrichedArtwork: (musicID: String, url: String)?
 
@@ -92,7 +93,9 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
         trackIdentityByMusicID = identities
         trackByMusicID = tracksByID
-        hasReportedEnd = false
+        isPreparingQueue = true
+        wasPlaying = false
+        hasReportedEnd = true
         isStationActive = false
         artworkRequestMusicID = nil
         enrichedArtwork = nil
@@ -101,10 +104,19 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         if let currentTrack = tracks.first, let currentID = ids.first, let song = songsByID[currentID] {
             publishMetadata(for: song, track: currentTrack)
         }
-        try await player.prepareToPlay()
-        if let startTime { player.playbackTime = startTime }
-        try await player.play()
+        do {
+            try await player.prepareToPlay()
+            if let startTime { player.playbackTime = startTime }
+            try await player.play()
+        } catch {
+            player.stop()
+            isPreparingQueue = false
+            throw error
+        }
+        hasReportedEnd = false
         wasPlaying = true
+        isPreparingQueue = false
+        publishCurrentEntry()
     }
 
     func pause() { player.pause() }
@@ -112,6 +124,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     func stop() {
         wasPlaying = false
         hasReportedEnd = true
+        isPreparingQueue = false
         isStationActive = false
         player.stop()
         trackIdentityByMusicID = [:]
@@ -133,15 +146,26 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         guard let station = detailed.station else { throw AppleMusicSourceError.musicKitPlaybackRequired }
         trackIdentityByMusicID = [:]
         trackByMusicID = [:]
-        hasReportedEnd = false
+        isPreparingQueue = true
+        wasPlaying = false
+        hasReportedEnd = true
         isStationActive = true
         artworkRequestMusicID = nil
         enrichedArtwork = nil
         player.transition = smartMixEnabled ? .crossfade : .none
         player.queue = ApplicationMusicPlayer.Queue(for: [station])
-        try await player.prepareToPlay()
-        try await player.play()
+        do {
+            try await player.prepareToPlay()
+            try await player.play()
+        } catch {
+            player.stop()
+            isPreparingQueue = false
+            throw error
+        }
+        hasReportedEnd = false
         wasPlaying = true
+        isPreparingQueue = false
+        publishCurrentEntry()
     }
 
     func skipToNextEntry() async throws {
@@ -163,6 +187,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
 
     private func publishCurrentEntry() {
+        guard !isPreparingQueue else { return }
         guard let item = player.queue.currentEntry?.item else { return }
         let id = String(describing: item.id)
         if let identity = trackIdentityByMusicID[id] {
@@ -187,8 +212,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             guard let self else { return }
             let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: song.id)
             let response = try? await request.response()
-            var artworkURL = response?.items.first?.artwork?
-                .url(width: 1200, height: 1200)?.absoluteString
+            var artworkURL = response?.items.first?.artwork?.ensembleResolvableURL()
             let artist = DisplayPlaylist.normalizedTitle(song.artistName)
             let album = DisplayPlaylist.normalizedTitle(song.albumTitle ?? "")
             if artworkURL == nil {
@@ -201,7 +225,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 artworkURL = albumResponse?.albums.first {
                     DisplayPlaylist.normalizedTitle($0.title) == album
                         && DisplayPlaylist.normalizedTitle($0.artistName) == artist
-                }?.artwork?.url(width: 1200, height: 1200)?.absoluteString
+                }?.artwork?.ensembleResolvableURL()
             }
             if artworkURL == nil {
                 var songRequest = MusicCatalogSearchRequest(
@@ -214,7 +238,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 artworkURL = songResponse?.songs.first {
                     DisplayPlaylist.normalizedTitle($0.title) == title
                         && DisplayPlaylist.normalizedTitle($0.artistName) == artist
-                }?.artwork?.url(width: 1200, height: 1200)?.absoluteString
+                }?.artwork?.ensembleResolvableURL()
             }
             guard let artworkURL else { return }
             guard let currentItem = self.player.queue.currentEntry?.item,
@@ -226,7 +250,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
 
     private func publishMetadata(for song: Song, track: Track) {
         let resolvedTrack = track.withThumbPath(
-            song.artwork?.url(width: 1200, height: 1200)?.absoluteString ?? track.thumbPath
+            song.artwork?.ensembleResolvableURL() ?? track.thumbPath
         )
         if resolvedTrack != track { onTrackMetadataChanged?(resolvedTrack) }
         enrichCurrentArtworkIfNeeded(for: song, track: track)
@@ -248,7 +272,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         let id = String(describing: song.id)
         let artworkURL = enrichedArtwork?.musicID == id
             ? enrichedArtwork?.url
-            : song.artwork?.url(width: 1200, height: 1200)?.absoluteString
+            : song.artwork?.ensembleResolvableURL()
         return Track(
             id: id,
             key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(id)",
@@ -267,6 +291,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
 
     private func publishState() {
+        guard !isPreparingQueue else { return }
         if wasPlaying, player.state.playbackStatus == .stopped {
             reportEnded()
         } else if player.state.playbackStatus == .playing {

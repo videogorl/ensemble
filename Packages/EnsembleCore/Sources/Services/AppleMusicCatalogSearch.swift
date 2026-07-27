@@ -3,6 +3,18 @@ import Foundation
 import MusicKit
 
 @available(iOS 18, *)
+extension MusicKit.Artwork {
+    func ensembleResolvableURL(size: Int = 1200) -> String? {
+        guard let url = url(width: size, height: size) else { return nil }
+        guard url.scheme?.lowercased() != "musickit"
+            || URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.contains(where: { $0.name == "aat" }) == true
+        else { return nil }
+        return url.absoluteString
+    }
+}
+
+@available(iOS 18, *)
 enum AppleMusicCatalogSearch {
     struct Results {
         let tracks: [Track]
@@ -21,7 +33,11 @@ enum AppleMusicCatalogSearch {
         let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
 
         let tracks: [Track] = response.songs.map { song in
-                Track(
+                let albumArtwork = response.albums.first {
+                    DisplayPlaylist.normalizedTitle($0.title) == DisplayPlaylist.normalizedTitle(song.albumTitle ?? "")
+                        && DisplayPlaylist.normalizedTitle($0.artistName) == DisplayPlaylist.normalizedTitle(song.artistName)
+                }?.artwork?.ensembleResolvableURL()
+                return Track(
                     id: String(describing: song.id),
                     key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(song.id)",
                     title: song.title,
@@ -31,7 +47,7 @@ enum AppleMusicCatalogSearch {
                     trackNumber: song.trackNumber ?? 0,
                     discNumber: song.discNumber ?? 1,
                     duration: song.duration ?? 0,
-                    thumbPath: song.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                    thumbPath: song.artwork?.ensembleResolvableURL() ?? albumArtwork,
                     streamKey: song.url?.absoluteString,
                     genres: song.genreNames,
                     sourceCompositeKey: sourceKey
@@ -42,7 +58,7 @@ enum AppleMusicCatalogSearch {
                     id: String(describing: artist.id),
                     key: "apple-catalog",
                     name: artist.name,
-                    thumbPath: artist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                    thumbPath: artist.artwork?.ensembleResolvableURL(),
                     sourceCompositeKey: sourceKey
                 )
             }
@@ -55,7 +71,7 @@ enum AppleMusicCatalogSearch {
                     albumArtist: album.artistName,
                     year: album.releaseDate.map { Calendar.current.component(.year, from: $0) },
                     trackCount: album.trackCount,
-                    thumbPath: album.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                    thumbPath: album.artwork?.ensembleResolvableURL(),
                     genres: album.genreNames,
                     sourceCompositeKey: sourceKey,
                     releaseFormat: album.isSingle == true ? .single : .album
@@ -68,7 +84,7 @@ enum AppleMusicCatalogSearch {
                     title: playlist.name,
                     summary: playlist.standardDescription,
                     isSmart: true,
-                    compositePath: playlist.artwork?.url(width: 1200, height: 1200)?.absoluteString,
+                    compositePath: playlist.artwork?.ensembleResolvableURL(),
                     sourceCompositeKey: sourceKey
                 )
             }
