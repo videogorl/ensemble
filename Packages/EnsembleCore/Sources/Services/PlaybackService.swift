@@ -2085,6 +2085,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func handleAudioSessionInterruption(_ notification: Notification) {
         #if os(iOS) || os(tvOS) || os(watchOS)
+            if #available(iOS 18, *), currentTrack?.isAppleMusic == true { return }
+
             guard let userInfo = notification.userInfo,
                   let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
                   let type = AVAudioSession.InterruptionType(rawValue: typeValue)
@@ -2826,12 +2828,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
                 Task { @MainActor [weak self] in
+                    guard let self else { return }
                     do {
-                        try await self?.appleMusicPlaybackController?.resume()
-                        self?.playbackState = .playing
-                        self?.updateNowPlayingInfo()
+                        try await appleMusicPlaybackController?.resume()
+                        playbackState = .playing
+                        updateNowPlayingInfo()
                     } catch {
-                        self?.playbackState = .failed(error.localizedDescription)
+                        await playCurrentAppleMusicSegment(startTime: currentTime)
                     }
                 }
                 return
