@@ -199,15 +199,15 @@ public final class MergedArtistDetailViewModel: ObservableObject {
             let cached = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
             let localAlbums = ArtistDetailAlbumCollections.sorted(cached.map { Album(from: $0) })
             if !cached.isEmpty {
+                if MusicSourceIdentifier(compositeKey: sourceKey)?.type == .appleMusic {
+                    return localAlbums
+                }
                 if syncCoordinator.isOffline {
                     return localAlbums
                 }
 
                 do {
                     let remoteAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-                    if MusicSourceIdentifier(compositeKey: sourceKey)?.type == .appleMusic, !remoteAlbums.isEmpty {
-                        return ArtistDetailAlbumCollections.sorted(remoteAlbums)
-                    }
                     return ArtistDetailAlbumCollections.merged(local: localAlbums, remote: remoteAlbums)
                 } catch {
                     EnsembleLogger.debug("MergedArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")

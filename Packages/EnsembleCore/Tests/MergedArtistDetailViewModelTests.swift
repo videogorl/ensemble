@@ -98,6 +98,61 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
+    private actor ArtistDetailProvider: MusicSourceSyncProvider, MusicSourceDetailProviding {
+        let sourceIdentifier: MusicSourceIdentifier
+        let albums: [Album]
+        private var artistAlbumRequests = 0
+
+        init(sourceIdentifier: MusicSourceIdentifier, albums: [Album]) {
+            self.sourceIdentifier = sourceIdentifier
+            self.albums = albums
+        }
+
+        func syncLibrary(
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            LibrarySyncResult()
+        }
+
+        func syncLibraryIncremental(
+            since timestamp: TimeInterval,
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            LibrarySyncResult()
+        }
+
+        func syncPlaylists(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            PlaylistSyncResult()
+        }
+
+        func syncPlaylistsIncremental(
+            to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            PlaylistSyncResult()
+        }
+
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+        func getAlbumTracks(albumKey: String) async throws -> [Track] { [] }
+
+        func getArtistAlbums(artistKey: String) async throws -> [Album] {
+            artistAlbumRequests += 1
+            return albums
+        }
+
+        func getArtistTracks(artistKey: String) async throws -> [Track] { [] }
+
+        func requestCount() -> Int {
+            artistAlbumRequests
+        }
+    }
+
     private var context: NSManagedObjectContext {
         CoreDataStack.shared.viewContext
     }
@@ -287,6 +342,97 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.sourceSections.first?.sourceTitle, "Apple Music")
         XCTAssertEqual(viewModel.sourceSections.first?.sourceSubtitle, "Apple Music · This Device")
+    }
+
+    func testAppleMusicArtistUsesOnlyCachedLibraryAlbumsWhenOnline() async throws {
+        let source = MusicSourceIdentifier.appleMusic
+        let artist = Artist(
+            id: "apple-artist:ajr",
+            key: "apple-artist:ajr",
+            name: "AJR",
+            sourceCompositeKey: source.compositeKey
+        )
+        let repository = LibraryRepositorySpy()
+        repository.albumsByArtistSource[LibraryRepositorySpy.key(artist.id, source.compositeKey)] = [
+            makeAlbum(ratingKey: "library-album", title: "The Maybe Man", sourceCompositeKey: source.compositeKey)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key(artist.id, source.compositeKey)] = [
+            makeTrack(ratingKey: "library-song", title: "Maybe Man", sourceCompositeKey: source.compositeKey)
+        ]
+        let accountManager = makeAccountManager()
+        let coordinator = makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository)
+        let provider = ArtistDetailProvider(
+            sourceIdentifier: source,
+            albums: [
+                Album(
+                    id: "catalog-album",
+                    key: "catalog-album",
+                    title: "Catalog Only",
+                    sourceCompositeKey: source.compositeKey
+                )
+            ]
+        )
+        coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
+        let viewModel = MergedArtistDetailViewModel(
+            displayArtist: DisplayArtist.group([artist]).first!,
+            libraryRepository: repository,
+            syncCoordinator: coordinator,
+            accountManager: accountManager
+        )
+
+        await viewModel.load()
+
+        let requestCount = await provider.requestCount()
+        XCTAssertEqual(viewModel.albums.map(\.id), ["library-album"])
+        XCTAssertEqual(requestCount, 0)
+    }
+
+    func testPlexArtistStillMergesRemoteAlbumSupplementWhenOnline() async throws {
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "subscriber",
+            serverId: "server",
+            libraryId: "3"
+        )
+        let artist = Artist(
+            id: "11617",
+            key: "/library/metadata/11617",
+            name: "AJR",
+            sourceCompositeKey: source.compositeKey
+        )
+        let repository = LibraryRepositorySpy()
+        repository.albumsByArtistSource[LibraryRepositorySpy.key(artist.id, source.compositeKey)] = [
+            makeAlbum(ratingKey: "library-album", title: "The Maybe Man", sourceCompositeKey: source.compositeKey)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key(artist.id, source.compositeKey)] = [
+            makeTrack(ratingKey: "library-song", title: "Maybe Man", sourceCompositeKey: source.compositeKey)
+        ]
+        let accountManager = makeAccountManager()
+        let coordinator = makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository)
+        let provider = ArtistDetailProvider(
+            sourceIdentifier: source,
+            albums: [
+                Album(
+                    id: "remote-album",
+                    key: "/library/metadata/remote-album",
+                    title: "Server Supplement",
+                    sourceCompositeKey: source.compositeKey
+                )
+            ]
+        )
+        coordinator.setSyncProvidersForTesting([source.compositeKey: provider])
+        let viewModel = MergedArtistDetailViewModel(
+            displayArtist: DisplayArtist.group([artist]).first!,
+            libraryRepository: repository,
+            syncCoordinator: coordinator,
+            accountManager: accountManager
+        )
+
+        await viewModel.load()
+
+        let requestCount = await provider.requestCount()
+        XCTAssertEqual(Set(viewModel.albums.map(\.id)), ["library-album", "remote-album"])
+        XCTAssertEqual(requestCount, 1)
     }
 
     func testArtistDetailAlbumCollectionsMergeReleaseMetadataAndSortDeterministically() {
