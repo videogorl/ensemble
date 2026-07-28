@@ -218,19 +218,24 @@ public actor AppleMusicSourceProvider:
                 modifiedAt: effectiveModifiedAt,
                 refreshAllBodies: refreshAllBodies
             ) {
-                if let libraryPlaylist {
-                    try await persistLibraryPlaylist(
-                        libraryPlaylist,
-                        musicKitPlaylist: playlist,
-                        to: repository
-                    )
-                } else {
-                    _ = try await persistPlaylist(
-                        playlist,
-                        artworkURL: artworkURL,
-                        canEdit: canEdit,
-                        to: repository
-                    )
+                do {
+                    if let libraryPlaylist {
+                        try await persistLibraryPlaylist(
+                            libraryPlaylist,
+                            musicKitPlaylist: playlist,
+                            to: repository
+                        )
+                    } else {
+                        _ = try await persistPlaylist(
+                            playlist,
+                            artworkURL: artworkURL,
+                            canEdit: canEdit,
+                            to: repository
+                        )
+                    }
+                } catch {
+                    Self.logPlaylistBodyFailure(id: id, title: playlist.name, error: error)
+                    throw error
                 }
                 changedPlaylists += 1
                 refreshedBodies += 1
@@ -258,7 +263,16 @@ public actor AppleMusicSourceProvider:
                 modifiedAt: playlist.dateModified,
                 refreshAllBodies: refreshAllBodies
             ) {
-                try await persistLibraryPlaylist(playlist, to: repository)
+                do {
+                    try await persistLibraryPlaylist(playlist, to: repository)
+                } catch {
+                    Self.logPlaylistBodyFailure(
+                        id: playlist.id,
+                        title: playlist.attributes.name ?? "Untitled Playlist",
+                        error: error
+                    )
+                    throw error
+                }
                 changedPlaylists += 1
                 refreshedBodies += 1
             } else {
@@ -464,12 +478,37 @@ public actor AppleMusicSourceProvider:
         var path: String? = path
         var result: [Resource] = []
         while let current = path {
-            let data = try await request(path: current)
+            let data: Data
+            do {
+                data = try await request(path: current)
+            } catch {
+                Self.logDataRequestFailure(path: current, error: error)
+                throw error
+            }
             let page = try JSONDecoder().decode(Page<Resource>.self, from: data)
             result.append(contentsOf: page.data)
             path = page.next.map { Self.continuationPath($0, preservingQueryFrom: initialPath) }
         }
         return result
+    }
+
+    private static func logPlaylistBodyFailure(id: String, title: String, error: Error) {
+        EnsembleLogger.error(
+            "🎵 Apple Music playlist body failed id=\(id) title=\(title) \(requestErrorDetails(error))"
+        )
+    }
+
+    private static func logDataRequestFailure(path: String, error: Error) {
+        EnsembleLogger.error(
+            "🎵 Apple Music data request failed path=\(path) \(requestErrorDetails(error))"
+        )
+    }
+
+    private static func requestErrorDetails(_ error: Error) -> String {
+        guard let requestError = error as? MusicDataRequest.Error else {
+            return "type=\(String(reflecting: type(of: error))) message=\(error.localizedDescription)"
+        }
+        return "status=\(requestError.status) code=\(requestError.code) responseStatus=\(requestError.originalResponse.urlResponse.statusCode) title=\(requestError.title) detail=\(requestError.detailText) source=\(String(describing: requestError.source))"
     }
 
     private static func domainTrack(_ song: Song, key: String) -> Track {
