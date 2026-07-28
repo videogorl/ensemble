@@ -208,6 +208,17 @@ public final class DownloadsViewModel: ObservableObject {
         return "Loading libraries..."
     }
 
+    /// Returns the account label only when another source has the same visible server/library name.
+    public func disambiguatingAccountName(for library: LibraryDownloadSummary) -> String? {
+        // ponytail: library lists are small; precompute collision keys if that ever changes.
+        guard librarySummaries.contains(where: {
+            $0.id != library.id
+                && $0.serverName.caseInsensitiveCompare(library.serverName) == .orderedSame
+                && $0.libraryName.caseInsensitiveCompare(library.libraryName) == .orderedSame
+        }) else { return nil }
+        return accountManager.sourceLibraryContext(for: library.sourceCompositeKey)?.accountName
+    }
+
     /// Toggle library-level download on or off
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
         guard DownloadCapabilityPolicy.canAttemptDownload(for: sourceCompositeKey, accountManager: accountManager) else {

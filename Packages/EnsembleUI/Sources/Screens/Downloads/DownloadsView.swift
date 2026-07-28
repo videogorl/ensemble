@@ -431,7 +431,15 @@ public struct DownloadsView: View {
             library.serverName,
             isEnabled: settingsManager.demoModeEnabled
         )
-        return "\(serverName): \(library.libraryName)"
+        let title = "\(serverName): \(library.libraryName)"
+        guard let accountName = viewModel.disambiguatingAccountName(for: library) else {
+            return title
+        }
+        let displayAccountName = DemoModeRedaction.accountIdentifier(
+            accountName,
+            isEnabled: settingsManager.demoModeEnabled
+        )
+        return "\(title) · \(displayAccountName)"
     }
 
     private func libraryDownloadToggleLabel(for library: LibraryDownloadSummary) -> String {

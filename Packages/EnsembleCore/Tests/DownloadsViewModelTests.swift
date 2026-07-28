@@ -1,3 +1,4 @@
+import Combine
 import EnsembleAPI
 @testable import EnsembleCore
 import EnsemblePersistence
@@ -50,7 +51,7 @@ final class DownloadsViewModelTests: XCTestCase {
         XCTAssertNil(items.first { $0.kind == .album }?.sourceDisplayText)
     }
 
-    func testLibrarySummariesSeedFromEnabledLibrariesOnInit() {
+    func testLibrarySummariesSeedFromEnabledLibrariesOnInit() async {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
@@ -103,6 +104,41 @@ final class DownloadsViewModelTests: XCTestCase {
             "plex:free:server:1",
             "plex:subscriber:server:3"
         ])
+
+        XCTAssertNil(viewModel.disambiguatingAccountName(for: viewModel.librarySummaries[0]))
+
+        let summariesUpdated = expectation(description: "Duplicate library summary published")
+        let summaryObservation = viewModel.$librarySummaries
+            .first { $0.count == 4 }
+            .sink { _ in summariesUpdated.fulfill() }
+        defer { summaryObservation.cancel() }
+
+        accountManager.addPlexAccount(PlexAccountConfig(
+            id: "duplicate",
+            email: "other@nysics.com",
+            authToken: "duplicate-token",
+            servers: [
+                PlexServerConfig(
+                    id: "other-server",
+                    name: "Free Server",
+                    url: "http://127.0.0.1:32401",
+                    token: "server-token",
+                    libraries: [
+                        PlexLibraryConfig(id: "3", key: "3", title: "Music", isEnabled: true, allowSync: true)
+                    ]
+                )
+            ]
+        ))
+        await fulfillment(of: [summariesUpdated], timeout: 1)
+
+        let collidingLibraries = viewModel.librarySummaries.filter {
+            $0.serverName == "Free Server" && $0.libraryName == "Music"
+        }
+        XCTAssertEqual(collidingLibraries.count, 2)
+        XCTAssertEqual(
+            Set(collidingLibraries.compactMap(viewModel.disambiguatingAccountName(for:))),
+            ["felicity+test@nysics.com", "other@nysics.com"]
+        )
     }
 
     private func makeSnapshot(
