@@ -43,6 +43,7 @@ public struct MusicSourceCapabilities: Sendable, Equatable {
     public let supportsTrackDeletion: Bool
     public let supportsFavoriteRemoval: Bool
     public let supportsCatalogLibraryAdds: Bool
+    public let supportsOfflineDownloads: Bool
     /// Whether provider-owned Feed items remain actionable without a matching local library row.
     public let retainsHubItemsWithoutLocalCache: Bool
     public let smartMixCrossSourceNotice: String?
@@ -68,6 +69,7 @@ public extension MusicSourceType {
                 supportsTrackDeletion: true,
                 supportsFavoriteRemoval: true,
                 supportsCatalogLibraryAdds: false,
+                supportsOfflineDownloads: true,
                 retainsHubItemsWithoutLocalCache: false,
                 smartMixCrossSourceNotice: nil
             )
@@ -88,6 +90,7 @@ public extension MusicSourceType {
                 supportsTrackDeletion: false,
                 supportsFavoriteRemoval: false,
                 supportsCatalogLibraryAdds: true,
+                supportsOfflineDownloads: false,
                 retainsHubItemsWithoutLocalCache: true,
                 smartMixCrossSourceNotice: "SmartMix cannot transition between songs from Apple Music and other services"
             )

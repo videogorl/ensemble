@@ -19,7 +19,7 @@ public enum DownloadCapabilityPolicy {
             return .unknown
         }
 
-        if MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type == .appleMusic {
+        if !providerSupportsOfflineDownloads(for: sourceCompositeKey) {
             return .unavailable
         }
 
@@ -54,5 +54,13 @@ public enum DownloadCapabilityPolicy {
             }
         }
         return capability != .unavailable
+    }
+
+    /// Unknown legacy source keys remain eligible until their provider can be identified.
+    static func providerSupportsOfflineDownloads(for sourceCompositeKey: String?) -> Bool {
+        guard let sourceType = MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType else {
+            return true
+        }
+        return sourceType.capabilities.supportsOfflineDownloads
     }
 }

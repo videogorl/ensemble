@@ -64,7 +64,7 @@ final class DownloadTargetReconciler {
         case .library:
             guard let sourceKey = target.sourceCompositeKey else { return [] }
             let tracks = try await dependencies.libraryRepository.fetchTracks(forSource: sourceKey)
-            return normalizedTrackReferences(from: tracks)
+            return normalizedTrackReferences(from: tracks, for: target)
 
         case .album:
             guard let ratingKey = target.ratingKey else { return [] }
@@ -77,7 +77,7 @@ final class DownloadTargetReconciler {
             } else {
                 tracks = try await dependencies.libraryRepository.fetchTracks(forAlbum: ratingKey)
             }
-            return normalizedTrackReferences(from: tracks)
+            return normalizedTrackReferences(from: tracks, for: target)
 
         case .artist:
             guard let ratingKey = target.ratingKey else { return [] }
@@ -90,7 +90,7 @@ final class DownloadTargetReconciler {
             } else {
                 tracks = try await dependencies.libraryRepository.fetchTracks(forArtist: ratingKey)
             }
-            return normalizedTrackReferences(from: tracks)
+            return normalizedTrackReferences(from: tracks, for: target)
 
         case .playlist:
             guard let ratingKey = target.ratingKey else { return [] }
@@ -100,17 +100,24 @@ final class DownloadTargetReconciler {
             ) else {
                 return []
             }
-            return normalizedTrackReferences(from: playlist.tracksArray)
+            return normalizedTrackReferences(from: playlist.tracksArray, for: target)
 
         case .favorites:
             let tracks = try await dependencies.libraryRepository.fetchFavoriteTracks()
-            return normalizedTrackReferences(from: tracks)
+            return normalizedTrackReferences(from: tracks, for: target)
         }
     }
 
-    private func normalizedTrackReferences(from tracks: [CDTrack]) -> [OfflineTrackReference] {
+    private func normalizedTrackReferences(
+        from tracks: [CDTrack],
+        for target: TargetDescriptor
+    ) -> [OfflineTrackReference] {
         let references = tracks.compactMap { track -> OfflineTrackReference? in
             guard let sourceCompositeKey = track.sourceCompositeKey else { return nil }
+            guard DownloadCapabilityPolicy.providerSupportsOfflineDownloads(for: sourceCompositeKey) else {
+                return nil
+            }
+            guard isSourceCompatible(sourceCompositeKey, with: target) else { return nil }
             return OfflineTrackReference(
                 trackRatingKey: track.ratingKey,
                 trackSourceCompositeKey: sourceCompositeKey
@@ -122,6 +129,23 @@ final class DownloadTargetReconciler {
                 return $0.trackSourceCompositeKey < $1.trackSourceCompositeKey
             }
             return $0.trackRatingKey < $1.trackRatingKey
+        }
+    }
+
+    private func isSourceCompatible(
+        _ trackSourceCompositeKey: String,
+        with target: TargetDescriptor
+    ) -> Bool {
+        guard let targetSourceCompositeKey = target.sourceCompositeKey else { return true }
+
+        switch target.kind {
+        case .playlist:
+            return trackSourceCompositeKey == targetSourceCompositeKey
+                || MediaSourceIdentity.isSameServer(trackSourceCompositeKey, targetSourceCompositeKey)
+        case .library, .album, .artist:
+            return trackSourceCompositeKey == targetSourceCompositeKey
+        case .favorites:
+            return true
         }
     }
 }

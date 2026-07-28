@@ -232,6 +232,105 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         )
     }
 
+    func testReconcileFavoritesExcludesAppleMusicAndRemovesItsStaleMembership() async throws {
+        let libraryRepository = LibraryRepositoryMock()
+        let playlistRepository = PlaylistRepositoryMock()
+        let downloadManager = DownloadManagerMock()
+        let targetRepository = TargetRepositoryMock()
+        let appleSource = MusicSourceIdentifier.appleMusic.compositeKey
+        let plexSource = "plex:account:server:library"
+        let staleAppleReference = OfflineTrackReference(
+            trackRatingKey: "apple",
+            trackSourceCompositeKey: appleSource
+        )
+
+        libraryRepository.favoriteTracks = [
+            makeTrack(ratingKey: "plex", sourceCompositeKey: plexSource),
+            makeTrack(ratingKey: "apple", sourceCompositeKey: appleSource)
+        ]
+        targetRepository.previousReferencesByTarget["favorites"] = [staleAppleReference]
+        var clearedLyrics: [OfflineTrackReference] = []
+
+        let reconciler = DownloadTargetReconciler(
+            dependencies: .init(
+                targetRepository: targetRepository,
+                libraryRepository: libraryRepository,
+                playlistRepository: playlistRepository,
+                downloadManager: downloadManager,
+                currentDownloadQuality: { "high" },
+                clearLyricsCaches: { clearedLyrics.append(contentsOf: $0) }
+            )
+        )
+
+        let result = try await reconciler.reconcileTarget(
+            .init(key: "favorites", kind: .favorites, ratingKey: nil, sourceCompositeKey: nil)
+        )
+
+        let plexReference = OfflineTrackReference(
+            trackRatingKey: "plex",
+            trackSourceCompositeKey: plexSource
+        )
+        XCTAssertEqual(result.trackReferenceCount, 1)
+        XCTAssertEqual(targetRepository.replacedMemberships["favorites"], [plexReference])
+        XCTAssertEqual(downloadManager.batchCreateCalls.first?.0, [plexReference])
+        XCTAssertEqual(downloadManager.deletedReferences, [staleAppleReference])
+        XCTAssertEqual(clearedLyrics, [staleAppleReference])
+    }
+
+    func testReconcilePlaylistKeepsOnlyDownloadableTracksFromTargetServer() async throws {
+        let libraryRepository = LibraryRepositoryMock()
+        let playlistRepository = PlaylistRepositoryMock()
+        let downloadManager = DownloadManagerMock()
+        let targetRepository = TargetRepositoryMock()
+        let targetSource = "plex:account:server"
+        let matchingSource = "plex:account:server:music"
+
+        let playlist = CDPlaylist(context: context)
+        let tracks = [
+            makeTrack(ratingKey: "matching", sourceCompositeKey: matchingSource),
+            makeTrack(ratingKey: "other-plex", sourceCompositeKey: "plex:account:other:music"),
+            makeTrack(
+                ratingKey: "apple",
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+            )
+        ]
+        playlist.playlistTracks = NSSet(array: tracks.enumerated().map { index, track in
+            let membership = CDPlaylistTrack(context: context)
+            membership.track = track
+            membership.order = Int32(index)
+            return membership
+        })
+        playlistRepository.playlists["\(targetSource)|playlist"] = playlist
+
+        let reconciler = DownloadTargetReconciler(
+            dependencies: .init(
+                targetRepository: targetRepository,
+                libraryRepository: libraryRepository,
+                playlistRepository: playlistRepository,
+                downloadManager: downloadManager,
+                currentDownloadQuality: { "original" },
+                clearLyricsCaches: { _ in }
+            )
+        )
+
+        let result = try await reconciler.reconcileTarget(
+            .init(
+                key: "playlist-target",
+                kind: .playlist,
+                ratingKey: "playlist",
+                sourceCompositeKey: targetSource
+            )
+        )
+
+        let matchingReference = OfflineTrackReference(
+            trackRatingKey: "matching",
+            trackSourceCompositeKey: matchingSource
+        )
+        XCTAssertEqual(result.trackReferenceCount, 1)
+        XCTAssertEqual(targetRepository.replacedMemberships["playlist-target"], [matchingReference])
+        XCTAssertEqual(downloadManager.batchCreateCalls.first?.0, [matchingReference])
+    }
+
     private func makeTrack(ratingKey: String, sourceCompositeKey: String) -> CDTrack {
         let track = CDTrack(context: context)
         track.ratingKey = ratingKey
