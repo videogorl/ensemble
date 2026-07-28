@@ -833,6 +833,25 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: manual, isEnabled: true))
     }
 
+    func testAppleMusicStationAdvancesPastSeedBeforePlaying() async throws {
+        let player = RecordingAppleMusicStationPlayer()
+
+        try await AppleMusicStationStartSequence.startAfterSeed(on: player)
+
+        XCTAssertEqual(player.operations, [.prepare, .skipToNextEntry, .play])
+    }
+
+    func testAppleMusicStationDoesNotPlayWhenAdvancingPastSeedFails() async {
+        let player = RecordingAppleMusicStationPlayer(failingAt: .skipToNextEntry)
+
+        do {
+            try await AppleMusicStationStartSequence.startAfterSeed(on: player)
+            XCTFail("Expected station advancement to fail")
+        } catch {}
+
+        XCTAssertEqual(player.operations, [.prepare, .skipToNextEntry])
+    }
+
     func testAppleMusicRadioDoesNotReusePlayedDuplicate() {
         let track = Track(
             id: "apple-track",
@@ -865,5 +884,41 @@ final class PlaybackServiceTests: XCTestCase {
             duration: duration,
             sourceCompositeKey: "plex:account:server:library"
         )
+    }
+
+    private final class RecordingAppleMusicStationPlayer: AppleMusicStationPlaybackStarting {
+        enum Operation: Equatable {
+            case prepare
+            case skipToNextEntry
+            case play
+        }
+
+        enum Failure: Error {
+            case expected
+        }
+
+        let failingOperation: Operation?
+        private(set) var operations: [Operation] = []
+
+        init(failingAt failingOperation: Operation? = nil) {
+            self.failingOperation = failingOperation
+        }
+
+        func prepareToPlay() async throws {
+            try record(.prepare)
+        }
+
+        func skipToNextEntry() async throws {
+            try record(.skipToNextEntry)
+        }
+
+        func play() async throws {
+            try record(.play)
+        }
+
+        private func record(_ operation: Operation) throws {
+            operations.append(operation)
+            if operation == failingOperation { throw Failure.expected }
+        }
     }
 }

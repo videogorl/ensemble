@@ -1,7 +1,23 @@
+protocol AppleMusicStationPlaybackStarting: AnyObject {
+    func prepareToPlay() async throws
+    func skipToNextEntry() async throws
+    func play() async throws
+}
+
+enum AppleMusicStationStartSequence {
+    static func startAfterSeed(on player: AppleMusicStationPlaybackStarting) async throws {
+        try await player.prepareToPlay()
+        try await player.skipToNextEntry()
+        try await player.play()
+    }
+}
+
 #if os(iOS)
 import Combine
 import Foundation
 import MusicKit
+
+extension ApplicationMusicPlayer: AppleMusicStationPlaybackStarting {}
 
 protocol AppleMusicPlaybackControlling: AnyObject {
     var isStationActive: Bool { get }
@@ -185,8 +201,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         player.transition = smartMixEnabled ? .crossfade : .none
         player.queue = ApplicationMusicPlayer.Queue(for: [station])
         do {
-            try await player.prepareToPlay()
-            try await player.play()
+            try await AppleMusicStationStartSequence.startAfterSeed(on: player)
         } catch {
             player.stop()
             isPreparingQueue = false
