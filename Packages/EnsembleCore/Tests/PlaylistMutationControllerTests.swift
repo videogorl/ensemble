@@ -77,7 +77,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                     persistedPlaylist = playlist
                 },
                 clearLastPlaylistTargetIfNeeded: { _ in },
-                deletePlaylistArtwork: { _ in },
+                deletePlaylistArtwork: { _, _ in },
                 refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { _ in
                     refreshExpectation.fulfill()
@@ -125,7 +125,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                     persistedPlaylist = playlist
                 },
                 clearLastPlaylistTargetIfNeeded: { _ in },
-                deletePlaylistArtwork: { _ in },
+                deletePlaylistArtwork: { _, _ in },
                 refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { _ in
                     refreshExpectation.fulfill()
@@ -169,7 +169,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
-                deletePlaylistArtwork: { _ in },
+                deletePlaylistArtwork: { _, _ in },
                 refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { sourceKey in
                     refreshedSourceKey = sourceKey
@@ -188,6 +188,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
         var deletedPlaylistID: String?
         var clearedPlaylistID: String?
         var deletedArtworkID: String?
+        var deletedArtworkSourceKey: String?
         var refreshedSourceKey: String?
 
         let controller = PlaylistMutationController(
@@ -209,8 +210,9 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 clearLastPlaylistTargetIfNeeded: { playlist in
                     clearedPlaylistID = playlist.id
                 },
-                deletePlaylistArtwork: { ratingKey in
+                deletePlaylistArtwork: { ratingKey, sourceKey in
                     deletedArtworkID = ratingKey
+                    deletedArtworkSourceKey = sourceKey
                 },
                 refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { sourceKey in
@@ -224,6 +226,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
         XCTAssertEqual(deletedPlaylistID, "playlist-1")
         XCTAssertEqual(clearedPlaylistID, "playlist-1")
         XCTAssertEqual(deletedArtworkID, "playlist-1")
+        XCTAssertEqual(deletedArtworkSourceKey, "plex:account-1:server-1")
         XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
     }
 
@@ -250,7 +253,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
-                deletePlaylistArtwork: { _ in },
+                deletePlaylistArtwork: { _, _ in },
                 refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { sourceKey in
                     refreshedSourceKey = sourceKey
@@ -289,7 +292,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 moveRemotePlaylistItem: { _, _, _, _ in },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
-                deletePlaylistArtwork: { _ in },
+                deletePlaylistArtwork: { _, _ in },
                 refreshRemotePlaylist: { _, _ in },
                 refreshServerPlaylists: { _ in
                     didRefresh = true
@@ -341,7 +344,7 @@ final class PlaylistMutationControllerTests: XCTestCase {
                 },
                 persistLastPlaylistTarget: { _ in },
                 clearLastPlaylistTargetIfNeeded: { _ in },
-                deletePlaylistArtwork: { _ in },
+                deletePlaylistArtwork: { _, _ in },
                 refreshRemotePlaylist: { playlistID, sourceKey in
                     events.append("refresh:\(playlistID):\(sourceKey)")
                 },

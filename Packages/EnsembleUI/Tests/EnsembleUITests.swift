@@ -103,7 +103,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(resolved)
         let cacheRequests = await artworkLoader.cacheRequests
         XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, hint)
+        XCTAssertEqual(cacheRequests.first?.hint, hint?.scoped(to: "plex:server:library"))
         XCTAssertEqual(cacheRequests.first?.minimumPixelDimension, 44)
     }
 
@@ -187,7 +187,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(artworkPaths, [primaryPath, fallbackPath])
         let cacheRequests = await artworkLoader.cacheRequests
         XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint)
+        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint?.scoped(to: "plex:account:server"))
     }
 
     @MainActor

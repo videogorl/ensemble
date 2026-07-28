@@ -186,10 +186,18 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
         var homeHubs: [Hub] = []
         var homeFetchFails = false
+        var failedHomeHubKinds: Set<HubSemanticKind> = []
 
         func getHomeHubs(limit: Int) async throws -> [Hub] {
             if homeFetchFails { throw MockError.unimplemented }
             return homeHubs
+        }
+
+        func getHomeHubResult(limit: Int) async throws -> MusicSourceHubFetchResult {
+            MusicSourceHubFetchResult(
+                hubs: try await getHomeHubs(limit: limit),
+                failedSemanticKinds: failedHomeHubKinds
+            )
         }
 
         func syncLibrary(
@@ -479,7 +487,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
         let snapshot = try await makeHarness(cachedHubs: cachedHubs).hubLoader.loadCachedSnapshot()
 
-        XCTAssertEqual(snapshot.orderedHubs.map(\.title), ["Recently Added", "Recently Played Music", "Most Played"])
+        XCTAssertEqual(snapshot.orderedHubs.map(\.title), ["Recently Added", "Recently Played", "Most Played"])
         XCTAssertEqual(snapshot.orderedHubs.map(\.items.count), [2, 2, 2])
     }
 
@@ -524,9 +532,134 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         let merged = HomeHubLoader.mergeAndGroupHubs(hubs)
 
         XCTAssertEqual(merged.first { $0.title == "Recently Added" }?.items.map(\.id), ["added-new", "added-old"])
-        XCTAssertEqual(merged.first { $0.title == "Recently Played Music" }?.items.map(\.id), ["played-new", "played-old"])
+        XCTAssertEqual(merged.first { $0.title == "Recently Played" }?.items.map(\.id), ["played-new", "played-old"])
         XCTAssertEqual(merged.first { $0.title == "Most Played" }?.items.map(\.id), ["popular-nine-new", "popular-nine-old", "popular-four"])
         XCTAssertEqual(merged.filter { $0.title == "More by Artist" }.count, 2)
+    }
+
+    func testFeedMergeUsesExplicitSemanticsInsteadOfProviderIDsOrTitles() {
+        let first = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "library-1"
+        )
+        let second = MusicSourceIdentifier.appleMusic
+
+        func item(_ id: String, source: MusicSourceIdentifier) -> HubItem {
+            HubItem(
+                id: id,
+                type: "album",
+                title: id,
+                subtitle: nil,
+                thumbPath: nil,
+                year: nil,
+                sourceCompositeKey: source.compositeKey,
+                addedAt: Date(timeIntervalSince1970: id == "new" ? 2 : 1)
+            )
+        }
+
+        let merged = HomeHubLoader.mergeAndGroupHubs([
+            Hub(
+                id: "opaque:first",
+                title: "Provider A heading",
+                type: "album",
+                items: [item("old", source: first)],
+                semanticKind: .recentlyAdded,
+                sourceScope: HubSourceScope(source: first)
+            ),
+            Hub(
+                id: "opaque:second",
+                title: "Provider B heading",
+                type: "album",
+                items: [item("new", source: second)],
+                semanticKind: .recentlyAdded,
+                sourceScope: HubSourceScope(source: second)
+            ),
+            Hub(
+                id: "music.recent.added",
+                title: "Recently Added",
+                type: "album",
+                items: [item("not-global", source: first)],
+                semanticKind: HubSemanticKind(rawValue: "provider.custom"),
+                sourceScope: HubSourceScope(source: first)
+            ),
+        ])
+
+        XCTAssertEqual(merged.first?.title, "Recently Added")
+        XCTAssertEqual(merged.first?.items.map(\.id), ["new", "old"])
+        XCTAssertEqual(merged.first?.sourceScope, .global)
+        XCTAssertEqual(merged.last?.items.map(\.id), ["not-global"])
+    }
+
+    func testHubCodableRoundTripPreservesExplicitNormalization() throws {
+        let source = MusicSourceIdentifier.appleMusic
+        let hub = Hub(
+            id: "opaque",
+            title: "Custom provider heading",
+            type: "album",
+            items: [hubNormalizationItem(sourceKey: source.compositeKey)],
+            semanticKind: .recentlyAdded,
+            sourceScope: HubSourceScope(source: source)
+        )
+
+        let decoded = try JSONDecoder().decode(Hub.self, from: JSONEncoder().encode(hub))
+
+        XCTAssertEqual(decoded.semanticKind, .recentlyAdded)
+        XCTAssertEqual(decoded.sourceScope, HubSourceScope(source: source))
+    }
+
+    func testLegacyCachedHubWithoutNormalizationStillDecodes() throws {
+        let sourceKey = "plex:account:server:library"
+        let hub = Hub(
+            id: "\(sourceKey):music.recent.played.7",
+            title: "Recently Played Music",
+            type: "track",
+            items: [hubNormalizationItem(sourceKey: sourceKey)]
+        )
+        let encoded = try JSONEncoder().encode(hub)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "semanticKind")
+        object.removeValue(forKey: "sourceScope")
+
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(Hub.self, from: legacyData)
+
+        XCTAssertEqual(decoded.semanticKind, .recentlyPlayed)
+        XCTAssertEqual(decoded.sourceScope.sourceCompositeKey, sourceKey)
+        XCTAssertEqual(decoded.sourceScope.serverCompositeKey, "plex:account:server")
+    }
+
+    func testProviderKindsKeepContextualHubsDistinct() {
+        let first = HubSemanticKind.provider(
+            identifier: "music.recent.artist.1",
+            title: "More by One",
+            context: "hub.music.artist"
+        )
+        let second = HubSemanticKind.provider(
+            identifier: "music.recent.artist.2",
+            title: "More by Two",
+            context: "hub.music.artist"
+        )
+
+        XCTAssertNotEqual(first, second)
+        XCTAssertFalse(first.mergesAcrossSources)
+        XCTAssertEqual(
+            HubSemanticKind.provider(identifier: "music.popular.9", title: "Anything"),
+            .mostPlayed
+        )
+    }
+
+    private func hubNormalizationItem(sourceKey: String) -> HubItem {
+        HubItem(
+            id: "item",
+            type: "track",
+            title: "Item",
+            subtitle: nil,
+            thumbPath: nil,
+            year: nil,
+            sourceCompositeKey: sourceKey
+        )
     }
 
     func testFeedLoaderCollectsHubsFromEveryConfiguredProvider() async throws {
@@ -594,6 +727,126 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         ])
         let recovered = await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
         XCTAssertTrue(recovered?.failedHubKeys.isEmpty == true)
+    }
+
+    func testFeedLoaderRetainsLastGoodItemsForFailedProvider() async throws {
+        let harness = makeHarness()
+        let plexSource = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "library"
+        )
+        let appleSource = MusicSourceIdentifier.appleMusic
+        func hub(source: MusicSourceIdentifier, itemID: String, addedAt: Date) -> Hub {
+            Hub(
+                id: "\(source.compositeKey):music.recent.added",
+                title: "Recently Added",
+                type: "album",
+                items: [
+                    HubItem(
+                        id: itemID,
+                        type: "album",
+                        title: itemID,
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source.compositeKey,
+                        addedAt: addedAt
+                    )
+                ],
+                semanticKind: .recentlyAdded,
+                sourceScope: HubSourceScope(source: source)
+            )
+        }
+        let cachedAppleHub = hub(
+            source: appleSource,
+            itemID: "cached-apple",
+            addedAt: Date(timeIntervalSince1970: 1_000)
+        )
+        harness.hubRepository.cachedSnapshot = HomeFeedCachedSnapshot(
+            sourceScopeKey: nil,
+            sourceName: "Music",
+            fetchedAt: Date(timeIntervalSince1970: 1_000),
+            refreshReason: "network",
+            freshnessState: .fresh,
+            isLastGood: true,
+            hubs: [cachedAppleHub]
+        )
+        harness.coordinator.setSyncProvidersForTesting([
+            plexSource.compositeKey: MockSyncProvider(
+                sourceIdentifier: plexSource,
+                homeHubs: [hub(source: plexSource, itemID: "fresh-plex", addedAt: Date(timeIntervalSince1970: 2_000))]
+            ),
+            appleSource.compositeKey: MockSyncProvider(
+                sourceIdentifier: appleSource,
+                homeFetchFails: true
+            )
+        ])
+
+        let snapshot = await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
+
+        XCTAssertEqual(snapshot?.failedHubKeys, [appleSource.compositeKey])
+        XCTAssertEqual(Set(snapshot?.orderedHubs.first?.items.map(\.id) ?? []), ["fresh-plex", "cached-apple"])
+        XCTAssertEqual(snapshot?.metadata.freshnessState, .stale)
+        XCTAssertEqual(
+            Set(harness.hubRepository.cachedSnapshot?.hubs.first?.items.map(\.id) ?? []),
+            ["fresh-plex", "cached-apple"]
+        )
+    }
+
+    func testFeedLoaderRetainsOnlyFailedSectionsFromPartialProviderResult() async throws {
+        let harness = makeHarness()
+        let source = MusicSourceIdentifier.appleMusic
+        func hub(kind: HubSemanticKind, itemID: String) -> Hub {
+            Hub(
+                id: "\(source.compositeKey):\(kind.rawValue)",
+                title: kind.displayTitle(fallback: itemID),
+                type: "track",
+                items: [
+                    HubItem(
+                        id: itemID,
+                        type: "track",
+                        title: itemID,
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source.compositeKey
+                    )
+                ],
+                semanticKind: kind,
+                sourceScope: HubSourceScope(source: source)
+            )
+        }
+        harness.hubRepository.cachedSnapshot = HomeFeedCachedSnapshot(
+            sourceScopeKey: nil,
+            sourceName: "Music",
+            fetchedAt: Date(timeIntervalSince1970: 1_000),
+            refreshReason: "network",
+            freshnessState: .fresh,
+            isLastGood: true,
+            hubs: [
+                hub(kind: .recentlyAdded, itemID: "old-added"),
+                hub(kind: .recentlyPlayed, itemID: "cached-played")
+            ]
+        )
+        harness.coordinator.setSyncProvidersForTesting([
+            source.compositeKey: MockSyncProvider(
+                sourceIdentifier: source,
+                homeHubs: [hub(kind: .recentlyAdded, itemID: "fresh-added")],
+                failedHomeHubKinds: [.recentlyPlayed]
+            )
+        ])
+
+        let snapshot = await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
+        let itemsByKind = Dictionary(uniqueKeysWithValues: (snapshot?.orderedHubs ?? []).map {
+            ($0.semanticKind, $0.items.map(\.id))
+        })
+
+        XCTAssertEqual(itemsByKind[.recentlyAdded], ["fresh-added"])
+        XCTAssertEqual(itemsByKind[.recentlyPlayed], ["cached-played"])
+        XCTAssertEqual(snapshot?.failedHubKeys, [source.compositeKey])
+        XCTAssertEqual(snapshot?.metadata.freshnessState, .stale)
     }
 
     func testFeedMergedHubsDeduplicateAccountAliasesForOnePhysicalLibrary() {
@@ -1040,6 +1293,90 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(filtered[0].items.map(\.id), ["album-1"])
         XCTAssertEqual(filtered[0].context, "hub.music.artist")
         XCTAssertEqual(filtered[1].items.map(\.id), ["track-1"])
+    }
+
+    func testLocalAvailabilityFilterRetainsAppleRecentlyAddedAndRecentlyPlayedWithoutCachedRows() async throws {
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let album = Album(
+            id: "library-album-id",
+            key: "apple-catalog",
+            title: "Recently Added Album",
+            artistName: "Artist",
+            sourceCompositeKey: sourceKey
+        )
+        let track = Track(
+            id: "catalog-song-id",
+            key: "apple-catalog",
+            title: "Recently Played Song",
+            artistName: "Artist",
+            sourceCompositeKey: sourceKey
+        )
+        let hubs = [
+            Hub(
+                id: "apple-recently-added",
+                title: "Recently Added",
+                type: "album",
+                items: [
+                    HubItem(
+                        id: album.id,
+                        type: "album",
+                        title: album.title,
+                        subtitle: album.artistName,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: sourceKey,
+                        album: album
+                    )
+                ],
+                semanticKind: .recentlyAdded,
+                sourceScope: HubSourceScope(source: .appleMusic)
+            ),
+            Hub(
+                id: "apple-recently-played",
+                title: "Recently Played",
+                type: "track",
+                items: [
+                    HubItem(
+                        id: track.id,
+                        type: "track",
+                        title: track.title,
+                        subtitle: track.artistName,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: sourceKey,
+                        track: track
+                    )
+                ],
+                semanticKind: .recentlyPlayed,
+                sourceScope: HubSourceScope(source: .appleMusic)
+            )
+        ]
+
+        let filtered = await HomeViewModel.filterHubsForLocalAvailability(hubs) { _ in
+            nil as HubItem?
+        }
+
+        XCTAssertEqual(filtered.map(\.id), hubs.map(\.id))
+        XCTAssertEqual(filtered[0].items.first?.album, album)
+        XCTAssertEqual(filtered[1].items.first?.track, track)
+        XCTAssertEqual(filtered.map(\.semanticKind), [.recentlyAdded, .recentlyPlayed])
+    }
+
+    func testLocalAvailabilityFilterDropsEveryUncachedPlexHubItemType() async throws {
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        let items = [
+            HubItem(id: "album", type: "album", title: "Album", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: sourceKey),
+            HubItem(id: "track", type: "track", title: "Track", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: sourceKey),
+            HubItem(id: "artist", type: "artist", title: "Artist", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: sourceKey),
+            HubItem(id: "playlist", type: "playlist", title: "Playlist", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: sourceKey)
+        ]
+        let hubs = [Hub(id: "plex-mixed", title: "Mixed", type: "mixed", items: items)]
+
+        let filtered = await HomeViewModel.filterHubsForLocalAvailability(hubs) { _ in
+            nil as HubItem?
+        }
+
+        XCTAssertTrue(filtered.isEmpty)
     }
 
     func testLocalAvailabilityFilterUsesResolvedLocalItemMetadata() async throws {

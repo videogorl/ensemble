@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import ImageIO
 
@@ -32,19 +33,23 @@ public struct ArtworkIdentity: Sendable, Codable, Equatable {
     public let sourcePath: String?
     public let dateModifiedSeconds: Int?
     public let requestedPixelDimension: Int?
+    /// Source ownership used to isolate equal provider IDs in the durable cache.
+    public let sourceCompositeKey: String?
 
     public init(
         ratingKey: String,
         type: ArtworkType,
         sourcePath: String?,
         dateModifiedSeconds: Int?,
-        requestedPixelDimension: Int? = nil
+        requestedPixelDimension: Int? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.ratingKey = ratingKey
         self.type = type
         self.sourcePath = sourcePath
         self.dateModifiedSeconds = dateModifiedSeconds
         self.requestedPixelDimension = requestedPixelDimension
+        self.sourceCompositeKey = sourceCompositeKey
     }
 
     public init(
@@ -52,15 +57,23 @@ public struct ArtworkIdentity: Sendable, Codable, Equatable {
         type: ArtworkType,
         sourcePath: String?,
         dateModified: Date?,
-        requestedPixelDimension: Int? = nil
+        requestedPixelDimension: Int? = nil,
+        sourceCompositeKey: String? = nil
     ) {
         self.init(
             ratingKey: ratingKey,
             type: type,
             sourcePath: sourcePath,
             dateModifiedSeconds: dateModified.map { Int($0.timeIntervalSince1970) },
-            requestedPixelDimension: requestedPixelDimension
+            requestedPixelDimension: requestedPixelDimension,
+            sourceCompositeKey: sourceCompositeKey
         )
+    }
+
+    /// Returns whether this identity can satisfy a source-scoped lookup.
+    public func matches(sourceCompositeKey expectedSourceCompositeKey: String?) -> Bool {
+        guard let expectedSourceCompositeKey else { return true }
+        return sourceCompositeKey == nil || sourceCompositeKey == expectedSourceCompositeKey
     }
 
     public func matches(sourcePath expectedSourcePath: String?, dateModifiedSeconds expectedDateModifiedSeconds: Int?) -> Bool {
@@ -85,7 +98,9 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     func getLocalArtworkPath(for artist: CDArtist) async throws -> String?
     func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String?
     func getLocalArtworkPath(ratingKey: String, type: ArtworkType, sourcePath: String?, dateModifiedSeconds: Int?) async throws -> String?
+    func getLocalArtworkPath(ratingKey: String, type: ArtworkType, sourceCompositeKey: String?, sourcePath: String?, dateModifiedSeconds: Int?) async throws -> String?
     func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String?
+    func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType, sourceCompositeKey: String?) async throws -> String?
     func localArtworkExists(
         ratingKey: String,
         type: ArtworkType,
@@ -93,10 +108,21 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
         dateModifiedSeconds: Int?,
         minimumPixelDimension: Int?
     ) async -> Bool
+    func localArtworkExists(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?,
+        minimumPixelDimension: Int?
+    ) async -> Bool
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
     func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws
     func deleteArtwork(ratingKey: String, type: ArtworkType)
+    func deleteArtwork(ratingKey: String, type: ArtworkType, sourceCompositeKey: String?)
     func deleteArtwork(forRatingKeys ratingKeys: Set<String>)
+    func deleteArtwork(forRatingKeys ratingKeys: Set<String>, sourceCompositeKey: String)
+    func deleteArtwork(forSourceCompositeKey sourceCompositeKey: String)
     func clearArtworkCache() async throws
     func getArtworkCacheSize() async throws -> Int64
 }
@@ -106,6 +132,7 @@ public extension ArtworkDownloadManagerProtocol {
         await localArtworkExists(
             ratingKey: album.ratingKey,
             type: .album,
+            sourceCompositeKey: album.sourceCompositeKey,
             sourcePath: album.thumbPath,
             dateModifiedSeconds: album.dateModified.map { Int($0.timeIntervalSince1970) },
             minimumPixelDimension: minimumPixelDimension
@@ -116,6 +143,7 @@ public extension ArtworkDownloadManagerProtocol {
         await localArtworkExists(
             ratingKey: artist.ratingKey,
             type: .artist,
+            sourceCompositeKey: artist.sourceCompositeKey,
             sourcePath: artist.thumbPath,
             dateModifiedSeconds: artist.dateModified.map { Int($0.timeIntervalSince1970) },
             minimumPixelDimension: minimumPixelDimension
@@ -126,6 +154,7 @@ public extension ArtworkDownloadManagerProtocol {
         await localArtworkExists(
             ratingKey: playlist.ratingKey,
             type: .playlist,
+            sourceCompositeKey: playlist.sourceCompositeKey,
             sourcePath: playlist.compositePath,
             dateModifiedSeconds: playlist.dateModified.map { Int($0.timeIntervalSince1970) },
             minimumPixelDimension: minimumPixelDimension
@@ -148,11 +177,34 @@ public extension ArtworkDownloadManagerProtocol {
         try await downloadAndCacheArtwork(from: url, ratingKey: identity.ratingKey, type: identity.type)
     }
 
+    func getLocalArtworkPath(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?
+    ) async throws -> String? {
+        try await getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModifiedSeconds
+        )
+    }
+
     func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String? {
         let localPath = ArtworkDownloadManager.artworkDirectory
             .appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
             .path
         return FileManager.default.fileExists(atPath: localPath) ? localPath : nil
+    }
+
+    func getStaleLocalArtworkPath(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?
+    ) async throws -> String? {
+        try await getStaleLocalArtworkPath(ratingKey: ratingKey, type: type)
     }
 
     func localArtworkExists(
@@ -175,6 +227,33 @@ public extension ArtworkDownloadManagerProtocol {
             minimumPixelDimension: minimumPixelDimension
         )
     }
+
+    func localArtworkExists(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?,
+        minimumPixelDimension: Int?
+    ) async -> Bool {
+        await localArtworkExists(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModifiedSeconds,
+            minimumPixelDimension: minimumPixelDimension
+        )
+    }
+
+    func deleteArtwork(ratingKey: String, type: ArtworkType, sourceCompositeKey: String?) {
+        deleteArtwork(ratingKey: ratingKey, type: type)
+    }
+
+    func deleteArtwork(forRatingKeys ratingKeys: Set<String>, sourceCompositeKey: String) {
+        deleteArtwork(forRatingKeys: ratingKeys)
+    }
+
+    func deleteArtwork(forSourceCompositeKey sourceCompositeKey: String) {}
 }
 
 /// Shared file inspection for persistent artwork cache entries.
@@ -201,6 +280,7 @@ public enum ArtworkFileInspector {
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
     private let session: URLSession
+    private static let fileLock = NSLock()
     
     public init() {
         let config = URLSessionConfiguration.default
@@ -226,6 +306,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         try await getLocalArtworkPath(
             ratingKey: album.ratingKey,
             type: .album,
+            sourceCompositeKey: album.sourceCompositeKey,
             sourcePath: album.thumbPath,
             dateModifiedSeconds: Self.dateModifiedSeconds(album.dateModified)
         )
@@ -237,6 +318,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         try await getLocalArtworkPath(
             ratingKey: artist.ratingKey,
             type: .artist,
+            sourceCompositeKey: artist.sourceCompositeKey,
             sourcePath: artist.thumbPath,
             dateModifiedSeconds: Self.dateModifiedSeconds(artist.dateModified)
         )
@@ -248,49 +330,110 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         try await getLocalArtworkPath(
             ratingKey: playlist.ratingKey,
             type: .playlist,
+            sourceCompositeKey: playlist.sourceCompositeKey,
             sourcePath: playlist.compositePath,
             dateModifiedSeconds: Self.dateModifiedSeconds(playlist.dateModified)
         )
     }
 
+    /// Returns fresh artwork owned by one source, migrating a matching legacy entry when needed.
     public func getLocalArtworkPath(
         ratingKey: String,
         type: ArtworkType,
         sourcePath: String?,
         dateModifiedSeconds: Int?
     ) async throws -> String? {
-        let localURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
-        guard FileManager.default.fileExists(atPath: localURL.path) else { return nil }
+        try await getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: nil,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModifiedSeconds
+        )
+    }
 
-        guard let storedIdentity = Self.readIdentity(for: localURL) else {
-            return localURL.path
+    public func getLocalArtworkPath(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?
+    ) async throws -> String? {
+        try Self.withFileLock {
+            let localURL = Self.artworkFileURL(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            if let path = Self.validArtworkPath(
+                at: localURL,
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: dateModifiedSeconds,
+                allowStaleMetadata: false
+            ) {
+                return path
+            }
+
+            guard let sourceCompositeKey else { return nil }
+            return try Self.migrateLegacyArtwork(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: dateModifiedSeconds,
+                allowStaleMetadata: false
+            )
         }
-
-        guard storedIdentity.ratingKey == ratingKey,
-              storedIdentity.type == type,
-              storedIdentity.matches(sourcePath: sourcePath, dateModifiedSeconds: dateModifiedSeconds) else {
-            return nil
-        }
-
-        return localURL.path
     }
 
     public func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String? {
-        let localURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
-        guard FileManager.default.fileExists(atPath: localURL.path) else { return nil }
-
-        guard let storedIdentity = Self.readIdentity(for: localURL) else {
-            return localURL.path
-        }
-
-        guard storedIdentity.ratingKey == ratingKey,
-              storedIdentity.type == type else {
-            return nil
-        }
-
-        return localURL.path
+        try await getStaleLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: nil
+        )
     }
 
+    /// Returns source-owned artwork without enforcing mutable path or date metadata.
+    public func getStaleLocalArtworkPath(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?
+    ) async throws -> String? {
+        try Self.withFileLock {
+            let localURL = Self.artworkFileURL(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            if let path = Self.validArtworkPath(
+                at: localURL,
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey,
+                sourcePath: nil,
+                dateModifiedSeconds: nil,
+                allowStaleMetadata: true
+            ) {
+                return path
+            }
+
+            guard let sourceCompositeKey else { return nil }
+            return try Self.migrateLegacyArtwork(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey,
+                sourcePath: nil,
+                dateModifiedSeconds: nil,
+                allowStaleMetadata: true
+            )
+        }
+    }
+
+    /// Returns whether source-owned artwork satisfies the requested source metadata and size.
     public func localArtworkExists(
         ratingKey: String,
         type: ArtworkType,
@@ -298,9 +441,28 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         dateModifiedSeconds: Int?,
         minimumPixelDimension: Int?
     ) async -> Bool {
+        await localArtworkExists(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: nil,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModifiedSeconds,
+            minimumPixelDimension: minimumPixelDimension
+        )
+    }
+
+    public func localArtworkExists(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?,
+        minimumPixelDimension: Int?
+    ) async -> Bool {
         guard let localPath = try? await getLocalArtworkPath(
             ratingKey: ratingKey,
             type: type,
+            sourceCompositeKey: sourceCompositeKey,
             sourcePath: sourcePath,
             dateModifiedSeconds: dateModifiedSeconds
         ) else {
@@ -347,7 +509,11 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         ratingKey: String,
         type: ArtworkType
     ) async throws {
-        let localURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
+        let localURL = Self.artworkFileURL(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: identity?.sourceCompositeKey
+        )
         
         do {
             let (tempURL, response) = try await session.download(from: url)
@@ -360,16 +526,17 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
                 )
             }
             
-            // Move downloaded file to cache directory
-            if FileManager.default.fileExists(atPath: localURL.path) {
-                try FileManager.default.removeItem(at: localURL)
-            }
-            try FileManager.default.moveItem(at: tempURL, to: localURL)
+            try Self.withFileLock {
+                if FileManager.default.fileExists(atPath: localURL.path) {
+                    try FileManager.default.removeItem(at: localURL)
+                }
+                try FileManager.default.moveItem(at: tempURL, to: localURL)
 
-            if let identity {
-                try Self.writeIdentity(identity, for: localURL)
-            } else {
-                try? FileManager.default.removeItem(at: Self.identityURL(for: localURL))
+                if let identity {
+                    try Self.writeIdentity(identity, for: localURL)
+                } else {
+                    try? FileManager.default.removeItem(at: Self.identityURL(for: localURL))
+                }
             }
             
         } catch {
@@ -383,36 +550,105 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
 
     /// Delete a specific cached artwork file by ratingKey and type.
     public func deleteArtwork(ratingKey: String, type: ArtworkType) {
-        let fileURL = Self.artworkFileURL(ratingKey: ratingKey, type: type)
+        deleteArtwork(ratingKey: ratingKey, type: type, sourceCompositeKey: nil)
+    }
 
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            try? FileManager.default.removeItem(at: fileURL)
+    /// Deletes one source-owned artwork entry without touching equal IDs from other sources.
+    public func deleteArtwork(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?
+    ) {
+        let fileURL = Self.artworkFileURL(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: sourceCompositeKey
+        )
+
+        Self.withFileLock {
+            Self.deleteArtworkAndIdentity(at: fileURL)
         }
-        try? FileManager.default.removeItem(at: Self.identityURL(for: fileURL))
     }
 
     /// Delete all cached artwork files whose ratingKey is in the given set.
     /// Checks all type suffixes (album, artist, track, playlist) for each key.
     public func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {
-        let fileManager = FileManager.default
-        let dir = Self.artworkDirectory
-        for key in ratingKeys {
-            for suffix in ["album", "artist", "track", "playlist"] {
-                let fileURL = dir.appendingPathComponent("\(key)_\(suffix).jpg")
-                if fileManager.fileExists(atPath: fileURL.path) {
-                    try? fileManager.removeItem(at: fileURL)
-                }
-                try? fileManager.removeItem(at: Self.identityURL(for: fileURL))
+        deleteArtwork(forRatingKeys: ratingKeys, sourceCompositeKey: nil)
+    }
+
+    /// Deletes the supplied source-owned artwork IDs across all artwork types.
+    public func deleteArtwork(
+        forRatingKeys ratingKeys: Set<String>,
+        sourceCompositeKey: String
+    ) {
+        deleteArtwork(forRatingKeys: ratingKeys, sourceCompositeKey: Optional(sourceCompositeKey))
+    }
+
+    /// Deletes every durable artwork entry owned by one source.
+    public func deleteArtwork(forSourceCompositeKey sourceCompositeKey: String) {
+        let prefix = Self.scopedFilenamePrefix(sourceCompositeKey: sourceCompositeKey)
+        Self.withFileLock {
+            guard let urls = try? FileManager.default.contentsOfDirectory(
+                at: Self.artworkDirectory,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { return }
+
+            for url in urls where url.lastPathComponent.hasPrefix(prefix) {
+                try? FileManager.default.removeItem(at: url)
             }
         }
     }
 
-    private static func artworkFileURL(ratingKey: String, type: ArtworkType) -> URL {
-        artworkDirectory.appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
+    private func deleteArtwork(
+        forRatingKeys ratingKeys: Set<String>,
+        sourceCompositeKey: String?
+    ) {
+        for key in ratingKeys {
+            for type in [ArtworkType.album, .artist, .track, .playlist] {
+                deleteArtwork(
+                    ratingKey: key,
+                    type: type,
+                    sourceCompositeKey: sourceCompositeKey
+                )
+            }
+        }
     }
 
-    private static func identityURL(for artworkURL: URL) -> URL {
+    /// Returns the stable source-scoped filename used by persistent artwork and system media surfaces.
+    public static func cacheFilename(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?
+    ) -> String {
+        guard let sourceCompositeKey else {
+            return "\(ratingKey)_\(type.rawValue).jpg"
+        }
+        return "\(scopedFilenamePrefix(sourceCompositeKey: sourceCompositeKey))\(digest(ratingKey))_\(type.rawValue).jpg"
+    }
+
+    static func artworkFileURL(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String? = nil
+    ) -> URL {
+        artworkDirectory.appendingPathComponent(cacheFilename(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: sourceCompositeKey
+        ))
+    }
+
+    static func identityURL(for artworkURL: URL) -> URL {
         artworkURL.deletingPathExtension().appendingPathExtension("identity.json")
+    }
+
+    private static func scopedFilenamePrefix(sourceCompositeKey: String) -> String {
+        "v2_\(digest(sourceCompositeKey))_"
+    }
+
+    private static func digest(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func dateModifiedSeconds(_ date: Date?) -> Int? {
@@ -430,23 +666,110 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         try data.write(to: identityURL(for: artworkURL), options: [.atomic])
     }
 
+    private static func validArtworkPath(
+        at artworkURL: URL,
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?,
+        allowStaleMetadata: Bool
+    ) -> String? {
+        guard FileManager.default.fileExists(atPath: artworkURL.path) else { return nil }
+        guard let storedIdentity = readIdentity(for: artworkURL) else { return artworkURL.path }
+        guard storedIdentity.ratingKey == ratingKey,
+              storedIdentity.type == type,
+              storedIdentity.matches(sourceCompositeKey: sourceCompositeKey) else {
+            return nil
+        }
+        if !allowStaleMetadata,
+           !storedIdentity.matches(
+               sourcePath: sourcePath,
+               dateModifiedSeconds: dateModifiedSeconds
+           ) {
+            return nil
+        }
+        return artworkURL.path
+    }
+
+    private static func migrateLegacyArtwork(
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String,
+        sourcePath: String?,
+        dateModifiedSeconds: Int?,
+        allowStaleMetadata: Bool
+    ) throws -> String? {
+        let legacyURL = artworkFileURL(ratingKey: ratingKey, type: type)
+        guard FileManager.default.fileExists(atPath: legacyURL.path),
+              let legacyIdentity = readIdentity(for: legacyURL),
+              legacyIdentity.ratingKey == ratingKey,
+              legacyIdentity.type == type,
+              legacyIdentity.sourceCompositeKey == sourceCompositeKey else {
+            return nil
+        }
+
+        if !allowStaleMetadata {
+            guard legacyIdentity.sourcePath == sourcePath,
+                  legacyIdentity.dateModifiedSeconds == dateModifiedSeconds else {
+                return nil
+            }
+        }
+
+        let scopedURL = artworkFileURL(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: sourceCompositeKey
+        )
+        let scopedIdentity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: type,
+            sourcePath: legacyIdentity.sourcePath,
+            dateModifiedSeconds: legacyIdentity.dateModifiedSeconds,
+            requestedPixelDimension: legacyIdentity.requestedPixelDimension,
+            sourceCompositeKey: sourceCompositeKey
+        )
+
+        do {
+            if FileManager.default.fileExists(atPath: scopedURL.path) {
+                deleteArtworkAndIdentity(at: scopedURL)
+            }
+            try FileManager.default.copyItem(at: legacyURL, to: scopedURL)
+            try writeIdentity(scopedIdentity, for: scopedURL)
+            deleteArtworkAndIdentity(at: legacyURL)
+            return scopedURL.path
+        } catch {
+            deleteArtworkAndIdentity(at: scopedURL)
+            throw error
+        }
+    }
+
+    private static func deleteArtworkAndIdentity(at artworkURL: URL) {
+        try? FileManager.default.removeItem(at: artworkURL)
+        try? FileManager.default.removeItem(at: identityURL(for: artworkURL))
+    }
+
+    private static func withFileLock<T>(_ body: () throws -> T) rethrows -> T {
+        fileLock.lock()
+        defer { fileLock.unlock() }
+        return try body()
+    }
+
     // MARK: - Cache Management
     
     public func clearArtworkCache() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            do {
+        do {
+            try Self.withFileLock {
                 let fileManager = FileManager.default
                 let artworkDir = Self.artworkDirectory
-                
+
                 if fileManager.fileExists(atPath: artworkDir.path) {
                     try fileManager.removeItem(at: artworkDir)
                     try fileManager.createDirectory(at: artworkDir, withIntermediateDirectories: true)
                 }
-                
-                continuation.resume()
-            } catch {
-                continuation.resume(throwing: ArtworkDownloadError.fileSystemError(error))
             }
+        } catch {
+            throw ArtworkDownloadError.fileSystemError(error)
         }
     }
     

@@ -48,4 +48,67 @@ final class TrackCopyTests: XCTestCase {
         XCTAssertEqual(artwork.playbackIdentity, downloaded.playbackIdentity)
         XCTAssertEqual(artwork.localFilePath, downloaded.localFilePath)
     }
+
+    func testRatingCopyUpdatesExplicitFavoriteStateButPreservesLegacyFallback() {
+        let explicit = Track(id: "explicit", key: "/explicit", title: "Explicit", rating: 10, favoriteState: true)
+        let legacy = Track(id: "legacy", key: "/legacy", title: "Legacy", rating: 10)
+
+        XCTAssertEqual(explicit.withRating(0).favoriteState, false)
+        XCTAssertEqual(explicit.withRating(0).isFavorite, false)
+        XCTAssertNil(legacy.withRating(0).favoriteState)
+        XCTAssertFalse(legacy.withRating(0).isFavorite)
+    }
+
+    func testPlaylistTitleCopyPreservesEveryOtherField() {
+        let originalModifiedAt = Date(timeIntervalSince1970: 2)
+        let capabilities = PlaylistActionCapabilities(
+            canAddItems: true,
+            canRename: false,
+            canReorder: true,
+            canDelete: false,
+            unavailableReason: "Limited by provider."
+        )
+        let original = Playlist(
+            id: "playlist-1",
+            key: "/playlists/1",
+            title: "Original",
+            summary: "Summary",
+            isSmart: true,
+            trackCount: 12,
+            duration: 345,
+            compositePath: "/composite",
+            fallbackArtworkPath: "/artwork",
+            fallbackArtworkRatingKey: "album-1",
+            fallbackArtworkSourceCompositeKey: "plex:account:server:library",
+            dateAdded: Date(timeIntervalSince1970: 1),
+            dateModified: originalModifiedAt,
+            lastPlayed: Date(timeIntervalSince1970: 3),
+            sourceCompositeKey: "plex:account:server:playlist-library",
+            actionCapabilities: capabilities
+        )
+
+        let renamed = original.withTitle("Renamed")
+
+        XCTAssertEqual(
+            renamed,
+            Playlist(
+                id: original.id,
+                key: original.key,
+                title: "Renamed",
+                summary: original.summary,
+                isSmart: original.isSmart,
+                trackCount: original.trackCount,
+                duration: original.duration,
+                compositePath: original.compositePath,
+                fallbackArtworkPath: original.fallbackArtworkPath,
+                fallbackArtworkRatingKey: original.fallbackArtworkRatingKey,
+                fallbackArtworkSourceCompositeKey: original.fallbackArtworkSourceCompositeKey,
+                dateAdded: original.dateAdded,
+                dateModified: originalModifiedAt,
+                lastPlayed: original.lastPlayed,
+                sourceCompositeKey: original.sourceCompositeKey,
+                actionCapabilities: capabilities
+            )
+        )
+    }
 }

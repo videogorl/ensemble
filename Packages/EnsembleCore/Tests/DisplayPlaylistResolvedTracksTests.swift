@@ -92,32 +92,22 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
         XCTAssertNil(repository.fetchPlaylistCalls.first?.sourceCompositeKey)
     }
 
-    func testPlaylistMapperReferencesFirstTrackAlbumArtwork() {
+    func testPlaylistMapperUsesPersistedFallbackArtwork() {
         let context = CoreDataStack.inMemory().viewContext
-        let album = CDAlbum(context: context)
-        album.ratingKey = "album-1"
-        album.key = "/library/metadata/album-1"
-        album.title = "Album"
-        album.thumbPath = "/library/metadata/album-1/thumb"
-
-        let track = CDTrack(context: context)
-        track.ratingKey = "track-1"
-        track.key = "/library/metadata/track-1"
-        track.title = "Track"
-        track.album = album
-
         let playlist = Playlist(id: "playlist-1", key: "/playlists/1", title: "Mix")
         let cachedPlaylist = makeCachedPlaylist(playlist, trackIDs: [], context: context)
-        let membership = CDPlaylistTrack(context: context)
-        membership.order = 0
-        membership.playlist = cachedPlaylist
-        membership.track = track
-        cachedPlaylist.playlistTracks = NSSet(object: membership)
+        cachedPlaylist.fallbackArtworkPath = "/library/metadata/album-1/thumb"
+        cachedPlaylist.fallbackArtworkRatingKey = "album-1"
+        cachedPlaylist.fallbackArtworkSourceCompositeKey = "plex:account:server:library"
 
         let mapped = Playlist(from: cachedPlaylist)
 
-        XCTAssertEqual(mapped.fallbackArtworkPath, album.thumbPath)
-        XCTAssertEqual(mapped.fallbackArtworkRatingKey, album.ratingKey)
+        XCTAssertEqual(mapped.fallbackArtworkPath, cachedPlaylist.fallbackArtworkPath)
+        XCTAssertEqual(mapped.fallbackArtworkRatingKey, cachedPlaylist.fallbackArtworkRatingKey)
+        XCTAssertEqual(
+            mapped.fallbackArtworkSourceCompositeKey,
+            cachedPlaylist.fallbackArtworkSourceCompositeKey
+        )
     }
 
     private func makeCachedPlaylist(

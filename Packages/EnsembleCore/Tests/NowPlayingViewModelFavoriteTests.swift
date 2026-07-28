@@ -982,6 +982,39 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(playback.lastQueuedTracks.map(\.rating), [0, 10])
     }
 
+    func testAppleCatalogAndLibraryCopiesShareOptimisticFavoriteState() async {
+        let viewModelTuple = makeViewModel()
+        let viewModel = viewModelTuple.viewModel
+        let playback = viewModelTuple.playbackService
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let catalogTrack = Track(
+            id: "catalog-id",
+            key: "apple-catalog",
+            title: "Catalog Copy",
+            favoriteState: false,
+            sourceCompositeKey: sourceKey
+        )
+        let libraryTrack = Track(
+            id: "library-id",
+            key: "apple-library-catalog:catalog-id",
+            title: "Library Copy",
+            favoriteState: false,
+            sourceCompositeKey: sourceKey
+        )
+
+        viewModel.trackRatingMutationHandlerForTesting = { _, _ in }
+        viewModel.trackRatingStoreHandlerForTesting = { _, _ in }
+
+        await viewModel.setTrackFavorite(true, for: catalogTrack)
+        viewModel.play(track: libraryTrack)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(catalogTrack.playbackIdentity, libraryTrack.playbackIdentity)
+        XCTAssertTrue(viewModel.isTrackFavorited(libraryTrack))
+        XCTAssertTrue(viewModel.ratingProjection.isTrackFavorited(libraryTrack))
+        XCTAssertEqual(playback.lastPlayedTrack?.rating, 10)
+    }
+
     func testShufflePlayUsesOptimisticFavoriteRatings() async {
         let viewModelTuple = makeViewModel()
         let viewModel = viewModelTuple.viewModel
@@ -1010,11 +1043,15 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         playback.setCurrentTrack(track)
         await waitForProjectionPropagation()
+        await viewModel.setTrackFavorite(true, for: track)
         viewModel.currentRating = .loved
 
         await viewModel.toggleRatingForTesting()
+        viewModel.play(track: track)
+        await waitForProjectionPropagation()
 
         XCTAssertFalse(viewModel.isTrackFavorited(track))
+        XCTAssertEqual(playback.lastPlayedTrack?.rating, 2)
     }
 
     func testToggleRatingForCurrentTrackIsSourceScopedForDuplicateRatingKeys() async {

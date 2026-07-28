@@ -134,8 +134,10 @@ extension LibraryRepository {
 
     public func fetchSiriEligibleTracks() async throws -> [CDTrack] {
         try await fetchTracks { request in
-            // Favorite tracks (rating >= 8) OR any tracks with play count/last played.
-            request.predicate = NSPredicate(format: "rating >= 8 OR playCount > 0 OR lastPlayed != nil")
+            // Explicit provider favorite wins; legacy tracks continue to derive favorites from rating.
+            request.predicate = NSPredicate(
+                format: "isFavorite == YES OR (isFavorite == nil AND rating >= 8) OR playCount > 0 OR lastPlayed != nil"
+            )
             request.sortDescriptors = [
                 NSSortDescriptor(key: "lastPlayed", ascending: false),
                 NSSortDescriptor(key: "playCount", ascending: false),
@@ -207,7 +209,7 @@ extension LibraryRepository {
     public func fetchFavoriteTracks() async throws -> [CDTrack] {
         try await fetchTracks { request in
             // Rating 8+ is 4+ stars
-            request.predicate = NSPredicate(format: "rating >= 8")
+            request.predicate = Self.favoriteTrackPredicate
             request.sortDescriptors = [
                 NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
             ]
@@ -218,7 +220,7 @@ extension LibraryRepository {
         var result: Result<[CDTrack], Error>!
         context.performAndWait {
             let request = CDTrack.fetchRequest()
-            request.predicate = NSPredicate(format: "rating >= 8")
+            request.predicate = Self.favoriteTrackPredicate
             request.sortDescriptors = [
                 NSSortDescriptor(
                     key: "title",
@@ -229,6 +231,10 @@ extension LibraryRepository {
             result = Result { try context.fetch(request) }
         }
         return try result.get()
+    }
+
+    private static var favoriteTrackPredicate: NSPredicate {
+        NSPredicate(format: "isFavorite == YES OR (isFavorite == nil AND rating >= 8)")
     }
 
     public func fetchTrack(ratingKey: String) async throws -> CDTrack? {
@@ -379,8 +385,7 @@ extension LibraryRepository {
                     track.streamKey = streamKey
                     track.genreNames = genreNames
 
-                    // Only set dateAdded for new records
-                    if existing == nil, let added = dateAdded {
+                    if track.dateAdded == nil, let added = dateAdded {
                         track.dateAdded = added
                     }
 
@@ -399,7 +404,8 @@ extension LibraryRepository {
                             self.recordReparent(TrackReparentInfo(
                                 trackRatingKey: ratingKey,
                                 oldAlbumRatingKey: oldKey,
-                                newAlbumRatingKey: albumKey
+                                newAlbumRatingKey: albumKey,
+                                sourceCompositeKey: sourceCompositeKey
                             ))
                         }
 

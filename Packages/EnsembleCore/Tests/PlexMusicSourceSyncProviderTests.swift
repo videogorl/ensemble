@@ -169,6 +169,48 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertEqual(input.genreNames, "Rock, Pop")
     }
 
+    func testAlbumUpsertInputPersistsAuthoritativeLeafCount() throws {
+        let data = Data("""
+        {
+            "ratingKey": "album-1",
+            "key": "/library/metadata/album-1",
+            "title": "Album One",
+            "parentTitle": "Artist One",
+            "leafCount": 12
+        }
+        """.utf8)
+        let album = try JSONDecoder().decode(PlexAlbum.self, from: data)
+
+        let input = PlexMusicSourceSyncProvider.albumUpsertInput(from: album)
+
+        XCTAssertEqual(input.trackCount, 12)
+    }
+
+    func testAlbumTrackCountCanBeDerivedWhenSectionAlbumOmitsLeafCount() throws {
+        let album = try JSONDecoder().decode(PlexAlbum.self, from: Data(#"""
+        {
+            "ratingKey": "album-1",
+            "key": "/library/metadata/album-1",
+            "title": "Album One"
+        }
+        """#.utf8))
+        let tracks = try JSONDecoder().decode([PlexTrack].self, from: Data(#"""
+        [
+            { "ratingKey": "track-1", "key": "/track-1", "title": "One", "parentRatingKey": "album-1" },
+            { "ratingKey": "track-2", "key": "/track-2", "title": "Two", "parentRatingKey": "album-1" },
+            { "ratingKey": "track-3", "key": "/track-3", "title": "Three", "parentRatingKey": "album-2" }
+        ]
+        """#.utf8))
+
+        let counts = PlexMusicSourceSyncProvider.trackCountsByAlbumRatingKey(tracks)
+        let input = PlexMusicSourceSyncProvider.albumUpsertInput(
+            from: album,
+            trackCount: counts[album.ratingKey]
+        )
+
+        XCTAssertEqual(input.trackCount, 2)
+    }
+
     func testPlaylistOrphanCheckRunsWhenPlaylistsChanged() {
         XCTAssertTrue(
             PlexMusicSourceSyncProvider.shouldCheckPlaylistOrphans(

@@ -33,6 +33,7 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
     public let summary: String?
     public let thumbPath: String?
     public let artPath: String?
+    public let dateAdded: Date?
     public let dateModified: Date?
 
     public init(
@@ -41,6 +42,7 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
         summary: String?,
         thumbPath: String?,
         artPath: String?,
+        dateAdded: Date? = nil,
         dateModified: Date?
     ) {
         self.key = key
@@ -48,6 +50,7 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
         self.summary = summary
         self.thumbPath = thumbPath
         self.artPath = artPath
+        self.dateAdded = dateAdded
         self.dateModified = dateModified
     }
 
@@ -58,8 +61,112 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
             summary: input.summary,
             thumbPath: input.thumbPath,
             artPath: input.artPath,
+            dateAdded: input.dateAdded,
             dateModified: input.dateModified
         )
+    }
+
+    /// Compares an input using the repository's merge semantics.
+    public func matches(_ input: ArtistUpsertInput) -> Bool {
+        key == input.key &&
+            name == input.name &&
+            summary == input.summary &&
+            thumbPath == input.thumbPath &&
+            artPath == input.artPath &&
+            !(dateAdded == nil && input.dateAdded != nil) &&
+            dateModified == input.dateModified
+    }
+}
+
+/// Source-scoped album fields used to skip unchanged persistence work.
+public struct AlbumSyncMetadata: Sendable, Equatable {
+    public let key: String
+    public let title: String
+    public let artistName: String?
+    public let albumArtist: String?
+    public let artistRatingKey: String?
+    public let summary: String?
+    public let thumbPath: String?
+    public let artPath: String?
+    public let year: Int?
+    public let trackCount: Int
+    public let dateAdded: Date?
+    public let dateModified: Date?
+    public let rating: Int
+    public let genreNames: String?
+    public let releaseFormat: String?
+
+    public init(
+        key: String,
+        title: String,
+        artistName: String?,
+        albumArtist: String?,
+        artistRatingKey: String?,
+        summary: String?,
+        thumbPath: String?,
+        artPath: String?,
+        year: Int?,
+        trackCount: Int,
+        dateAdded: Date?,
+        dateModified: Date?,
+        rating: Int,
+        genreNames: String?,
+        releaseFormat: String?
+    ) {
+        self.key = key
+        self.title = title
+        self.artistName = artistName
+        self.albumArtist = albumArtist
+        self.artistRatingKey = artistRatingKey
+        self.summary = summary
+        self.thumbPath = thumbPath
+        self.artPath = artPath
+        self.year = year
+        self.trackCount = trackCount
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.rating = rating
+        self.genreNames = genreNames
+        self.releaseFormat = releaseFormat
+    }
+
+    public init(_ input: AlbumUpsertInput) {
+        self.init(
+            key: input.key,
+            title: input.title,
+            artistName: input.artistName,
+            albumArtist: input.albumArtist,
+            artistRatingKey: input.artistRatingKey,
+            summary: input.summary,
+            thumbPath: input.thumbPath,
+            artPath: input.artPath,
+            year: input.year,
+            trackCount: input.trackCount ?? 0,
+            dateAdded: input.dateAdded,
+            dateModified: input.dateModified,
+            rating: input.rating ?? 0,
+            genreNames: input.genreNames,
+            releaseFormat: input.updatesReleaseFormat ? input.releaseFormat : nil
+        )
+    }
+
+    /// Compares an input using the repository's merge semantics.
+    public func matches(_ input: AlbumUpsertInput) -> Bool {
+        key == input.key &&
+            title == input.title &&
+            artistName == input.artistName &&
+            albumArtist == input.albumArtist &&
+            artistRatingKey == input.artistRatingKey &&
+            summary == input.summary &&
+            thumbPath == input.thumbPath &&
+            artPath == input.artPath &&
+            year == input.year &&
+            (input.trackCount == nil || trackCount == input.trackCount) &&
+            !(dateAdded == nil && input.dateAdded != nil) &&
+            dateModified == input.dateModified &&
+            rating == (input.rating ?? 0) &&
+            genreNames == input.genreNames &&
+            (!input.updatesReleaseFormat || releaseFormat == input.releaseFormat)
     }
 }
 
@@ -123,10 +230,11 @@ public struct TrackUpsertInput: Sendable {
     public let lastPlayed: Date?
     public let lastRatedAt: Date?
     public let rating: Int?
+    public let isFavorite: Bool?
     public let playCount: Int?
     public let genreNames: String?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?, genreNames: String? = nil) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, isFavorite: Bool? = nil, playCount: Int?, genreNames: String? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -144,8 +252,134 @@ public struct TrackUpsertInput: Sendable {
         self.lastPlayed = lastPlayed
         self.lastRatedAt = lastRatedAt
         self.rating = rating
+        self.isFavorite = isFavorite
         self.playCount = playCount
         self.genreNames = genreNames
+    }
+}
+
+/// Source-scoped track fields used to skip unchanged persistence work.
+public struct TrackSyncMetadata: Sendable, Equatable {
+    public let key: String
+    public let title: String
+    public let artistName: String?
+    public let albumName: String?
+    public let albumRatingKey: String?
+    public let trackNumber: Int
+    public let discNumber: Int
+    public let duration: Int
+    public let thumbPath: String?
+    public let streamKey: String?
+    public let streamId: Int?
+    public let dateAdded: Date?
+    public let dateModified: Date?
+    public let lastPlayed: Date?
+    public let lastRatedAt: Date?
+    public let rating: Int
+    public let isFavorite: Bool?
+    public let playCount: Int
+    public let genreNames: String?
+
+    public init(
+        key: String,
+        title: String,
+        artistName: String?,
+        albumName: String?,
+        albumRatingKey: String?,
+        trackNumber: Int,
+        discNumber: Int,
+        duration: Int,
+        thumbPath: String?,
+        streamKey: String?,
+        streamId: Int?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        lastPlayed: Date?,
+        lastRatedAt: Date?,
+        rating: Int,
+        isFavorite: Bool?,
+        playCount: Int,
+        genreNames: String?
+    ) {
+        self.key = key
+        self.title = title
+        self.artistName = artistName
+        self.albumName = albumName
+        self.albumRatingKey = albumRatingKey
+        self.trackNumber = trackNumber
+        self.discNumber = discNumber
+        self.duration = duration
+        self.thumbPath = thumbPath
+        self.streamKey = streamKey
+        self.streamId = streamId
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
+        self.rating = rating
+        self.isFavorite = isFavorite
+        self.playCount = playCount
+        self.genreNames = genreNames
+    }
+
+    public init(_ input: TrackUpsertInput) {
+        self.init(
+            key: input.key,
+            title: input.title,
+            artistName: input.artistName,
+            albumName: input.albumName,
+            albumRatingKey: input.albumRatingKey,
+            trackNumber: input.trackNumber ?? 0,
+            discNumber: input.discNumber ?? 1,
+            duration: input.duration ?? 0,
+            thumbPath: input.thumbPath,
+            streamKey: input.streamKey,
+            streamId: input.streamId.flatMap { $0 > 0 ? $0 : nil },
+            dateAdded: input.dateAdded,
+            dateModified: input.dateModified,
+            lastPlayed: input.lastPlayed,
+            lastRatedAt: input.lastRatedAt,
+            rating: input.rating ?? 0,
+            isFavorite: input.isFavorite,
+            playCount: input.playCount ?? 0,
+            genreNames: input.genreNames
+        )
+    }
+
+    /// Compares an input using the repository's merge semantics.
+    public func matches(_ input: TrackUpsertInput) -> Bool {
+        key == input.key &&
+            title == input.title &&
+            artistName == input.artistName &&
+            albumName == input.albumName &&
+            albumRatingKey == input.albumRatingKey &&
+            trackNumber == (input.trackNumber ?? 0) &&
+            discNumber == (input.discNumber ?? 1) &&
+            duration == (input.duration ?? 0) &&
+            thumbPath == input.thumbPath &&
+            streamKey == input.streamKey &&
+            streamId == input.streamId.flatMap { $0 > 0 ? $0 : nil } &&
+            !(dateAdded == nil && input.dateAdded != nil) &&
+            dateModified == input.dateModified &&
+            lastPlayed == input.lastPlayed &&
+            lastRatedAt == input.lastRatedAt &&
+            rating == (input.rating ?? 0) &&
+            (input.isFavorite == nil || isFavorite == input.isFavorite) &&
+            playCount == (input.playCount ?? 0) &&
+            genreNames == input.genreNames
+    }
+}
+
+/// Lightweight genre input for one-context batch persistence.
+public struct GenreUpsertInput: Sendable, Equatable {
+    public let ratingKey: String?
+    public let key: String
+    public let title: String
+
+    public init(ratingKey: String?, key: String, title: String) {
+        self.ratingKey = ratingKey
+        self.key = key
+        self.title = title
     }
 }
 
@@ -170,17 +404,25 @@ public struct TrackReparentInfo: Sendable {
     public let trackRatingKey: String
     public let oldAlbumRatingKey: String
     public let newAlbumRatingKey: String?
+    public let sourceCompositeKey: String?
 
-    public init(trackRatingKey: String, oldAlbumRatingKey: String, newAlbumRatingKey: String?) {
+    public init(
+        trackRatingKey: String,
+        oldAlbumRatingKey: String,
+        newAlbumRatingKey: String?,
+        sourceCompositeKey: String? = nil
+    ) {
         self.trackRatingKey = trackRatingKey
         self.oldAlbumRatingKey = oldAlbumRatingKey
         self.newAlbumRatingKey = newAlbumRatingKey
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
 public enum ArtworkInvalidationReason: String, Sendable, Hashable {
     case pathChanged
     case metadataModified
+    case removed
 }
 
 /// Describes artwork that should be evicted after sync metadata changes.
@@ -188,11 +430,18 @@ public struct ArtworkInvalidationInfo: Sendable, Hashable {
     public let ratingKey: String
     public let type: ArtworkType
     public let reason: ArtworkInvalidationReason
+    public let sourceCompositeKey: String?
 
-    public init(ratingKey: String, type: ArtworkType, reason: ArtworkInvalidationReason) {
+    public init(
+        ratingKey: String,
+        type: ArtworkType,
+        reason: ArtworkInvalidationReason,
+        sourceCompositeKey: String? = nil
+    ) {
         self.ratingKey = ratingKey
         self.type = type
         self.reason = reason
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
@@ -211,9 +460,14 @@ final class ArtworkInvalidationBuffer: @unchecked Sendable {
     func record(_ info: ArtworkInvalidationInfo) {
         lock.lock()
         defer { lock.unlock() }
-        guard !pendingInfo.contains(where: {
-            $0.ratingKey == info.ratingKey && $0.type == info.type
-        }) else {
+        if let index = pendingInfo.firstIndex(where: {
+            $0.ratingKey == info.ratingKey
+                && $0.type == info.type
+                && $0.sourceCompositeKey == info.sourceCompositeKey
+        }) {
+            if info.reason == .removed {
+                pendingInfo[index] = info
+            }
             return
         }
         pendingInfo.append(info)
@@ -331,6 +585,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Genres
     func fetchGenres() async throws -> [CDGenre]
     func upsertGenre(ratingKey: String?, key: String, title: String, sourceCompositeKey: String?) async throws -> CDGenre
+    func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws
 
     // Search
     func searchTracks(query: String) async throws -> [CDTrack]
@@ -368,6 +623,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Bulk timestamp lookups (for incremental sync change detection)
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata]
+    func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata]
+    func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata]
     func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
@@ -562,6 +819,18 @@ public extension LibraryRepositoryProtocol {
     ) async throws -> CDTrack? { nil }
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] { [:] }
+    func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] { [:] }
+    func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata] { [:] }
+    func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws {
+        for input in inputs {
+            _ = try await upsertGenre(
+                ratingKey: input.ratingKey,
+                key: input.key,
+                title: input.title,
+                sourceCompositeKey: sourceCompositeKey
+            )
+        }
+    }
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
 }
 
@@ -607,6 +876,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     func recordArtworkInvalidationIfNeeded(
         ratingKey: String,
         type: ArtworkType,
+        sourceCompositeKey: String,
         oldThumbPath: String?,
         oldArtPath: String?,
         oldDateModified: Date?,
@@ -618,7 +888,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             recordArtworkInvalidation(ArtworkInvalidationInfo(
                 ratingKey: ratingKey,
                 type: type,
-                reason: .pathChanged
+                reason: .pathChanged,
+                sourceCompositeKey: sourceCompositeKey
             ))
             return
         }
@@ -632,7 +903,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         recordArtworkInvalidation(ArtworkInvalidationInfo(
             ratingKey: ratingKey,
             type: type,
-            reason: .metadataModified
+            reason: .metadataModified,
+            sourceCompositeKey: sourceCompositeKey
         ))
     }
 
@@ -672,7 +944,23 @@ extension LibraryRepository {
         )
         for membership in try context.fetch(request) {
             guard let ratingKey = membership.trackRatingKey else { continue }
-            membership.track = tracksByRatingKey[ratingKey]
+            guard let track = tracksByRatingKey[ratingKey] else { continue }
+            membership.track = track
+            guard let playlist = membership.playlist,
+                  playlist.fallbackArtworkPath?.isEmpty != false else { continue }
+            if let album = track.album,
+               let path = album.thumbPath,
+               !path.isEmpty {
+                playlist.fallbackArtworkPath = path
+                playlist.fallbackArtworkRatingKey = album.ratingKey
+                playlist.fallbackArtworkSourceCompositeKey = album.sourceCompositeKey
+                    ?? track.sourceCompositeKey
+            } else if let path = track.thumbPath ?? membership.trackThumbPath,
+                      !path.isEmpty {
+                playlist.fallbackArtworkPath = path
+                playlist.fallbackArtworkRatingKey = nil
+                playlist.fallbackArtworkSourceCompositeKey = track.sourceCompositeKey
+            }
         }
     }
 

@@ -362,6 +362,7 @@ final class DownloadTransferExecutor {
             if let cachedArtworkPath = try? await dependencies.artworkDownloadManager.getLocalArtworkPath(
                 ratingKey: candidate.ratingKey,
                 type: .album,
+                sourceCompositeKey: ctx.sourceCompositeKey,
                 sourcePath: candidate.path,
                 dateModifiedSeconds: nil
             ), FileManager.default.fileExists(atPath: cachedArtworkPath) {
@@ -383,7 +384,8 @@ final class DownloadTransferExecutor {
                         ratingKey: candidate.ratingKey,
                         type: .album,
                         sourcePath: candidate.path,
-                        dateModifiedSeconds: nil
+                        dateModifiedSeconds: nil,
+                        sourceCompositeKey: ctx.sourceCompositeKey
                     )
                 )
 

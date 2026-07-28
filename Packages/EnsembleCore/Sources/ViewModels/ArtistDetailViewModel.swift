@@ -21,7 +21,7 @@ public struct ArtistDetailDisplaySnapshot: Equatable, Sendable {
         self.studioAlbums = filteredAlbums.filter { !$0.isLikelySingleOrEP() }
         self.singlesAndEPs = filteredAlbums.filter { $0.isLikelySingleOrEP() }
         self.filteredTracks = filteredTracks
-        self.favoritedTracks = tracks.filter { $0.rating >= 8 }
+        self.favoritedTracks = tracks.filter(\.isFavorite)
         self.availableGenres = Self.extractUniqueGenres(from: tracks.flatMap(\.genres))
         self.trackCount = filteredTracks.count
     }
@@ -236,7 +236,7 @@ public final class ArtistDetailViewModel: ObservableObject {
         displaySnapshot.trackCount
     }
 
-    /// Tracks rated 4+ stars (rating >= 8 on 0-10 scale) by this artist
+    /// Tracks favorited through their source provider.
     public var favoritedTracks: [Track] {
         displaySnapshot.favoritedTracks
     }

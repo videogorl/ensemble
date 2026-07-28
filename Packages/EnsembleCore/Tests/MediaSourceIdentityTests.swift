@@ -51,6 +51,33 @@ final class MediaSourceIdentityTests: XCTestCase {
     func testSameServerComparisonHandlesLibraryKeys() {
         XCTAssertTrue(MediaSourceIdentity.isSameServer("plex:a:s:lib1", "plex:a:s:lib2"))
         XCTAssertFalse(MediaSourceIdentity.isSameServer("plex:a:s1:lib", "plex:a:s2:lib"))
+        XCTAssertFalse(MediaSourceIdentity.isSameServer("plex:a:s:lib", "appleMusic:a:s:lib"))
         XCTAssertFalse(MediaSourceIdentity.isSameServer("bad", "plex:a:s:lib"))
+    }
+
+    func testRejectsUnknownEmptyAndProviderItemKeys() {
+        XCTAssertNil(MediaSourceIdentity.parse("unknown:account:server:library"))
+        XCTAssertNil(MediaSourceIdentity.parse("plex::server:library"))
+        XCTAssertNil(MediaSourceIdentity.parse("plex:account:server:library:music.recent.added"))
+        XCTAssertNil(MediaSourceIdentity.parse("plex:account:server:"))
+    }
+
+    func testParsesAppleMusicWithoutPlexAPIIdentity() {
+        let identity = MediaSourceIdentity.parse(MusicSourceIdentifier.appleMusic.compositeKey)
+
+        XCTAssertEqual(identity?.sourceType, .appleMusic)
+        XCTAssertEqual(identity?.serverSourceKey, "appleMusic:device:system")
+        XCTAssertEqual(identity?.libraryId, "library")
+    }
+
+    func testMusicSourceIdentifierUsesStrictCoreIdentityParser() {
+        XCTAssertEqual(
+            MusicSourceIdentifier(compositeKey: "plex:account:server:library")?.compositeKey,
+            "plex:account:server:library"
+        )
+        XCTAssertNil(MusicSourceIdentifier(compositeKey: "plex:account:server"))
+        XCTAssertNil(MusicSourceIdentifier(compositeKey: "plex:account:server:library:item"))
+        XCTAssertNil(MusicSourceIdentifier(compositeKey: "plex::server:library"))
+        XCTAssertNil(MusicSourceIdentifier(compositeKey: "future:account:server:library"))
     }
 }

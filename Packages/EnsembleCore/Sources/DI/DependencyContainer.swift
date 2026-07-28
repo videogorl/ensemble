@@ -312,7 +312,7 @@ public final class DependencyContainer: @unchecked Sendable {
                 }
             },
             clearSharedArtworkCaches: { [weak cacheManager = playback.cacheManager] in
-                try await cacheManager?.clearArtworkCaches()
+                try await cacheManager?.clearTransientArtworkCaches()
             }
         )
         sourceCacheCleanupService = builtSourceCacheCleanupService
@@ -901,14 +901,33 @@ public final class DependencyContainer: @unchecked Sendable {
         syncCoordinator.onTrackAlbumChanged = { [weak self] reparentedTracks in
             guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
             for info in reparentedTracks {
-                await artworkLoader.invalidateArtwork(ratingKey: info.oldAlbumRatingKey, type: .album)
-                await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
+                await artworkLoader.invalidateArtwork(
+                    ratingKey: info.oldAlbumRatingKey,
+                    type: .album,
+                    sourceCompositeKey: info.sourceCompositeKey
+                )
+                await artworkLoader.invalidateArtwork(
+                    ratingKey: info.trackRatingKey,
+                    type: .album,
+                    sourceCompositeKey: info.sourceCompositeKey
+                )
             }
         }
         syncCoordinator.onArtworkMetadataChanged = { [weak self] invalidations in
-            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            guard let self, let artworkLoader = self.artworkLoader as? ArtworkLoader else { return }
             for info in invalidations {
-                await artworkLoader.invalidateArtwork(ratingKey: info.ratingKey, type: info.type)
+                await artworkLoader.invalidateArtwork(
+                    ratingKey: info.ratingKey,
+                    type: info.type,
+                    sourceCompositeKey: info.sourceCompositeKey
+                )
+                if info.reason == .removed, let sourceCompositeKey = info.sourceCompositeKey {
+                    self.artworkDownloadManager.deleteArtwork(
+                        ratingKey: info.ratingKey,
+                        type: info.type,
+                        sourceCompositeKey: sourceCompositeKey
+                    )
+                }
             }
         }
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService

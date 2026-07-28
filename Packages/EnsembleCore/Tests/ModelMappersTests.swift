@@ -91,4 +91,41 @@ final class ModelMappersTests: XCTestCase {
 
         XCTAssertEqual(track.streamId, 789)
     }
+
+    func testAlbumMapperUsesPersistedTrackCountWithoutRealizingTracks() async throws {
+        let stack = CoreDataStack.inMemory()
+        let sourceKey = "plex/account/server/library"
+        try await stack.performBackgroundContext { context in
+            let album = CDAlbum(context: context)
+            album.ratingKey = "album"
+            album.key = "/album"
+            album.title = "Album"
+            album.trackCount = 12
+            album.sourceCompositeKey = sourceKey
+
+            let track = CDTrack(context: context)
+            track.ratingKey = "track"
+            track.key = "/track"
+            track.title = "Track"
+            track.sourceCompositeKey = sourceKey
+            track.album = album
+            try context.save()
+        }
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+
+        let repository = LibraryRepository(coreDataStack: stack)
+        let fetchedAlbum = try await repository.fetchAlbum(
+            ratingKey: "album",
+            sourceCompositeKey: sourceKey
+        )
+        let fetched = try XCTUnwrap(fetchedAlbum)
+        XCTAssertTrue(fetched.hasFault(forRelationshipNamed: "tracks"))
+
+        let mapped = Album(from: fetched)
+        let mappedFromInventory = Album(from: fetched, trackCount: 1)
+
+        XCTAssertEqual(mapped.trackCount, 12)
+        XCTAssertEqual(mappedFromInventory.trackCount, 1)
+        XCTAssertTrue(fetched.hasFault(forRelationshipNamed: "tracks"))
+    }
 }

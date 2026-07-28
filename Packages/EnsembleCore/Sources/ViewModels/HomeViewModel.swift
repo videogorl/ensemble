@@ -535,7 +535,15 @@ public final class HomeViewModel: ObservableObject {
             }
 
             guard !visibleItems.isEmpty else { return nil }
-            return Hub(id: hub.id, title: hub.title, type: hub.type, items: visibleItems, context: hub.context)
+            return Hub(
+                id: hub.id,
+                title: hub.title,
+                type: hub.type,
+                items: visibleItems,
+                context: hub.context,
+                semanticKind: hub.semanticKind,
+                sourceScope: hub.sourceScope
+            )
         }
     }
 
@@ -562,6 +570,8 @@ public final class HomeViewModel: ObservableObject {
             for item in hub.items {
                 if let resolved = try await resolvedItem(item) {
                     availableItems.append(resolved)
+                } else if Self.retainsHubItemWithoutLocalCache(item) {
+                    availableItems.append(item)
                 }
             }
 
@@ -572,12 +582,21 @@ public final class HomeViewModel: ObservableObject {
                     title: hub.title,
                     type: hub.type,
                     items: availableItems,
-                    context: hub.context
+                    context: hub.context,
+                    semanticKind: hub.semanticKind,
+                    sourceScope: hub.sourceScope
                 )
             )
         }
 
         return filteredHubs
+    }
+
+    private nonisolated static func retainsHubItemWithoutLocalCache(_ item: HubItem) -> Bool {
+        guard let sourceType = MediaSourceIdentity.parse(item.sourceCompositeKey)?.sourceType else {
+            return false
+        }
+        return sourceType.capabilities.retainsHubItemsWithoutLocalCache
     }
 
     private func filterHubsForLocalAvailability(_ hubs: [Hub]) async -> [Hub] {

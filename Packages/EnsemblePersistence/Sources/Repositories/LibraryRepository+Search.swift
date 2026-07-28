@@ -145,9 +145,10 @@ extension LibraryRepository {
             ])
         }
 
-        guard let sourceCompositeKeys, !sourceCompositeKeys.isEmpty else {
+        guard let sourceCompositeKeys else {
             return base
         }
+        guard !sourceCompositeKeys.isEmpty else { return NSPredicate(value: false) }
 
         let scoped = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
         return NSCompoundPredicate(andPredicateWithSubpredicates: [base, scoped])

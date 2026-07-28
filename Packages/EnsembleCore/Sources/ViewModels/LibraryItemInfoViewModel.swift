@@ -1,4 +1,3 @@
-import EnsembleAPI
 import Foundation
 
 /// View model for the library Get Info panel.
@@ -90,15 +89,13 @@ public final class LibraryItemInfoViewModel: ObservableObject {
     }
 
     private func loadOriginalFileInfo() async -> AudioFileInfo? {
-        guard case .track(let track) = request,
-              let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey)
-        else {
-            return nil
-        }
+        guard case .track(let track) = request else { return nil }
 
         do {
-            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
-            return AudioFileInfo(from: plexTrack)
+            return try await syncCoordinator.getAudioFileInfo(
+                trackId: track.id,
+                sourceKey: track.sourceCompositeKey
+            )
         } catch {
             EnsembleLogger.debug("Failed to fetch Get Info file metadata: \(error)")
             return nil
@@ -106,16 +103,13 @@ public final class LibraryItemInfoViewModel: ObservableObject {
     }
 
     private func loadAlbumOriginalFolderPath() async -> String? {
-        guard case .album(let album) = request,
-              let sourceKey = album.sourceCompositeKey,
-              let apiClient = syncCoordinator.apiClient(for: sourceKey)
-        else {
-            return nil
-        }
+        guard case .album(let album) = request else { return nil }
 
         do {
-            let tracks = try await apiClient.getAlbumTracks(albumKey: album.id)
-            return Self.albumFolderPath(from: tracks)
+            return try await syncCoordinator.getAlbumFolderPath(
+                albumId: album.id,
+                sourceKey: album.sourceCompositeKey
+            )
         } catch {
             EnsembleLogger.debug("Failed to fetch Get Info album folder path: \(error)")
             return nil
@@ -222,43 +216,6 @@ public final class LibraryItemInfoViewModel: ObservableObject {
 
     static func persistedTrackDurationSeconds(_ durationMilliseconds: Int64) -> TimeInterval {
         TimeInterval(durationMilliseconds) / 1000.0
-    }
-
-    static func filePaths(from tracks: [PlexTrack]) -> [String] {
-        var seen: Set<String> = []
-        var paths: [String] = []
-
-        for track in tracks {
-            guard let path = track.media?.first?.part?.first?.file,
-                  !path.isEmpty,
-                  seen.insert(path).inserted
-            else {
-                continue
-            }
-            paths.append(path)
-        }
-
-        return paths
-    }
-
-    static func albumFolderPath(from tracks: [PlexTrack]) -> String? {
-        let directoryComponents = filePaths(from: tracks)
-            .map { URL(fileURLWithPath: $0).deletingLastPathComponent().pathComponents }
-
-        guard var commonComponents = directoryComponents.first else { return nil }
-
-        for components in directoryComponents.dropFirst() {
-            commonComponents = Array(
-                zip(commonComponents, components)
-                    .prefix { $0 == $1 }
-                    .map(\.0)
-            )
-            if commonComponents.isEmpty {
-                return nil
-            }
-        }
-
-        return NSString.path(withComponents: commonComponents)
     }
 
     static func sourceContext(

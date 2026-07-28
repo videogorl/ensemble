@@ -313,6 +313,21 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let harness = makeHarness(clearSharedArtworkCaches: {
             await cleanupRecorder.record("artwork")
         })
+        let plexSourceKey = "plex:account-1:server-1:lib-1"
+        let plexArtworkURL = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+            ArtworkDownloadManager.cacheFilename(
+                ratingKey: "plex-album",
+                type: .album,
+                sourceCompositeKey: plexSourceKey
+            )
+        )
+        let legacyArtworkURL = ArtworkDownloadManager.artworkDirectory.appendingPathComponent("legacy-apple_album.jpg")
+        defer {
+            harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: plexSourceKey)
+            try? FileManager.default.removeItem(at: legacyArtworkURL)
+        }
+        try Data("plex-artwork".utf8).write(to: plexArtworkURL)
+        try Data("legacy-apple-artwork".utf8).write(to: legacyArtworkURL)
 
         _ = try await harness.sourceCacheCleanupService.cleanupSource(
             MusicSourceIdentifier.appleMusic.compositeKey
@@ -320,6 +335,60 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
         let calls = await cleanupRecorder.recordedSourceKeys()
         XCTAssertEqual(calls, ["artwork"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: plexArtworkURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyArtworkURL.path))
+    }
+
+    func testSourceCleanupDeletesOnlyThatSourcesDurableArtwork() async throws {
+        let harness = makeHarness()
+        let sourceA = "plex:account-1:server-1:lib-1"
+        let sourceB = "plex:account-1:server-1:lib-2"
+        let ratingKey = "shared-album-id"
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceA)
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceB)
+        let artworkURLA = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+            ArtworkDownloadManager.cacheFilename(
+                ratingKey: ratingKey,
+                type: .album,
+                sourceCompositeKey: sourceA
+            )
+        )
+        let artworkURLB = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+            ArtworkDownloadManager.cacheFilename(
+                ratingKey: ratingKey,
+                type: .album,
+                sourceCompositeKey: sourceB
+            )
+        )
+        let identityURLA = artworkURLA.deletingPathExtension().appendingPathExtension("identity.json")
+        let identityURLB = artworkURLB.deletingPathExtension().appendingPathExtension("identity.json")
+        defer {
+            harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceA)
+            harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceB)
+        }
+        try Data("a".utf8).write(to: artworkURLA)
+        try Data("b".utf8).write(to: artworkURLB)
+        try JSONEncoder().encode(ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/artwork",
+            dateModifiedSeconds: nil,
+            sourceCompositeKey: sourceA
+        )).write(to: identityURLA)
+        try JSONEncoder().encode(ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/artwork",
+            dateModifiedSeconds: nil,
+            sourceCompositeKey: sourceB
+        )).write(to: identityURLB)
+
+        _ = try await harness.sourceCacheCleanupService.cleanupSource(sourceA)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: artworkURLA.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: identityURLA.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: artworkURLB.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: identityURLB.path))
     }
 
     func testSourceCleanupRemovesDownloadFilesAndOrphanedSidecars() async throws {
@@ -617,6 +686,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let libraryRepository: LibraryRepository
         let downloadManager: DownloadManager
         let targetRepository: OfflineDownloadTargetRepository
+        let artworkDownloadManager: ArtworkDownloadManager
         let sourceCacheCleanupService: SourceCacheCleaning
     }
 
@@ -687,6 +757,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             libraryRepository: libraryRepository,
             downloadManager: downloadManager,
             targetRepository: targetRepository,
+            artworkDownloadManager: artworkDownloadManager,
             sourceCacheCleanupService: sourceCacheCleanupService
         )
     }

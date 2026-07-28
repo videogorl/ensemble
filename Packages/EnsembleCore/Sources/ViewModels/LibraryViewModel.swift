@@ -4,6 +4,22 @@ import Foundation
 
 @MainActor
 public final class LibraryViewModel: ObservableObject {
+    private struct TrackComputation: Equatable, Sendable {
+        let tracks: [Track]
+        let sections: [TrackSection]
+    }
+
+    private struct ArtistComputation: Equatable, Sendable {
+        let artists: [Artist]
+        let displayArtists: [DisplayArtist]
+        let sections: [ArtistSection]
+    }
+
+    private struct AlbumComputation: Equatable, Sendable {
+        let albums: [Album]
+        let sections: [AlbumSection]
+    }
+
     @Published public private(set) var artists: [Artist] = []
     @Published public private(set) var albums: [Album] = []
     @Published public private(set) var tracks: [Track] = []
@@ -75,11 +91,15 @@ public final class LibraryViewModel: ObservableObject {
             return artistBrowseSnapshot
         }
 
-        let sorted = Self.sortArtists(artists, by: artistSortOption, direction: artistsFilterOptions.sortDirection)
-        let filtered = Self.filterArtists(sorted, with: artistsFilterOptions, albums: albums)
-        let displayArtists = DisplayArtist.group(filtered)
+        let filtered = Self.filterArtists(artists, with: artistsFilterOptions, albums: albums)
+        let sorted = Self.sortArtists(filtered, by: artistSortOption, direction: artistsFilterOptions.sortDirection)
+        let displayArtists = Self.sortDisplayArtists(
+            DisplayArtist.group(filtered),
+            by: artistSortOption,
+            direction: artistsFilterOptions.sortDirection
+        )
         return ArtistBrowseSnapshot(
-            artists: filtered,
+            artists: sorted,
             displayArtists: displayArtists,
             sections: artistSortOption == .name ? Self.computeArtistSections(from: displayArtists) : [],
             availableGenres: availableArtistGenres,
@@ -269,21 +289,18 @@ public final class LibraryViewModel: ObservableObject {
         // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { tracks, sortOption, filterOptions -> ([Track], [TrackSection]) in
+            .map { tracks, sortOption, filterOptions -> TrackComputation in
                 let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
                 let sections = LibraryViewModel.computeTrackSections(from: filtered)
-                return (filtered, sections)
+                return TrackComputation(tracks: filtered, sections: sections)
             }
-            .removeDuplicates { old, new in
-                guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
-                return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] filtered, sections in
+            .sink { [weak self] result in
                 self?.commitTrackSnapshot(
-                    tracks: filtered,
-                    sections: sections,
+                    tracks: result.tracks,
+                    sections: result.sections,
                     rawTrackCount: self?.tracks.count ?? 0
                 )
             }
@@ -292,25 +309,24 @@ public final class LibraryViewModel: ObservableObject {
         // Artists — include albums for genre filtering (artist genres derived from album genres)
         Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { artists, sortOption, filterOptions, albums -> ([Artist], [DisplayArtist], [ArtistSection]) in
-                let sorted = LibraryViewModel.sortArtists(artists, by: sortOption, direction: filterOptions.sortDirection)
-                let filtered = LibraryViewModel.filterArtists(sorted, with: filterOptions, albums: albums)
-                let display = DisplayArtist.group(filtered)
+            .map { artists, sortOption, filterOptions, albums -> ArtistComputation in
+                let filtered = LibraryViewModel.filterArtists(artists, with: filterOptions, albums: albums)
+                let sorted = LibraryViewModel.sortArtists(filtered, by: sortOption, direction: filterOptions.sortDirection)
+                let display = LibraryViewModel.sortDisplayArtists(
+                    DisplayArtist.group(filtered),
+                    by: sortOption,
+                    direction: filterOptions.sortDirection
+                )
                 let sections = sortOption == .name ? LibraryViewModel.computeArtistSections(from: display) : []
-                return (filtered, display, sections)
+                return ArtistComputation(artists: sorted, displayArtists: display, sections: sections)
             }
-            .removeDuplicates { old, new in
-                let artistsUnchanged = old.0 == new.0
-                let displayArtistsUnchanged = old.1 == new.1
-                let sectionsUnchanged = old.2 == new.2
-                return artistsUnchanged && displayArtistsUnchanged && sectionsUnchanged
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] filtered, display, sections in
+            .sink { [weak self] result in
                 self?.commitArtistSnapshot(
-                    artists: filtered,
-                    displayArtists: display,
-                    sections: sections,
+                    artists: result.artists,
+                    displayArtists: result.displayArtists,
+                    sections: result.sections,
                     rawArtistCount: self?.artists.count ?? 0
                 )
             }
@@ -321,22 +337,18 @@ public final class LibraryViewModel: ObservableObject {
         // removeDuplicates prevents no-op publishes during sync.
         Publishers.CombineLatest4($albums, $albumSortOption, $albumsFilterOptions, $tracks)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, sortOption, filterOptions, tracks -> ([Album], [AlbumSection]) in
+            .map { albums, sortOption, filterOptions, tracks -> AlbumComputation in
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions, tracks: tracks)
                 let sections = LibraryViewModel.computeAlbumSections(from: filtered, sortOption: sortOption)
-                return (filtered, sections)
+                return AlbumComputation(albums: filtered, sections: sections)
             }
-            .removeDuplicates { old, new in
-                guard old.0.count == new.0.count, old.1.count == new.1.count else { return false }
-                return zip(old.0, new.0).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
-                    && LibraryViewModel.albumSectionsEqual(old.1, new.1)
-            }
+            .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] filtered, sections in
+            .sink { [weak self] result in
                 self?.commitAlbumSnapshot(
-                    albums: filtered,
-                    sections: sections,
+                    albums: result.albums,
+                    sections: result.sections,
                     rawAlbumCount: self?.albums.count ?? 0
                 )
             }
@@ -349,8 +361,7 @@ public final class LibraryViewModel: ObservableObject {
                 LibraryViewModel.displayGenres(from: genres, albums: albums, with: filterOptions)
             }
             .removeDuplicates { old, new in
-                guard old.count == new.count else { return false }
-                return zip(old, new).allSatisfy { $0.id == $1.id }
+                old == new
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.commitGenreSnapshot(displayGenres: $0, rawGenreCount: self?.genres.count ?? 0) }
@@ -465,15 +476,6 @@ public final class LibraryViewModel: ObservableObject {
             .sorted { $0.letter < $1.letter }
     }
 
-    private static func albumSectionsEqual(_ old: [AlbumSection], _ new: [AlbumSection]) -> Bool {
-        guard old.count == new.count else { return false }
-        for (oldSection, newSection) in zip(old, new) {
-            guard oldSection.letter == newSection.letter, oldSection.albums.count == newSection.albums.count else { return false }
-            guard zip(oldSection.albums, newSection.albums).allSatisfy({ $0.id == $1.id }) else { return false }
-        }
-        return true
-    }
-
     private func setupFilterPersistence() {
         FilterPersistence.observe($tracksFilterOptions, key: "Songs", storingIn: &cancellables)
         FilterPersistence.observe($artistsFilterOptions, key: "Artists", storingIn: &cancellables)
@@ -527,13 +529,14 @@ public final class LibraryViewModel: ObservableObject {
             // Domain model structs (Artist, Album, Track, Genre) are value types
             // and safe to pass across threads.
             let result = try await Self.fetchAndMapInBackground(
-                coreDataStack: Self.coreDataStack(for: libraryRepository)
+                coreDataStack: Self.coreDataStack(for: libraryRepository),
+                sourceCompositeKeys: browseSourceKeys
             )
 
-            allArtists = result.artists.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
-            allAlbums = result.albums.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
-            allTracks = result.tracks.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
-            allGenres = result.genres.filter { Self.isEnabledSource($0.sourceCompositeKey, enabledSourceKeys: browseSourceKeys) }
+            allArtists = result.artists
+            allAlbums = result.albums
+            allTracks = result.tracks
+            allGenres = result.genres
             applyVisibilityToPublishedCollections()
         } catch {
             self.error = error.localizedDescription
@@ -605,11 +608,6 @@ public final class LibraryViewModel: ObservableObject {
         appReadinessCoordinator?.updateCachedLibraryReadiness(hasContent: false)
     }
 
-    private static func isEnabledSource(_ sourceCompositeKey: String?, enabledSourceKeys: Set<String>) -> Bool {
-        guard let sourceCompositeKey else { return false }
-        return enabledSourceKeys.contains(sourceCompositeKey)
-    }
-
     /// Fetches all library entities on a background CoreData context and maps
     /// them to domain model arrays. Runs entirely off the main thread.
     private nonisolated static func coreDataStack(for repository: LibraryRepositoryProtocol) -> CoreDataStack {
@@ -617,7 +615,8 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private nonisolated static func fetchAndMapInBackground(
-        coreDataStack: CoreDataStack
+        coreDataStack: CoreDataStack,
+        sourceCompositeKeys: Set<String>
     ) async throws -> (
         artists: [Artist], albums: [Album], tracks: [Track], genres: [Genre]
     ) {
@@ -640,35 +639,55 @@ public final class LibraryViewModel: ObservableObject {
 
             // Fetch artists with prefetched albums
             let artistRequest = CDArtist.fetchRequest()
+            artistRequest.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
             artistRequest.sortDescriptors = [
                 NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
             ]
             artistRequest.relationshipKeyPathsForPrefetching = ["albums"]
+            artistRequest.fetchBatchSize = 100
             let cdArtists = try context.fetch(artistRequest)
             let artists = cdArtists.map { Artist(from: $0) }
 
             // Fetch albums with prefetched artist
             let albumRequest = CDAlbum.fetchRequest()
+            albumRequest.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
             albumRequest.sortDescriptors = [
                 NSSortDescriptor(key: "artistName", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))),
                 NSSortDescriptor(key: "year", ascending: false)
             ]
             albumRequest.relationshipKeyPathsForPrefetching = ["artist"]
+            albumRequest.fetchBatchSize = 100
             let cdAlbums = try context.fetch(albumRequest)
-            let albums = cdAlbums.map { Album(from: $0) }
 
             // Fetch tracks with prefetched album and artist
             let trackRequest = CDTrack.fetchRequest()
+            trackRequest.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
             trackRequest.sortDescriptors = [
                 NSSortDescriptor(key: "title", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
             ]
             trackRequest.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+            trackRequest.fetchBatchSize = 100
             let cdTracks = try context.fetch(trackRequest)
             let tracks = cdTracks.map { Track(from: $0, downloadedFilenames: downloadedFilenames) }
+            var trackCountsByAlbumID: [NSManagedObjectID: Int] = [:]
+            trackCountsByAlbumID.reserveCapacity(cdAlbums.count)
+            for track in cdTracks {
+                if let albumID = track.album?.objectID {
+                    trackCountsByAlbumID[albumID, default: 0] += 1
+                }
+            }
+            let albums = cdAlbums.map {
+                Album(
+                    from: $0,
+                    trackCount: trackCountsByAlbumID[$0.objectID] ?? Int($0.trackCount)
+                )
+            }
 
             // Fetch genres
             let genreRequest = CDGenre.fetchRequest()
+            genreRequest.predicate = NSPredicate(format: "sourceCompositeKey IN %@", Array(sourceCompositeKeys))
             genreRequest.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+            genreRequest.fetchBatchSize = 100
             let cdGenres = try context.fetch(genreRequest)
             let genres = cdGenres.map { Genre(from: $0) }
 
@@ -752,9 +771,9 @@ public final class LibraryViewModel: ObservableObject {
         let newGenres = LibraryVisibilityFiltering.visibleItems(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
 
         if artists != newArtists { artists = newArtists }
-        if !Self.idsEqual(albums, newAlbums, identifier: \.sourceScopedID) { albums = newAlbums }
-        if !Self.idsEqual(tracks, newTracks, identifier: \.sourceScopedID) { tracks = newTracks }
-        if !Self.idsEqual(genres, newGenres, identifier: \.id) { genres = newGenres }
+        if albums != newAlbums { albums = newAlbums }
+        if tracks != newTracks { tracks = newTracks }
+        if genres != newGenres { genres = newGenres }
         appReadinessCoordinator?.updateCachedLibraryReadiness(
             hasContent: !newArtists.isEmpty || !newAlbums.isEmpty || !newTracks.isEmpty || !newGenres.isEmpty
         )
@@ -793,7 +812,7 @@ public final class LibraryViewModel: ObservableObject {
             return
         }
 
-        if !Self.idsEqual(filteredTracks, tracks, identifier: \.sourceScopedID) { filteredTracks = tracks }
+        if filteredTracks != tracks { filteredTracks = tracks }
         if trackSections != sections { trackSections = sections }
 
         updateTrackBrowseSnapshot(
@@ -844,7 +863,7 @@ public final class LibraryViewModel: ObservableObject {
             return
         }
 
-        if !Self.idsEqual(filteredAlbums, albums, identifier: \.sourceScopedID) { filteredAlbums = albums }
+        if filteredAlbums != albums { filteredAlbums = albums }
         if albumSections != sections { albumSections = sections }
 
         updateAlbumBrowseSnapshot(
@@ -864,7 +883,7 @@ public final class LibraryViewModel: ObservableObject {
             return
         }
 
-        if !Self.idsEqual(filteredGenres, displayGenres, identifier: \.id) { filteredGenres = displayGenres }
+        if filteredGenres != displayGenres { filteredGenres = displayGenres }
         updateGenreBrowseSnapshot(
             GenreBrowseSnapshot(
                 displayGenres: displayGenres,
@@ -910,15 +929,9 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
-    /// Fast ID-based equality check — avoids full Equatable comparison
-    private static func idsEqual<T>(_ a: [T], _ b: [T], identifier: (T) -> String) -> Bool {
-        guard a.count == b.count else { return false }
-        return zip(a, b).allSatisfy { identifier($0) == identifier($1) }
-    }
-
     // MARK: - Sort Implementations (static so Combine pipelines can call them without actor capture)
 
-    private static func sortTracks(_ tracks: [Track], by option: TrackSortOption, direction: SortDirection) -> [Track] {
+    static func sortTracks(_ tracks: [Track], by option: TrackSortOption, direction: SortDirection) -> [Track] {
         let asc = direction == .ascending
         switch option {
         case .title:
@@ -930,20 +943,11 @@ public final class LibraryViewModel: ObservableObject {
         case .duration:
             return tracks.sortedByComparableKey(\.duration, ascending: asc)
         case .dateAdded:
-            return tracks.sorted { asc
-                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
-                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
-            }
+            return tracks.sortedByOptionalComparableKey(\.dateAdded, stableID: \.sourceScopedID, ascending: asc)
         case .dateModified:
-            return tracks.sorted { asc
-                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
-                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
-            }
+            return tracks.sortedByOptionalComparableKey(\.dateModified, stableID: \.sourceScopedID, ascending: asc)
         case .lastPlayed:
-            return tracks.sorted { asc
-                ? ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
-                : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
-            }
+            return tracks.sortedByOptionalComparableKey(\.lastPlayed, stableID: \.sourceScopedID, ascending: asc)
         case .rating:
             return tracks.sortedByComparableKey(\.rating, ascending: asc)
         case .playCount:
@@ -951,25 +955,31 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
-    private static func sortArtists(_ artists: [Artist], by option: ArtistSortOption, direction: SortDirection) -> [Artist] {
+    static func sortArtists(_ artists: [Artist], by option: ArtistSortOption, direction: SortDirection) -> [Artist] {
         let asc = direction == .ascending
         switch option {
         case .name:
             return artists.sortedByCachedStringKey({ $0.name.sortingKey }, ascending: asc)
         case .dateAdded:
-            return artists.sorted { asc
-                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
-                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
-            }
+            return artists.sortedByOptionalComparableKey(\.dateAdded, stableID: \.sourceScopedID, ascending: asc)
         case .dateModified:
-            return artists.sorted { asc
-                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
-                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
-            }
+            return artists.sortedByOptionalComparableKey(\.dateModified, stableID: \.sourceScopedID, ascending: asc)
         }
     }
 
-    private static func sortAlbums(_ albums: [Album], by option: AlbumSortOption, direction: SortDirection) -> [Album] {
+    static func sortDisplayArtists(_ artists: [DisplayArtist], by option: ArtistSortOption, direction: SortDirection) -> [DisplayArtist] {
+        let asc = direction == .ascending
+        switch option {
+        case .name:
+            return artists.sortedByCachedStringKey({ $0.name.sortingKey }, ascending: asc)
+        case .dateAdded:
+            return artists.sortedByOptionalComparableKey(\.dateAdded, stableID: \.id, ascending: asc)
+        case .dateModified:
+            return artists.sortedByOptionalComparableKey(\.dateModified, stableID: \.id, ascending: asc)
+        }
+    }
+
+    static func sortAlbums(_ albums: [Album], by option: AlbumSortOption, direction: SortDirection) -> [Album] {
         let asc = direction == .ascending
         switch option {
         case .title:
@@ -981,15 +991,9 @@ public final class LibraryViewModel: ObservableObject {
         case .year:
             return albums.sortedByComparableKey({ $0.year ?? 0 }, ascending: asc)
         case .dateAdded:
-            return albums.sorted { asc
-                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
-                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
-            }
+            return albums.sortedByOptionalComparableKey(\.dateAdded, stableID: \.sourceScopedID, ascending: asc)
         case .dateModified:
-            return albums.sorted { asc
-                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
-                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
-            }
+            return albums.sortedByOptionalComparableKey(\.dateModified, stableID: \.sourceScopedID, ascending: asc)
         case .rating:
             return albums.sortedByComparableKey(\.rating, ascending: asc)
         }

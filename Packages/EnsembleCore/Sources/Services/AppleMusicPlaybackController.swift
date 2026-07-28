@@ -70,26 +70,16 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
 
     func play(tracks: [Track], smartMixEnabled: Bool, startTime: TimeInterval?) async throws {
-        let ids = tracks.compactMap(\.appleMusicCatalogID)
-        var songsByID: [String: Song] = [:]
-        for start in stride(from: 0, to: ids.count, by: 25) {
-            let end = min(start + 25, ids.count)
-            let batch = ids[start..<end].map { MusicItemID($0) }
-            let request = MusicCatalogResourceRequest<Song>(matching: \.id, memberOf: batch)
-            for song in try await request.response().items {
-                songsByID[String(describing: song.id)] = song
-            }
-        }
-        let songs = ids.compactMap { songsByID[$0] }
+        let resolvedTracks = try await resolveSongs(for: tracks)
+        let songs = resolvedTracks.map(\.song)
         guard let first = songs.first else { throw AppleMusicSourceError.musicKitPlaybackRequired }
 
         var identities: [String: String] = [:]
         var tracksByID: [String: Track] = [:]
-        for track in tracks {
-            if let id = track.appleMusicCatalogID {
-                identities[id] = track.playbackIdentity
-                tracksByID[id] = track
-            }
+        for (track, song) in resolvedTracks {
+            let id = String(describing: song.id)
+            identities[id] = track.playbackIdentity
+            tracksByID[id] = track
         }
         trackIdentityByMusicID = identities
         trackByMusicID = tracksByID
@@ -101,8 +91,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         enrichedArtwork = nil
         player.transition = smartMixEnabled ? .crossfade : .none
         player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
-        if let currentTrack = tracks.first, let currentID = ids.first, let song = songsByID[currentID] {
-            publishMetadata(for: song, track: currentTrack)
+        if let current = resolvedTracks.first {
+            publishMetadata(for: current.song, track: current.track)
         }
         do {
             try await player.prepareToPlay()
@@ -117,6 +107,46 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         wasPlaying = true
         isPreparingQueue = false
         publishCurrentEntry()
+    }
+
+    private func resolveSongs(for tracks: [Track]) async throws -> [(track: Track, song: Song)] {
+        let catalogIDs = tracks.compactMap { track -> String? in
+            guard case .catalog(let id) = track.appleMusicPlaybackIdentifier else { return nil }
+            return id
+        }
+        var catalogSongs: [String: Song] = [:]
+        for start in stride(from: 0, to: catalogIDs.count, by: 25) {
+            let end = min(start + 25, catalogIDs.count)
+            let request = MusicCatalogResourceRequest<Song>(
+                matching: \.id,
+                memberOf: catalogIDs[start..<end].map { MusicItemID($0) }
+            )
+            for song in try await request.response().items {
+                catalogSongs[String(describing: song.id)] = song
+            }
+        }
+
+        var librarySongs: [String: Song] = [:]
+        for track in tracks {
+            guard case .library(let id) = track.appleMusicPlaybackIdentifier,
+                  librarySongs[id] == nil else { continue }
+            var request = MusicLibraryRequest<Song>()
+            request.limit = 1
+            request.filter(matching: \.id, equalTo: MusicItemID(id))
+            librarySongs[id] = try await request.response().items.first
+        }
+
+        let resolved = tracks.compactMap { track -> (track: Track, song: Song)? in
+            switch track.appleMusicPlaybackIdentifier {
+            case .catalog(let id): catalogSongs[id].map { (track, $0) }
+            case .library(let id): librarySongs[id].map { (track, $0) }
+            case nil: nil
+            }
+        }
+        guard resolved.count == tracks.count else {
+            throw AppleMusicSourceError.musicKitPlaybackRequired
+        }
+        return resolved
     }
 
     func pause() { player.pause() }
@@ -210,9 +240,14 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         artworkRequestMusicID = id
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let request = MusicCatalogResourceRequest<Song>(matching: \.id, equalTo: song.id)
-            let response = try? await request.response()
-            var artworkURL = response?.items.first?.artwork?.ensembleResolvableURL()
+            var artworkURL: String?
+            if let catalogID = track.appleMusicCatalogID {
+                let request = MusicCatalogResourceRequest<Song>(
+                    matching: \.id,
+                    equalTo: MusicItemID(catalogID)
+                )
+                artworkURL = try? await request.response().items.first?.artwork?.ensembleResolvableURL()
+            }
             let artist = DisplayPlaylist.normalizedTitle(song.artistName)
             let album = DisplayPlaylist.normalizedTitle(song.albumTitle ?? "")
             if artworkURL == nil {
@@ -275,7 +310,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             : song.artwork?.ensembleResolvableURL()
         return Track(
             id: id,
-            key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(id)",
+            key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-catalog-library",
             title: song.title,
             artistName: song.artistName,
             albumArtistName: song.artistName,

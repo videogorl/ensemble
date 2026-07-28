@@ -297,16 +297,24 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
         cdHub.type = hub.type
         cdHub.context = hub.context
         cdHub.order = Int16(clamping: order)
+        cdHub.semanticKind = hub.semanticKind.rawValue
+        cdHub.sourceScopeSourceCompositeKey = hub.sourceScope.sourceCompositeKey
+        cdHub.sourceScopeServerCompositeKey = hub.sourceScope.serverCompositeKey
 
         let itemsSet = NSMutableOrderedSet()
         for (itemIndex, item) in hub.items.enumerated() {
             let cdItem = CDHubItem(context: context)
             cdItem.id = item.id
+            cdItem.key = item.track?.key ?? item.album?.key ?? item.artist?.key ?? item.playlist?.key
             cdItem.type = item.type
             cdItem.title = item.title
             cdItem.subtitle = item.subtitle
             cdItem.thumbPath = item.thumbPath
             cdItem.sourceCompositeKey = item.sourceCompositeKey
+            cdItem.year = item.year.map(NSNumber.init(value:))
+            cdItem.addedAt = item.addedAt
+            cdItem.lastViewedAt = item.lastViewedAt
+            cdItem.viewCount = item.viewCount.map(NSNumber.init(value:))
             cdItem.order = Int16(clamping: itemIndex)
             cdItem.hub = cdHub
             itemsSet.add(cdItem)

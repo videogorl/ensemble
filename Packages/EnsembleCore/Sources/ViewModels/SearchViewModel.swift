@@ -558,7 +558,7 @@ public final class SearchViewModel: ObservableObject {
         // Load cached hubs first for fast offline-first rendering.
         do {
             let cachedHubs = try await hubRepository.fetchHubs()
-            let results = extractContentFromHubs(cachedHubs)
+            let results = Self.extractContentFromHubs(cachedHubs)
             unfilteredRecentlyPlayedAlbums = Array(results.albums.prefix(6))
             unfilteredRecentlyPlayedArtists = Array(results.artists.prefix(6))
             unfilteredRecentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
@@ -716,7 +716,7 @@ public final class SearchViewModel: ObservableObject {
     }
     
     /// Extract albums, artists, and items from Hub array
-    nonisolated private func extractContentFromHubs(_ hubs: [Hub]) -> (albums: [Album], artists: [Artist], addedAlbums: [Album], recommendedItems: [HubItem]) {
+    nonisolated static func extractContentFromHubs(_ hubs: [Hub]) -> (albums: [Album], artists: [Artist], addedAlbums: [Album], recommendedItems: [HubItem]) {
         var recentAlbums: [Album] = []
         var recentArtists: [Artist] = []
         var addedAlbums: [Album] = []
@@ -725,7 +725,7 @@ public final class SearchViewModel: ObservableObject {
         for hub in hubs {
             let title = hub.title.lowercased()
             
-            if title.contains("recently played") || title.contains("recent plays") {
+            if hub.semanticKind == .recentlyPlayed {
                 for item in hub.items.prefix(12) {
                     if let album = item.album {
                         recentAlbums.append(album)
@@ -734,7 +734,7 @@ public final class SearchViewModel: ObservableObject {
                         recentArtists.append(artist)
                     }
                 }
-            } else if title.contains("recently added") || title.contains("recent additions") {
+            } else if hub.semanticKind == .recentlyAdded {
                 for item in hub.items.prefix(12) {
                     if let album = item.album {
                         addedAlbums.append(album)

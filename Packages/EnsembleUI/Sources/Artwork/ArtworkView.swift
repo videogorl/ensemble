@@ -319,7 +319,8 @@ public extension ArtworkView {
             fallbackCacheHint: PersistentArtworkCacheHint(
                 ratingKey: playlist.fallbackArtworkRatingKey,
                 kind: .album,
-                sourcePath: playlist.fallbackArtworkPath
+                sourcePath: playlist.fallbackArtworkPath,
+                sourceCompositeKey: playlist.fallbackArtworkSourceCompositeKey
             ),
             size: size,
             cornerRadius: cornerRadius,

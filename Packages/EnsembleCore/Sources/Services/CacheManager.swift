@@ -183,6 +183,13 @@ public final class CacheManager: ObservableObject {
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: cleared artwork caches (after: \(after.logDescription))")
     }
+
+    /// Clears shared transient artwork render caches without touching source-owned durable files.
+    public func clearTransientArtworkCaches() async throws {
+        try await clearNukeImageCache()
+        ArtworkBlurRenderer.clearCache()
+        invalidateArtworkCacheConsumers()
+    }
     
     /// Clear all caches
     public func clearAllCaches() async throws {

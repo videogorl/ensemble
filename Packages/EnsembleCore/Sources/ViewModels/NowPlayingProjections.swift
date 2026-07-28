@@ -324,7 +324,10 @@ public final class NowPlayingRatingProjection: ObservableObject {
     private var displayRatingsByTrackIdentity: [String: Int] = [:]
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        (displayRatingsByTrackIdentity[track.sourceScopedID] ?? track.rating) >= 8
+        if let displayRating = displayRatingsByTrackIdentity[track.playbackIdentity] {
+            return displayRating >= 8
+        }
+        return track.isFavorite
     }
 
     func updateCurrentTrack(_ track: Track?, displayRating: Int?) {

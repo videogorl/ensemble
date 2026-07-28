@@ -18,6 +18,13 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
     private struct ArtworkRequest: Equatable {
         let ratingKey: String
         let type: ArtworkType
+        let sourceCompositeKey: String?
+
+        init(ratingKey: String, type: ArtworkType, sourceCompositeKey: String? = nil) {
+            self.ratingKey = ratingKey
+            self.type = type
+            self.sourceCompositeKey = sourceCompositeKey
+        }
     }
 
     private final class RecordingArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
@@ -57,6 +64,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             try await getLocalArtworkPath(
                 ratingKey: album.ratingKey,
                 type: .album,
+                sourceCompositeKey: album.sourceCompositeKey,
                 sourcePath: album.thumbPath,
                 dateModifiedSeconds: nil
             )
@@ -66,6 +74,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             try await getLocalArtworkPath(
                 ratingKey: artist.ratingKey,
                 type: .artist,
+                sourceCompositeKey: artist.sourceCompositeKey,
                 sourcePath: artist.thumbPath,
                 dateModifiedSeconds: nil
             )
@@ -75,6 +84,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             try await getLocalArtworkPath(
                 ratingKey: playlist.ratingKey,
                 type: .playlist,
+                sourceCompositeKey: playlist.sourceCompositeKey,
                 sourcePath: playlist.compositePath,
                 dateModifiedSeconds: nil
             )
@@ -86,15 +96,51 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             sourcePath _: String?,
             dateModifiedSeconds _: Int?
         ) async throws -> String? {
+            try await getLocalArtworkPath(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: nil,
+                sourcePath: nil,
+                dateModifiedSeconds: nil
+            )
+        }
+
+        func getLocalArtworkPath(
+            ratingKey: String,
+            type: ArtworkType,
+            sourceCompositeKey: String?,
+            sourcePath _: String?,
+            dateModifiedSeconds _: Int?
+        ) async throws -> String? {
             withLock {
-                _strictRequests.append(ArtworkRequest(ratingKey: ratingKey, type: type))
+                _strictRequests.append(ArtworkRequest(
+                    ratingKey: ratingKey,
+                    type: type,
+                    sourceCompositeKey: sourceCompositeKey
+                ))
             }
             return type == .album ? strictPath : nil
         }
 
         func getStaleLocalArtworkPath(ratingKey: String, type: ArtworkType) async throws -> String? {
+            try await getStaleLocalArtworkPath(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: nil
+            )
+        }
+
+        func getStaleLocalArtworkPath(
+            ratingKey: String,
+            type: ArtworkType,
+            sourceCompositeKey: String?
+        ) async throws -> String? {
             withLock {
-                _staleRequests.append(ArtworkRequest(ratingKey: ratingKey, type: type))
+                _staleRequests.append(ArtworkRequest(
+                    ratingKey: ratingKey,
+                    type: type,
+                    sourceCompositeKey: sourceCompositeKey
+                ))
             }
             return type == .album ? stalePath : nil
         }
@@ -177,17 +223,64 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
 
         XCTAssertEqual(resolvedURL, localURL)
         XCTAssertFalse(
-            artworkManager.strictRequests.contains(ArtworkRequest(ratingKey: "album-1", type: .album)),
+            artworkManager.strictRequests.contains(ArtworkRequest(
+                ratingKey: "album-1",
+                type: .album,
+                sourceCompositeKey: "plex:account-1:server-1:1"
+            )),
             "Marked-stale artwork should not be treated as a fresh strict local hit."
         )
         XCTAssertTrue(
-            artworkManager.staleRequests.contains(ArtworkRequest(ratingKey: "album-1", type: .album)),
+            artworkManager.staleRequests.contains(ArtworkRequest(
+                ratingKey: "album-1",
+                type: .album,
+                sourceCompositeKey: "plex:account-1:server-1:1"
+            )),
             "Offline artwork should fall back to the preserved stale file."
         )
         XCTAssertTrue(
             artworkManager.deletedRequests.isEmpty,
             "Invalidation must not remove the persistent artwork file needed for offline fallback."
         )
+    }
+
+    func testSourceScopedInvalidationDoesNotStaleAnotherSourcesMatchingKey() async throws {
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jpg")
+        try Data("image".utf8).write(to: localURL)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+
+        let artworkManager = RecordingArtworkDownloadManager(
+            strictPath: localURL.path,
+            stalePath: localURL.path
+        )
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+        let sourceA = "plex:account:server:library-a"
+        let sourceB = "plex:account:server:library-b"
+
+        await artworkLoader.invalidateArtwork(
+            ratingKey: "shared-album",
+            type: .album,
+            sourceCompositeKey: sourceA
+        )
+        let sourceBURL = await artworkLoader.artworkURLAsync(
+            for: "/library/metadata/shared-album/thumb",
+            sourceKey: sourceB,
+            ratingKey: "shared-album",
+            size: 300
+        )
+
+        XCTAssertEqual(sourceBURL, localURL)
+        XCTAssertTrue(artworkManager.strictRequests.contains(ArtworkRequest(
+            ratingKey: "shared-album",
+            type: .album,
+            sourceCompositeKey: sourceB
+        )))
     }
 
     func testPersistentCacheReplacesUndersizedArtworkForLargeRequest() async throws {
@@ -211,13 +304,18 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             cacheHint: PersistentArtworkCacheHint(
                 ratingKey: "album-1",
                 kind: .album,
-                sourcePath: "/library/metadata/album-1/thumb/2000"
+                sourcePath: "/library/metadata/album-1/thumb/2000",
+                sourceCompositeKey: "plex:account-1:server-1:1"
             ),
             minimumPixelDimension: ArtworkSize.detail.rawValue
         )
 
         await fulfillment(of: [downloadExpectation], timeout: 1)
         XCTAssertEqual(artworkManager.downloadedIdentities.map(\.ratingKey), ["album-1"])
+        XCTAssertEqual(
+            artworkManager.downloadedIdentities.map(\.sourceCompositeKey),
+            ["plex:account-1:server-1:1"]
+        )
     }
 
     func testLocalArtworkExistsRequiresRequestedDimension() async throws {
@@ -268,6 +366,73 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
 
         XCTAssertTrue(satisfiesLargeRequest)
         XCTAssertFalse(satisfiesDetailRequest)
+    }
+
+    func testFallbackAlbumArtworkLookupKeepsEqualIDsSourceScoped() async throws {
+        let artworkManager = ArtworkDownloadManager()
+        let ratingKey = "fallback-album-\(UUID().uuidString)"
+        let sourceA = "plex:account-a:server:library"
+        let sourceB = "appleMusic:device:local"
+        let sourcePath = "/library/metadata/\(ratingKey)/thumb"
+        let urlA = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+            ArtworkDownloadManager.cacheFilename(
+                ratingKey: ratingKey,
+                type: .album,
+                sourceCompositeKey: sourceA
+            )
+        )
+        let urlB = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+            ArtworkDownloadManager.cacheFilename(
+                ratingKey: ratingKey,
+                type: .album,
+                sourceCompositeKey: sourceB
+            )
+        )
+        defer {
+            artworkManager.deleteArtwork(forSourceCompositeKey: sourceA)
+            artworkManager.deleteArtwork(forSourceCompositeKey: sourceB)
+        }
+        try Data("source-a".utf8).write(to: urlA)
+        try Data("source-b".utf8).write(to: urlB)
+        try JSONEncoder().encode(ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: nil,
+            sourceCompositeKey: sourceA
+        )).write(to: urlA.deletingPathExtension().appendingPathExtension("identity.json"))
+        try JSONEncoder().encode(ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: nil,
+            sourceCompositeKey: sourceB
+        )).write(to: urlB.deletingPathExtension().appendingPathExtension("identity.json"))
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+
+        let resolvedA = await artworkLoader.artworkURLAsync(
+            for: nil,
+            sourceKey: sourceA,
+            ratingKey: "track-a",
+            fallbackPath: sourcePath,
+            fallbackRatingKey: ratingKey,
+            size: 100
+        )
+        let resolvedB = await artworkLoader.artworkURLAsync(
+            for: nil,
+            sourceKey: sourceB,
+            ratingKey: "track-b",
+            fallbackPath: sourcePath,
+            fallbackRatingKey: ratingKey,
+            size: 100
+        )
+
+        XCTAssertEqual(resolvedA, urlA)
+        XCTAssertEqual(resolvedB, urlB)
     }
 
     private func makeOfflineSyncCoordinator(

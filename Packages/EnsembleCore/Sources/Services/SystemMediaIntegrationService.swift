@@ -831,6 +831,7 @@ public final class SystemMediaIntegrationService {
         localArtworkURL(
             cacheKey: item.artworkCacheKey,
             cacheType: item.artworkCacheType,
+            sourceCompositeKey: item.sourceCompositeKey,
             artworkPath: item.artworkPath,
             fallbackKey: item.id,
             fallbackType: defaultArtworkCacheType(for: item.kind),
@@ -849,6 +850,7 @@ public final class SystemMediaIntegrationService {
         localArtworkURL(
             cacheKey: reference.artworkCacheKey,
             cacheType: reference.artworkCacheType,
+            sourceCompositeKey: reference.sourceCompositeKey,
             artworkPath: reference.artworkPath,
             fallbackKey: reference.id,
             fallbackType: defaultArtworkCacheType(for: reference.kind),
@@ -900,6 +902,7 @@ public final class SystemMediaIntegrationService {
     nonisolated private static func localArtworkURL(
         cacheKey: String?,
         cacheType: SiriMediaArtworkCacheType?,
+        sourceCompositeKey: String?,
         artworkPath: String?,
         fallbackKey: String,
         fallbackType: SiriMediaArtworkCacheType?,
@@ -933,7 +936,14 @@ public final class SystemMediaIntegrationService {
 
         var seen = Set<String>()
         for (key, type) in candidates {
-            let filename = "\(key)_\(type.rawValue).jpg"
+            guard let artworkType = ArtworkType(rawValue: type.rawValue) else { continue }
+            // A source-less legacy filename is ambiguous once provider identity is known.
+            // Scoped callers wait for the cache manager's validated migration/refetch path.
+            let filename = ArtworkDownloadManager.cacheFilename(
+                ratingKey: key,
+                type: artworkType,
+                sourceCompositeKey: sourceCompositeKey
+            )
             guard seen.insert(filename).inserted else { continue }
             let url = artworkDirectory.appendingPathComponent(filename)
             if availableArtworkFilenames?.contains(filename) == true

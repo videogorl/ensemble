@@ -161,7 +161,11 @@ public final class MetadataMutationService {
         for track in trackModels {
             try await cleanupTrackArtifacts(track)
         }
-        artworkDownloadManager.deleteArtwork(ratingKey: album.id, type: .album)
+        artworkDownloadManager.deleteArtwork(
+            ratingKey: album.id,
+            type: .album,
+            sourceCompositeKey: album.sourceCompositeKey
+        )
         try await libraryRepository.deleteAlbum(ratingKey: album.id, sourceCompositeKey: album.sourceCompositeKey)
         removeDeletedTracksFromPlayback(Set(trackModels.map(\.sourceScopedID)))
         postMetadataDidChange()
@@ -277,7 +281,11 @@ public final class MetadataMutationService {
             try? await downloadManager.deleteDownload(forTrackRatingKey: track.id)
         }
 
-        artworkDownloadManager.deleteArtwork(ratingKey: track.id, type: .track)
+        artworkDownloadManager.deleteArtwork(
+            ratingKey: track.id,
+            type: .track,
+            sourceCompositeKey: track.sourceCompositeKey
+        )
     }
 
     private func removeTrackMemberships(_ reference: OfflineTrackReference) async throws {

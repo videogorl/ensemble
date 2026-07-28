@@ -39,7 +39,7 @@ enum AppleMusicCatalogSearch {
                 }?.artwork?.ensembleResolvableURL()
                 return Track(
                     id: String(describing: song.id),
-                    key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-library:\(song.id)",
+                    key: song.libraryAddedDate == nil ? "apple-catalog" : "apple-catalog-library",
                     title: song.title,
                     artistName: song.artistName,
                     albumArtistName: song.artistName,

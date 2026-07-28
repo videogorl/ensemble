@@ -1255,6 +1255,7 @@ public final class OfflineDownloadService: ObservableObject {
         if let cachedPath = try? await artworkDownloadManager.getLocalArtworkPath(
             ratingKey: ratingKey,
             type: type,
+            sourceCompositeKey: sourceKey,
             sourcePath: thumbPath,
             dateModifiedSeconds: nil
         ), FileManager.default.fileExists(atPath: cachedPath) {
@@ -1274,7 +1275,8 @@ public final class OfflineDownloadService: ObservableObject {
                     ratingKey: ratingKey,
                     type: type,
                     sourcePath: thumbPath,
-                    dateModifiedSeconds: nil
+                    dateModifiedSeconds: nil,
+                    sourceCompositeKey: sourceKey
                 )
             )
             EnsembleLogger.debug("🖼️ Cached \(type.rawValue) artwork for download target: \(ratingKey)")

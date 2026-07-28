@@ -180,6 +180,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             libraryItemCount += sourceCounts.libraryItems
             downloadRecordCount += sourceCounts.downloads
             targetCount += sourceCounts.targets
+            artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceKey)
 
             async let lyricsCleanup: Int = clearLyricsCache(sourceKey)
             lyricsItemCount += await lyricsCleanup
@@ -191,9 +192,6 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             try await hubRepository.deleteHubs(forSourceCompositeKey: sourceKey)
         }
 
-        if !artworkKeysToDelete.isEmpty {
-            artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
-        }
         if sourceKeys.contains(where: { MusicSourceIdentifier(compositeKey: $0)?.type == .appleMusic }) {
             try await clearSharedArtworkCaches()
         }

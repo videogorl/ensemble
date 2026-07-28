@@ -38,9 +38,10 @@ struct SyncPlaybackReportingController {
     private func provider(
         for track: Track,
         providers: [String: MusicSourceSyncProvider]
-    ) -> MusicSourceSyncProvider? {
-        SyncProviderResolver(providers: providers)
+    ) -> MusicSourcePlaybackReporting? {
+        let provider = SyncProviderResolver(providers: providers)
             .resolve(sourceKey: track.sourceCompositeKey, allowFallback: false)?
             .provider
+        return provider as? MusicSourcePlaybackReporting
     }
 }

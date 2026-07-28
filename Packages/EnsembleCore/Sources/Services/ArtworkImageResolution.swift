@@ -51,6 +51,7 @@ public struct ArtworkResolutionDescriptor: Sendable {
         if let cacheHint = effectiveCacheHint {
             return [
                 "hint",
+                cacheHint.sourceCompositeKey ?? sourceKey ?? "no-source",
                 cacheHint.kind.rawValue,
                 cacheHint.ratingKey,
                 cacheHint.sourcePath,
@@ -94,6 +95,7 @@ public enum ArtworkImageResolver {
     ) async -> ArtworkResolvedImage? {
         guard let localURL = await artworkLoader.localArtworkURLAsync(
             for: descriptor.path,
+            sourceKey: descriptor.sourceKey,
             ratingKey: descriptor.ratingKey,
             fallbackPath: descriptor.fallbackPath,
             fallbackRatingKey: descriptor.fallbackRatingKey,
@@ -137,7 +139,7 @@ public enum ArtworkImageResolver {
                let resolved = await image(for: url, descriptor: candidate) {
                 await artworkLoader.cacheResolvedArtwork(
                     from: url,
-                    cacheHint: candidate.cacheHint,
+                    cacheHint: candidate.cacheHint?.scoped(to: candidate.sourceKey),
                     minimumPixelDimension: candidate.size
                 )
                 return .resolved(resolved)
@@ -216,7 +218,7 @@ public enum ArtworkImageResolver {
            descriptor.fallbackPath != descriptor.path {
             candidates.append(ArtworkResolutionDescriptor(
                 path: descriptor.fallbackPath,
-                sourceKey: descriptor.sourceKey,
+                sourceKey: descriptor.fallbackCacheHint?.sourceCompositeKey ?? descriptor.sourceKey,
                 ratingKey: descriptor.fallbackRatingKey,
                 fallbackPath: nil,
                 fallbackRatingKey: nil,
@@ -236,6 +238,7 @@ public enum ArtworkImageResolver {
     ) async -> ArtworkResolvedImage? {
         guard let localURL = await artworkLoader.localArtworkURLAsync(
             for: descriptor.path,
+            sourceKey: descriptor.sourceKey,
             ratingKey: descriptor.ratingKey,
             fallbackPath: nil,
             fallbackRatingKey: nil,

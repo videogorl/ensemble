@@ -10,10 +10,64 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNotNil(stack.viewContext)
     }
 
+    func testArtworkInvalidationBufferScopesSourcesAndLetsRemovalDominate() {
+        let buffer = ArtworkInvalidationBuffer()
+        let sourceA = "plex:account:server:library-a"
+        let sourceB = "plex:account:server:library-b"
+        buffer.record(ArtworkInvalidationInfo(
+            ratingKey: "shared",
+            type: .album,
+            reason: .pathChanged,
+            sourceCompositeKey: sourceA
+        ))
+        buffer.record(ArtworkInvalidationInfo(
+            ratingKey: "shared",
+            type: .album,
+            reason: .metadataModified,
+            sourceCompositeKey: sourceB
+        ))
+        buffer.record(ArtworkInvalidationInfo(
+            ratingKey: "shared",
+            type: .album,
+            reason: .removed,
+            sourceCompositeKey: sourceA
+        ))
+
+        XCTAssertEqual(Set(buffer.drain()), [
+            ArtworkInvalidationInfo(
+                ratingKey: "shared",
+                type: .album,
+                reason: .removed,
+                sourceCompositeKey: sourceA
+            ),
+            ArtworkInvalidationInfo(
+                ratingKey: "shared",
+                type: .album,
+                reason: .metadataModified,
+                sourceCompositeKey: sourceB
+            )
+        ])
+    }
+
     func testLibraryRepositoryUsesInMemoryStore() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
         let tracks = try await repository.fetchTracks()
+        XCTAssertTrue(tracks.isEmpty)
+    }
+
+    func testNameLookupWithExplicitEmptySourceSetReturnsNothing() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        try await repository.batchUpsertTracks(
+            [makeTrackInput(ratingKey: "needle")],
+            sourceCompositeKey: "plex:account:server:library"
+        )
+
+        let tracks = try await repository.findTracksByTitle(
+            "Track needle",
+            sourceCompositeKeys: []
+        )
+
         XCTAssertTrue(tracks.isEmpty)
     }
 
@@ -317,7 +371,8 @@ final class LibraryRepositoryTests: XCTestCase {
                 ArtworkInvalidationInfo(
                     ratingKey: "album-1",
                     type: .album,
-                    reason: .pathChanged
+                    reason: .pathChanged,
+                    sourceCompositeKey: sourceKey
                 )
             ]
         )
@@ -358,7 +413,8 @@ final class LibraryRepositoryTests: XCTestCase {
                 ArtworkInvalidationInfo(
                     ratingKey: "artist-1",
                     type: .artist,
-                    reason: .metadataModified
+                    reason: .metadataModified,
+                    sourceCompositeKey: sourceKey
                 )
             ]
         )
@@ -624,6 +680,365 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(wrongTypePath)
     }
 
+    func testArtworkDownloadManagerSeparatesAndCleansEqualKeysAcrossSources() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "album/同じ:\(UUID().uuidString)"
+        let sourceA = "plex:account/α:server:library-one"
+        let sourceB = "appleMusic:device:local:library-two"
+        let sourcePath = "/artwork/shared"
+        let urlA = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceA
+        )
+        let urlB = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceB
+        )
+        defer {
+            manager.deleteArtwork(forSourceCompositeKey: sourceA)
+            manager.deleteArtwork(forSourceCompositeKey: sourceB)
+        }
+
+        XCTAssertNotEqual(urlA, urlB)
+        XCTAssertNil(urlA.lastPathComponent.range(of: "[^A-Za-z0-9_.-]", options: .regularExpression))
+        XCTAssertNil(urlB.lastPathComponent.range(of: "[^A-Za-z0-9_.-]", options: .regularExpression))
+        try seedArtwork(
+            data: Data("source-a".utf8),
+            at: urlA,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .album,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: 1_000,
+                sourceCompositeKey: sourceA
+            )
+        )
+        try seedArtwork(
+            data: Data("source-b".utf8),
+            at: urlB,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .album,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: 1_000,
+                sourceCompositeKey: sourceB
+            )
+        )
+
+        let pathA = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceA,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        let pathB = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceB,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        XCTAssertEqual(pathA, urlA.path)
+        XCTAssertEqual(pathB, urlB.path)
+        XCTAssertEqual(try Data(contentsOf: urlA), Data("source-a".utf8))
+        XCTAssertEqual(try Data(contentsOf: urlB), Data("source-b".utf8))
+
+        manager.deleteArtwork(forSourceCompositeKey: sourceA)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: urlA.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ArtworkDownloadManager.identityURL(for: urlA).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: urlB.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ArtworkDownloadManager.identityURL(for: urlB).path))
+    }
+
+    func testArtworkDownloadManagerLeavesUnscopedLegacyArtworkUnclaimedEvenWhenMetadataMatches() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "legacy-migration-\(UUID().uuidString)"
+        let sourceA = "plex:account-a:server:library"
+        let sourceB = "plex:account-b:server:library"
+        let sourcePath = "/library/metadata/\(ratingKey)/thumb"
+        let legacyURL = ArtworkDownloadManager.artworkFileURL(ratingKey: ratingKey, type: .album)
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceA
+        )
+        defer {
+            manager.deleteArtwork(ratingKey: ratingKey, type: .album)
+            manager.deleteArtwork(forSourceCompositeKey: sourceA)
+            manager.deleteArtwork(forSourceCompositeKey: sourceB)
+        }
+        try seedArtwork(
+            data: Data("legacy".utf8),
+            at: legacyURL,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .album,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: 1_000
+            )
+        )
+
+        let scopedPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceA,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+
+        XCTAssertNil(scopedPath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scopedURL.path))
+        let otherSourcePath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceB,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        XCTAssertNil(otherSourcePath)
+    }
+
+    func testArtworkDownloadManagerLeavesMismatchedLegacyArtworkUnclaimed() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "legacy-mismatch-\(UUID().uuidString)"
+        let sourceKey = "plex:account:server:library"
+        let legacyURL = ArtworkDownloadManager.artworkFileURL(ratingKey: ratingKey, type: .artist)
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .artist,
+            sourceCompositeKey: sourceKey
+        )
+        defer {
+            manager.deleteArtwork(ratingKey: ratingKey, type: .artist)
+            manager.deleteArtwork(forSourceCompositeKey: sourceKey)
+        }
+        try seedArtwork(
+            data: Data("legacy".utf8),
+            at: legacyURL,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .artist,
+                sourcePath: "/old/path",
+                dateModifiedSeconds: 1_000
+            )
+        )
+
+        let wrongPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .artist,
+            sourceCompositeKey: sourceKey,
+            sourcePath: "/new/path",
+            dateModifiedSeconds: 1_000
+        )
+        let wrongDate = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .artist,
+            sourceCompositeKey: sourceKey,
+            sourcePath: "/old/path",
+            dateModifiedSeconds: 1_001
+        )
+
+        XCTAssertNil(wrongPath)
+        XCTAssertNil(wrongDate)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scopedURL.path))
+    }
+
+    func testArtworkDownloadManagerLeavesIdentitylessLegacyArtworkUnclaimed() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "legacy-no-identity-\(UUID().uuidString)"
+        let sourceKey = "plex:account:server:library"
+        let sourcePath = "/library/metadata/\(ratingKey)/thumb"
+        let legacyURL = ArtworkDownloadManager.artworkFileURL(ratingKey: ratingKey, type: .album)
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceKey
+        )
+        defer {
+            manager.deleteArtwork(ratingKey: ratingKey, type: .album)
+            manager.deleteArtwork(forSourceCompositeKey: sourceKey)
+        }
+        try Data("legacy".utf8).write(to: legacyURL)
+
+        let scopedPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceKey,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        let legacyPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+
+        XCTAssertNil(scopedPath)
+        XCTAssertEqual(legacyPath, legacyURL.path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scopedURL.path))
+    }
+
+    func testArtworkDownloadManagerDoesNotClaimUnscopedLegacyArtworkForStaleLookup() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "legacy-stale-\(UUID().uuidString)"
+        let sourceKey = "plex:account:server:library"
+        let legacyURL = ArtworkDownloadManager.artworkFileURL(ratingKey: ratingKey, type: .artist)
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .artist,
+            sourceCompositeKey: sourceKey
+        )
+        defer {
+            manager.deleteArtwork(ratingKey: ratingKey, type: .artist)
+            manager.deleteArtwork(forSourceCompositeKey: sourceKey)
+        }
+        try seedArtwork(
+            data: Data("legacy".utf8),
+            at: legacyURL,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .artist,
+                sourcePath: "/library/metadata/\(ratingKey)/thumb",
+                dateModifiedSeconds: 1_000
+            )
+        )
+
+        let path = try await manager.getStaleLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .artist,
+            sourceCompositeKey: sourceKey
+        )
+
+        XCTAssertNil(path)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scopedURL.path))
+    }
+
+    func testArtworkDownloadManagerFailedMigrationPreservesLegacyArtwork() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "legacy-failure-\(UUID().uuidString)"
+        let sourceKey = "plex:account:server:library"
+        let sourcePath = "/library/metadata/\(ratingKey)/thumb"
+        let legacyURL = ArtworkDownloadManager.artworkFileURL(ratingKey: ratingKey, type: .playlist)
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .playlist,
+            sourceCompositeKey: sourceKey
+        )
+        let blockingIdentityURL = ArtworkDownloadManager.identityURL(for: scopedURL)
+        defer {
+            try? FileManager.default.removeItem(at: blockingIdentityURL)
+            manager.deleteArtwork(ratingKey: ratingKey, type: .playlist)
+            manager.deleteArtwork(forSourceCompositeKey: sourceKey)
+        }
+        try seedArtwork(
+            data: Data("legacy".utf8),
+            at: legacyURL,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .playlist,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: 1_000,
+                sourceCompositeKey: sourceKey
+            )
+        )
+        try FileManager.default.createDirectory(at: blockingIdentityURL, withIntermediateDirectories: false)
+
+        do {
+            _ = try await manager.getLocalArtworkPath(
+                ratingKey: ratingKey,
+                type: .playlist,
+                sourceCompositeKey: sourceKey,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: 1_000
+            )
+            XCTFail("Expected migration to fail while the identity destination is a directory")
+        } catch {}
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: legacyURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: scopedURL.path))
+        let legacyPath = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .playlist,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: 1_000
+        )
+        XCTAssertEqual(legacyPath, legacyURL.path)
+    }
+
+    func testArtworkDownloadManagerRejectsScopedIdentityForAnotherSource() async throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "scoped-mismatch-\(UUID().uuidString)"
+        let sourceA = "plex:account-a:server:library"
+        let sourceB = "plex:account-b:server:library"
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceA
+        )
+        defer {
+            manager.deleteArtwork(forSourceCompositeKey: sourceA)
+            manager.deleteArtwork(forSourceCompositeKey: sourceB)
+        }
+        try seedArtwork(
+            data: Data("wrong-source".utf8),
+            at: scopedURL,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .album,
+                sourcePath: "/artwork",
+                dateModifiedSeconds: nil,
+                sourceCompositeKey: sourceB
+            )
+        )
+
+        let path = try await manager.getLocalArtworkPath(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceA,
+            sourcePath: "/artwork",
+            dateModifiedSeconds: nil
+        )
+
+        XCTAssertNil(path)
+    }
+
+    func testArtworkDownloadManagerLegacyDeletionCannotRemoveScopedArtwork() throws {
+        let manager = ArtworkDownloadManager()
+        let ratingKey = "delete-scope-\(UUID().uuidString)"
+        let sourceKey = "plex:account:server:library"
+        let scopedURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: ratingKey,
+            type: .album,
+            sourceCompositeKey: sourceKey
+        )
+        defer { manager.deleteArtwork(forSourceCompositeKey: sourceKey) }
+        try seedArtwork(
+            data: Data("scoped".utf8),
+            at: scopedURL,
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: .album,
+                sourcePath: "/artwork",
+                dateModifiedSeconds: nil,
+                sourceCompositeKey: sourceKey
+            )
+        )
+
+        manager.deleteArtwork(ratingKey: ratingKey, type: .album)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: scopedURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ArtworkDownloadManager.identityURL(for: scopedURL).path))
+    }
+
     func testDeleteAllLibraryDataPurgesFeedAndMoodCaches() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
@@ -752,6 +1167,26 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNotNil(keepTrack)
         XCTAssertNotNil(otherSourceTrack)
         XCTAssertNil(removedTrack)
+        XCTAssertEqual(Set(repository.drainArtworkInvalidationInfo()), [
+            ArtworkInvalidationInfo(
+                ratingKey: "drop-artist",
+                type: .artist,
+                reason: .removed,
+                sourceCompositeKey: sourceA
+            ),
+            ArtworkInvalidationInfo(
+                ratingKey: "drop-album",
+                type: .album,
+                reason: .removed,
+                sourceCompositeKey: sourceA
+            ),
+            ArtworkInvalidationInfo(
+                ratingKey: "drop-track",
+                type: .track,
+                reason: .removed,
+                sourceCompositeKey: sourceA
+            )
+        ])
     }
 
     func testArtistAndAlbumFetchesCanUseDirectSourceScope() async throws {
@@ -1023,12 +1458,163 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(album?.releaseFormat)
     }
 
+    func testBatchUpsertsBackfillMissingDateAddedWithoutReplacingKnownDates() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "appleMusic/account/device/library"
+        let originalDate = Date(timeIntervalSince1970: 1_000)
+        let laterDate = Date(timeIntervalSince1970: 2_000)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track")
+        ], sourceCompositeKey: sourceKey)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil, dateAdded: originalDate)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil, dateAdded: originalDate)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", dateAdded: originalDate)
+        ], sourceCompositeKey: sourceKey)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil, dateAdded: laterDate)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil, dateAdded: laterDate)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", dateAdded: laterDate)
+        ], sourceCompositeKey: sourceKey)
+
+        let artistMetadata = try await repository.fetchArtistSyncMetadata(forSource: sourceKey)
+        let albumMetadata = try await repository.fetchAlbumSyncMetadata(forSource: sourceKey)
+        let trackMetadata = try await repository.fetchTrackSyncMetadata(forSource: sourceKey)
+        XCTAssertEqual(artistMetadata["artist"]?.dateAdded, originalDate)
+        XCTAssertEqual(albumMetadata["album"]?.dateAdded, originalDate)
+        XCTAssertEqual(trackMetadata["track"]?.dateAdded, originalDate)
+    }
+
+    func testFavoriteFetchHonorsExplicitProviderStateAndLegacyRatingFallback() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "appleMusic/account/device/library"
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "explicit-true", rating: 0, isFavorite: true),
+            makeTrackInput(ratingKey: "explicit-false", rating: 10, isFavorite: false),
+            makeTrackInput(ratingKey: "legacy-favorite", rating: 10),
+            makeTrackInput(ratingKey: "legacy-not-favorite", rating: 0)
+        ], sourceCompositeKey: sourceKey)
+
+        let asyncIDs = Set(try await repository.fetchFavoriteTracks().map(\.ratingKey))
+        let snapshotIDs = Set(try repository.fetchFavoriteTracksSnapshot().map(\.ratingKey))
+        XCTAssertEqual(asyncIDs, ["explicit-true", "legacy-favorite"])
+        XCTAssertEqual(snapshotIDs, asyncIDs)
+    }
+
+    func testAlbumUpsertPreservesKnownTrackCountWhenProviderOmitsIt() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "plex:account:server:library"
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil, trackCount: 12)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: "/updated", dateModified: nil, trackCount: nil)
+        ], sourceCompositeKey: sourceKey)
+
+        let album = try await repository.fetchAlbum(ratingKey: "album", sourceCompositeKey: sourceKey)
+
+        XCTAssertEqual(album?.trackCount, 12)
+        XCTAssertEqual(album?.thumbPath, "/updated")
+    }
+
+    func testCompactSyncMetadataMatchesRepositoryMergeSemantics() {
+        let originalDate = Date(timeIntervalSince1970: 1_000)
+        let laterDate = Date(timeIntervalSince1970: 2_000)
+        let album = makeAlbumInput(
+            ratingKey: "album",
+            thumbPath: "/art",
+            dateModified: originalDate,
+            dateAdded: originalDate,
+            releaseFormat: "album",
+            updatesReleaseFormat: true
+        )
+        let track = makeTrackInput(
+            ratingKey: "track",
+            dateModified: originalDate,
+            rating: 10,
+            dateAdded: originalDate,
+            isFavorite: true
+        )
+
+        XCTAssertTrue(AlbumSyncMetadata(album).matches(makeAlbumInput(
+            ratingKey: "album",
+            thumbPath: "/art",
+            dateModified: originalDate,
+            dateAdded: laterDate,
+            releaseFormat: "ignored",
+            updatesReleaseFormat: false
+        )))
+        XCTAssertFalse(AlbumSyncMetadata(album).matches(makeAlbumInput(
+            ratingKey: "album",
+            thumbPath: "/art",
+            dateModified: originalDate,
+            dateAdded: laterDate,
+            releaseFormat: "single",
+            updatesReleaseFormat: true
+        )))
+        XCTAssertTrue(TrackSyncMetadata(track).matches(makeTrackInput(
+            ratingKey: "track",
+            dateModified: originalDate,
+            rating: 10,
+            dateAdded: laterDate
+        )))
+        XCTAssertFalse(TrackSyncMetadata(track).matches(makeTrackInput(
+            ratingKey: "track",
+            dateModified: originalDate,
+            rating: 10,
+            dateAdded: laterDate,
+            isFavorite: false
+        )))
+    }
+
+    func testBatchUpsertGenresUpdatesOneSourceWithoutTouchingAnother() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+        let key = "/library/genre/ambient"
+
+        try await repository.batchUpsertGenres([
+            GenreUpsertInput(ratingKey: "a", key: key, title: "Ambient"),
+            GenreUpsertInput(ratingKey: "b", key: "/library/genre/electronic", title: "Electronic")
+        ], sourceCompositeKey: sourceA)
+        try await repository.batchUpsertGenres([
+            GenreUpsertInput(ratingKey: "other", key: key, title: "Other Ambient")
+        ], sourceCompositeKey: sourceB)
+        try await repository.batchUpsertGenres([
+            GenreUpsertInput(ratingKey: "a", key: key, title: "Ambient Music")
+        ], sourceCompositeKey: sourceA)
+
+        let genres = try await repository.fetchGenres()
+        XCTAssertEqual(genres.count, 3)
+        XCTAssertEqual(genres.first { $0.sourceCompositeKey == sourceA && $0.key == key }?.title, "Ambient Music")
+        XCTAssertEqual(genres.first { $0.sourceCompositeKey == sourceB && $0.key == key }?.title, "Other Ambient")
+    }
+
     private func makeAlbumInput(
         ratingKey: String,
         thumbPath: String?,
         dateModified: Date?,
         artistRatingKey: String? = nil,
         genreNames: String? = nil,
+        dateAdded: Date? = nil,
+        trackCount: Int? = 1,
         releaseFormat: String? = nil,
         updatesReleaseFormat: Bool = false
     ) -> AlbumUpsertInput {
@@ -1043,8 +1629,8 @@ final class LibraryRepositoryTests: XCTestCase {
             thumbPath: thumbPath,
             artPath: nil,
             year: 2024,
-            trackCount: 1,
-            dateAdded: nil,
+            trackCount: trackCount,
+            dateAdded: dateAdded,
             dateModified: dateModified,
             rating: nil,
             genreNames: genreNames,
@@ -1056,7 +1642,8 @@ final class LibraryRepositoryTests: XCTestCase {
     private func makeArtistInput(
         ratingKey: String,
         thumbPath: String?,
-        dateModified: Date?
+        dateModified: Date?,
+        dateAdded: Date? = nil
     ) -> ArtistUpsertInput {
         ArtistUpsertInput(
             ratingKey: ratingKey,
@@ -1065,7 +1652,7 @@ final class LibraryRepositoryTests: XCTestCase {
             summary: nil,
             thumbPath: thumbPath,
             artPath: nil,
-            dateAdded: nil,
+            dateAdded: dateAdded,
             dateModified: dateModified
         )
     }
@@ -1076,7 +1663,9 @@ final class LibraryRepositoryTests: XCTestCase {
         rating: Int? = nil,
         albumRatingKey: String? = nil,
         duration: Int = 180_000,
-        genreNames: String? = nil
+        genreNames: String? = nil,
+        dateAdded: Date? = nil,
+        isFavorite: Bool? = nil
     ) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: ratingKey,
@@ -1091,14 +1680,23 @@ final class LibraryRepositoryTests: XCTestCase {
             thumbPath: nil,
             streamKey: nil,
             streamId: nil,
-            dateAdded: nil,
+            dateAdded: dateAdded,
             dateModified: dateModified,
             lastPlayed: nil,
             rating: rating,
+            isFavorite: isFavorite,
             playCount: nil,
             genreNames: genreNames
         )
     }
+}
+
+private func seedArtwork(data: Data, at artworkURL: URL, identity: ArtworkIdentity) throws {
+    try data.write(to: artworkURL)
+    try JSONEncoder().encode(identity).write(
+        to: ArtworkDownloadManager.identityURL(for: artworkURL),
+        options: [.atomic]
+    )
 }
 
 private func makeJPEG(width: Int, height: Int, at url: URL) throws {

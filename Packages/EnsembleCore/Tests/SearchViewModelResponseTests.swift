@@ -29,6 +29,35 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertNil(viewModel.searchError)
     }
 
+    func testCachedExploreUsesNormalizedHubSemanticsInsteadOfDisplayTitles() {
+        let source = "appleMusic:device:system:library"
+        let playedAlbum = Album(id: "played", key: "/played", title: "Played", sourceCompositeKey: source)
+        let addedAlbum = Album(id: "added", key: "/added", title: "Added", sourceCompositeKey: source)
+        let hubs = [
+            Hub(
+                id: "opaque-played",
+                title: "Escuchado recientemente",
+                type: "album",
+                items: [hubItem(album: playedAlbum, source: source)],
+                semanticKind: .recentlyPlayed,
+                sourceScope: HubSourceScope(sourceCompositeKey: source)
+            ),
+            Hub(
+                id: "opaque-added",
+                title: "Neu hinzugefügt",
+                type: "album",
+                items: [hubItem(album: addedAlbum, source: source)],
+                semanticKind: .recentlyAdded,
+                sourceScope: HubSourceScope(sourceCompositeKey: source)
+            )
+        ]
+
+        let result = SearchViewModel.extractContentFromHubs(hubs)
+
+        XCTAssertEqual(result.albums.map(\.id), ["played"])
+        XCTAssertEqual(result.addedAlbums.map(\.id), ["added"])
+    }
+
     private func makeViewModel() -> SearchViewModel {
         let stack = CoreDataStack.inMemory()
         return SearchViewModel(
@@ -38,6 +67,19 @@ final class SearchViewModelResponseTests: XCTestCase {
             moodRepository: MoodRepository(coreDataStack: stack),
             accountManager: AccountManager(keychain: TestKeychain()),
             visibilityStore: LibraryVisibilityStore(userDefaults: isolatedUserDefaults())
+        )
+    }
+
+    private func hubItem(album: Album, source: String) -> HubItem {
+        HubItem(
+            id: album.id,
+            type: "album",
+            title: album.title,
+            subtitle: nil,
+            thumbPath: nil,
+            year: nil,
+            sourceCompositeKey: source,
+            album: album
         )
     }
 

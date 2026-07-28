@@ -199,11 +199,17 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
 
     func testBeginRenameRejectsApplePlaylistNotCreatedByEnsemble() {
         let workflow = PlaylistMutationWorkflow(mutator: StubMutator())
-        Playlist.cacheAppleMusicEditablePlaylistIDs(["external-apple-playlist"])
-        defer { Playlist.cacheAppleMusicEditablePlaylistIDs([]) }
-        let playlist = makePlaylist(
+        let playlist = Playlist(
             id: "external-apple-playlist",
-            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+            key: "external-apple-playlist",
+            title: "Playlist",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            actionCapabilities: PlaylistActionCapabilities(
+                canAddItems: true,
+                canRename: false,
+                canReorder: false,
+                canDelete: false
+            )
         )
 
         XCTAssertNil(workflow.beginRename(playlist: playlist, to: "Renamed"))

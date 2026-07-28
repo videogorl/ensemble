@@ -29,6 +29,9 @@ public final class TrackRatingLocalStore: TrackRatingLocalStoring, @unchecked Se
 
             if let cdTrack = try context.fetch(request).first {
                 cdTrack.rating = Int16(rating)
+                if track.favoriteState != nil {
+                    cdTrack.isFavorite = NSNumber(value: rating >= 8)
+                }
                 try context.save()
             }
         }

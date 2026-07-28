@@ -289,20 +289,32 @@ public final class PlaylistViewModel: ObservableObject {
         case .duration:
             return playlists.sortedByComparableKey(\.duration, ascending: asc)
         case .dateAdded:
-            return playlists.sorted { asc
-                ? ($0.dateAdded ?? .distantPast) < ($1.dateAdded ?? .distantPast)
-                : ($0.dateAdded ?? .distantPast) > ($1.dateAdded ?? .distantPast)
-            }
+            return playlists.sortedByOptionalComparableKey(\.dateAdded, stableID: \.sourceScopedID, ascending: asc)
         case .dateModified:
-            return playlists.sorted { asc
-                ? ($0.dateModified ?? .distantPast) < ($1.dateModified ?? .distantPast)
-                : ($0.dateModified ?? .distantPast) > ($1.dateModified ?? .distantPast)
-            }
+            return playlists.sortedByOptionalComparableKey(\.dateModified, stableID: \.sourceScopedID, ascending: asc)
         case .lastPlayed:
-            return playlists.sorted { asc
-                ? ($0.lastPlayed ?? .distantPast) < ($1.lastPlayed ?? .distantPast)
-                : ($0.lastPlayed ?? .distantPast) > ($1.lastPlayed ?? .distantPast)
-            }
+            return playlists.sortedByOptionalComparableKey(\.lastPlayed, stableID: \.sourceScopedID, ascending: asc)
+        }
+    }
+
+    public static func sortDisplayPlaylists(
+        _ playlists: [DisplayPlaylist],
+        by option: PlaylistSortOption,
+        ascending asc: Bool
+    ) -> [DisplayPlaylist] {
+        switch option {
+        case .title:
+            return playlists.sortedByCachedStringKey({ $0.title.sortingKey }, ascending: asc)
+        case .trackCount:
+            return playlists.sortedByComparableKey(\.trackCount, ascending: asc)
+        case .duration:
+            return playlists.sortedByComparableKey(\.duration, ascending: asc)
+        case .dateAdded:
+            return playlists.sortedByOptionalComparableKey(\.dateAdded, stableID: \.id, ascending: asc)
+        case .dateModified:
+            return playlists.sortedByOptionalComparableKey(\.dateModified, stableID: \.id, ascending: asc)
+        case .lastPlayed:
+            return playlists.sortedByOptionalComparableKey(\.lastPlayed, stableID: \.id, ascending: asc)
         }
     }
 
@@ -356,12 +368,17 @@ public final class PlaylistViewModel: ObservableObject {
 
     // MARK: - Merge Pipelines
 
-    /// Downstream pipeline: groups filteredPlaylists into DisplayPlaylist entries based on merge toggle
+    /// Filters raw playlists, then groups before sorting by aggregate display metadata.
     private func setupDisplayPlaylistsPipeline() {
-        Publishers.CombineLatest($filteredPlaylists, $isMergeEnabled)
+        Publishers.CombineLatest4($playlists, $isMergeEnabled, $playlistSortOption, $filterOptions)
             .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
-            .map { playlists, merge -> [DisplayPlaylist] in
-                DisplayPlaylist.group(playlists, merge: merge)
+            .map { playlists, merge, sortOption, filterOptions -> [DisplayPlaylist] in
+                let matching = Self.filterPlaylists(playlists, searchText: filterOptions.searchText)
+                return Self.sortDisplayPlaylists(
+                    DisplayPlaylist.group(matching, merge: merge),
+                    by: sortOption,
+                    ascending: filterOptions.sortDirection == .ascending
+                )
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -373,12 +390,21 @@ public final class PlaylistViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Downstream pipeline: groups sortedPlaylists for the macOS sidebar
+    /// Groups raw playlists before aggregate sorting for the macOS sidebar.
     private func setupSortedDisplayPlaylistsPipeline() {
-        Publishers.CombineLatest($sortedPlaylists, $isMergeEnabled)
+        Publishers.CombineLatest4(
+            $playlists,
+            $isMergeEnabled,
+            $playlistSortOption,
+            $filterOptions.map(\.sortDirection).removeDuplicates()
+        )
             .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
-            .map { playlists, merge -> [DisplayPlaylist] in
-                DisplayPlaylist.group(playlists, merge: merge)
+            .map { playlists, merge, sortOption, sortDirection -> [DisplayPlaylist] in
+                Self.sortDisplayPlaylists(
+                    DisplayPlaylist.group(playlists, merge: merge),
+                    by: sortOption,
+                    ascending: sortDirection == .ascending
+                )
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -538,9 +564,22 @@ public final class PlaylistViewModel: ObservableObject {
             by: playlistSortOption,
             ascending: filterOptions.sortDirection == .ascending
         )
-        let nextFiltered = Self.filterPlaylists(nextSorted, searchText: filterOptions.searchText)
-        let nextDisplay = DisplayPlaylist.group(nextFiltered, merge: isMergeEnabled)
-        let nextSortedDisplay = DisplayPlaylist.group(nextSorted, merge: isMergeEnabled)
+        let matching = Self.filterPlaylists(snapshot, searchText: filterOptions.searchText)
+        let nextFiltered = Self.sortPlaylists(
+            matching,
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        let nextDisplay = Self.sortDisplayPlaylists(
+            DisplayPlaylist.group(matching, merge: isMergeEnabled),
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
+        let nextSortedDisplay = Self.sortDisplayPlaylists(
+            DisplayPlaylist.group(snapshot, merge: isMergeEnabled),
+            by: playlistSortOption,
+            ascending: filterOptions.sortDirection == .ascending
+        )
 
         if filteredPlaylists != nextFiltered { filteredPlaylists = nextFiltered }
         if sortedPlaylists != nextSorted { sortedPlaylists = nextSorted }
@@ -619,20 +658,7 @@ public final class PlaylistViewModel: ObservableObject {
             guard let optimisticTitle = optimisticRenamedPlaylistTitlesByID[playlist.id] else {
                 return playlist
             }
-            return Playlist(
-                id: playlist.id,
-                key: playlist.key,
-                title: optimisticTitle,
-                summary: playlist.summary,
-                isSmart: playlist.isSmart,
-                trackCount: playlist.trackCount,
-                duration: playlist.duration,
-                compositePath: playlist.compositePath,
-                dateAdded: playlist.dateAdded,
-                dateModified: playlist.dateModified,
-                lastPlayed: playlist.lastPlayed,
-                sourceCompositeKey: playlist.sourceCompositeKey
-            )
+            return playlist.withTitle(optimisticTitle)
         }
     }
 
@@ -692,9 +718,15 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func fetchCachedPlaylists() async throws -> [Playlist] {
-        let cached = try await playlistRepository.fetchPlaylists()
-        let playlists = cached.map { Playlist(from: $0) }
-        return filterPlaylistsForEnabledSources(playlists)
+        guard let accountManager else {
+            return try await playlistRepository.fetchPlaylists().map { Playlist(from: $0) }
+        }
+
+        let enabledSources = accountManager.enabledSources()
+        guard !enabledSources.isEmpty else { return [] }
+        var sourceKeys = Set(enabledSources.map(\.compositeKey))
+        sourceKeys.formUnion(enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
+        return try await playlistRepository.fetchPlaylists(sourceCompositeKeys: sourceKeys).map { Playlist(from: $0) }
     }
 
     private func filterPlaylistsForEnabledSources(_ playlists: [Playlist]) -> [Playlist] {
@@ -926,20 +958,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         }
 
         let previousPlaylist = playlist
-        playlist = Playlist(
-            id: playlist.id,
-            key: playlist.key,
-            title: trimmed,
-            summary: playlist.summary,
-            isSmart: playlist.isSmart,
-            trackCount: playlist.trackCount,
-            duration: playlist.duration,
-            compositePath: playlist.compositePath,
-            dateAdded: playlist.dateAdded,
-            dateModified: Date(),
-            lastPlayed: playlist.lastPlayed,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        )
+        playlist = playlist.withTitle(trimmed, dateModified: Date())
         error = nil
 
         do {
@@ -961,20 +980,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         scope: PlaylistMutationToastScope = .playlist
     ) async throws -> PlaylistRenameWorkflowResult {
         let previousPlaylist = playlist
-        playlist = Playlist(
-            id: playlist.id,
-            key: playlist.key,
-            title: trimmed,
-            summary: playlist.summary,
-            isSmart: playlist.isSmart,
-            trackCount: playlist.trackCount,
-            duration: playlist.duration,
-            compositePath: playlist.compositePath,
-            dateAdded: playlist.dateAdded,
-            dateModified: Date(),
-            lastPlayed: playlist.lastPlayed,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        )
+        playlist = playlist.withTitle(trimmed, dateModified: Date())
         error = nil
 
         do {

@@ -52,6 +52,36 @@ extension LibraryRepository {
         }
     }
 
+    /// Upserts all genres in one context and save.
+    public func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws {
+        guard !inputs.isEmpty else { return }
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDGenre> = CDGenre.fetchRequest()
+            request.predicate = NSPredicate(
+                format: "sourceCompositeKey == %@ AND key IN %@",
+                sourceCompositeKey,
+                Array(Set(inputs.map(\.key)))
+            )
+            let existing = try context.fetch(request)
+            var genresByKey = Dictionary(uniqueKeysWithValues: existing.map { ($0.key, $0) })
+
+            let sourceRequest = CDMusicSource.fetchRequest()
+            sourceRequest.predicate = NSPredicate(format: "compositeKey == %@", sourceCompositeKey)
+            let source = try context.fetch(sourceRequest).first
+
+            for input in inputs {
+                let genre = genresByKey[input.key] ?? CDGenre(context: context)
+                genre.ratingKey = input.ratingKey
+                genre.key = input.key
+                genre.title = input.title
+                genre.sourceCompositeKey = sourceCompositeKey
+                genre.source = source
+                genresByKey[input.key] = genre
+            }
+            try context.save()
+        }
+    }
+
     /// Returns per-source genre coverage so startup sync can repair sparse restored stores.
     public func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? {
         try await coreDataStack.performBackgroundContext { context in

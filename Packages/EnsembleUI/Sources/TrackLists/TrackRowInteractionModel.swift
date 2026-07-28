@@ -96,7 +96,7 @@ public struct TrackRowInteractionModel {
     }
 
     public func isFavorited(_ track: Track) -> Bool {
-        isTrackFavorited?(track) ?? (track.rating >= 8)
+        isTrackFavorited?(track) ?? track.isFavorite
     }
 
     public func hasContextMenu(for track: Track) -> Bool {

@@ -159,7 +159,7 @@ try await deps.hubRepository.deleteAllHubs()
 
 Rules:
 - Feed refresh should use `HomeHubLoader` or `BackgroundRefreshCoordinator`, not a transient `HomeViewModel`.
-- Add provider Feed support by implementing `MusicSourceSyncProvider.getHomeHubs(limit:)`; return normalized ordering fields and let `HomeHubLoader` merge/persist them.
+- Add provider Feed support by implementing `MusicSourceSyncProvider.getHomeHubs(limit:)`; set `Hub.semanticKind` and `Hub.sourceScope` at the provider mapping boundary, return normalized ordering fields, and let `HomeHubLoader` merge/persist them.
 - Search consumes the combined cached snapshot and must not fetch or save provider hubs.
 - Do not save empty network hub results over the last-good snapshot.
 - Use `saveHubs(_:)`/`fetchHubs()` only for legacy compatibility; new Feed freshness work should use `HomeFeedCachedSnapshot`.
@@ -181,6 +181,8 @@ When adding support for new music sources (Apple Music, Spotify, etc.):
 3. Register provider in `SyncCoordinator.refreshProviders()`
 4. Add account configuration model similar to `PlexAccountConfig`
 5. Update `AccountManager` to handle new account type
+6. Opt into only the focused `MusicSource*` capability protocols the provider actually supports (playback, reporting, ratings, playlist mutation, details/file info, lyrics, or radio)
+7. Map provider API models into Ensemble domain values at the provider boundary; do not expose a provider client to shared ViewModels or UI
 
 ## Updating Plex Source Selection (Account-Centric Flow)
 
