@@ -252,6 +252,17 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         EnsembleLogger.debug("🏠 Hub loader cleared failed hub keys")
     }
 
+    static func removeFailedHubKey(forSourceCompositeKey sourceCompositeKey: String) {
+        let defaults = UserDefaults.standard
+        var keys = Set(defaults.stringArray(forKey: failedHubKeysKey) ?? [])
+        guard keys.remove(sourceCompositeKey) != nil else { return }
+        if keys.isEmpty {
+            defaults.removeObject(forKey: failedHubKeysKey)
+        } else {
+            defaults.set(Array(keys), forKey: failedHubKeysKey)
+        }
+    }
+
     private var failedHubKeys: Set<String> {
         let saved = UserDefaults.standard.stringArray(forKey: Self.failedHubKeysKey) ?? []
         return Set(saved)

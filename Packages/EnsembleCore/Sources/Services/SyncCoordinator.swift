@@ -1450,6 +1450,12 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Delete all CoreData for a removed music source
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
+        if sourceId.type == .appleMusic {
+            Playlist.clearAppleMusicPlaylistCapabilityCache()
+            HomeHubLoader.removeFailedHubKey(forSourceCompositeKey: sourceId.compositeKey)
+            clearLastPlaylistTargets(forServerSourceKey: sourceId.compositeKey)
+        }
+
         do {
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
 

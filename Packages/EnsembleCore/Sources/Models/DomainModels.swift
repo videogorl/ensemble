@@ -868,7 +868,14 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         Set(UserDefaults.standard.stringArray(forKey: appleMusicCreatedPlaylistIDsKey) ?? []).contains(id)
     }
 
+    static func clearAppleMusicPlaylistCapabilityCache() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: appleMusicCreatedPlaylistIDsKey)
+        defaults.removeObject(forKey: legacyAppleMusicEditablePlaylistIDsKey)
+    }
+
     private static let appleMusicCreatedPlaylistIDsKey = "appleMusicCreatedPlaylistIDs"
+    private static let legacyAppleMusicEditablePlaylistIDsKey = "appleMusicEditablePlaylistIDs"
 
     private var resolvedActionCapabilities: PlaylistActionCapabilities {
         if let actionCapabilities {

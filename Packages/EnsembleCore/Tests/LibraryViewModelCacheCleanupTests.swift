@@ -339,6 +339,54 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyArtworkURL.path))
     }
 
+    func testAppleMusicRemovalClearsOnlySourceOwnedFunctionalPreferences() async {
+        let defaults = UserDefaults.standard
+        let appleSourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let plexSourceKey = "plex:account-1:server-1"
+        let genericFilterKey = "Ensemble.FilterOptions.MergedArtistDetail-single:\(appleSourceKey)||apple-artist:ajr"
+        let keys = [
+            "appleMusicCreatedPlaylistIDs",
+            "appleMusicEditablePlaylistIDs",
+            "failedHubKeys",
+            "NowPlaying.LastPlaylist.ID",
+            "NowPlaying.LastPlaylist.Title",
+            "NowPlaying.LastPlaylist.SourceKey",
+            "NowPlaying.LastPlaylist.ByServer",
+            genericFilterKey
+        ]
+        keys.forEach(defaults.removeObject)
+        defer { keys.forEach(defaults.removeObject) }
+
+        Playlist.markAppleMusicPlaylistCreated(id: "apple-playlist")
+        defaults.set(["legacy-playlist"], forKey: "appleMusicEditablePlaylistIDs")
+        defaults.set([appleSourceKey, plexSourceKey], forKey: "failedHubKeys")
+        defaults.set("preserve", forKey: genericFilterKey)
+
+        let harness = makeHarness()
+        let plexTarget = LastPlaylistTarget(
+            id: "plex-playlist",
+            title: "Plex Playlist",
+            sourceCompositeKey: plexSourceKey
+        )
+        let appleTarget = LastPlaylistTarget(
+            id: "apple-playlist",
+            title: "Apple Playlist",
+            sourceCompositeKey: appleSourceKey
+        )
+        harness.syncCoordinator.setLastPlaylistTargetForTesting(plexTarget, serverSourceKey: plexSourceKey)
+        harness.syncCoordinator.setLastPlaylistTargetForTesting(appleTarget, serverSourceKey: appleSourceKey)
+
+        await harness.syncCoordinator.cleanupRemovedSource(.appleMusic)
+
+        XCTAssertFalse(Playlist.appleMusicPlaylistWasCreatedByEnsemble("apple-playlist"))
+        XCTAssertNil(defaults.object(forKey: "appleMusicEditablePlaylistIDs"))
+        XCTAssertEqual(Set(defaults.stringArray(forKey: "failedHubKeys") ?? []), [plexSourceKey])
+        XCTAssertNil(harness.syncCoordinator.lastPlaylistTarget(forServerSourceKey: appleSourceKey))
+        XCTAssertEqual(harness.syncCoordinator.lastPlaylistTarget(forServerSourceKey: plexSourceKey), plexTarget)
+        XCTAssertNil(harness.syncCoordinator.lastPlaylistTarget)
+        XCTAssertEqual(defaults.string(forKey: genericFilterKey), "preserve")
+    }
+
     func testSourceCleanupDeletesOnlyThatSourcesDurableArtwork() async throws {
         let harness = makeHarness()
         let sourceA = "plex:account-1:server-1:lib-1"
