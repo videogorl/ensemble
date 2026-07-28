@@ -2871,8 +2871,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
+                let shouldRebuildQueue = pendingPreBufferTime != nil
+                pendingPreBufferTime = nil
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    if shouldRebuildQueue {
+                        await playCurrentAppleMusicSegment(startTime: currentTime)
+                        return
+                    }
                     do {
                         try await appleMusicPlaybackController?.resume()
                         playbackState = .playing
@@ -5141,7 +5147,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // launch path (health checks, UI rendering, sync) has time to complete.
         // If the user taps play before the timer fires, resume() handles it
         // directly and clears pendingPreBufferTime, so the deferred task no-ops.
-        if pendingPreBufferTime != nil {
+        if pendingPreBufferTime != nil, currentTrack?.isAppleMusic != true {
             EnsembleLogger.debug("🏥 Health check complete — deferring pre-buffer by 3s")
             preBufferTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
@@ -5300,6 +5306,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @available(iOS 18, *)
         @MainActor
         private func playCurrentAppleMusicSegment(startTime: TimeInterval?) async {
+            pendingPreBufferTime = nil
             let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
 

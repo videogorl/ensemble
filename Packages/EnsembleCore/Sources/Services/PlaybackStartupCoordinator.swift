@@ -71,6 +71,9 @@ final class PlaybackStartupCoordinator {
     }
 
     func prebufferMode(for track: Track, serverReady: Bool) -> PlaybackStartupPrebufferMode {
+        if track.isAppleMusic {
+            return .none
+        }
         if track.localFilePath != nil {
             return .immediateLocal
         }
