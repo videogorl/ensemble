@@ -364,9 +364,16 @@ public struct DownloadsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.UtilityRow.textSpacing) {
-                    Text(displayLibraryTitle(for: library))
+                    Text(displayLibraryBaseTitle(for: library))
                         .font(EnsembleDesign.Typography.rowPrimary)
                         .lineLimit(1)
+
+                    if let accountName = displayLibraryAccountName(for: library) {
+                        Text(accountName)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            .lineLimit(1)
+                    }
 
                     // Track count line
                     Text(libraryTrackCountText(for: library))
@@ -426,20 +433,28 @@ public struct DownloadsView: View {
         return "~\(estimatedSize) estimated"
     }
 
-    private func displayLibraryTitle(for library: LibraryDownloadSummary) -> String {
+    private func displayLibraryBaseTitle(for library: LibraryDownloadSummary) -> String {
         let serverName = DemoModeRedaction.serverName(
             library.serverName,
             isEnabled: settingsManager.demoModeEnabled
         )
-        let title = "\(serverName): \(library.libraryName)"
+        return "\(serverName): \(library.libraryName)"
+    }
+
+    private func displayLibraryAccountName(for library: LibraryDownloadSummary) -> String? {
         guard let accountName = viewModel.disambiguatingAccountName(for: library) else {
-            return title
+            return nil
         }
-        let displayAccountName = DemoModeRedaction.accountIdentifier(
+        return DemoModeRedaction.accountIdentifier(
             accountName,
             isEnabled: settingsManager.demoModeEnabled
         )
-        return "\(title) · \(displayAccountName)"
+    }
+
+    private func displayLibraryTitle(for library: LibraryDownloadSummary) -> String {
+        let title = displayLibraryBaseTitle(for: library)
+        guard let accountName = displayLibraryAccountName(for: library) else { return title }
+        return "\(title) · \(accountName)"
     }
 
     private func libraryDownloadToggleLabel(for library: LibraryDownloadSummary) -> String {
