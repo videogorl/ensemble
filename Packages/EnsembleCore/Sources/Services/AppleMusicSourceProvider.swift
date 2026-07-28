@@ -220,11 +220,31 @@ public actor AppleMusicSourceProvider:
             ) {
                 do {
                     if let libraryPlaylist {
-                        try await persistLibraryPlaylist(
-                            libraryPlaylist,
-                            musicKitPlaylist: playlist,
-                            to: repository
-                        )
+                        try await Self.withNativePlaylistBodyFallback {
+                            try await persistLibraryPlaylist(
+                                libraryPlaylist,
+                                musicKitPlaylist: playlist,
+                                to: repository
+                            )
+                        } native: { restError in
+                            EnsembleLogger.info(
+                                "🎵 Apple Music REST playlist body unavailable; trying MusicKit id=\(id) title=\(playlist.name) \(Self.requestErrorDetails(restError))"
+                            )
+                            do {
+                                _ = try await persistPlaylist(
+                                    playlist,
+                                    artworkURL: artworkURL,
+                                    canEdit: canEdit,
+                                    dateModified: effectiveModifiedAt,
+                                    to: repository
+                                )
+                            } catch {
+                                EnsembleLogger.error(
+                                    "🎵 Apple Music native playlist fallback failed id=\(id) title=\(playlist.name) \(Self.requestErrorDetails(error))"
+                                )
+                                throw error
+                            }
+                        }
                     } else {
                         _ = try await persistPlaylist(
                             playlist,
@@ -722,6 +742,22 @@ public actor AppleMusicSourceProvider:
         [musicKit, library].compactMap { $0 }.max()
     }
 
+    static func withNativePlaylistBodyFallback<Value>(
+        rest: () async throws -> Value,
+        native: (Error) async throws -> Value
+    ) async throws -> Value {
+        do {
+            return try await rest()
+        } catch {
+            let restError = error
+            do {
+                return try await native(restError)
+            } catch {
+                throw restError
+            }
+        }
+    }
+
     private static func playlistInput(
         _ playlist: MusicKit.Playlist,
         artworkURL: String?,
@@ -836,6 +872,7 @@ public actor AppleMusicSourceProvider:
         _ playlist: MusicKit.Playlist,
         artworkURL: String?,
         canEdit: Bool,
+        dateModified: Date? = nil,
         minimumTrackCount: Int = 0,
         requiredTracks: [Track] = [],
         to repository: PlaylistRepositoryProtocol
@@ -859,7 +896,7 @@ public actor AppleMusicSourceProvider:
             playlist,
             artworkURL: artworkURL,
             canEdit: canEdit,
-            dateModified: playlist.lastModifiedDate,
+            dateModified: dateModified ?? playlist.lastModifiedDate,
             duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
             trackCount: songs.count
         )
