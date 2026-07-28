@@ -5,8 +5,16 @@ import EnsemblePersistence
 
 @MainActor
 final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
-    private enum TestError: Error {
+    private enum TestError: LocalizedError {
         case unused
+        case playlistSync
+
+        var errorDescription: String? {
+            switch self {
+            case .unused: "Unused test error."
+            case .playlistSync: "Apple Music playlist body failed."
+            }
+        }
     }
 
     private actor EventRecorder {
@@ -110,10 +118,40 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         let provider = RecordingProvider(sourceIdentifier: source, recorder: recorder)
         let controller = makeController(source: source, recorder: recorder)
 
-        await controller.sync(source: source, providers: [source.compositeKey: provider])
+        let outcome = await controller.sync(source: source, providers: [source.compositeKey: provider])
 
         let events = await recorder.snapshot()
+        XCTAssertEqual(outcome, .success)
         XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists", "artwork"])
+    }
+
+    func testSingleSourceSyncReturnsPlaylistFailureToCaller() async throws {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let provider = RecordingProvider(
+            sourceIdentifier: source,
+            recorder: recorder,
+            syncPlaylistsHandler: { _ in throw TestError.playlistSync }
+        )
+        let controller = makeController(source: source, recorder: recorder)
+
+        let outcome = await controller.sync(source: source, providers: [source.compositeKey: provider])
+        let events = await recorder.snapshot()
+
+        XCTAssertEqual(outcome, .failure(message: "Apple Music playlist body failed."))
+        XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists"])
+    }
+
+    func testSingleSourceSyncReturnsFailureWhenProviderIsUnavailable() async {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let controller = makeController(source: source, recorder: recorder)
+
+        let outcome = await controller.sync(source: source, providers: [:])
+        let events = await recorder.snapshot()
+
+        XCTAssertEqual(outcome, .failure(message: "The music source is unavailable. Please try again."))
+        XCTAssertTrue(events.isEmpty)
     }
 
     func testIncrementalSyncProcessesArtworkInvalidationsAfterPlaylistPhaseBeforeArtworkCaching() async throws {

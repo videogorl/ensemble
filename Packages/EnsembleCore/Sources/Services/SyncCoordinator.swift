@@ -3,6 +3,12 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+/// The user-visible result of syncing one configured music source.
+public enum MusicSourceSyncOutcome: Sendable, Equatable {
+    case success
+    case failure(message: String)
+}
+
 public struct PlaylistMutationResult: Sendable {
     public let addedCount: Int
     public let skippedCount: Int
@@ -281,8 +287,9 @@ public final class SyncCoordinator: ObservableObject {
         await syncExecutionController().syncAll(providers: syncProviders)
     }
 
-    /// Sync a single source.
-    public func sync(source: MusicSourceIdentifier) async {
+    /// Sync a single source and report whether every required phase completed.
+    @discardableResult
+    public func sync(source: MusicSourceIdentifier) async -> MusicSourceSyncOutcome {
         await syncExecutionController().sync(source: source, providers: syncProviders)
     }
 

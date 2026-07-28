@@ -162,7 +162,7 @@ public actor AppleMusicSourceProvider:
     ) async throws -> PlaylistSyncResult {
         try await syncPlaylists(
             to: repository,
-            refreshAllBodies: true,
+            refreshAllBodies: false,
             progressHandler: progressHandler
         )
     }

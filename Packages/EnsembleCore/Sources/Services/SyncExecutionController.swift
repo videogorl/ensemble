@@ -70,7 +70,11 @@ final class SyncExecutionController {
         }
     }
 
-    func sync(source: MusicSourceIdentifier, providers: [String: MusicSourceSyncProvider]) async {
+    @discardableResult
+    func sync(
+        source: MusicSourceIdentifier,
+        providers: [String: MusicSourceSyncProvider]
+    ) async -> MusicSourceSyncOutcome {
         await syncSingleSource(source, providers: providers, publishGlobalSyncState: true)
     }
 
@@ -96,7 +100,7 @@ final class SyncExecutionController {
         }
 
         for source in uniqueSources {
-            await syncSingleSource(source, providers: providers, publishGlobalSyncState: false)
+            _ = await syncSingleSource(source, providers: providers, publishGlobalSyncState: false)
         }
     }
 
@@ -259,9 +263,13 @@ final class SyncExecutionController {
         _ source: MusicSourceIdentifier,
         providers: [String: MusicSourceSyncProvider],
         publishGlobalSyncState: Bool
-    ) async {
-        guard let provider = providers[source.compositeKey] else { return }
-        await syncFullSource(
+    ) async -> MusicSourceSyncOutcome {
+        guard let provider = providers[source.compositeKey] else {
+            let message = "The music source is unavailable. Please try again."
+            EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
+            return .failure(message: message)
+        }
+        return await syncFullSource(
             provider,
             source: source,
             shouldSyncPlaylists: true,
@@ -273,6 +281,7 @@ final class SyncExecutionController {
         )
     }
 
+    @discardableResult
     private func syncFullSource(
         _ provider: MusicSourceSyncProvider,
         source: MusicSourceIdentifier,
@@ -282,7 +291,7 @@ final class SyncExecutionController {
         playlistProgressBase: Double,
         playlistProgressWeight: Double,
         cacheArtworkAfterLibrarySync: Bool
-    ) async {
+    ) async -> MusicSourceSyncOutcome {
         let shouldPublishGlobalSyncState = publishGlobalSyncState && !dependencies.isSyncing()
         if shouldPublishGlobalSyncState {
             dependencies.setIsSyncing(true)
@@ -342,16 +351,21 @@ final class SyncExecutionController {
             )
             dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
             dependencies.postSiriRebuildRequest()
+            return .success
         } catch is CancellationError {
             dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
+            return .failure(message: "Sync was cancelled.")
         } catch {
+            let message = dependencies.syncErrorMessage(error)
+            EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(
-                    syncStatus: .error(dependencies.syncErrorMessage(error)),
+                    syncStatus: .error(message),
                     connectionState: dependencies.effectiveConnectionState(currentConnectionState)
                 )
             )
+            return .failure(message: message)
         }
     }
 

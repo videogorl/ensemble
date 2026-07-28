@@ -52,7 +52,7 @@ public struct AddSourceView: View {
                     } label: {
                         HStack {
                             Label {
-                                Text("Apple Music")
+                                Text(appleMusicSyncNeedsRetry ? "Retry Apple Music" : "Apple Music")
                             } icon: {
                                 Image("AppleMusicSourceIcon")
                                     .resizable()
@@ -62,13 +62,19 @@ public struct AddSourceView: View {
                             Spacer()
                             if isAddingAppleMusic {
                                 ProgressView()
+                            } else if appleMusicSyncNeedsRetry {
+                                Image(systemName: "arrow.clockwise")
+                                    .foregroundStyle(.secondary)
                             } else if accountManager.isAppleMusicEnabled {
                                 Image(systemName: "checkmark")
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
-                    .disabled(accountManager.isAppleMusicEnabled || isAddingAppleMusic)
+                    .disabled(
+                        isAddingAppleMusic
+                            || (accountManager.isAppleMusicEnabled && !appleMusicSyncNeedsRetry)
+                    )
                 } else {
                     Label {
                         Text("Apple Music Requires iOS 18")
@@ -98,6 +104,7 @@ public struct AddSourceView: View {
         }
         .navigationTitle("Add Source")
         #if os(iOS)
+        .onAppear(perform: restoreAppleMusicSyncError)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .if(!isEmbedded) { view in
@@ -112,6 +119,7 @@ public struct AddSourceView: View {
     #if os(iOS)
     @available(iOS 18, *)
     private func addAppleMusic() async {
+        errorMessage = nil
         isAddingAppleMusic = true
         defer { isAddingAppleMusic = false }
         guard await MusicAuthorization.request() == .authorized else {
@@ -127,11 +135,27 @@ public struct AddSourceView: View {
             }
             accountManager.setAppleMusicEnabled(true)
             syncCoordinator.refreshProviders()
-            await syncCoordinator.sync(source: .appleMusic)
-            dismiss()
+            switch await syncCoordinator.sync(source: .appleMusic) {
+            case .success:
+                dismiss()
+            case .failure(let message):
+                errorMessage = message
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var appleMusicSyncNeedsRetry: Bool {
+        accountManager.isAppleMusicEnabled && errorMessage != nil
+    }
+
+    private func restoreAppleMusicSyncError() {
+        guard accountManager.isAppleMusicEnabled,
+              case .error(let message) = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return
+        }
+        errorMessage = message
     }
     #endif
 }
