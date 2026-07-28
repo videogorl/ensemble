@@ -91,7 +91,7 @@ For app-facing UI cleanup, build and launch at least one phone and one iPad simu
 Required closeout checks for broad cleanup:
 
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS' build
 ```
 

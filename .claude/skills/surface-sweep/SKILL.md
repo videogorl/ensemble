@@ -36,8 +36,8 @@ mkdir -p "$ARTIFACT_ROOT"/{iphone,ipad,macos,logs}
 4. Build before touching UI:
 
 ```bash
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M4)' build
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=macOS,arch=arm64' build
 ```
 

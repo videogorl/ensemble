@@ -159,7 +159,7 @@ ensemble/
 ### Building & Testing
 ```bash
 # Build full app
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Build individual package
 swift build --package-path Packages/EnsembleCore
