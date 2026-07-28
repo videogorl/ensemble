@@ -116,12 +116,18 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         let recorder = EventRecorder()
         let source = makeSourceIdentifier()
         let provider = RecordingProvider(sourceIdentifier: source, recorder: recorder)
-        let controller = makeController(source: source, recorder: recorder)
+        var completedSources: [MusicSourceIdentifier] = []
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            markSourceSyncCompleted: { completedSources.append($0) }
+        )
 
         let outcome = await controller.sync(source: source, providers: [source.compositeKey: provider])
 
         let events = await recorder.snapshot()
         XCTAssertEqual(outcome, .success)
+        XCTAssertEqual(completedSources, [source])
         XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists", "artwork"])
     }
 
@@ -133,12 +139,26 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             recorder: recorder,
             syncPlaylistsHandler: { _ in throw TestError.playlistSync }
         )
-        let controller = makeController(source: source, recorder: recorder)
+        var completedSources: [MusicSourceIdentifier] = []
+        var publishedLibraryResult: LibrarySyncResult?
+        var publishedPlaylistResult: PlaylistSyncResult?
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            markSourceSyncCompleted: { completedSources.append($0) },
+            publishContentChange: { _, libraryResult, playlistResult, _ in
+                publishedLibraryResult = libraryResult
+                publishedPlaylistResult = playlistResult
+            }
+        )
 
         let outcome = await controller.sync(source: source, providers: [source.compositeKey: provider])
         let events = await recorder.snapshot()
 
         XCTAssertEqual(outcome, .failure(message: "Apple Music playlist body failed."))
+        XCTAssertTrue(completedSources.isEmpty)
+        XCTAssertEqual(publishedLibraryResult?.changedAlbums, 1)
+        XCTAssertNil(publishedPlaylistResult)
         XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists"])
     }
 
@@ -158,11 +178,17 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         let recorder = EventRecorder()
         let source = makeSourceIdentifier()
         let provider = RecordingProvider(sourceIdentifier: source, recorder: recorder)
-        let controller = makeController(source: source, recorder: recorder)
+        var completedSources: [MusicSourceIdentifier] = []
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            markSourceSyncCompleted: { completedSources.append($0) }
+        )
 
         await controller.syncIncremental(source: source, providers: [source.compositeKey: provider])
 
         let events = await recorder.snapshot()
+        XCTAssertEqual(completedSources, [source])
         XCTAssertEqual(
             events,
             [
@@ -175,6 +201,36 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 "cache-artists",
                 "cache-playlists"
             ]
+        )
+    }
+
+    func testIncrementalSyncPublishesCommittedLibraryChangesWhenPlaylistSyncFails() async {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let provider = RecordingProvider(
+            sourceIdentifier: source,
+            recorder: recorder,
+            syncPlaylistsIncrementalHandler: { _ in throw TestError.playlistSync }
+        )
+        var completedSources: [MusicSourceIdentifier] = []
+        var publishedLibraryResult: LibrarySyncResult?
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            markSourceSyncCompleted: { completedSources.append($0) },
+            publishContentChange: { _, libraryResult, _, _ in
+                publishedLibraryResult = libraryResult
+            }
+        )
+
+        await controller.syncIncremental(source: source, providers: [source.compositeKey: provider])
+        let events = await recorder.snapshot()
+
+        XCTAssertTrue(completedSources.isEmpty)
+        XCTAssertEqual(publishedLibraryResult?.changedAlbums, 1)
+        XCTAssertEqual(
+            events,
+            ["library-incremental", "reparent", "artwork", "playlists-incremental"]
         )
     }
 
@@ -333,7 +389,14 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         libraryRepository providedLibraryRepository: LibraryRepositoryProtocol? = nil,
         playlistRepository providedPlaylistRepository: PlaylistRepositoryProtocol? = nil,
         processArtworkInvalidations providedProcessArtworkInvalidations: (() async -> Void)? = nil,
-        recordWholeSourceArtworkCache: Bool = false
+        recordWholeSourceArtworkCache: Bool = false,
+        markSourceSyncCompleted: @escaping (MusicSourceIdentifier) -> Void = { _ in },
+        publishContentChange: @escaping (
+            MusicSourceIdentifier,
+            LibrarySyncResult?,
+            PlaylistSyncResult?,
+            Date
+        ) -> Void = { _, _, _, _ in }
     ) -> SyncExecutionController {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = providedLibraryRepository ?? LibraryRepository(coreDataStack: stack)
@@ -375,7 +438,8 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 },
                 notifyPlaylistRefreshCompleted: { _ in },
                 connectionStateAfterSuccessfulSync: { _, state in state },
-                publishContentChange: { _, _, _, _ in },
+                markSourceSyncCompleted: markSourceSyncCompleted,
+                publishContentChange: publishContentChange,
                 restoreStatusAfterCancellation: { source, status, connectionState in
                     statuses[source] = status ?? MusicSourceStatus(connectionState: connectionState)
                 },

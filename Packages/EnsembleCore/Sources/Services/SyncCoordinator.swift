@@ -1104,6 +1104,10 @@ public final class SyncCoordinator: ObservableObject {
                 connectionStateAfterSuccessfulSync: {
                     await self.serverConnectionController.connectionStateAfterSuccessfulSync(for: $0, fallback: $1)
                 },
+                markSourceSyncCompleted: { source in
+                    guard source == .appleMusic else { return }
+                    self.accountManager.markAppleMusicInitialSyncCompleted()
+                },
                 publishContentChange: { self.publishContentChangeIfNeeded(for: $0, libraryResult: $1, playlistResult: $2, syncedAt: $3) },
                 restoreStatusAfterCancellation: { self.restoreStatusAfterCancellation(for: $0, previousStatus: $1, fallbackConnectionState: $2) },
                 syncErrorMessage: { self.syncErrorMessage(for: $0) },

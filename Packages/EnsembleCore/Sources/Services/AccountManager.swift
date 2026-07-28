@@ -12,6 +12,11 @@ public enum AccountCredentialLoadState: Equatable, Sendable {
 /// Manages connected music source accounts (Plex, future Apple Music, etc.)
 @MainActor
 public final class AccountManager: ObservableObject {
+    struct AppleMusicSetupState: Equatable {
+        let isEnabled: Bool
+        let isInitialSyncPending: Bool
+    }
+
     private struct AccountLoadResult: Sendable {
         let json: String?
         let migrationWasApplied: Bool
@@ -67,6 +72,7 @@ public final class AccountManager: ObservableObject {
 
     @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
     @Published public private(set) var isAppleMusicEnabled: Bool
+    @Published public private(set) var isAppleMusicInitialSyncPending: Bool
     @Published public private(set) var isAwaitingCloudSources = false
     /// Distinguishes a valid empty Keychain from a Keychain access failure.
     @Published public private(set) var credentialLoadState: AccountCredentialLoadState = .loading
@@ -90,6 +96,7 @@ public final class AccountManager: ObservableObject {
     nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
     private static let appleMusicEnabledKey = "sources.appleMusic.enabled"
+    private static let appleMusicInitialSyncPendingKey = "sources.appleMusic.initialSyncPending"
 
     public init(
         keychain: KeychainServiceProtocol,
@@ -101,9 +108,12 @@ public final class AccountManager: ObservableObject {
         self.isNetworkAvailable = isNetworkAvailable
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
         #if os(iOS)
-        self.isAppleMusicEnabled = UserDefaults.standard.bool(forKey: Self.appleMusicEnabledKey)
+        let appleMusicSetupState = Self.loadAppleMusicSetupState()
+        self.isAppleMusicEnabled = appleMusicSetupState.isEnabled
+        self.isAppleMusicInitialSyncPending = appleMusicSetupState.isInitialSyncPending
         #else
         self.isAppleMusicEnabled = false
+        self.isAppleMusicInitialSyncPending = false
         #endif
     }
 
@@ -648,10 +658,43 @@ public final class AccountManager: ObservableObject {
     public func setAppleMusicEnabled(_ isEnabled: Bool) {
         #if os(iOS)
         guard isAppleMusicEnabled != isEnabled else { return }
+        Self.persistAppleMusicEnabled(isEnabled)
+        isAppleMusicInitialSyncPending = isEnabled
         isAppleMusicEnabled = isEnabled
-        UserDefaults.standard.set(isEnabled, forKey: Self.appleMusicEnabledKey)
         SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
         #endif
+    }
+
+    func markAppleMusicInitialSyncCompleted() {
+        #if os(iOS)
+        guard isAppleMusicInitialSyncPending else { return }
+        Self.persistAppleMusicInitialSyncCompleted()
+        isAppleMusicInitialSyncPending = false
+        #endif
+    }
+
+    static func loadAppleMusicSetupState(
+        from defaults: UserDefaults = .standard
+    ) -> AppleMusicSetupState {
+        let isEnabled = defaults.bool(forKey: appleMusicEnabledKey)
+        return AppleMusicSetupState(
+            isEnabled: isEnabled,
+            isInitialSyncPending: isEnabled && defaults.bool(forKey: appleMusicInitialSyncPendingKey)
+        )
+    }
+
+    static func persistAppleMusicEnabled(
+        _ isEnabled: Bool,
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(isEnabled, forKey: appleMusicInitialSyncPendingKey)
+        defaults.set(isEnabled, forKey: appleMusicEnabledKey)
+    }
+
+    static func persistAppleMusicInitialSyncCompleted(
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(false, forKey: appleMusicInitialSyncPendingKey)
     }
 
     /// Returns all enabled MusicSourceIdentifiers across all accounts

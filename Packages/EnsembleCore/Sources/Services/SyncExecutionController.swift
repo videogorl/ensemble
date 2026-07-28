@@ -24,6 +24,7 @@ final class SyncExecutionController {
         let cachePlaylistArtwork: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
         let notifyPlaylistRefreshCompleted: (String) -> Void
         let connectionStateAfterSuccessfulSync: (MusicSourceIdentifier, ServerConnectionState) async -> ServerConnectionState
+        let markSourceSyncCompleted: (MusicSourceIdentifier) -> Void
         let publishContentChange: (MusicSourceIdentifier, LibrarySyncResult?, PlaylistSyncResult?, Date) -> Void
         let restoreStatusAfterCancellation: (MusicSourceIdentifier, MusicSourceStatus?, ServerConnectionState) -> Void
         let syncErrorMessage: (Error) -> String
@@ -304,13 +305,14 @@ final class SyncExecutionController {
 
         let currentConnectionState = dependencies.statusForSource(source)?.connectionState ?? .unknown
         let previousStatus = dependencies.statusForSource(source)
+        var libraryResult: LibrarySyncResult?
         dependencies.setStatus(
             source,
             MusicSourceStatus(syncStatus: .syncing(progress: 0), connectionState: currentConnectionState)
         )
 
         do {
-            let libraryResult = try await provider.syncLibrary(
+            libraryResult = try await provider.syncLibrary(
                 to: dependencies.libraryRepository,
                 progressHandler: { [dependencies] progress in
                     Task { @MainActor in
@@ -345,6 +347,7 @@ final class SyncExecutionController {
                 source,
                 currentConnectionState
             )
+            dependencies.markSourceSyncCompleted(source)
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
@@ -353,9 +356,11 @@ final class SyncExecutionController {
             dependencies.postSiriRebuildRequest()
             return .success
         } catch is CancellationError {
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
             dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
             return .failure(message: "Sync was cancelled.")
         } catch {
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
             let message = dependencies.syncErrorMessage(error)
             EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
             dependencies.setStatus(
@@ -367,6 +372,15 @@ final class SyncExecutionController {
             )
             return .failure(message: message)
         }
+    }
+
+    private func publishCommittedLibraryChangesIfNeeded(
+        _ libraryResult: LibrarySyncResult?,
+        source: MusicSourceIdentifier
+    ) {
+        guard libraryResult?.hasMaterialChanges == true else { return }
+        dependencies.publishContentChange(source, libraryResult, nil, Date())
+        dependencies.postSiriRebuildRequest()
     }
 
     private func syncIncrementalSource(
@@ -392,6 +406,7 @@ final class SyncExecutionController {
         let overallStart = CFAbsoluteTimeGetCurrent()
         let currentConnectionState = dependencies.statusForSource(source)?.connectionState ?? .unknown
         let previousStatus = dependencies.statusForSource(source)
+        var libraryResult: LibrarySyncResult?
         dependencies.setStatus(
             source,
             MusicSourceStatus(syncStatus: .syncing(progress: 0), connectionState: currentConnectionState)
@@ -399,7 +414,7 @@ final class SyncExecutionController {
 
         do {
             let timestamp = lastSyncDate.timeIntervalSince1970 - 5
-            let libraryResult = try await provider.syncLibraryIncremental(
+            libraryResult = try await provider.syncLibraryIncremental(
                 since: timestamp,
                 to: dependencies.libraryRepository,
                 progressHandler: { [dependencies] progress in
@@ -451,6 +466,7 @@ final class SyncExecutionController {
                 source,
                 currentConnectionState
             )
+            dependencies.markSourceSyncCompleted(source)
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
@@ -458,8 +474,10 @@ final class SyncExecutionController {
             dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
             dependencies.postSiriRebuildRequest()
         } catch is CancellationError {
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
             dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
         } catch {
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(

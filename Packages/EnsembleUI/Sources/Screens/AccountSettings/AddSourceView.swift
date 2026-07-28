@@ -6,10 +6,11 @@ import MusicKit
 
 public struct AddSourceView: View {
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var errorMessage: String?
     @State private var isAddingAppleMusic = false
+    @State private var appleMusicSetupRequestID: UUID?
     private let isEmbedded: Bool
 
     public init(embedded: Bool = false) {
@@ -48,7 +49,7 @@ public struct AddSourceView: View {
                 #if os(iOS)
                 if #available(iOS 18, *) {
                     Button {
-                        Task { await addAppleMusic() }
+                        appleMusicSetupRequestID = UUID()
                     } label: {
                         HStack {
                             Label {
@@ -60,7 +61,7 @@ public struct AddSourceView: View {
                                     .frame(width: 30, height: 30)
                             }
                             Spacer()
-                            if isAddingAppleMusic {
+                            if isAddingAppleMusic || isAppleMusicSyncing {
                                 ProgressView()
                             } else if appleMusicSyncNeedsRetry {
                                 Image(systemName: "arrow.clockwise")
@@ -73,6 +74,7 @@ public struct AddSourceView: View {
                     }
                     .disabled(
                         isAddingAppleMusic
+                            || isAppleMusicSyncing
                             || (accountManager.isAppleMusicEnabled && !appleMusicSyncNeedsRetry)
                     )
                 } else {
@@ -95,16 +97,25 @@ public struct AddSourceView: View {
                 #endif
             }
 
-            if let errorMessage {
+            if let displayedErrorMessage {
                 Section {
-                    Text(errorMessage)
+                    Text(displayedErrorMessage)
                         .foregroundStyle(.red)
                 }
             }
         }
         .navigationTitle("Add Source")
         #if os(iOS)
-        .onAppear(perform: restoreAppleMusicSyncError)
+        .task(id: appleMusicSetupRequestID) {
+            guard appleMusicSetupRequestID != nil else { return }
+            defer { appleMusicSetupRequestID = nil }
+            guard #available(iOS 18, *) else { return }
+            await addAppleMusic()
+        }
+        .onReceive(syncCoordinator.$sourceStatuses) { statuses in
+            guard case .lastSynced = statuses[.appleMusic]?.syncStatus else { return }
+            errorMessage = nil
+        }
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .if(!isEmbedded) { view in
@@ -122,40 +133,61 @@ public struct AddSourceView: View {
         errorMessage = nil
         isAddingAppleMusic = true
         defer { isAddingAppleMusic = false }
-        guard await MusicAuthorization.request() == .authorized else {
+        let authorization = await MusicAuthorization.request()
+        guard !Task.isCancelled else { return }
+        guard authorization == .authorized else {
             errorMessage = "Allow Apple Music access in Settings to add this source."
             return
         }
 
         do {
             let subscription = try await MusicSubscription.current
+            guard !Task.isCancelled else { return }
             guard subscription.canPlayCatalogContent else {
                 errorMessage = "An active Apple Music subscription is required."
                 return
             }
             accountManager.setAppleMusicEnabled(true)
             syncCoordinator.refreshProviders()
-            switch await syncCoordinator.sync(source: .appleMusic) {
+            let outcome = await syncCoordinator.sync(source: .appleMusic)
+            guard !Task.isCancelled else { return }
+            switch outcome {
             case .success:
                 dismiss()
             case .failure(let message):
-                errorMessage = message
+                if appleMusicSyncErrorMessage == nil {
+                    errorMessage = message
+                }
             }
+        } catch is CancellationError {
+            return
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
     private var appleMusicSyncNeedsRetry: Bool {
-        accountManager.isAppleMusicEnabled && errorMessage != nil
+        accountManager.isAppleMusicEnabled
+            && (accountManager.isAppleMusicInitialSyncPending || appleMusicSyncErrorMessage != nil)
     }
 
-    private func restoreAppleMusicSyncError() {
-        guard accountManager.isAppleMusicEnabled,
-              case .error(let message) = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
-            return
-        }
-        errorMessage = message
+    private var isAppleMusicSyncing: Bool {
+        guard case .syncing = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else { return false }
+        return true
     }
+
+    private var appleMusicSyncErrorMessage: String? {
+        guard case .error(let message) = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else { return nil }
+        return message
+    }
+
     #endif
+
+    private var displayedErrorMessage: String? {
+        #if os(iOS)
+        appleMusicSyncErrorMessage ?? errorMessage
+        #else
+        errorMessage
+        #endif
+    }
 }
