@@ -56,7 +56,7 @@ public struct RootView: View {
             nowPlayingVM: nowPlayingVM,
             playbackService: DependencyContainer.shared.playbackService,
             accentColor: settingsManager.accentColor.color,
-            isAuroraEnabled: settingsManager.auroraVisualizationEnabled && showsRootAurora,
+            isAuroraEnabled: settingsManager.auroraVisualizationEnabled && showsRootAurora && nowPlayingVM.currentTrack?.sourceCapabilities.supportsWaveform != false,
             isLowPowerMode: isLowPowerMode,
             isNowPlayingPresented: isNowPlayingPresented,
             isSoftwareKeyboardVisible: isSoftwareKeyboardVisible,

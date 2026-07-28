@@ -144,23 +144,14 @@ Task {
 ## Working with Hubs
 
 ```swift
-// Load hubs from Plex API
-let hubs = try await deps.syncCoordinator.fetchHubs(for: sourceKey)
+// Each provider maps its service into normalized Hub values.
+func getHomeHubs(limit: Int) async throws -> [Hub]
 
-// Save a last-good Feed snapshot for offline-first launch.
-let snapshot = HomeFeedCachedSnapshot(
-    sourceScopeKey: "plex:account:server",
-    sourceName: "Editing Music",
-    fetchedAt: Date(),
-    refreshReason: "network",
-    freshnessState: .fresh,
-    isLastGood: true,
-    hubs: hubs
-)
-try await deps.hubRepository.saveHomeFeedSnapshot(snapshot)
+// Feed and background refresh collect every configured provider here.
+let snapshot = await deps.homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12")
 
-// Load cached hubs
-let cachedSnapshot = try await deps.hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: "plex:account:server")
+// HomeHubLoader saves non-empty combined snapshots; load the last-good snapshot directly.
+let lastGood = try await deps.hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil)
 
 // Clear all cached hubs
 try await deps.hubRepository.deleteAllHubs()
@@ -168,6 +159,8 @@ try await deps.hubRepository.deleteAllHubs()
 
 Rules:
 - Feed refresh should use `HomeHubLoader` or `BackgroundRefreshCoordinator`, not a transient `HomeViewModel`.
+- Add provider Feed support by implementing `MusicSourceSyncProvider.getHomeHubs(limit:)`; return normalized ordering fields and let `HomeHubLoader` merge/persist them.
+- Search consumes the combined cached snapshot and must not fetch or save provider hubs.
 - Do not save empty network hub results over the last-good snapshot.
 - Use `saveHubs(_:)`/`fetchHubs()` only for legacy compatibility; new Feed freshness work should use `HomeFeedCachedSnapshot`.
 

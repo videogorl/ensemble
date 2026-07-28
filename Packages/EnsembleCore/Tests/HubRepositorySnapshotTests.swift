@@ -177,6 +177,46 @@ final class HubRepositorySnapshotTests: XCTestCase {
         XCTAssertEqual(fetched?.refreshReason, "background-refresh")
     }
 
+    func testDeletingSourceHubsPreservesOtherItemsInCombinedSnapshot() async throws {
+        let repository = HubRepository(coreDataStack: .inMemory())
+        let appleMusicSource = MusicSourceIdentifier.appleMusic.compositeKey
+        let plexSource = "plex:account:server:library"
+        let hub = Hub(
+            id: "recently-added:merged:album",
+            title: "Recently Added",
+            type: "album",
+            items: [
+                HubItem(id: "apple-album", type: "album", title: "Apple Album", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: appleMusicSource),
+                HubItem(id: "plex-album", type: "album", title: "Plex Album", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: plexSource),
+            ]
+        )
+        let appleOnlyHub = Hub(
+            id: "most-played:apple",
+            title: "Most Played",
+            type: "track",
+            items: [HubItem(id: "apple-track", type: "track", title: "Apple Track", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: appleMusicSource)]
+        )
+        try await repository.saveHomeFeedSnapshot(
+            HomeFeedCachedSnapshot(
+                sourceScopeKey: nil,
+                sourceName: "Music",
+                fetchedAt: Date(),
+                refreshReason: "network",
+                freshnessState: .fresh,
+                isLastGood: true,
+                hubs: [hub, appleOnlyHub]
+            )
+        )
+
+        try await repository.deleteHubs(forSourceCompositeKey: appleMusicSource)
+
+        let fetchedHubs = try await repository.fetchHubs()
+        XCTAssertEqual(fetchedHubs.count, 1)
+        let fetchedHub = fetchedHubs.first
+        XCTAssertEqual(fetchedHub?.items.map(\.id), ["plex-album"])
+        XCTAssertEqual(fetchedHub?.items.first?.sourceCompositeKey, plexSource)
+    }
+
     private func makeHub(id: String, context: String?) -> Hub {
         Hub(
             id: id,

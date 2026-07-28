@@ -197,6 +197,19 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertNil(start)
     }
 
+    func testBeginRenameRejectsApplePlaylistNotCreatedByEnsemble() {
+        let workflow = PlaylistMutationWorkflow(mutator: StubMutator())
+        Playlist.cacheAppleMusicEditablePlaylistIDs(["external-apple-playlist"])
+        defer { Playlist.cacheAppleMusicEditablePlaylistIDs([]) }
+        let playlist = makePlaylist(
+            id: "external-apple-playlist",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertNil(workflow.beginRename(playlist: playlist, to: "Renamed"))
+        XCTAssertTrue(playlist.supportsPlaylistTrackAdds)
+    }
+
     func testFinishRenameCallsMutatorAndBuildsCompletedToast() async throws {
         let stub = StubMutator()
         let workflow = PlaylistMutationWorkflow(mutator: stub)
@@ -336,17 +349,42 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(result.resultToast.dedupeKey, "merged-delete-result-display-1")
     }
 
+    func testMergedMutationsSkipSmartAndAppleDeletionUnsupportedConstituents() async {
+        let stub = StubMutator()
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+        Playlist.markAppleMusicPlaylistCreated(id: "apple-user")
+        let displayPlaylist = DisplayPlaylist(
+            id: "mixed",
+            title: "Ambient Electric",
+            isSmart: true,
+            playlists: [
+                makePlaylist(id: "apple-editorial", title: "Ambient Electric", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+                makePlaylist(id: "apple-user", title: "Ambient Electric", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+                makePlaylist(id: "plex", title: "Ambient Electric")
+            ]
+        )
+
+        let rename = await workflow.finishRenameAll(displayPlaylist: displayPlaylist, trimmedTitle: "Ambient")
+        let delete = await workflow.finishDeleteAll(displayPlaylist: displayPlaylist)
+
+        XCTAssertEqual(stub.renamedPlaylistIDs, ["apple-user", "plex"])
+        XCTAssertEqual(rename.totalCount, 2)
+        XCTAssertEqual(stub.deletedPlaylistIDs, ["plex"])
+        XCTAssertEqual(delete.totalCount, 1)
+    }
+
     private func makePlaylist(
         id: String = "playlist-1",
         title: String = "Playlist",
-        isSmart: Bool = false
+        isSmart: Bool = false,
+        sourceCompositeKey: String = "plex:account-1:server-1"
     ) -> Playlist {
         Playlist(
             id: id,
             key: "/playlists/\(id)",
             title: title,
             isSmart: isSmart,
-            sourceCompositeKey: "plex:account-1:server-1"
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 

@@ -47,6 +47,7 @@ public final class NavigationCoordinator: ObservableObject {
         case playlistDetail(Playlist)
         case mergedPlaylist(title: String, isSmart: Bool)
         case moodTracks(mood: Mood)
+        case searchResults(section: SearchSection)
         case view(TabItem) // For pushing library views from the More menu
 
         var journeyLogDescription: String {
@@ -63,6 +64,8 @@ public final class NavigationCoordinator: ObservableObject {
                 return isSmart ? "smartPlaylist" : "playlist"
             case .moodTracks:
                 return "moodTracks"
+            case .searchResults(let section):
+                return "searchResults(\(section.rawValue))"
             case .view(let tab):
                 return "view(\(tab.rawValue))"
             }
@@ -144,6 +147,8 @@ public final class NavigationCoordinator: ObservableObject {
             return .playlists
         case .moodTracks:
             return .home
+        case .searchResults:
+            return .search
         case .view(let tab):
             return tab
         }
@@ -414,6 +419,9 @@ public final class NavigationCoordinator: ObservableObject {
         )
 
         switch surface {
+        case .addSource:
+            showingAddAccount = true
+            return true
         case .profile, .profileStorage:
             openProfile()
             return true

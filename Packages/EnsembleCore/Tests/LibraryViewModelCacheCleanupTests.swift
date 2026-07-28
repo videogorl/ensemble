@@ -308,6 +308,20 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
+    func testAppleMusicCleanupClearsSharedArtworkCaches() async throws {
+        let cleanupRecorder = CleanupRecorder()
+        let harness = makeHarness(clearSharedArtworkCaches: {
+            await cleanupRecorder.record("artwork")
+        })
+
+        _ = try await harness.sourceCacheCleanupService.cleanupSource(
+            MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        let calls = await cleanupRecorder.recordedSourceKeys()
+        XCTAssertEqual(calls, ["artwork"])
+    }
+
     func testSourceCleanupRemovesDownloadFilesAndOrphanedSidecars() async throws {
         let harness = makeHarness()
         let sourceKey = "plex:account-1:server-1:lib-1"
@@ -609,7 +623,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
     private func makeHarness(
         credentialReadUnavailable: Bool = false,
         clearLyricsCache: @escaping SourceCacheCleanupService.LyricsCacheCleanup = { _ in 0 },
-        clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = { 0 }
+        clearAllLyricsCaches: @escaping SourceCacheCleanupService.AllLyricsCacheCleanup = { 0 },
+        clearSharedArtworkCaches: @escaping SourceCacheCleanupService.SharedArtworkCacheCleanup = {}
     ) -> Harness {
         let keychain = TestKeychain()
         if credentialReadUnavailable {
@@ -638,6 +653,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         )
         let sourceCacheCleanupService = SourceCacheCleanupService(
             libraryRepository: libraryRepository,
+            hubRepository: HubRepository(coreDataStack: stack),
             downloadManager: downloadManager,
             targetRepository: targetRepository,
             artworkDownloadManager: artworkDownloadManager,
@@ -660,7 +676,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
                 try await artworkDownloadManager.getArtworkCacheFileCount()
             },
             clearLyricsCache: clearLyricsCache,
-            clearAllLyricsCaches: clearAllLyricsCaches
+            clearAllLyricsCaches: clearAllLyricsCaches,
+            clearSharedArtworkCaches: clearSharedArtworkCaches
         )
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService
 

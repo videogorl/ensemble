@@ -137,6 +137,10 @@ public struct LyricsCard: View {
                 .accessibilityLabel(viewModel.isInstrumentalModeActive
                     ? "Disable instrumental mode"
                     : "Enable instrumental mode")
+                .disabled(viewModel.currentTrack?.sourceCapabilities.supportsInstrumentalMode == false)
+                .opacity(viewModel.currentTrack?.sourceCapabilities.supportsInstrumentalMode == false
+                    ? EnsembleScaffold.NowPlaying.unavailableControlOpacity
+                    : 1)
             }
         }
         .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
@@ -156,7 +160,18 @@ public struct LyricsCard: View {
     @ViewBuilder
     private var contentView: some View {
         if shouldRenderContent {
-            switch viewModel.lyricsState {
+            if let message = viewModel.currentTrack?.sourceCapabilities.lyricsUnavailableMessage {
+                VStack(spacing: EnsembleDesign.Spacing.md) {
+                    Image(systemName: EnsembleDesign.Icon.lyricsUnavailable)
+                        .font(.largeTitle)
+                    Text(message)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                switch viewModel.lyricsState {
             case .loading:
                 loadingView
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -176,6 +191,7 @@ public struct LyricsCard: View {
                     .if(!usesReducedVisualEffects) { view in
                         view.mask(fadeMask)
                     }
+                }
             }
         } else {
             // Lightweight placeholder for pages more than one swipe away.

@@ -5,6 +5,17 @@ import XCTest
 @MainActor
 final class DownloadCapabilityPolicyTests: XCTestCase {
 
+    func testAppleMusicCannotDownload() {
+        let manager = AccountManager(keychain: TestKeychain())
+        XCTAssertEqual(
+            DownloadCapabilityPolicy.status(
+                for: MusicSourceIdentifier.appleMusic.compositeKey,
+                accountManager: manager
+            ),
+            .unavailable
+        )
+    }
+
     func testPlexPassSubscriberWithAllowSyncCanDownload() {
         let manager = makeAccountManager(accountId: "subscriber", subscription: PlexSubscription(active: true, features: ["pass"]), allowSync: true)
         let sourceKey = "plex:subscriber:server:1"

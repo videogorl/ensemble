@@ -75,12 +75,13 @@ struct MiniPlayerActionsMenuButton: View {
             context: .miniPlayer,
             availability: MediaMenuAvailability(
                 hasRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
+                canAddToLibrary: viewModel.canAddTrackToLibrary(track),
                 canAddToRecentPlaylist: currentTrackRecentPlaylistTitle != nil,
                 canGoToAlbum: track.albumRatingKey != nil,
                 canGoToArtist: track.artistRatingKey != nil,
                 canShareLink: true,
-                canShareAudioFile: true,
-                canFavorite: true,
+                canShareAudioFile: track.sourceCapabilities.supportsAudioFileSharing,
+                canFavorite: track.sourceCapabilities.supportsFavoriteRemoval || !ratingProjection.isTrackFavorited(track),
                 canDownload: false,
                 canPin: false,
                 canEditMetadata: false,
@@ -115,6 +116,7 @@ struct MiniPlayerActionsMenuButton: View {
             repeatOne: repeatOne,
             playNext: playNext,
             playLast: playLast,
+            addToLibrary: addToLibrary,
             addToRecentPlaylist: addToRecentPlaylist,
             addToPlaylist: requestPlaylistPicker,
             goToAlbum: goToAlbum,
@@ -134,6 +136,11 @@ struct MiniPlayerActionsMenuButton: View {
     private func playLast() {
         guard let track = playbackProjection.currentTrack else { return }
         viewModel.playLast(track)
+    }
+
+    private func addToLibrary() {
+        guard let track = playbackProjection.currentTrack else { return }
+        Task { await viewModel.addTrackToLibrary(track) }
     }
 
     private func toggleFavorite() {

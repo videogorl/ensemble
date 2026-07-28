@@ -4,12 +4,100 @@ import Foundation
 
 public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case plex
-    // case appleMusic  // Future
+    case appleMusic
+}
+
+/// Provider behavior and copy consumed by shared UI surfaces.
+/// Adding a source should require one entry here, not source checks throughout the UI.
+public struct MusicSourceCapabilities: Sendable, Equatable {
+    public let displayName: String
+    public let defaultLibraryName: String
+    public let requiresServerConnection: Bool
+    public let supportsWaveform: Bool
+    public let supportsLyrics: Bool
+    public let lyricsUnavailableMessage: String?
+    public let lyricsStatusDescription: String?
+    public let managedPlaybackQualityDescription: String?
+    public let supportsAudioFileInfo: Bool
+    public let supportsInstrumentalMode: Bool
+    public let supportsAudioFileSharing: Bool
+    public let supportsMetadataEditing: Bool
+    public let supportsTrackDeletion: Bool
+    public let supportsFavoriteRemoval: Bool
+    public let supportsCatalogLibraryAdds: Bool
+    public let smartMixCrossSourceNotice: String?
+}
+
+public extension MusicSourceType {
+    var capabilities: MusicSourceCapabilities {
+        switch self {
+        case .plex:
+            MusicSourceCapabilities(
+                displayName: "Plex",
+                defaultLibraryName: "Library",
+                requiresServerConnection: true,
+                supportsWaveform: true,
+                supportsLyrics: true,
+                lyricsUnavailableMessage: nil,
+                lyricsStatusDescription: nil,
+                managedPlaybackQualityDescription: nil,
+                supportsAudioFileInfo: true,
+                supportsInstrumentalMode: true,
+                supportsAudioFileSharing: true,
+                supportsMetadataEditing: true,
+                supportsTrackDeletion: true,
+                supportsFavoriteRemoval: true,
+                supportsCatalogLibraryAdds: false,
+                smartMixCrossSourceNotice: nil
+            )
+        case .appleMusic:
+            MusicSourceCapabilities(
+                displayName: "Apple Music",
+                defaultLibraryName: "Apple Music",
+                requiresServerConnection: false,
+                supportsWaveform: false,
+                supportsLyrics: false,
+                lyricsUnavailableMessage: "Lyrics aren’t supported for Apple Music tracks in Ensemble.",
+                lyricsStatusDescription: "Not Supported",
+                managedPlaybackQualityDescription: "Managed by Apple Music",
+                supportsAudioFileInfo: false,
+                supportsInstrumentalMode: false,
+                supportsAudioFileSharing: false,
+                supportsMetadataEditing: false,
+                supportsTrackDeletion: false,
+                supportsFavoriteRemoval: false,
+                supportsCatalogLibraryAdds: true,
+                smartMixCrossSourceNotice: "SmartMix cannot transition between songs from Apple Music and other services"
+            )
+        }
+    }
+}
+
+/// Resolved names and capabilities for one configured source.
+public struct MusicSourcePresentation: Sendable, Equatable {
+    public let capabilities: MusicSourceCapabilities
+    public let serverName: String
+    public let libraryName: String
+    public let accountName: String
+
+    public init(capabilities: MusicSourceCapabilities, serverName: String, libraryName: String, accountName: String) {
+        self.capabilities = capabilities
+        self.serverName = serverName
+        self.libraryName = libraryName
+        self.accountName = accountName
+    }
 }
 
 // MARK: - Music Source Identifier
 
 public struct MusicSourceIdentifier: Hashable, Codable, Sendable, Identifiable {
+    public static let appleMusic = MusicSourceIdentifier(
+        type: .appleMusic,
+        accountId: "device",
+        serverId: "system",
+        libraryId: "library"
+    )
+
     public let type: MusicSourceType
     public let accountId: String
     public let serverId: String
@@ -94,5 +182,30 @@ public struct MusicSource: Identifiable, Sendable {
         self.accountName = accountName
         self.sourceType = sourceType
         self.status = status
+    }
+}
+
+public extension Track {
+    var sourceType: MusicSourceType? {
+        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+    }
+
+    var isAppleMusic: Bool { sourceType == .appleMusic }
+
+    var sourceCapabilities: MusicSourceCapabilities {
+        (sourceType ?? .plex).capabilities
+    }
+
+    /// Catalog results and autoplay tracks use the catalog key. Library sync replaces it
+    /// with `apple-library:<catalog-id>`, so this remains stable across all UI surfaces.
+    var canAddToSourceLibrary: Bool {
+        sourceCapabilities.supportsCatalogLibraryAdds && key == "apple-catalog"
+    }
+
+    var appleMusicCatalogID: String? {
+        if key == "apple-catalog" { return id }
+        guard key.hasPrefix("apple-library:") else { return nil }
+        let value = String(key.dropFirst("apple-library:".count))
+        return value.isEmpty ? nil : value
     }
 }

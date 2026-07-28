@@ -215,7 +215,7 @@ public final class PlaylistMutationWorkflow {
         scope: PlaylistMutationToastScope = .playlist
     ) -> PlaylistRenameWorkflowStart? {
         let trimmedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return nil }
+        guard !trimmedTitle.isEmpty, playlist.supportsPlaylistEditing else { return nil }
 
         return PlaylistRenameWorkflowStart(
             trimmedTitle: trimmedTitle,
@@ -274,7 +274,7 @@ public final class PlaylistMutationWorkflow {
         playlist: Playlist,
         scope: PlaylistMutationToastScope = .playlist
     ) -> PlaylistDeleteWorkflowStart? {
-        guard !playlist.isSmart else { return nil }
+        guard playlist.supportsPlaylistDeletion else { return nil }
 
         return PlaylistDeleteWorkflowStart(
             pendingToast: ToastPayload(
@@ -332,9 +332,9 @@ public final class PlaylistMutationWorkflow {
         to proposedTitle: String
     ) -> PlaylistRenameWorkflowStart? {
         let trimmedTitle = proposedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTitle.isEmpty else { return nil }
+        guard !trimmedTitle.isEmpty, !displayPlaylist.editablePlaylists.isEmpty else { return nil }
 
-        let count = displayPlaylist.playlists.count
+        let count = displayPlaylist.editablePlaylists.count
         return PlaylistRenameWorkflowStart(
             trimmedTitle: trimmedTitle,
             pendingToast: ToastPayload(
@@ -353,7 +353,7 @@ public final class PlaylistMutationWorkflow {
         trimmedTitle: String
     ) async -> PlaylistBatchMutationWorkflowResult {
         var succeededCount = 0
-        for playlist in displayPlaylist.playlists {
+        for playlist in displayPlaylist.editablePlaylists {
             do {
                 _ = try await mutator.renamePlaylist(playlist, to: trimmedTitle)
                 succeededCount += 1
@@ -362,7 +362,7 @@ public final class PlaylistMutationWorkflow {
             }
         }
 
-        let totalCount = displayPlaylist.playlists.count
+        let totalCount = displayPlaylist.editablePlaylists.count
         let style: ToastStyle
         let icon: String
         let title: String
@@ -398,9 +398,9 @@ public final class PlaylistMutationWorkflow {
     }
 
     public func beginDeleteAll(displayPlaylist: DisplayPlaylist) -> PlaylistDeleteWorkflowStart? {
-        guard !displayPlaylist.isSmart else { return nil }
+        guard !displayPlaylist.deletablePlaylists.isEmpty else { return nil }
 
-        let count = displayPlaylist.playlists.count
+        let count = displayPlaylist.deletablePlaylists.count
         return PlaylistDeleteWorkflowStart(
             pendingToast: ToastPayload(
                 style: .info,
@@ -417,7 +417,7 @@ public final class PlaylistMutationWorkflow {
         displayPlaylist: DisplayPlaylist
     ) async -> PlaylistBatchMutationWorkflowResult {
         var succeededCount = 0
-        for playlist in displayPlaylist.playlists {
+        for playlist in displayPlaylist.deletablePlaylists {
             do {
                 _ = try await mutator.deletePlaylist(playlist)
                 succeededCount += 1
@@ -426,7 +426,7 @@ public final class PlaylistMutationWorkflow {
             }
         }
 
-        let totalCount = displayPlaylist.playlists.count
+        let totalCount = displayPlaylist.deletablePlaylists.count
         let completedAll = succeededCount == totalCount
         return PlaylistBatchMutationWorkflowResult(
             succeededCount: succeededCount,

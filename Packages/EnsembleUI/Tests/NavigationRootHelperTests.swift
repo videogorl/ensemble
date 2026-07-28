@@ -48,6 +48,10 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.home)
         )
         XCTAssertEqual(
+            SidebarSelection.selection(for: .searchResults(section: .songs), fallback: nil),
+            .library(.search)
+        )
+        XCTAssertEqual(
             SidebarSelection.selection(for: .view(.favorites), fallback: nil),
             .library(.favorites)
         )

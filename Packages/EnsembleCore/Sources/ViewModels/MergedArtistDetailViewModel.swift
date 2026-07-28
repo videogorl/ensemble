@@ -205,6 +205,9 @@ public final class MergedArtistDetailViewModel: ObservableObject {
 
                 do {
                     let remoteAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
+                    if MusicSourceIdentifier(compositeKey: sourceKey)?.type == .appleMusic, !remoteAlbums.isEmpty {
+                        return ArtistDetailAlbumCollections.sorted(remoteAlbums)
+                    }
                     return ArtistDetailAlbumCollections.merged(local: localAlbums, remote: remoteAlbums)
                 } catch {
                     EnsembleLogger.debug("MergedArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
@@ -230,9 +233,12 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     private func sourceDisplay(for artist: Artist) -> (title: String, subtitle: String) {
-        guard let context = accountManager.sourceLibraryContext(for: artist.sourceCompositeKey) else {
+        guard let presentation = accountManager.sourcePresentation(for: artist.sourceCompositeKey) else {
             return ("Unknown Library", "Unknown Source")
         }
-        return (context.libraryTitle, "\(context.serverName) · \(context.accountName)")
+        return (
+            presentation.libraryName,
+            "\(presentation.serverName) · \(presentation.accountName)"
+        )
     }
 }

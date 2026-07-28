@@ -238,7 +238,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         Color.black
             .ignoresSafeArea()
 
-        if settingsManager.auroraVisualizationEnabled {
+        if settingsManager.auroraVisualizationEnabled && nowPlayingVM.currentTrack?.sourceCapabilities.supportsWaveform != false {
             AuroraVisualizationView(
                 playbackService: DependencyContainer.shared.playbackService,
                 consumer: .stageFlow,

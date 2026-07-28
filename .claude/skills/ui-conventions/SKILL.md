@@ -48,6 +48,7 @@ These are core design decisions that must be maintained throughout the app.
 - **MediaTrackList padding:** Do not wrap `MediaTrackList` in an extra outer horizontal padding layer for normal full-width track lists; the rows already own their horizontal inset through `TrackListLayoutMetrics`
 - **Detail action strips:** Reuse `TrackListLayoutMetrics.rowInterItemSpacing` and `rowHorizontalPadding` for repeated Play/Shuffle-style button rows and lightweight status banners in media/detail screens
 - **Shared row actions:** Use `TrackRowInteractionModel` to resolve per-track context-menu availability, recent-playlist gating, and favorite state for native table paths and compact standalone track rows. UIKit table menus should be built through `NativeMediaTableActionBuilder`; keep row swipes owned by `MediaTrackList`/native table delegates so card and shelf interfaces do not inherit row gestures.
+- **Source-normalized presentation:** UI surfaces must read provider copy and interaction support from `MusicSourceCapabilities`, and configured source/server/library names from `AccountManager.sourcePresentation(for:)`. Do not add Apple Music-specific copy, spinner suppression, or action gating directly in views.
 
 ### Keyboard-Heavy Editors (iPhone)
 - Default to native presentation for short rename/create/filter flows on iPhone: playlist rename uses a `TextField` alert, while profile-name, playlist creation, and album/favorites/artists/songs filters use normal `.sheet` presentation.

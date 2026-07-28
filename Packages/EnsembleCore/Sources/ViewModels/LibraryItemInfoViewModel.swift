@@ -43,7 +43,7 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
-        self.sourceContext = Self.resolveSourceContext(
+        self.sourceContext = Self.sourceContext(
             sourceCompositeKey: request.sourceCompositeKey,
             accountManager: accountManager
         )
@@ -261,25 +261,17 @@ public final class LibraryItemInfoViewModel: ObservableObject {
         return NSString.path(withComponents: commonComponents)
     }
 
-    private static func resolveSourceContext(
+    static func sourceContext(
         sourceCompositeKey: String?,
         accountManager: AccountManager
     ) -> SourceContext {
-        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey) else {
+        guard let presentation = accountManager.sourcePresentation(for: sourceCompositeKey) else {
             return SourceContext(serverName: nil, libraryName: nil)
         }
-
-        guard let account = accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
-              let server = account.servers.first(where: { $0.id == identity.serverId })
-        else {
-            return SourceContext(serverName: nil, libraryName: nil)
-        }
-
-        let libraryName = identity.libraryId.flatMap { id in
-            server.libraries.first(where: { $0.id == id })?.title
-        }
-
-        return SourceContext(serverName: server.name, libraryName: libraryName)
+        return SourceContext(
+            serverName: presentation.serverName,
+            libraryName: presentation.libraryName
+        )
     }
 }
 

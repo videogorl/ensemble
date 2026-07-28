@@ -641,6 +641,11 @@ public struct ControlsCard: View {
         playbackProjection.currentTrack != nil
     }
 
+    private var canChangeFavorite: Bool {
+        guard let track = playbackProjection.currentTrack else { return false }
+        return track.sourceCapabilities.supportsFavoriteRemoval || ratingProjection.currentRating == .none
+    }
+
     // MARK: - Secondary Controls
 
     private var secondaryControlsView: some View {
@@ -658,8 +663,8 @@ public struct ControlsCard: View {
                     .font(EnsembleDesign.Typography.detailSubtitle)
                     .foregroundColor(ratingProjection.currentRating == .none ? EnsembleDesign.Color.primaryText.opacity(EnsembleScaffold.NowPlaying.inactiveControlOpacity) : EnsembleDesign.Color.accent)
             }
-            .disabled(!hasCurrentTrack)
-            .opacity(hasCurrentTrack ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
+            .disabled(!canChangeFavorite)
+            .opacity(canChangeFavorite ? 1 : EnsembleScaffold.NowPlaying.unavailableControlOpacity)
 
             // Add to Playlist
             Button {
@@ -680,6 +685,14 @@ public struct ControlsCard: View {
             // More menu with navigation, sharing, and quick add
             Menu {
                 if let currentTrack = playbackProjection.currentTrack {
+                    if viewModel.canAddTrackToLibrary(currentTrack) {
+                        Button {
+                            Task { await viewModel.addTrackToLibrary(currentTrack) }
+                        } label: {
+                            MediaActionLabel(kind: .addToLibrary)
+                        }
+                    }
+
                     Section {
                         if currentTrack.albumRatingKey != nil {
                             Button {
@@ -714,10 +727,12 @@ public struct ControlsCard: View {
                             MediaActionLabel(kind: .shareLink)
                         }
 
-                        Button {
-                            ShareActions.shareTrackFile(currentTrack, deps: deps)
-                        } label: {
-                            MediaActionLabel(kind: .shareAudioFile)
+                        if currentTrack.sourceCapabilities.supportsAudioFileSharing {
+                            Button {
+                                ShareActions.shareTrackFile(currentTrack, deps: deps)
+                            } label: {
+                                MediaActionLabel(kind: .shareAudioFile)
+                            }
                         }
                     }
                 }

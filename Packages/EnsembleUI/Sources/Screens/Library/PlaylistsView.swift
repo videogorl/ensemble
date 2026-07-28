@@ -292,13 +292,12 @@ public struct PlaylistsView: View {
                 Button("Delete All", role: .destructive) {
                     guard let dp = displayPlaylistPendingDelete else { return }
                     displayPlaylistPendingDelete = nil
-                    // Delete all constituent playlists
-                    for playlist in dp.playlists {
+                    for playlist in dp.deletablePlaylists {
                         startOptimisticDelete(for: playlist)
                     }
                 }
             } message: {
-                let count = displayPlaylistPendingDelete?.playlists.count ?? 0
+                let count = displayPlaylistPendingDelete?.deletablePlaylists.count ?? 0
                 Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
             }
             .sheet(item: $playlistForEditSheet) { playlist in
@@ -404,13 +403,13 @@ public struct PlaylistsView: View {
                     let title = renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                     renamePushDP = nil
                     viewModel.applyOptimisticRenameForMerged(dp, newTitle: title)
-                    for playlist in dp.playlists {
+                    for playlist in dp.editablePlaylists {
                         renamePlaylist(playlist, to: title)
                     }
                 }
                 .disabled(renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } message: {
-                let count = renamePushDP?.playlists.count ?? 0
+                let count = renamePushDP?.editablePlaylists.count ?? 0
                 Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
             }
     }
@@ -571,7 +570,7 @@ public struct PlaylistsView: View {
                             }
                         }
                     }
-                    .if(!dp.isSmart && !isPendingCreation) { row in
+                    .if(!dp.deletablePlaylists.isEmpty && !isPendingCreation) { row in
                         row.standardDeleteSwipeAction {
                             if dp.isMerged {
                                 displayPlaylistPendingDelete = dp
@@ -651,6 +650,9 @@ public struct PlaylistsView: View {
     /// Determines the chip style for a DisplayPlaylist row
     private func chipStyle(for dp: DisplayPlaylist) -> PlaylistRowChip.Style? {
         if dp.isMerged { return .merged }
+        if let sourceType = dp.primaryPlaylist.sourceType, sourceType != .plex {
+            return .sourceName(sourceType.capabilities.displayName)
+        }
         if viewModel.hasNameCollision(dp.title) {
             let name = accountManager.serverName(for: dp.primaryPlaylist.sourceCompositeKey ?? "") ?? "Unknown"
             return .serverName(DemoModeRedaction.serverName(name, isEnabled: demoModeEnabled))
@@ -969,9 +971,9 @@ public struct PlaylistDetailView: View {
                         )
                     ),
                     playlistMenuActions: PlaylistDetailMenuActions(
-                        canRename: !viewModel.playlist.isSmart,
+                        canRename: viewModel.playlist.supportsPlaylistEditing,
                         canEdit: viewModel.canEditPlaylistItems,
-                        canDelete: !viewModel.playlist.isSmart,
+                        canDelete: viewModel.playlist.supportsPlaylistDeletion,
                         onRename: {
                             renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true

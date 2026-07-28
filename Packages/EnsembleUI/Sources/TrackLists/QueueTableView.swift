@@ -235,6 +235,7 @@ public struct QueueTableView: UIViewRepresentable {
     let onHistoryTap: (QueueItem, Int) -> Void  // Called when tapping a history item (item, historyIndex)
     let onPlayNext: (Track) -> Void
     let onPlayLast: (Track) -> Void
+    let onAddToLibrary: ((Track) -> Void)?
     let onAddToPlaylist: ((Track) -> Void)?
     let onAddToRecentPlaylist: ((Track) -> Void)?
     let onGoToAlbum: ((Track) -> Void)?
@@ -255,6 +256,7 @@ public struct QueueTableView: UIViewRepresentable {
         onHistoryTap: @escaping (QueueItem, Int) -> Void,
         onPlayNext: @escaping (Track) -> Void,
         onPlayLast: @escaping (Track) -> Void,
+        onAddToLibrary: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
         onAddToRecentPlaylist: ((Track) -> Void)? = nil,
         onGoToAlbum: ((Track) -> Void)? = nil,
@@ -272,6 +274,7 @@ public struct QueueTableView: UIViewRepresentable {
         self.onHistoryTap = onHistoryTap
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
+        self.onAddToLibrary = onAddToLibrary
         self.onAddToPlaylist = onAddToPlaylist
         self.onAddToRecentPlaylist = onAddToRecentPlaylist
         self.onGoToAlbum = onGoToAlbum
@@ -327,6 +330,7 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.onHistoryTap = onHistoryTap
         context.coordinator.onPlayNext = onPlayNext
         context.coordinator.onPlayLast = onPlayLast
+        context.coordinator.onAddToLibrary = onAddToLibrary
         context.coordinator.onAddToPlaylist = onAddToPlaylist
         context.coordinator.onAddToRecentPlaylist = onAddToRecentPlaylist
         context.coordinator.onGoToAlbum = onGoToAlbum
@@ -375,6 +379,7 @@ public struct QueueTableView: UIViewRepresentable {
             onHistoryTap: onHistoryTap,
             onPlayNext: onPlayNext,
             onPlayLast: onPlayLast,
+            onAddToLibrary: onAddToLibrary,
             onAddToPlaylist: onAddToPlaylist,
             onAddToRecentPlaylist: onAddToRecentPlaylist,
             onGoToAlbum: onGoToAlbum,
@@ -399,6 +404,7 @@ public struct QueueTableView: UIViewRepresentable {
         var onHistoryTap: (QueueItem, Int) -> Void
         var onPlayNext: (Track) -> Void
         var onPlayLast: (Track) -> Void
+        var onAddToLibrary: ((Track) -> Void)?
         var onAddToPlaylist: ((Track) -> Void)?
         var onAddToRecentPlaylist: ((Track) -> Void)?
         var onGoToAlbum: ((Track) -> Void)?
@@ -448,6 +454,7 @@ public struct QueueTableView: UIViewRepresentable {
             onHistoryTap: @escaping (QueueItem, Int) -> Void,
             onPlayNext: @escaping (Track) -> Void,
             onPlayLast: @escaping (Track) -> Void,
+            onAddToLibrary: ((Track) -> Void)?,
             onAddToPlaylist: ((Track) -> Void)?,
             onAddToRecentPlaylist: ((Track) -> Void)?,
             onGoToAlbum: ((Track) -> Void)?,
@@ -467,6 +474,7 @@ public struct QueueTableView: UIViewRepresentable {
             self.onHistoryTap = onHistoryTap
             self.onPlayNext = onPlayNext
             self.onPlayLast = onPlayLast
+            self.onAddToLibrary = onAddToLibrary
             self.onAddToPlaylist = onAddToPlaylist
             self.onAddToRecentPlaylist = onAddToRecentPlaylist
             self.onGoToAlbum = onGoToAlbum
@@ -664,6 +672,7 @@ public struct QueueTableView: UIViewRepresentable {
             let interactionModel = TrackRowInteractionModel(
                 onPlayNext: { [weak self] track in self?.onPlayNext(track) },
                 onPlayLast: { [weak self] track in self?.onPlayLast(track) },
+                onAddToLibrary: self.onAddToLibrary,
                 onAddToPlaylist: self.onAddToPlaylist,
                 onAddToRecentPlaylist: self.onAddToRecentPlaylist,
                 onGoToAlbum: self.onGoToAlbum,

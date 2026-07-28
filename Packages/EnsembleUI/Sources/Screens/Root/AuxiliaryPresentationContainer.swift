@@ -149,7 +149,7 @@ private struct AddAccountPresentationSheetModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $navigationCoordinator.showingAddAccount) {
-                AddPlexAccountView()
+                AddSourceView()
                 #if os(macOS)
                     .frame(
                         width: EnsembleScaffold.AccountSetup.macMinimumWidth,

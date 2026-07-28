@@ -1114,7 +1114,7 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
-        XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist, .favorite])
+        XCTAssertEqual(sections.actions(in: .playlist), [.addToLibrary, .addToRecentPlaylist, .addToPlaylist, .favorite])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink, .shareAudioFile])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteTrack])
@@ -1131,6 +1131,16 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .transport), [.toggleShuffle, .repeatAll, .repeatOne])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo])
         XCTAssertEqual(sections.role(for: .deleteTrack), nil)
+    }
+
+    func testTrackRowInteractionModelAddsOnlyCatalogAppleMusicTracksToLibrary() {
+        let source = MusicSourceIdentifier.appleMusic.compositeKey
+        let catalog = Track(id: "song", key: "apple-catalog", title: "Song", sourceCompositeKey: source)
+        let library = Track(id: "library-song", key: "apple-library:song", title: "Song", sourceCompositeKey: source)
+        let model = TrackRowInteractionModel(onAddToLibrary: { _ in })
+
+        XCTAssertNotNil(model.resolve(for: catalog).onAddToLibrary)
+        XCTAssertNil(model.resolve(for: library).onAddToLibrary)
     }
 
     func testMediaMenuCatalogQueueAndHistoryTrackContextsDivergeOnlyForRemoval() {

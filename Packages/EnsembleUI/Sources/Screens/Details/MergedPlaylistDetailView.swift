@@ -49,9 +49,9 @@ public struct MergedPlaylistDetailView: View {
                 }
             ),
             playlistMenuActions: PlaylistDetailMenuActions(
-                canRename: !viewModel.displayPlaylist.isSmart,
-                canEdit: !viewModel.displayPlaylist.isSmart && !viewModel.tracks.isEmpty && !viewModel.hasUnavailableTracks,
-                canDelete: !viewModel.displayPlaylist.isSmart,
+                canRename: !viewModel.displayPlaylist.editablePlaylists.isEmpty,
+                canEdit: !viewModel.displayPlaylist.editablePlaylists.isEmpty && !viewModel.tracks.isEmpty && !viewModel.hasUnavailableTracks,
+                canDelete: !viewModel.displayPlaylist.deletablePlaylists.isEmpty,
                 onRename: {
                     renamePromptText = viewModel.displayPlaylist.title
                     showRenamePrompt = true
@@ -93,7 +93,7 @@ public struct MergedPlaylistDetailView: View {
             }
             .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            let count = viewModel.displayPlaylist.playlists.count
+            let count = viewModel.displayPlaylist.editablePlaylists.count
             Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
         }
         // Delete all constituent playlists
@@ -118,7 +118,7 @@ public struct MergedPlaylistDetailView: View {
                 }
             }
         } message: {
-            let count = viewModel.displayPlaylist.playlists.count
+            let count = viewModel.displayPlaylist.deletablePlaylists.count
             Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) server\(count == 1 ? "" : "s").")
         }
         // Edit picker — choose which constituent playlist to edit
@@ -229,6 +229,11 @@ public struct MergedPlaylistDetailView: View {
                             Text("\(playlist.trackCount) songs")
                                 .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            if let reason = playlist.playlistEditingUnavailableReason {
+                                Text(reason)
+                                    .font(EnsembleDesign.Typography.rowSecondary)
+                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+                            }
                         }
                         Spacer()
                         Image(systemName: EnsembleDesign.Icon.chevronRight)
@@ -237,6 +242,7 @@ public struct MergedPlaylistDetailView: View {
                     }
                 }
                 .foregroundColor(EnsembleDesign.Color.primaryText)
+                .disabled(!playlist.supportsPlaylistEditing)
             }
         }
         .listStyle(.plain)
@@ -353,12 +359,9 @@ public struct MergedPlaylistDetailLoader: View {
         }
         // displayPlaylists is populated but no match — merge state may have changed
         // since navigation. Fall back to raw playlists wrapped as single.
-        let matches = playlistsVM.playlists.filter {
-            DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle && $0.isSmart == isSmart
-        }
-        if !matches.isEmpty {
-            return DisplayPlaylist.group(matches, merge: true).first
-        }
-        return nil
+        return DisplayPlaylist.group(
+            playlistsVM.playlists.filter { DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle },
+            merge: true
+        ).first { $0.isSmart == isSmart }
     }
 }

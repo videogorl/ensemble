@@ -990,6 +990,12 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             title: "Road",
             sourceCompositeKey: "plex:account-2:server-2"
         )
+        let editorialPlaylist = makePlaylist(
+            id: "apple-editorial",
+            title: "Road",
+            isSmart: true,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
         let firstTracks = [
             makeTrack(id: "server-1-track-1", sourceCompositeKey: "plex:account-1:server-1:lib-1"),
             makeTrack(id: "server-1-track-2", sourceCompositeKey: "plex:account-1:server-1:lib-1")
@@ -1008,9 +1014,17 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             ratingKey: secondPlaylist.id,
             sourceCompositeKey: secondPlaylist.sourceCompositeKey
         )] = makeCachedPlaylist(secondPlaylist, tracks: secondTracks, context: context)
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: editorialPlaylist.id,
+            sourceCompositeKey: editorialPlaylist.sourceCompositeKey
+        )] = makeCachedPlaylist(editorialPlaylist, tracks: [], context: context)
 
         let viewModel = MergedPlaylistDetailViewModel(
-            displayPlaylist: .merged(title: "Road", isSmart: false, playlists: [firstPlaylist, secondPlaylist]),
+            displayPlaylist: .merged(
+                title: "Road",
+                isSmart: true,
+                playlists: [editorialPlaylist, firstPlaylist, secondPlaylist]
+            ),
             playlistRepository: playlistRepository,
             accountManager: AccountManager(keychain: TestKeychain()),
             syncCoordinator: syncCoordinator,

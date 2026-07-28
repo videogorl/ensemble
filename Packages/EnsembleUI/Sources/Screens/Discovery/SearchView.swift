@@ -15,6 +15,7 @@ public struct SearchView: View {
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
     @State private var hasAnySources: Bool
+    @State private var hasAppleMusic: Bool
     @State private var isSyncing: Bool
     @State private var hasEnabledLibrariesState: Bool
     @State private var isRestoringCloudSources: Bool
@@ -30,11 +31,13 @@ public struct SearchView: View {
     @State private var preservesSearchChromeDuringTabExit = false
     @Environment(\.dismissSearch) private var dismissSearch
     @Environment(\.dependencies) private var deps
+    private let resultSection: SearchSection?
 
     public init(
         nowPlayingVM: NowPlayingViewModel,
         viewModel: SearchViewModel? = nil,
-        pinnedVM: PinnedViewModel? = nil
+        pinnedVM: PinnedViewModel? = nil,
+        resultSection: SearchSection? = nil
     ) {
         let container = DependencyContainer.shared
         accountManager = container.accountManager
@@ -42,7 +45,9 @@ public struct SearchView: View {
         _viewModel = StateObject(wrappedValue: viewModel ?? container.makeSearchViewModel())
         self.nowPlayingVM = nowPlayingVM
         self.pinnedVM = pinnedVM ?? container.makePinnedViewModel()
+        self.resultSection = resultSection
         _hasAnySources = State(initialValue: container.accountManager.hasAnySources)
+        _hasAppleMusic = State(initialValue: container.accountManager.isAppleMusicEnabled)
         _isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
         _hasEnabledLibrariesState = State(
             initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
@@ -58,8 +63,25 @@ public struct SearchView: View {
 
     public var body: some View {
         let baseContent = VStack(spacing: EnsembleDesign.Spacing.none) {
+            #if os(iOS)
+            if resultSection == nil,
+               hasAppleMusic,
+               isSearchFieldFocused || !viewModel.searchQuery.isEmpty {
+                Picker("Search", selection: $viewModel.scope) {
+                    ForEach(SearchScope.allCases, id: \.self) { scope in
+                        Text(scope.rawValue).tag(scope)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, EnsembleDesign.Spacing.sm)
+            }
+            #endif
+
             // Content - either explore or search results
-            if viewModel.searchQuery.isEmpty {
+            if resultSection != nil {
+                searchResultsView
+            } else if viewModel.searchQuery.isEmpty {
                 exploreView
             } else if viewModel.isSearching {
                 loadingView
@@ -85,10 +107,17 @@ public struct SearchView: View {
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
         .onReceive(accountManager.$plexAccounts) { accounts in
-            let has = !accounts.isEmpty
+            let has = !accounts.isEmpty || accountManager.isAppleMusicEnabled
             if has != hasAnySources { hasAnySources = has }
             let enabledLibs = Self.computeHasEnabledLibraries(in: accounts)
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
+        }
+        .onReceive(accountManager.$isAppleMusicEnabled) { enabled in
+            hasAppleMusic = enabled
+            hasAnySources = accountManager.hasAnySources
+            if !enabled, viewModel.scope == .appleMusic {
+                viewModel.scope = .library
+            }
         }
         .onReceive(syncCoordinator.$isSyncing) { syncing in
             if syncing != isSyncing { isSyncing = syncing }
@@ -140,7 +169,7 @@ public struct SearchView: View {
             guard !Task.isCancelled, !isSearchTabActive else { return }
             preservesSearchChromeDuringTabExit = false
         }
-        .navigationTitle("Search")
+        .navigationTitle(resultSection?.displayTitle ?? "Search")
         // Search chrome belongs to the active root Search screen only.
         // Leaving it attached while Search is offscreen or pushed into detail
         // leaks stale toolbar/search-controller state into other tabs/destinations.
@@ -689,10 +718,10 @@ public struct SearchView: View {
         if isRestoringCloudSources {
             return .restoringCloudSources
         }
-        if isSyncing {
+        if usesLibrarySyncRecovery {
             return .syncing
         }
-        if !hasEnabledLibrariesState {
+        if !hasEnabledSearchLibrary {
             return .noEnabledLibraries
         }
         return .empty(message: "Start typing to search your library")
@@ -703,7 +732,7 @@ public struct SearchView: View {
     private var searchResultsView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.sectionSpacing) {
-                ForEach(viewModel.orderedSections, id: \.self) { section in
+                ForEach(resultSection.map { [$0] } ?? viewModel.orderedSections, id: \.self) { section in
                     searchResultSection(for: section)
                 }
             }
@@ -718,9 +747,10 @@ public struct SearchView: View {
         case .artists:
             if !viewModel.displayArtistResults.isEmpty {
                 compactSection(
+                    section: .artists,
                     title: "Artists",
                     count: viewModel.displayArtistResults.count,
-                    items: Array(viewModel.displayArtistResults.prefix(5))
+                    items: displayedResults(viewModel.displayArtistResults)
                 ) { displayArtist in
                     Button {
                         routeSearchResult(to: .displayArtist(id: displayArtist.id))
@@ -737,9 +767,10 @@ public struct SearchView: View {
         case .albums:
             if !viewModel.albumResults.isEmpty {
                 compactSection(
+                    section: .albums,
                     title: "Albums",
                     count: viewModel.albumResults.count,
-                    items: Array(viewModel.albumResults.prefix(5))
+                    items: displayedResults(viewModel.albumResults)
                 ) { album in
                     Button {
                         routeSearchResult(to: .albumDetail(album))
@@ -756,9 +787,10 @@ public struct SearchView: View {
         case .playlists:
             if !viewModel.playlistResults.isEmpty {
                 compactSection(
+                    section: .playlists,
                     title: "Playlists",
                     count: viewModel.playlistResults.count,
-                    items: Array(viewModel.playlistResults.prefix(5))
+                    items: displayedResults(viewModel.playlistResults)
                 ) { playlist in
                     Button {
                         routeSearchResult(to: .playlistDetail(playlist))
@@ -794,11 +826,15 @@ public struct SearchView: View {
         let height: CGFloat = tracks.isEmpty ? 0 : CGFloat(tracks.count) * TrackListLayoutMetrics.defaultRowHeight
 
         return VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
-            HStack {
-                Text("Songs (\(viewModel.trackResults.count))")
-                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
+            if resultSection == nil {
+                HStack {
+                    Text("Songs (\(viewModel.trackResults.count))")
+                        .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
+
+                    showAllButton(for: .songs, count: viewModel.trackResults.count)
+                }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
 
             Group {
                 #if os(iOS)
@@ -831,7 +867,11 @@ public struct SearchView: View {
     }
 
     private var limitedTrackResults: [Track] {
-        Array(viewModel.trackResults.prefix(5))
+        displayedResults(viewModel.trackResults)
+    }
+
+    private func displayedResults<T>(_ results: [T]) -> [T] {
+        resultSection == nil ? Array(results.prefix(5)) : results
     }
 
     private var trackInteractionModel: TrackRowInteractionModel {
@@ -872,17 +912,22 @@ public struct SearchView: View {
     }
 
     private func compactSection<T: Identifiable, Content: View>(
+        section: SearchSection,
         title: String,
         count: Int,
         items: [T],
         @ViewBuilder content: @escaping (T) -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
-            HStack {
-                Text("\(title) (\(count))")
-                    .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
+            if resultSection == nil {
+                HStack {
+                    Text("\(title) (\(count))")
+                        .font(EnsembleDesign.Typography.detailSubtitle.weight(.bold))
+
+                    showAllButton(for: section, count: count)
+                }
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
 
             VStack(spacing: EnsembleDesign.Spacing.none) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
@@ -898,6 +943,18 @@ public struct SearchView: View {
         }
     }
 
+    @ViewBuilder
+    private func showAllButton(for section: SearchSection, count: Int) -> some View {
+        if resultSection == nil, count > 5 {
+            Spacer()
+
+            Button("Show All") {
+                routeSearchResult(to: .searchResults(section: section))
+            }
+            .font(EnsembleDesign.Typography.rowSecondary.weight(.semibold))
+        }
+    }
+
     // MARK: - Loading & Empty States
 
     private var loadingView: some View {
@@ -906,7 +963,7 @@ public struct SearchView: View {
 
     @ViewBuilder
     private var noResultsView: some View {
-        if isRestoringCloudSources || !hasAnySources || isSyncing || !hasEnabledLibrariesState {
+        if isRestoringCloudSources || !hasAnySources || usesLibrarySyncRecovery || !hasEnabledSearchLibrary {
             EnsembleLibraryEmptyStateScaffold(
                 title: "No Results",
                 iconSystemName: EnsembleDesign.Icon.musicNote,
@@ -931,10 +988,10 @@ public struct SearchView: View {
         if !hasAnySources {
             return .noSources
         }
-        if isSyncing {
+        if usesLibrarySyncRecovery {
             return .syncing
         }
-        if !hasEnabledLibrariesState {
+        if !hasEnabledSearchLibrary {
             return .noEnabledLibraries
         }
         return .empty(message: "Try a different search term")
@@ -952,6 +1009,14 @@ public struct SearchView: View {
                 server.libraries.contains(where: \.isEnabled)
             }
         }
+    }
+
+    private var hasEnabledSearchLibrary: Bool {
+        hasAppleMusic || hasEnabledLibrariesState
+    }
+
+    private var usesLibrarySyncRecovery: Bool {
+        viewModel.scope == .library && isSyncing
     }
 
     private var recommendedDisplayItems: [HubItem] {

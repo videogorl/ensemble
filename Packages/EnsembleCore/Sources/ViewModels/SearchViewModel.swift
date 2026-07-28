@@ -4,7 +4,7 @@ import EnsemblePersistence
 import Foundation
 
 /// Search section types for intelligent ordering
-public enum SearchSection: String, CaseIterable {
+public enum SearchSection: String, CaseIterable, Hashable, Sendable {
     case artists
     case albums
     case playlists
@@ -30,11 +30,17 @@ public enum SearchSection: String, CaseIterable {
     }
 }
 
+public enum SearchScope: String, CaseIterable, Sendable {
+    case library = "Library"
+    case appleMusic = "Apple Music"
+}
+
 @MainActor
 public final class SearchViewModel: ObservableObject {
     // MARK: - Search Results
     
     @Published public var searchQuery = ""
+    @Published public var scope: SearchScope = .library
     @Published public private(set) var recentSearches: [String] = []
     @Published public private(set) var trackResults: [Track] = []
     @Published public private(set) var artistResults: [Artist] = []
@@ -102,6 +108,15 @@ public final class SearchViewModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] query in
                 self?.prepareForSearchQueryChange(query)
+            }
+            .store(in: &cancellables)
+
+        $scope
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.prepareForSearchQueryChange(self.searchQuery)
+                self.performSearch(query: self.searchQuery)
             }
             .store(in: &cancellables)
 
@@ -222,6 +237,20 @@ public final class SearchViewModel: ObservableObject {
         searchError = nil
 
         do {
+            #if os(iOS)
+            if scope == .appleMusic, #available(iOS 18, *) {
+                let results = try await AppleMusicCatalogSearch.search(query)
+                guard !requireCurrentQuery || isCurrentSearch(query) else { return }
+                unfilteredTrackResults = results.tracks
+                unfilteredArtistResults = results.artists
+                unfilteredAlbumResults = results.albums
+                unfilteredPlaylistResults = results.playlists
+                applyVisibilityToSearchResults()
+                isSearching = false
+                return
+            }
+            #endif
+
             async let localTracks = libraryRepository.searchTracks(query: query)
             async let localArtists = libraryRepository.searchArtists(query: query)
             async let localAlbums = libraryRepository.searchAlbums(query: query)
@@ -549,81 +578,6 @@ public final class SearchViewModel: ObservableObject {
 
         let fetchTasks = buildExploreFetchTasks()
         guard !fetchTasks.isEmpty else { return }
-
-        // Fetch fresh hubs from all enabled libraries.
-        var freshHubs: [Hub] = []
-        var recentAlbums: [Album] = []
-        var recentArtists: [Artist] = []
-        var addedAlbums: [Album] = []
-        var recommendedHubItems: [HubItem] = []
-
-        for task in fetchTasks {
-            guard !Task.isCancelled else { return }
-            do {
-                let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey)
-
-                for plexHub in plexHubs {
-                    guard !Task.isCancelled else { return }
-                    let title = plexHub.title.lowercased()
-
-                    let metadata = plexHub.metadata ?? []
-
-                    let filteredMetadata = metadata.filter { item in
-                        let type = item.type?.lowercased() ?? ""
-                        return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                    }
-
-                    let hubItems = filteredMetadata.map { HubItem(from: $0, sourceKey: task.sourceKey) }
-                    let hubId = "\(task.sourceKey):\(plexHub.id)"
-                    freshHubs.append(
-                        Hub(
-                            id: hubId,
-                            title: plexHub.title,
-                            type: plexHub.type ?? "mixed",
-                            items: hubItems
-                        )
-                    )
-
-                    if title.contains("recently played") || title.contains("recent plays") {
-                        for item in hubItems.prefix(12) {
-                            if let album = item.album {
-                                recentAlbums.append(album)
-                            }
-                            if let artist = item.artist {
-                                recentArtists.append(artist)
-                            }
-                        }
-                    } else if title.contains("recently added") || title.contains("recent additions") {
-                        for item in hubItems.prefix(12) {
-                            if let album = item.album {
-                                addedAlbums.append(album)
-                            }
-                        }
-                    } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
-                        recommendedHubItems.append(contentsOf: hubItems.prefix(12))
-                    }
-                }
-            } catch {
-                EnsembleLogger.debug("⚠️ Failed to fetch hubs: \(error)")
-            }
-        }
-
-        guard !Task.isCancelled else { return }
-
-        if !freshHubs.isEmpty {
-            do {
-                try await hubRepository.saveHubs(freshHubs)
-                EnsembleLogger.debug("✅ Cached \(freshHubs.count) hubs for offline use")
-            } catch {
-                EnsembleLogger.debug("⚠️ Failed to cache hubs: \(error)")
-            }
-        }
-
-        unfilteredRecentlyPlayedAlbums = Array(recentAlbums.prefix(6))
-        unfilteredRecentlyPlayedArtists = Array(recentArtists.prefix(6))
-        unfilteredRecentlyAddedAlbums = Array(addedAlbums.prefix(6))
-        unfilteredRecommendedItems = Array(recommendedHubItems.prefix(6))
-        applyVisibilityToExploreContent()
 
         // Plex mood keys are library-local. Deduplicate browse moods by title and
         // carry each source's resolved key so detail pages can skip refetching moods.

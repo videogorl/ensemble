@@ -210,22 +210,35 @@ public struct ProfileView: View {
                 showingDeleteAlert = true
             }
 
+            #if os(iOS)
+            if accountManager.isAppleMusicEnabled {
+                NavigationLink {
+                    AppleMusicSourceDetailView()
+                } label: {
+                    MusicSourceAccountRow(
+                        sourceName: "Apple Music",
+                        accountIdentifier: "This Device"
+                    )
+                }
+            }
+            #endif
+
             // Navigate within the profile sheet rather than opening a second sheet.
             // iOS doesn't allow stacking sheets — the add-account sheet won't appear
             // while the profile sheet is already presented.
             NavigationLink {
-                AddPlexAccountView(embedded: true)
+                AddSourceView(embedded: true)
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Plex Account",
+                    title: "Add Source",
                     iconColor: EnsembleDesign.Color.accent
                 )
             }
         } header: {
             EnsembleUtilitySectionHeader("Music Sources")
         } footer: {
-            if accountManager.plexAccounts.isEmpty {
+            if !accountManager.hasAnySources {
                 Text("Add a music source account to access your libraries.")
             }
         }
@@ -453,7 +466,7 @@ public struct ProfileView: View {
     // MARK: - About
 
     private var aboutSection: some View {
-        Section(header: EnsembleUtilitySectionHeader("About")) {
+        Section {
             HStack {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.info,
@@ -478,6 +491,10 @@ public struct ProfileView: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
             }
+        } header: {
+            EnsembleUtilitySectionHeader("About")
+        } footer: {
+            Text("Plex and the Plex logo are trademarks of Plex and used under license. Apple Music is a trademark of Apple Inc.")
         }
     }
 
@@ -554,11 +571,11 @@ public struct ProfileView: View {
             }
 
             macNavigationRow {
-                AddPlexAccountView(embedded: true)
+                AddSourceView(embedded: true)
             } label: {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.addCircle,
-                    title: "Add Plex Account",
+                    title: "Add Source",
                     iconColor: EnsembleDesign.Color.accent
                 )
             }
@@ -981,3 +998,51 @@ public struct ProfileView: View {
         )
     }
 }
+
+#if os(iOS)
+private struct AppleMusicSourceDetailView: View {
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @Environment(\.dismiss) private var dismiss
+    @State private var showingRemoveAlert = false
+    @State private var isRemoving = false
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Device")
+                    Spacer()
+                    Text("This Device")
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Apple Music library data stays on this device and is managed by the Music app.")
+            }
+
+            Section {
+                Button("Remove Source", role: .destructive) {
+                    showingRemoveAlert = true
+                }
+                .disabled(isRemoving)
+            }
+        }
+        .navigationTitle("Apple Music")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("Remove Source", isPresented: $showingRemoveAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Remove", role: .destructive) {
+                isRemoving = true
+                accountManager.setAppleMusicEnabled(false)
+                Task {
+                    await syncCoordinator.cleanupRemovedSource(.appleMusic)
+                    syncCoordinator.refreshProviders()
+                    dismiss()
+                }
+            }
+        } message: {
+            Text("This removes Apple Music from Ensemble and clears its synced library data from this device.")
+        }
+    }
+}
+#endif

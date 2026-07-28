@@ -183,7 +183,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     @discardableResult
     public func removeTrackFromPlaylist(_ track: Track, displayIndex: Int? = nil) async -> Bool {
-        guard !displayPlaylist.isSmart else {
+        guard !displayPlaylist.editablePlaylists.isEmpty else {
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
@@ -191,6 +191,10 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         let selectedTrack = selectedTrack(for: track, displayIndex: displayIndex)
         guard let targetPlaylist = playlistOwningTrack(selectedTrack) else {
             error = "Could not determine which server playlist owns this track."
+            return false
+        }
+        guard targetPlaylist.supportsPlaylistEditing else {
+            error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
         guard !hasUnavailableTracks else {
@@ -246,22 +250,22 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func playlistOwningTrack(_ track: Track) -> Playlist? {
-        guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) else {
+        guard let trackServerSourceKey = mutationSourceKey(track.sourceCompositeKey) else {
             return displayPlaylist.playlists.count == 1 ? displayPlaylist.primaryPlaylist : nil
         }
 
         let matches = displayPlaylist.playlists.filter { playlist in
-            MediaSourceIdentity.serverSourceKey(from: playlist.sourceCompositeKey) == trackServerSourceKey
+            mutationSourceKey(playlist.sourceCompositeKey) == trackServerSourceKey
         }
         return matches.count == 1 ? matches[0] : nil
     }
 
     private func tracksForPlaylistSource(_ playlist: Playlist) -> [Track] {
-        guard let playlistServerSourceKey = MediaSourceIdentity.serverSourceKey(from: playlist.sourceCompositeKey) else {
+        guard let playlistServerSourceKey = mutationSourceKey(playlist.sourceCompositeKey) else {
             return []
         }
         return tracks.filter { track in
-            MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) == playlistServerSourceKey
+            mutationSourceKey(track.sourceCompositeKey) == playlistServerSourceKey
         }
     }
 
@@ -304,8 +308,14 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
 
     private func sameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
         lhs.id == rhs.id &&
-            MediaSourceIdentity.serverSourceKey(from: lhs.sourceCompositeKey) ==
-            MediaSourceIdentity.serverSourceKey(from: rhs.sourceCompositeKey)
+            mutationSourceKey(lhs.sourceCompositeKey) == mutationSourceKey(rhs.sourceCompositeKey)
+    }
+
+    private func mutationSourceKey(_ sourceKey: String?) -> String? {
+        if MusicSourceIdentifier(compositeKey: sourceKey ?? "")?.type == .appleMusic {
+            return MusicSourceIdentifier.appleMusic.compositeKey
+        }
+        return MediaSourceIdentity.serverSourceKey(from: sourceKey)
     }
 
     private func trackPassesCurrentFilters(_ track: Track) -> Bool {

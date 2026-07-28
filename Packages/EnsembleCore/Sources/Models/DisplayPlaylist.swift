@@ -3,8 +3,7 @@ import EnsemblePersistence
 import Foundation
 
 /// Represents a playlist entry in the UI — either a single playlist or a merged group
-/// of same-named playlists from different servers. When merging is enabled, playlists
-/// with identical titles and the same isSmart type are grouped into one DisplayPlaylist.
+/// of same-named playlists from different sources.
 public struct DisplayPlaylist: Identifiable, Equatable {
     public let id: String
     public let title: String
@@ -13,6 +12,10 @@ public struct DisplayPlaylist: Identifiable, Equatable {
 
     /// Whether this entry represents multiple playlists merged together
     public var isMerged: Bool { playlists.count > 1 }
+
+    public var editablePlaylists: [Playlist] { playlists.filter(\.supportsPlaylistEditing) }
+
+    public var deletablePlaylists: [Playlist] { playlists.filter(\.supportsPlaylistDeletion) }
 
     /// The first constituent playlist (used for artwork, primary source key, etc.)
     public var primaryPlaylist: Playlist { playlists[0] }
@@ -84,7 +87,8 @@ public struct DisplayPlaylist: Identifiable, Equatable {
     // MARK: - Grouping Helpers
 
     /// Groups playlists into DisplayPlaylist entries based on merge toggle.
-    /// When merge is enabled, playlists with the same (title, isSmart) are grouped.
+    /// When merge is enabled, playlists with the same normalized title and grouping kind are grouped.
+    /// Mutability does not affect grouping; regular and smart classification remains semantic.
     /// When merge is disabled, each playlist becomes its own DisplayPlaylist.
     /// The input order is preserved — the first occurrence of each group key
     /// determines the group's position in the output.
@@ -96,12 +100,16 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         return PlexPlaylistMergeRules.grouped(
             playlists,
             title: \.title,
-            isSmart: \.isSmart
+            isSmart: \.isSmartForPlaylistGrouping
         ).map { group in
             if group.count == 1 {
                 return .single(group[0])
             }
-            return .merged(title: group[0].title, isSmart: group[0].isSmart, playlists: group)
+            return .merged(
+                title: group[0].title,
+                isSmart: group.contains(where: \.isSmart),
+                playlists: group
+            )
         }
     }
 
@@ -113,7 +121,10 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         var groups: [String: (title: String, sourceKeys: Set<String>)] = [:]
 
         for playlist in playlists {
-            let groupKey = PlexPlaylistMergeRules.key(title: playlist.title, isSmart: playlist.isSmart)
+            let groupKey = PlexPlaylistMergeRules.key(
+                title: playlist.title,
+                isSmart: playlist.isSmartForPlaylistGrouping
+            )
             let sourceKey = playlist.sourceCompositeKey ?? ""
             if groups[groupKey] == nil {
                 groups[groupKey] = (playlist.title, [])

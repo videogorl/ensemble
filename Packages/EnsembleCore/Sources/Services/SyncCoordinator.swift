@@ -160,6 +160,12 @@ public final class SyncCoordinator: ObservableObject {
         syncProviders = providers
     }
 
+    internal var configuredSourceProviders: [MusicSourceSyncProvider] {
+        syncProviders.values.sorted {
+            $0.sourceIdentifier.compositeKey < $1.sourceIdentifier.compositeKey
+        }
+    }
+
     public init(
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
@@ -201,6 +207,20 @@ public final class SyncCoordinator: ObservableObject {
     /// Rebuild sync providers from current account configuration
     public func refreshProviders() {
         syncProviders.removeAll()
+
+        #if os(iOS)
+        if accountManager.isAppleMusicEnabled {
+            if #available(iOS 18, *) {
+                let provider = AppleMusicSourceProvider()
+                syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] = provider
+                if sourceStatuses[.appleMusic] == nil {
+                    sourceStatuses[.appleMusic] = MusicSourceStatus(connectionState: .connected(url: "music://local"))
+                }
+            }
+        } else {
+            sourceStatuses.removeValue(forKey: .appleMusic)
+        }
+        #endif
 
         for account in accountManager.plexAccounts {
             for server in account.servers {
@@ -483,7 +503,18 @@ public final class SyncCoordinator: ObservableObject {
         tracks: [Track],
         serverSourceKey: String
     ) async throws -> PlaylistMutationResult {
-        try await playlistMutationController().createPlaylist(
+        #if os(iOS)
+        if MusicSourceIdentifier(compositeKey: serverSourceKey)?.type == .appleMusic {
+            guard #available(iOS 18, *),
+                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+            else { throw PlaylistMutationError.invalidSource }
+            let compatible = tracks.filter(\.isAppleMusic)
+            try await provider.createPlaylist(title: title, tracks: compatible)
+            await refreshAppleMusicPlaylists(provider)
+            return PlaylistMutationResult(addedCount: compatible.count, skippedCount: tracks.count - compatible.count)
+        }
+        #endif
+        return try await playlistMutationController().createPlaylist(
             title: title,
             tracks: tracks,
             serverSourceKey: serverSourceKey
@@ -492,21 +523,245 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Add tracks to an existing playlist and refresh local cache for the playlist's server.
     public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
-        try await playlistMutationController().addTracksToPlaylist(tracks, playlist: playlist)
+        guard playlist.supportsPlaylistTrackAdds else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        #if os(iOS)
+        if playlist.sourceType == .appleMusic {
+            guard #available(iOS 18, *),
+                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+            else { throw PlaylistMutationError.invalidSource }
+            let compatible = tracks.filter(\.isAppleMusic)
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            EnsembleLogger.info(
+                "Apple Music playlist add started playlist=\(playlist.id) tracks=\(compatible.count)"
+            )
+            let added: Int
+            do {
+                added = try await provider.addTracks(compatible, to: playlist.id)
+            } catch {
+                EnsembleLogger.error(
+                    "Apple Music playlist add failed playlist=\(playlist.id) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)): \(error.localizedDescription)"
+                )
+                throw error
+            }
+            persistLastPlaylistTarget(from: playlist)
+            EnsembleLogger.info(
+                "Apple Music playlist add completed playlist=\(playlist.id) tracks=\(added) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
+            var minimumTrackCount = playlist.trackCount + added
+            do {
+                minimumTrackCount = try await persistOptimisticAppleMusicPlaylistAdd(
+                    compatible,
+                    playlist: playlist
+                )
+            } catch {
+                EnsembleLogger.error(
+                    "Apple Music playlist optimistic cache failed playlist=\(playlist.id): \(error.localizedDescription)"
+                )
+            }
+            let expectedTrackCount = minimumTrackCount
+            Task { [weak self] in
+                await self?.refreshAppleMusicPlaylist(
+                    provider,
+                    playlistID: playlist.id,
+                    minimumTrackCount: expectedTrackCount,
+                    requiredTracks: compatible
+                )
+            }
+            return PlaylistMutationResult(addedCount: added, skippedCount: tracks.count - compatible.count)
+        }
+        #endif
+        return try await playlistMutationController().addTracksToPlaylist(tracks, playlist: playlist)
     }
 
     /// Rename a playlist and refresh server playlists.
     public func renamePlaylist(_ playlist: Playlist, to newTitle: String) async throws {
+        guard playlist.supportsPlaylistEditing else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        #if os(iOS)
+        if playlist.sourceType == .appleMusic {
+            guard #available(iOS 18, *),
+                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+            else { throw PlaylistMutationError.invalidSource }
+            try await provider.renamePlaylist(playlist.id, title: newTitle)
+            await refreshAppleMusicPlaylists(provider)
+            return
+        }
+        #endif
         try await playlistMutationController().renamePlaylist(playlist, to: newTitle)
     }
 
     /// Delete a playlist and refresh server playlists.
     public func deletePlaylist(_ playlist: Playlist) async throws {
+        guard playlist.supportsPlaylistDeletion else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        #if os(iOS)
+        if playlist.sourceType == .appleMusic {
+            guard #available(iOS 18, *),
+                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+            else { throw PlaylistMutationError.invalidSource }
+            try await provider.deletePlaylist(playlist.id)
+            await refreshAppleMusicPlaylists(provider)
+            return
+        }
+        #endif
         try await playlistMutationController().deletePlaylist(playlist)
+    }
+
+    @discardableResult
+    internal func persistOptimisticAppleMusicPlaylistAdd(
+        _ tracks: [Track],
+        playlist: Playlist
+    ) async throws -> Int {
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        guard let cachedPlaylist = try await playlistRepository.fetchPlaylist(
+            ratingKey: playlist.id,
+            sourceCompositeKey: sourceKey
+        ) else {
+            return playlist.trackCount + tracks.count
+        }
+
+        let existingItems = cachedPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
+        let newTracks = PlaylistActionService().tracks(
+            tracks,
+            excluding: existingItems.map(\.track)
+        )
+        guard !newTracks.isEmpty else { return existingItems.count }
+
+        let snapshots = existingItems.map {
+            Self.playlistTrackSnapshot($0.track, playlistItemID: $0.playlistItemID)
+        } + newTracks.map {
+            Self.playlistTrackSnapshot($0, playlistItemID: nil)
+        }
+        try await playlistRepository.setPlaylistTrackSnapshots(
+            snapshots,
+            forPlaylist: playlist.id,
+            sourceCompositeKey: sourceKey
+        )
+        _ = try await playlistRepository.upsertPlaylist(
+            ratingKey: cachedPlaylist.ratingKey,
+            key: cachedPlaylist.key,
+            title: cachedPlaylist.title,
+            summary: cachedPlaylist.summary,
+            compositePath: cachedPlaylist.compositePath,
+            isSmart: cachedPlaylist.isSmart,
+            duration: Int(snapshots.reduce(0) { $0 + $1.duration } * 1_000),
+            trackCount: snapshots.count,
+            dateAdded: cachedPlaylist.dateAdded,
+            dateModified: cachedPlaylist.dateModified,
+            lastPlayed: cachedPlaylist.lastPlayed,
+            sourceCompositeKey: sourceKey
+        )
+        notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
+        EnsembleLogger.info(
+            "Apple Music playlist optimistic cache updated playlist=\(playlist.id) tracks=\(snapshots.count)"
+        )
+        return snapshots.count
+    }
+
+    private static func playlistTrackSnapshot(
+        _ track: Track,
+        playlistItemID: String?
+    ) -> PlaylistTrackSnapshot {
+        PlaylistTrackSnapshot(
+            ratingKey: track.id,
+            playlistItemID: playlistItemID,
+            key: track.key,
+            title: track.title,
+            artistName: track.artistName,
+            albumName: track.albumName,
+            duration: track.duration,
+            thumbPath: track.thumbPath ?? track.fallbackThumbPath,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+    }
+
+    #if os(iOS)
+    @available(iOS 18, *)
+    private func refreshAppleMusicPlaylists(_ provider: AppleMusicSourceProvider) async {
+        _ = try? await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
+        notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+    }
+
+    @available(iOS 18, *)
+    private func refreshAppleMusicPlaylist(
+        _ provider: AppleMusicSourceProvider,
+        playlistID: String,
+        minimumTrackCount: Int,
+        requiredTracks: [Track]
+    ) async {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let retryDelays: [UInt64] = [0, 1, 2, 4, 8, 16]
+        for (index, delay) in retryDelays.enumerated() {
+            let attempt = index + 1
+            do {
+                if delay > 0 {
+                    try await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                }
+                guard let trackCount = try await provider.syncPlaylist(
+                    id: playlistID,
+                    minimumTrackCount: minimumTrackCount,
+                    requiredTracks: requiredTracks,
+                    to: playlistRepository
+                ) else { continue }
+                notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+                EnsembleLogger.info(
+                    "Apple Music playlist refresh completed playlist=\(playlistID) tracks=\(trackCount) attempts=\(attempt) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+                )
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                EnsembleLogger.error(
+                    "Apple Music playlist refresh failed playlist=\(playlistID) attempt=\(attempt): \(error.localizedDescription)"
+                )
+            }
+        }
+        EnsembleLogger.error(
+            "Apple Music playlist refresh did not converge playlist=\(playlistID) expectedTracks=\(minimumTrackCount) requiredTracks=\(requiredTracks.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+        )
+    }
+
+    @available(iOS 18, *)
+    public func getAppleMusicCatalogPlaylistTracks(playlistID: String) async throws -> [Track] {
+        guard let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+        else { throw PlaylistMutationError.invalidSource }
+        return try await provider.getCatalogPlaylistTracks(playlistID: playlistID)
+    }
+    #endif
+
+    public func addTrackToLibrary(_ track: Track) async throws {
+        #if os(iOS)
+        guard track.canAddToSourceLibrary,
+              #available(iOS 18, *),
+              let catalogID = track.appleMusicCatalogID,
+              let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+        else { throw PlaylistMutationError.invalidSource }
+        try await provider.addToLibrary(catalogID: catalogID)
+        await sync(source: .appleMusic)
+        #else
+        throw PlaylistMutationError.invalidSource
+        #endif
     }
 
     /// Replace playlist contents in the provided order and refresh local cache.
     public func replacePlaylistContents(_ playlist: Playlist, with orderedTracks: [Track]) async throws {
+        guard playlist.supportsPlaylistEditing else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
+        }
+        #if os(iOS)
+        if playlist.sourceType == .appleMusic {
+            guard #available(iOS 18, *),
+                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
+            else { throw PlaylistMutationError.invalidSource }
+            try await provider.replacePlaylistContents(playlist.id, tracks: orderedTracks)
+            await refreshAppleMusicPlaylists(provider)
+            return
+        }
+        #endif
         try await playlistMutationController().replacePlaylistContents(playlist, with: orderedTracks)
     }
 
@@ -516,6 +771,12 @@ public final class SyncCoordinator: ObservableObject {
         originalItems: [PlaylistItem],
         editedItems: [PlaylistItem]
     ) async throws {
+        #if os(iOS)
+        if playlist.sourceType == .appleMusic {
+            try await replacePlaylistContents(playlist, with: editedItems.map(\.track))
+            return
+        }
+        #endif
         try await playlistMutationController().editPlaylistItems(
             playlist,
             originalItems: originalItems,
@@ -1018,6 +1279,17 @@ public final class SyncCoordinator: ObservableObject {
     public func rateTrack(track: Track, rating: Int?) async throws {
         guard let sourceKey = track.sourceCompositeKey else { throw PlexAPIError.noServerSelected }
         let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
+
+        #if os(iOS)
+        if track.isAppleMusic {
+            guard #available(iOS 18, *), rating != nil,
+                  let catalogID = track.appleMusicCatalogID,
+                  let appleProvider = provider as? AppleMusicSourceProvider
+            else { throw AppleMusicSourceError.favoriteRemovalUnsupported }
+            try await appleProvider.favorite(catalogID: catalogID)
+            return
+        }
+        #endif
 
         try await provider.rateTrack(ratingKey: track.id, rating: rating)
 

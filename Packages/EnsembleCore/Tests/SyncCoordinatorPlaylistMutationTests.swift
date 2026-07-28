@@ -82,7 +82,10 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         case unimplemented
     }
 
-    private func makeCoordinator(withServer: Bool = true) -> SyncCoordinator {
+    private func makeCoordinator(
+        withServer: Bool = true,
+        playlistRepository: PlaylistRepositoryProtocol = MockPlaylistRepository()
+    ) -> SyncCoordinator {
         let accountManager = AccountManager(keychain: TestKeychain())
         if withServer {
             accountManager.addPlexAccount(
@@ -109,13 +112,69 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         let coordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),
-            playlistRepository: MockPlaylistRepository(),
+            playlistRepository: playlistRepository,
             artworkDownloadManager: MockArtworkDownloadManager(),
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
         coordinator.setLastPlaylistTargetForTesting(nil, serverSourceKey: "plex:account-1:server-1")
         return coordinator
+    }
+
+    func testOptimisticAppleMusicPlaylistAddPersistsMembershipImmediately() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        _ = try await repository.upsertPlaylist(
+            ratingKey: "playlist-1",
+            key: "playlist-1",
+            title: "Sleepy Ambient",
+            summary: nil,
+            compositePath: nil,
+            isSmart: false,
+            duration: 200_000,
+            trackCount: 2,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            sourceCompositeKey: sourceKey
+        )
+        try await repository.setPlaylistTrackSnapshots(
+            [
+                PlaylistTrackSnapshot(ratingKey: "one", title: "One", duration: 90, sourceCompositeKey: sourceKey),
+                PlaylistTrackSnapshot(ratingKey: "two", title: "Two", duration: 110, sourceCompositeKey: sourceKey)
+            ],
+            forPlaylist: "playlist-1",
+            sourceCompositeKey: sourceKey
+        )
+        let playlist = Playlist(
+            id: "playlist-1",
+            key: "playlist-1",
+            title: "Sleepy Ambient",
+            trackCount: 2,
+            duration: 200,
+            sourceCompositeKey: sourceKey
+        )
+        let espresso = Track(
+            id: "1752214923",
+            key: "apple-catalog",
+            title: "Espresso",
+            artistName: "Sabrina Carpenter",
+            albumName: "Short n' Sweet (Deluxe)",
+            duration: 175.5,
+            sourceCompositeKey: sourceKey
+        )
+        let coordinator = makeCoordinator(withServer: false, playlistRepository: repository)
+
+        let firstCount = try await coordinator.persistOptimisticAppleMusicPlaylistAdd([espresso], playlist: playlist)
+        let duplicateCount = try await coordinator.persistOptimisticAppleMusicPlaylistAdd([espresso], playlist: playlist)
+        XCTAssertEqual(firstCount, 3)
+        XCTAssertEqual(duplicateCount, 3)
+
+        let fetched = try await repository.fetchPlaylist(ratingKey: playlist.id, sourceCompositeKey: sourceKey)
+        let cached = try XCTUnwrap(fetched)
+        XCTAssertEqual(cached.trackCount, 3)
+        XCTAssertEqual(cached.playlistItemsArray.map(PlaylistItem.init(from:)).map(\.track.title), ["One", "Two", "Espresso"])
     }
 
     func testDeletePlaylistRejectsSmartPlaylist() async throws {

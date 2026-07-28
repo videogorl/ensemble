@@ -1,4 +1,3 @@
-import EnsembleAPI
 import Foundation
 import os.signpost
 
@@ -67,13 +66,8 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         let sourceName: String
     }
 
-    private struct FetchTask {
-        let sourceKey: String
-        let client: PlexAPIClient
-        let sectionKey: String
-    }
-
     private let accountManager: AccountManager
+    private let syncCoordinator: SyncCoordinator
     private let hubRepository: HubRepositoryProtocol
     private let hubOrderManager: HubOrderManager
 
@@ -82,10 +76,12 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     public init(
         accountManager: AccountManager,
+        syncCoordinator: SyncCoordinator,
         hubRepository: HubRepositoryProtocol,
         hubOrderManager: HubOrderManager = HubOrderManager()
     ) {
         self.accountManager = accountManager
+        self.syncCoordinator = syncCoordinator
         self.hubRepository = hubRepository
         self.hubOrderManager = hubOrderManager
     }
@@ -143,32 +139,29 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         }
 
         let sourceContext = currentSourceContext()
-        let fetchTasks = makeFetchTasks()
+        let providers = syncCoordinator.configuredSourceProviders
 
-        guard !fetchTasks.isEmpty else {
-            EnsembleLogger.debug("🏠 Hub loader skipped network fetch (no enabled libraries)")
+        guard !providers.isEmpty else {
+            EnsembleLogger.debug("🏠 Hub loader skipped network fetch (no enabled sources)")
             return nil
         }
 
-        EnsembleLogger.debug("🏠 Hub loader network fetch tasks=\(fetchTasks.count) count=\(hubCount)")
+        EnsembleLogger.debug("🏠 Hub loader network fetch tasks=\(providers.count) count=\(hubCount)")
 
         var collectedHubs: [Hub] = []
-        var updatedFailedHubKeys = failedHubKeys
+        var updatedFailedHubKeys = Set<String>()
 
         await withTaskGroup(of: (index: Int, hubs: [Hub], failedKeys: Set<String>).self) { group in
-            for (index, task) in fetchTasks.enumerated() {
+            for (index, provider) in providers.enumerated() {
                 group.addTask {
-                    let result = await Self.fetchSectionHubs(
-                        task: task,
-                        hubCount: hubCount
-                    )
+                    let result = await Self.fetchHubs(provider: provider, limit: Int(hubCount) ?? 12)
                     return (index, result.hubs, result.failedKeys)
                 }
             }
 
             var results = Array<(hubs: [Hub], failedKeys: Set<String>)?>(
                 repeating: nil,
-                count: fetchTasks.count
+                count: providers.count
             )
             for await result in group {
                 results[result.index] = (result.hubs, result.failedKeys)
@@ -222,7 +215,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             metadata: HomeHubSnapshotMetadata(
                 currentSourceKey: sourceContext.sourceKey,
                 currentSourceName: sourceContext.sourceName,
-                fetchTaskCount: fetchTasks.count,
+                fetchTaskCount: providers.count,
                 usedGlobalFallback: false,
                 networkFetchCompletedAt: Date(),
                 cacheCreatedAt: nil,
@@ -275,100 +268,22 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
     }
 
     @MainActor
-    private func makeFetchTasks() -> [FetchTask] {
-        var tasks: [FetchTask] = []
-
-        for account in accountManager.plexAccounts {
-            for server in account.servers {
-                guard let client = accountManager.makeAPIClient(accountId: account.id, serverId: server.id) else {
-                    continue
-                }
-
-                for library in server.libraries where library.isEnabled {
-                    tasks.append(
-                        FetchTask(
-                            sourceKey: "plex:\(account.id):\(server.id):\(library.key)",
-                            client: client,
-                            sectionKey: library.key
-                        )
-                    )
-                }
-            }
-        }
-
-        return tasks
-    }
-
-    @MainActor
     private func enabledSourceCompositeKeys() -> Set<String> {
-        var keys = Set<String>()
-        for account in accountManager.plexAccounts {
-            for server in account.servers {
-                for library in server.libraries where library.isEnabled {
-                    keys.insert("plex:\(account.id):\(server.id):\(library.key)")
-                }
-            }
-        }
-        return keys
+        Set(accountManager.enabledSources().map(\.compositeKey))
     }
 
-    private static func fetchSectionHubs(
-        task: FetchTask,
-        hubCount: String
+    private static func fetchHubs(
+        provider: MusicSourceSyncProvider,
+        limit: Int
     ) async -> (hubs: [Hub], failedKeys: Set<String>) {
-        var hubs: [Hub] = []
-        var newFailedKeys = Set<String>()
-
         do {
-            let plexHubs = try await task.client.getHubs(sectionKey: task.sectionKey, count: hubCount)
-
-            await withTaskGroup(of: (hub: Hub?, failedKey: String?).self) { group in
-                for plexHub in plexHubs {
-                    group.addTask {
-                        let hubId = "\(task.sourceKey):\(plexHub.id)"
-                        var hubItems: [HubItem] = []
-
-                        if let metadata = plexHub.metadata, !metadata.isEmpty {
-                            let filteredMetadata = metadata.filter { item in
-                                let type = item.type?.lowercased() ?? ""
-                                return type.isEmpty || type == "track" || type == "album" || type == "artist" || type == "playlist" || type == "music" || type == "audio"
-                            }
-                            hubItems = filteredMetadata.map {
-                                HubItem(from: $0, sourceKey: task.sourceKey)
-                            }
-                        }
-
-                        guard !hubItems.isEmpty else { return (hub: nil, failedKey: nil) }
-
-                        return (
-                            hub: Hub(
-                                id: hubId,
-                                title: plexHub.title,
-                                type: plexHub.type ?? "mixed",
-                                items: hubItems,
-                                context: plexHub.context
-                            ),
-                            failedKey: nil
-                        )
-                    }
-                }
-
-                for await result in group {
-                    if let hub = result.hub {
-                        hubs.append(hub)
-                    }
-                    if let failedKey = result.failedKey {
-                        newFailedKeys.insert(failedKey)
-                    }
-                }
-            }
+            return (try await provider.getHomeHubs(limit: limit), [])
         } catch {
             EnsembleLogger.debug(
-                "🏠 Hub loader section fetch failed source=\(task.sourceKey) section=\(task.sectionKey): \(error.localizedDescription)"
+                "🏠 Hub loader provider fetch failed source=\(provider.sourceIdentifier.compositeKey): \(error.localizedDescription)"
             )
+            return ([], [provider.sourceIdentifier.compositeKey])
         }
-
-        return (hubs, newFailedKeys)
     }
 
     private func orderedSnapshot(
@@ -504,7 +419,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             let hubType = Self.hubTypeIdentifier(from: firstHub.id)
             let mergesAcrossServers = Self.mergesAcrossServers(hubType)
 
-            if group.count == 1, !mergesAcrossServers {
+            if group.count == 1, (!mergesAcrossServers || firstHub.id.contains(":merged:")) {
                 mergedResults.append(
                     Hub(
                         id: firstHub.id,

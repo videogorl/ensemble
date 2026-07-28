@@ -163,6 +163,10 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         copy(localFilePath: localFilePath, useLocalFilePathOverride: true)
     }
 
+    public func withThumbPath(_ thumbPath: String?) -> Track {
+        copy(thumbPath: thumbPath, useThumbPathOverride: true)
+    }
+
     /// Stable UI identity that distinguishes the same Plex rating key across sources.
     public var sourceScopedID: String {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
@@ -214,6 +218,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
 
     private func copy(
         rating: Int? = nil,
+        thumbPath: String? = nil,
+        useThumbPathOverride: Bool = false,
         localFilePath: String? = nil,
         useLocalFilePathOverride: Bool = false
     ) -> Track {
@@ -229,7 +235,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             trackNumber: trackNumber,
             discNumber: discNumber,
             duration: duration,
-            thumbPath: thumbPath,
+            thumbPath: useThumbPathOverride ? thumbPath : self.thumbPath,
             fallbackThumbPath: fallbackThumbPath,
             fallbackRatingKey: fallbackRatingKey,
             streamKey: streamKey,
@@ -766,6 +772,58 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     /// Stable UI identity that distinguishes the same Plex playlist rating key across sources.
     public var sourceScopedID: String {
         sourceScopedIdentity(ratingKey: id, sourceCompositeKey: sourceCompositeKey)
+    }
+
+    public var sourceType: MusicSourceType? {
+        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+    }
+
+    public var isSmartForPlaylistGrouping: Bool {
+        isSmart
+    }
+
+    public var supportsPlaylistTrackAdds: Bool {
+        guard !isSmart else { return false }
+        guard sourceType == .appleMusic else { return true }
+        return Self.appleMusicEditablePlaylistIDs.contains(id)
+    }
+
+    public var supportsPlaylistEditing: Bool {
+        guard !isSmart else { return false }
+        guard sourceType == .appleMusic else { return true }
+        return Set(UserDefaults.standard.stringArray(forKey: Self.appleMusicCreatedPlaylistIDsKey) ?? []).contains(id)
+    }
+
+    public var supportsPlaylistDeletion: Bool {
+        !isSmart && sourceType != .appleMusic
+    }
+
+    public var playlistEditingUnavailableReason: String? {
+        guard !supportsPlaylistEditing else { return nil }
+        if sourceType == .appleMusic, supportsPlaylistTrackAdds {
+            return "Songs can be added, but Apple only lets Ensemble reorder or rename playlists Ensemble created."
+        }
+        return isSmart ? "Smart playlists are read-only." : "This playlist is read-only."
+    }
+
+    public static func markAppleMusicPlaylistCreated(id: String) {
+        var ids = Set(UserDefaults.standard.stringArray(forKey: appleMusicCreatedPlaylistIDsKey) ?? [])
+        ids.insert(id)
+        UserDefaults.standard.set(Array(ids), forKey: appleMusicCreatedPlaylistIDsKey)
+
+        var editableIDs = appleMusicEditablePlaylistIDs
+        editableIDs.insert(id)
+        cacheAppleMusicEditablePlaylistIDs(editableIDs)
+    }
+
+    public static func cacheAppleMusicEditablePlaylistIDs(_ ids: Set<String>) {
+        UserDefaults.standard.set(Array(ids), forKey: appleMusicEditablePlaylistIDsKey)
+    }
+
+    private static let appleMusicCreatedPlaylistIDsKey = "appleMusicCreatedPlaylistIDs"
+    private static let appleMusicEditablePlaylistIDsKey = "appleMusicEditablePlaylistIDs"
+    private static var appleMusicEditablePlaylistIDs: Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: appleMusicEditablePlaylistIDsKey) ?? [])
     }
 
     /// Custom Equatable: compare only UI-visible fields to reduce SwiftUI diffing cost.

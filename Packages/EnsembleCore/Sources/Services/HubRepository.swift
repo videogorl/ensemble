@@ -50,6 +50,7 @@ public struct HomeFeedCachedSnapshot: Sendable, Equatable {
 public protocol HubRepositoryProtocol: Sendable {
     func fetchHubs() async throws -> [Hub]
     func saveHubs(_ hubs: [Hub]) async throws
+    func deleteHubs(forSourceCompositeKey sourceKey: String) async throws
     func deleteAllHubs() async throws
     func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot?
     func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws
@@ -124,6 +125,30 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
                 do {
                     try Self.deleteSnapshots(in: context, sourceScopeKey: nil)
                     try Self.deleteLegacyHubs(in: context)
+                    try context.save()
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func deleteHubs(forSourceCompositeKey sourceKey: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            coreDataStack.performBackgroundTask { context in
+                do {
+                    let hubs = try context.fetch(CDHub.fetchRequest())
+                    for hub in hubs {
+                        let items = hub.itemsArray
+                        let sourceItems = items.filter { $0.sourceCompositeKey == sourceKey }
+                        for item in sourceItems {
+                            context.delete(item)
+                        }
+                        if sourceItems.count == items.count {
+                            context.delete(hub)
+                        }
+                    }
                     try context.save()
                     continuation.resume()
                 } catch {

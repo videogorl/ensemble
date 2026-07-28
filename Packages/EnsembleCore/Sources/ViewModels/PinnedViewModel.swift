@@ -165,7 +165,7 @@ public final class PinnedViewModel: ObservableObject {
         for pin in pins {
             switch pin {
             case let .playlist(playlist, pinnedItem):
-                let key = GroupKey(title: playlist.title, isSmart: playlist.isSmart)
+                let key = GroupKey(title: playlist.title, isSmart: playlist.isSmartForPlaylistGrouping)
                 if groupIndex[key] == nil {
                     // First occurrence — reserve a slot in the output
                     groupIndex[key] = output.count
@@ -187,7 +187,11 @@ public final class PinnedViewModel: ObservableObject {
             let playlists = groupPlaylists[key] ?? []
             let pinnedItems = groupPins[key] ?? []
             if playlists.count > 1 {
-                let dp = DisplayPlaylist.merged(title: key.title, isSmart: key.isSmart, playlists: playlists)
+                let dp = DisplayPlaylist.merged(
+                    title: key.title,
+                    isSmart: playlists.contains(where: \.isSmart),
+                    playlists: playlists
+                )
                 output[index] = .mergedPlaylist(dp, pinnedItems)
             }
             // If only 1 playlist, the original .playlist entry is already in place

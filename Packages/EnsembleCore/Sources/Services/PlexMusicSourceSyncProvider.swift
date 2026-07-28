@@ -27,6 +27,26 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         self.syncCursorRepository = syncCursorRepository
     }
 
+    public func getHomeHubs(limit: Int) async throws -> [Hub] {
+        let sourceKey = sourceIdentifier.compositeKey
+        return try await apiClient.getHubs(sectionKey: sectionKey, count: String(limit)).compactMap { plexHub in
+            let items = (plexHub.metadata ?? [])
+                .filter { metadata in
+                    let type = metadata.type?.lowercased() ?? ""
+                    return type.isEmpty || ["track", "album", "artist", "playlist", "music", "audio"].contains(type)
+                }
+                .map { HubItem(from: $0, sourceKey: sourceKey) }
+            guard !items.isEmpty else { return nil }
+            return Hub(
+                id: "\(sourceKey):\(plexHub.id)",
+                title: plexHub.title,
+                type: plexHub.type ?? "mixed",
+                items: items,
+                context: plexHub.context
+            )
+        }
+    }
+
     public func syncLibraryIncremental(
         since timestamp: TimeInterval,
         to repository: LibraryRepositoryProtocol,

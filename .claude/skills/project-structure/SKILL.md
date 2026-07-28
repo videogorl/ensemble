@@ -59,6 +59,7 @@ rg --files Packages/EnsembleUI | rg 'NowPlaying|Screens|Components'
 
 - New ViewModel: `Packages/EnsembleCore/Sources/ViewModels/`
 - New Core service: `Packages/EnsembleCore/Sources/Services/`
+- Apple Music source, catalog search, and MusicKit playback adapters: `Packages/EnsembleCore/Sources/Services/AppleMusicSourceProvider.swift`, `AppleMusicCatalogSearch.swift`, and `AppleMusicPlaybackController.swift`; source picker UI: `Packages/EnsembleUI/Sources/Screens/AccountSettings/AddSourceView.swift`.
 - New playback source/transport/streaming decoder contract: `Packages/EnsembleCore/Sources/Services/`
 - New playback planner/analysis service: `Packages/EnsembleCore/Sources/Services/`
 - Shared artwork wash renderer/cache: `Packages/EnsembleCore/Sources/Services/ArtworkBlurRenderer.swift`

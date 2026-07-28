@@ -20,6 +20,7 @@ public struct InfoCard: View {
     // Metadata fetched asynchronously when the card becomes renderable.
     @State private var fetchedAlbum: Album?
     @State private var audioFileInfo: AudioFileInfo?
+    @State private var isLoadingMetadata = false
 
     public init(viewModel: NowPlayingViewModel, currentPage: Binding<Int>) {
         self.viewModel = viewModel
@@ -40,6 +41,10 @@ public struct InfoCard: View {
 
     private var currentTrack: Track? {
         playbackProjection.currentTrack
+    }
+
+    private var sourcePresentation: MusicSourcePresentation? {
+        deps.accountManager.sourcePresentation(for: currentTrack?.sourceCompositeKey)
     }
 
     public var body: some View {
@@ -66,6 +71,7 @@ public struct InfoCard: View {
         .onChange(of: playbackProjection.currentTrack?.playbackIdentity) { _ in
             guard shouldLoadMetadata else { return }
             audioFileInfo = nil // Clear stale data immediately
+            fetchedAlbum = nil
             Task {
                 await loadMetadataForCurrentTrack()
             }
@@ -235,7 +241,7 @@ public struct InfoCard: View {
                 if let bitDepth = info.bitDepth {
                     infoRow(label: "Bit Depth", value: "\(bitDepth)-bit")
                 }
-            } else {
+            } else if isLoadingMetadata {
                 // Loading placeholder
                 HStack {
                     Spacer()
@@ -307,7 +313,9 @@ public struct InfoCard: View {
     private var lyricsInfoRow: some View {
         let source = lyricsProjection.lyricsSource
         let detail: String
-        if case let .available(lyrics) = lyricsProjection.lyricsState {
+        if let status = currentTrack?.sourceCapabilities.lyricsStatusDescription {
+            detail = status
+        } else if case let .available(lyrics) = lyricsProjection.lyricsState {
             let format = lyrics.isTimed ? "Timed" : "Plain"
             detail = "\(source.displayText) (\(format), \(lyrics.lines.count) lines)"
         } else {
@@ -339,6 +347,13 @@ public struct InfoCard: View {
 
     @MainActor
     private func loadMetadataForCurrentTrack() async {
+        isLoadingMetadata = true
+        defer { isLoadingMetadata = false }
+        if currentTrack?.sourceCapabilities.supportsAudioFileInfo == false {
+            fetchedAlbum = await viewModel.fetchAlbumForCurrentTrack()
+            audioFileInfo = nil
+            return
+        }
         async let album = viewModel.fetchAlbumForCurrentTrack()
         async let fileInfo = viewModel.fetchAudioFileInfoForCurrentTrack()
         fetchedAlbum = await album
@@ -441,7 +456,10 @@ public struct InfoCard: View {
     /// Resolve whether current playback is from a downloaded local file or streaming.
     private func resolvePlaybackSource() -> String {
         guard let track = currentTrack else { return "—" }
-        return track.isDownloaded ? "Downloaded" : "Streaming"
+        if track.isDownloaded { return "Downloaded" }
+        return track.sourceCapabilities.managedPlaybackQualityDescription == nil
+            ? "Streaming"
+            : track.sourceCapabilities.displayName
     }
 
     /// Resolve playback quality with source-aware context.
@@ -450,6 +468,9 @@ public struct InfoCard: View {
     /// falling back to the current setting for backwards compatibility.
     private func resolvePlaybackQuality() -> String {
         guard let track = currentTrack else { return "—" }
+        if let description = track.sourceCapabilities.managedPlaybackQualityDescription {
+            return description
+        }
         guard let localFilePath = track.localFilePath else {
             // Prefer the quality stamped on the queue item at queue time
             let quality = queueProjection.currentQueueItem?.streamingQuality ?? streamingQuality
@@ -510,16 +531,7 @@ public struct InfoCard: View {
 
     /// Resolve server name from account manager
     private func resolveServerName() -> String? {
-        guard let identity = MediaSourceIdentity.parse(currentTrack?.sourceCompositeKey) else { return nil }
-
-        // Find the account and server
-        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
-              let server = account.servers.first(where: { $0.id == identity.serverId })
-        else {
-            return nil
-        }
-
-        return server.name
+        sourcePresentation?.serverName
     }
 
     private func displayServerName(_ serverName: String) -> String {
@@ -533,24 +545,12 @@ public struct InfoCard: View {
     /// Resolve library name from the track's sourceCompositeKey
     /// Format: "plex:accountId:serverId:libraryId" -> find matching library title
     private func resolveLibraryName() -> String? {
-        guard let identity = MediaSourceIdentity.parse(currentTrack?.sourceCompositeKey),
-              let libraryId = identity.libraryId else {
-            return nil
-        }
-
-        // Walk accounts → servers → libraries to find matching title
-        guard let account = deps.accountManager.plexAccounts.first(where: { $0.id == identity.accountId }),
-              let server = account.servers.first(where: { $0.id == identity.serverId }),
-              let library = server.libraries.first(where: { $0.id == libraryId })
-        else {
-            return nil
-        }
-
-        return library.title
+        sourcePresentation?.libraryName
     }
 
     /// Resolve connection URL and type info
     private func resolveConnectionInfo() -> String? {
+        guard currentTrack?.sourceCapabilities.requiresServerConnection == true else { return nil }
         guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {
             return nil
         }
@@ -612,6 +612,10 @@ public struct InfoCard: View {
         // Device is offline — always reflect that regardless of cached server state
         guard deps.networkMonitor.isConnected else {
             return ("Offline", EnsembleDesign.Color.destructive)
+        }
+
+        if currentTrack?.sourceCapabilities.requiresServerConnection == false {
+            return ("Connected", EnsembleDesign.Color.success)
         }
 
         guard let serverKey = extractServerKey(from: currentTrack?.sourceCompositeKey) else {

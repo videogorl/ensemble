@@ -252,7 +252,7 @@ public struct PlaylistPickerSheet: View {
                     tracks,
                     compatibleWithServerSourceKey: playlist.sourceCompositeKey
                 )
-                let existingTracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+                let existingTracks = cachedPlaylist.playlistItemsArray.map { PlaylistItem(from: $0).track }
                 if !compatibleTracks.isEmpty,
                    actionService.tracks(compatibleTracks, excluding: existingTracks).isEmpty {
                     containingSelection.insert(playlist.sourceScopedID)
@@ -288,7 +288,7 @@ public struct PlaylistPickerSheet: View {
                 let existingTracks = try await deps.playlistRepository.fetchPlaylist(
                     ratingKey: playlist.id,
                     sourceCompositeKey: playlist.sourceCompositeKey
-                )?.tracksArray.map { Track(from: $0) } ?? []
+                )?.playlistItemsArray.map { PlaylistItem(from: $0).track } ?? []
                 let tracksToAdd = PlaylistActionService().tracks(compatibleTracks, excluding: existingTracks)
                 guard !tracksToAdd.isEmpty else {
                     dismiss()

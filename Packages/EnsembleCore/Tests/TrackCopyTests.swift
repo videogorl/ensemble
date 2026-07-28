@@ -42,5 +42,10 @@ final class TrackCopyTests: XCTestCase {
         XCTAssertEqual(downloaded.rating, rated.rating)
         XCTAssertEqual(downloaded.albumArtistName, original.albumArtistName)
         XCTAssertEqual(downloaded.genres, original.genres)
+
+        let artwork = downloaded.withThumbPath("https://example.com/new.jpg")
+        XCTAssertEqual(artwork.thumbPath, "https://example.com/new.jpg")
+        XCTAssertEqual(artwork.playbackIdentity, downloaded.playbackIdentity)
+        XCTAssertEqual(artwork.localFilePath, downloaded.localFilePath)
     }
 }

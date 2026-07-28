@@ -13,6 +13,7 @@ struct MediaActionLabel: View {
         case radio
         case playNext
         case playLast
+        case addToLibrary
         case addToPlaylist
         case addToRecentPlaylist(String)
         case goToAlbum
@@ -63,6 +64,8 @@ struct MediaActionLabel: View {
             return "Play Next"
         case .playLast:
             return "Play Last"
+        case .addToLibrary:
+            return "Add to Library"
         case .addToPlaylist:
             return "Add to Playlist…"
         case .addToRecentPlaylist(let playlistTitle):
@@ -130,6 +133,8 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.playNext
         case .playLast:
             return EnsembleDesign.Icon.playLast
+        case .addToLibrary:
+            return "text.badge.plus"
         case .addToPlaylist:
             return EnsembleDesign.Icon.addToPlaylist
         case .addToRecentPlaylist:

@@ -37,17 +37,18 @@ struct TrackActionsContextMenu: View {
                 context: context,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: recentTitle != nil,
+                    canAddToLibrary: nowPlayingVM.canAddTrackToLibrary(track),
                     canAddToRecentPlaylist: recentTitle != nil,
                     canGoToAlbum: track.albumRatingKey != nil,
                     canGoToArtist: track.artistRatingKey != nil,
                     canGetInfo: onGetInfo != nil,
                     canShareLink: true,
-                    canShareAudioFile: true,
-                    canFavorite: true,
+                    canShareAudioFile: track.sourceCapabilities.supportsAudioFileSharing,
+                    canFavorite: track.sourceCapabilities.supportsFavoriteRemoval || !nowPlayingVM.isTrackFavorited(track),
                     canDownload: false,
                     canPin: false,
-                    canEditMetadata: onEditMetadata != nil,
-                    canDelete: onDelete != nil,
+                    canEditMetadata: onEditMetadata != nil && track.sourceCapabilities.supportsMetadataEditing,
+                    canDelete: onDelete != nil && track.sourceCapabilities.supportsTrackDeletion,
                     canRename: false,
                     canEditPlaylist: false,
                     canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
@@ -75,6 +76,9 @@ struct TrackActionsContextMenu: View {
                 },
                 playLast: {
                     nowPlayingVM.playLast(track)
+                },
+                addToLibrary: {
+                    Task { await nowPlayingVM.addTrackToLibrary(track) }
                 },
                 addToRecentPlaylist: {
                     if let recentPlaylistTarget {
@@ -187,7 +191,7 @@ struct AlbumActionsContextMenu: View {
                     canDownload: canDownload,
                     canPin: true,
                     canEditMetadata: onEditMetadata != nil,
-                    canDelete: onDelete != nil,
+                    canDelete: onDelete != nil && album.sourceCompositeKey != MusicSourceIdentifier.appleMusic.compositeKey,
                     canRename: false,
                     canEditPlaylist: false,
                     canRemoveFromQueue: false
@@ -482,7 +486,7 @@ struct PlaylistActionsContextMenu: View {
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
-                for: .playlist(isSmart: playlist.isSmart),
+                for: .playlist(isSmart: !playlist.supportsPlaylistEditing),
                 context: .library,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: false,
@@ -496,9 +500,9 @@ struct PlaylistActionsContextMenu: View {
                     canDownload: canDownload,
                     canPin: true,
                     canEditMetadata: false,
-                    canDelete: onDelete != nil,
-                    canRename: onRename != nil,
-                    canEditPlaylist: onEdit != nil,
+                    canDelete: onDelete != nil && playlist.supportsPlaylistDeletion,
+                    canRename: onRename != nil && playlist.supportsPlaylistEditing,
+                    canEditPlaylist: onEdit != nil && playlist.supportsPlaylistEditing,
                     canRemoveFromQueue: false
                 )
             ),
@@ -624,7 +628,7 @@ struct MergedPlaylistActionsContextMenu: View {
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
-                for: .mergedPlaylist(isSmart: displayPlaylist.isSmart),
+                for: .mergedPlaylist(isSmart: displayPlaylist.editablePlaylists.isEmpty),
                 context: context,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: false,
@@ -637,8 +641,8 @@ struct MergedPlaylistActionsContextMenu: View {
                     canDownload: !downloadablePlaylists.isEmpty,
                     canPin: false,
                     canEditMetadata: false,
-                    canDelete: onDelete != nil,
-                    canRename: onRename != nil,
+                    canDelete: onDelete != nil && !displayPlaylist.deletablePlaylists.isEmpty,
+                    canRename: onRename != nil && !displayPlaylist.editablePlaylists.isEmpty,
                     canEditPlaylist: false,
                     canRemoveFromQueue: false
                 )

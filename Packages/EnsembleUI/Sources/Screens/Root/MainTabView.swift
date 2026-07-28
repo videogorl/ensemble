@@ -355,6 +355,7 @@ public struct MainTabView: View {
             if showsPhoneAuroraOverlay &&
                 selectedRootTab == tab &&
                 auroraVisualizationEnabled &&
+                nowPlayingVM.currentTrack?.sourceCapabilities.supportsWaveform != false &&
                 !isShowingNowPlaying &&
                 !rootChromeSuppressed &&
                 navigationCoordinator.activeAuxiliaryPresentation == nil {
