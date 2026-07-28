@@ -160,6 +160,12 @@ public final class SyncCoordinator: ObservableObject {
         syncProviders = providers
     }
 
+    internal var configuredSourceProviders: [MusicSourceSyncProvider] {
+        syncProviders.values.sorted {
+            $0.sourceIdentifier.compositeKey < $1.sourceIdentifier.compositeKey
+        }
+    }
+
     public init(
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,

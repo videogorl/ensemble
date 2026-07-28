@@ -11,6 +11,19 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
 
     public init() {}
 
+    public func getHomeHubs(limit: Int) async throws -> [Hub] {
+        async let recentlyAdded = Self.availableHub(named: "Recently Added") {
+            try await Self.recentlyAddedHub(limit: limit)
+        }
+        async let recentlyPlayed = Self.availableHub(named: "Recently Played") {
+            try await Self.recentlyPlayedHub(limit: limit)
+        }
+        async let mostPlayed = Self.availableHub(named: "Most Played") {
+            try await Self.mostPlayedHub(limit: limit)
+        }
+        return await [recentlyAdded, recentlyPlayed, mostPlayed].compactMap { $0 }
+    }
+
     public func syncLibrary(
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
@@ -295,20 +308,11 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
     }
 
     public func getArtistAlbums(artistKey: String) async throws -> [Album] {
-        var catalogArtistKey = artistKey
         if artistKey.hasPrefix("apple-artist:") {
-            let name = String(artistKey.dropFirst("apple-artist:".count))
-            var search = MusicCatalogSearchRequest(term: name, types: [MusicKit.Artist.self])
-            search.limit = 10
-            let artists = try await search.response().artists
-            let match = artists.first {
-                $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-            } ?? artists.first
-            guard let match else { return [] }
-            catalogArtistKey = String(describing: match.id)
+            return []
         }
 
-        var request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, equalTo: MusicItemID(catalogArtistKey))
+        var request = MusicCatalogResourceRequest<MusicKit.Artist>(matching: \.id, equalTo: MusicItemID(artistKey))
         request.properties = [.albums]
         guard let artist = try await request.response().items.first else { return [] }
         var albums = artist.albums ?? []
@@ -368,6 +372,97 @@ public actor AppleMusicSourceProvider: MusicSourceSyncProvider {
             streamKey: song.url?.absoluteString,
             genres: song.genreNames,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+    }
+
+    private nonisolated static func recentlyAddedHub(limit: Int) async throws -> Hub? {
+        var request = MusicLibraryRequest<MusicKit.Album>()
+        request.limit = limit
+        request.sort(by: \.libraryAddedDate, ascending: false)
+        let items = try await request.response().items.map { album in
+            let domain = domainAlbum(album)
+            return HubItem(
+                id: domain.id,
+                type: "album",
+                title: domain.title,
+                subtitle: domain.artistName,
+                thumbPath: domain.thumbPath,
+                year: domain.year,
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+                addedAt: album.libraryAddedDate,
+                album: domain
+            )
+        }
+        return hub(id: "music.recent.added", title: "Recently Added", type: "album", items: Array(items))
+    }
+
+    private nonisolated static func recentlyPlayedHub(limit: Int) async throws -> Hub? {
+        var request = MusicRecentlyPlayedRequest<Song>()
+        request.limit = min(limit, 30)
+        let items = try await request.response().items.map { song in
+            let domain = domainTrack(song)
+            return HubItem(
+                id: domain.id,
+                type: "track",
+                title: domain.title,
+                subtitle: domain.artistName,
+                thumbPath: domain.thumbPath,
+                year: song.releaseDate.map { Calendar.current.component(.year, from: $0) },
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+                lastViewedAt: song.lastPlayedDate,
+                track: domain
+            )
+        }
+        return hub(id: "music.recent.played", title: "Recently Played Music", type: "track", items: Array(items))
+    }
+
+    private nonisolated static func mostPlayedHub(limit: Int) async throws -> Hub? {
+        var request = MusicLibraryRequest<Song>()
+        request.limit = limit
+        request.sort(by: \.playCount, ascending: false)
+        let items = try await request.response().items.compactMap { song -> HubItem? in
+            guard let playCount = song.playCount, playCount > 0 else { return nil }
+            let domain = domainTrack(song)
+            return HubItem(
+                id: domain.id,
+                type: "track",
+                title: domain.title,
+                subtitle: domain.artistName,
+                thumbPath: domain.thumbPath,
+                year: song.releaseDate.map { Calendar.current.component(.year, from: $0) },
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+                lastViewedAt: song.lastPlayedDate,
+                viewCount: playCount,
+                track: domain
+            )
+        }
+        return hub(id: "music.popular", title: "Most Played", type: "track", items: Array(items))
+    }
+
+    private nonisolated static func availableHub(
+        named name: String,
+        operation: @Sendable () async throws -> Hub?
+    ) async -> Hub? {
+        do {
+            return try await operation()
+        } catch {
+            EnsembleLogger.debug("🎵 Apple Music \(name) hub fetch failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private nonisolated static func hub(
+        id: String,
+        title: String,
+        type: String,
+        items: [HubItem]
+    ) -> Hub? {
+        guard !items.isEmpty else { return nil }
+        return Hub(
+            id: "\(MusicSourceIdentifier.appleMusic.compositeKey):\(id)",
+            title: title,
+            type: type,
+            items: items
         )
     }
 

@@ -81,10 +81,10 @@ Dependency flow is one-way:
 - `EnsembleAPI.PlexPlaylistMergeRules` owns playlist merge identity, stable grouping, and round-robin interleaving for both app clients; platform models and loading remain client-owned.
 - Source identity must include account/server/library scope where applicable. Plex library section keys are per-server integers and are not globally unique.
 - Feed and library surfaces should use stale-while-revalidate behavior: show cached/last-good committed snapshots first, then refresh in background.
-- `HomeHubLoader` owns combined Feed hub identity, merging, and global order application. Cross-server hubs use stable Feed-scoped identities; `HubOrderManager` persists the resulting snapshot order without inferring source ownership from hub IDs.
+- Every `MusicSourceSyncProvider` maps its service's history/library data into normalized `Hub` values through `getHomeHubs(limit:)`. `HomeHubLoader` collects all configured providers and owns combined Feed hub identity, cross-provider merging, global order application, and last-good persistence; `HubOrderManager` persists the resulting snapshot order without inferring source ownership from hub IDs. Search consumes the saved combined snapshot instead of fetching or persisting hubs itself.
 - Empty or failed network results must not overwrite last-good Feed snapshots.
 - Durable server-playlist sync state belongs in `SyncCursorRepository`/`CDSyncCursor`. Playlist sync triggers should ask or update this scoped state instead of adding new independent timestamp flags.
-- Destructive source cleanup belongs in `SourceCacheCleanupService` or the relevant persistence/offline owner, not in UI ViewModels.
+- Destructive source cleanup belongs in `SourceCacheCleanupService` or the relevant persistence/offline owner, not in UI ViewModels. It removes source-owned Feed items as well as library/offline rows; Apple Music removal also clears shared artwork stores because catalog assets are not source-indexed.
 
 ## Playback And Plex Rules
 

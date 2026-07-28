@@ -87,6 +87,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         func fetchHubs() async throws -> [Hub] { cachedHubs }
         func saveHubs(_ hubs: [Hub]) async throws {}
         func deleteAllHubs() async throws {}
+        func deleteHubs(forSourceCompositeKey sourceKey: String) async throws {}
         func fetchLatestHomeFeedSnapshot(sourceScopeKey: String?) async throws -> HomeFeedCachedSnapshot? {
             snapshotFetchCount += 1
             if let sourceScopeKey {
@@ -183,6 +184,13 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         let sourceIdentifier: MusicSourceIdentifier
         var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        var homeHubs: [Hub] = []
+        var homeFetchFails = false
+
+        func getHomeHubs(limit: Int) async throws -> [Hub] {
+            if homeFetchFails { throw MockError.unimplemented }
+            return homeHubs
+        }
 
         func syncLibrary(
             to repository: LibraryRepositoryProtocol,
@@ -276,6 +284,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         hubRepository.cachedHubs = cachedHubs
         let hubLoader = HomeHubLoader(
             accountManager: accountManager,
+            syncCoordinator: coordinator,
             hubRepository: hubRepository
         )
         let libraryRepository = MockLibraryRepository()
@@ -474,7 +483,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.orderedHubs.map(\.items.count), [2, 2, 2])
     }
 
-    func testFeedMergesPriorityHubsAcrossServersUsingPlexOrderingMetadata() {
+    func testFeedMergesPriorityHubsAcrossSourceTypesUsingNormalizedOrderingMetadata() {
         func item(
             _ id: String,
             source: String,
@@ -497,7 +506,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         }
 
         let firstSource = "plex:account-1:server-1:library-1"
-        let secondSource = "plex:account-2:server-2:library-2"
+        let secondSource = MusicSourceIdentifier.appleMusic.compositeKey
         let hubs = [
             Hub(id: "\(firstSource):music.recent.added.1", title: "Recently Added in One", type: "album", items: [item("added-old", source: firstSource, addedAt: 100)]),
             Hub(id: "\(secondSource):music.recent.added.2", title: "Recently Added in Two", type: "album", items: [item("added-new", source: secondSource, addedAt: 300)]),
@@ -518,6 +527,73 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(merged.first { $0.title == "Recently Played Music" }?.items.map(\.id), ["played-new", "played-old"])
         XCTAssertEqual(merged.first { $0.title == "Most Played" }?.items.map(\.id), ["popular-nine-new", "popular-nine-old", "popular-four"])
         XCTAssertEqual(merged.filter { $0.title == "More by Artist" }.count, 2)
+    }
+
+    func testFeedLoaderCollectsHubsFromEveryConfiguredProvider() async throws {
+        let harness = makeHarness()
+        let plexSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "library")
+        let appleSource = MusicSourceIdentifier.appleMusic
+        func hub(source: MusicSourceIdentifier, itemID: String) -> Hub {
+            Hub(
+                id: "\(source.compositeKey):music.recent.added",
+                title: "Recently Added",
+                type: "album",
+                items: [
+                    HubItem(
+                        id: itemID,
+                        type: "album",
+                        title: itemID,
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source.compositeKey,
+                        addedAt: Date()
+                    )
+                ]
+            )
+        }
+        harness.coordinator.setSyncProvidersForTesting([
+            plexSource.compositeKey: MockSyncProvider(
+                sourceIdentifier: plexSource,
+                homeHubs: [hub(source: plexSource, itemID: "plex")]
+            ),
+            appleSource.compositeKey: MockSyncProvider(
+                sourceIdentifier: appleSource,
+                homeHubs: [hub(source: appleSource, itemID: "apple")]
+            ),
+        ])
+
+        let snapshot = await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
+
+        XCTAssertEqual(Set(snapshot?.orderedHubs.first?.items.map(\.sourceCompositeKey) ?? []), [
+            plexSource.compositeKey,
+            appleSource.compositeKey,
+        ])
+    }
+
+    func testFeedLoaderClearsRecoveredProviderFailure() async throws {
+        let harness = makeHarness()
+        let plexSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "library")
+        let appleSource = MusicSourceIdentifier.appleMusic
+        let plexHub = Hub(
+            id: "\(plexSource.compositeKey):music.recent.added",
+            title: "Recently Added",
+            type: "album",
+            items: [HubItem(id: "plex", type: "album", title: "Plex", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: plexSource.compositeKey)]
+        )
+        harness.coordinator.setSyncProvidersForTesting([
+            plexSource.compositeKey: MockSyncProvider(sourceIdentifier: plexSource, homeHubs: [plexHub]),
+            appleSource.compositeKey: MockSyncProvider(sourceIdentifier: appleSource, homeFetchFails: true),
+        ])
+        let failed = await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
+        XCTAssertEqual(failed?.failedHubKeys, [appleSource.compositeKey])
+
+        harness.coordinator.setSyncProvidersForTesting([
+            plexSource.compositeKey: MockSyncProvider(sourceIdentifier: plexSource, homeHubs: [plexHub]),
+            appleSource.compositeKey: MockSyncProvider(sourceIdentifier: appleSource),
+        ])
+        let recovered = await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
+        XCTAssertTrue(recovered?.failedHubKeys.isEmpty == true)
     }
 
     func testFeedMergedHubsDeduplicateAccountAliasesForOnePhysicalLibrary() {

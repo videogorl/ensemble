@@ -64,7 +64,9 @@ public struct SearchView: View {
     public var body: some View {
         let baseContent = VStack(spacing: EnsembleDesign.Spacing.none) {
             #if os(iOS)
-            if resultSection == nil, hasAppleMusic {
+            if resultSection == nil,
+               hasAppleMusic,
+               isSearchFieldFocused || !viewModel.searchQuery.isEmpty {
                 Picker("Search", selection: $viewModel.scope) {
                     ForEach(SearchScope.allCases, id: \.self) { scope in
                         Text(scope.rawValue).tag(scope)
@@ -716,10 +718,10 @@ public struct SearchView: View {
         if isRestoringCloudSources {
             return .restoringCloudSources
         }
-        if isSyncing {
+        if usesLibrarySyncRecovery {
             return .syncing
         }
-        if !hasEnabledLibrariesState {
+        if !hasEnabledSearchLibrary {
             return .noEnabledLibraries
         }
         return .empty(message: "Start typing to search your library")
@@ -961,7 +963,7 @@ public struct SearchView: View {
 
     @ViewBuilder
     private var noResultsView: some View {
-        if isRestoringCloudSources || !hasAnySources || isSyncing || !hasEnabledLibrariesState {
+        if isRestoringCloudSources || !hasAnySources || usesLibrarySyncRecovery || !hasEnabledSearchLibrary {
             EnsembleLibraryEmptyStateScaffold(
                 title: "No Results",
                 iconSystemName: EnsembleDesign.Icon.musicNote,
@@ -986,10 +988,10 @@ public struct SearchView: View {
         if !hasAnySources {
             return .noSources
         }
-        if isSyncing {
+        if usesLibrarySyncRecovery {
             return .syncing
         }
-        if !hasEnabledLibrariesState {
+        if !hasEnabledSearchLibrary {
             return .noEnabledLibraries
         }
         return .empty(message: "Try a different search term")
@@ -1007,6 +1009,14 @@ public struct SearchView: View {
                 server.libraries.contains(where: \.isEnabled)
             }
         }
+    }
+
+    private var hasEnabledSearchLibrary: Bool {
+        hasAppleMusic || hasEnabledLibrariesState
+    }
+
+    private var usesLibrarySyncRecovery: Bool {
+        viewModel.scope == .library && isSyncing
     }
 
     private var recommendedDisplayItems: [HubItem] {

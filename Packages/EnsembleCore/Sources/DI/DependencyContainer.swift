@@ -273,6 +273,7 @@ public final class DependencyContainer: @unchecked Sendable {
         shareService = playback.shareService
         let builtSourceCacheCleanupService = SourceCacheCleanupService(
             libraryRepository: libraryRepository,
+            hubRepository: hubRepository,
             downloadManager: downloadManager,
             targetRepository: offlineDownloadTargetRepository,
             artworkDownloadManager: artworkDownloadManager,
@@ -309,6 +310,9 @@ public final class DependencyContainer: @unchecked Sendable {
                 await MainActor.run {
                     lyricsService.clearAllCaches()
                 }
+            },
+            clearSharedArtworkCaches: { [weak cacheManager = playback.cacheManager] in
+                try await cacheManager?.clearArtworkCaches()
             }
         )
         sourceCacheCleanupService = builtSourceCacheCleanupService
@@ -317,6 +321,7 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         let builtHomeHubLoader = HomeHubLoader(
             accountManager: accountManager,
+            syncCoordinator: syncCoordinator,
             hubRepository: hubRepository,
             hubOrderManager: hubOrderManager
         )

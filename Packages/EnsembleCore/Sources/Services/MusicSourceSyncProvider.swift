@@ -83,6 +83,9 @@ public protocol MusicSourceSyncProvider: Sendable {
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> PlaylistSyncResult
 
+    /// Fetch source-owned Feed sections already normalized to Ensemble's hub model.
+    func getHomeHubs(limit: Int) async throws -> [Hub]
+
     /// Get a streaming resolution for a track — may be a direct URL, downloaded file,
     /// or progressive transcode config for chunked streaming.
     func getStreamURL(
@@ -124,6 +127,7 @@ public protocol MusicSourceSyncProvider: Sendable {
 }
 
 extension MusicSourceSyncProvider {
+    public func getHomeHubs(limit: Int) async throws -> [Hub] { [] }
     public func getArtistDetail(artistKey: String) async throws -> ArtistDetail? { nil }
     public func getAlbumDetail(albumKey: String) async throws -> AlbumDetail? { nil }
     public func getSimilarAlbums(albumKey: String) async throws -> [Album] { [] }

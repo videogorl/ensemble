@@ -57,8 +57,10 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     public typealias SourceTargetCounter = @Sendable (String) async throws -> Int
     public typealias AllTargetCounter = @Sendable () async throws -> Int
     public typealias ArtworkItemCounter = @Sendable () async throws -> Int
+    public typealias SharedArtworkCacheCleanup = @Sendable () async throws -> Void
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let hubRepository: HubRepositoryProtocol
     private let downloadManager: DownloadManagerProtocol
     private let targetRepository: OfflineDownloadTargetRepositoryProtocol
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
@@ -70,10 +72,12 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
     private let countArtworkItems: ArtworkItemCounter
     private let clearLyricsCache: LyricsCacheCleanup
     private let clearAllLyricsCaches: AllLyricsCacheCleanup
+    private let clearSharedArtworkCaches: SharedArtworkCacheCleanup
 
     /// Creates a source cleanup worker from repository/file-cache dependencies.
     public init(
         libraryRepository: LibraryRepositoryProtocol,
+        hubRepository: HubRepositoryProtocol,
         downloadManager: DownloadManagerProtocol,
         targetRepository: OfflineDownloadTargetRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
@@ -84,9 +88,11 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         countAllTargets: @escaping AllTargetCounter,
         countArtworkItems: @escaping ArtworkItemCounter,
         clearLyricsCache: @escaping LyricsCacheCleanup,
-        clearAllLyricsCaches: @escaping AllLyricsCacheCleanup
+        clearAllLyricsCaches: @escaping AllLyricsCacheCleanup,
+        clearSharedArtworkCaches: @escaping SharedArtworkCacheCleanup
     ) {
         self.libraryRepository = libraryRepository
+        self.hubRepository = hubRepository
         self.downloadManager = downloadManager
         self.targetRepository = targetRepository
         self.artworkDownloadManager = artworkDownloadManager
@@ -98,6 +104,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         self.countArtworkItems = countArtworkItems
         self.clearLyricsCache = clearLyricsCache
         self.clearAllLyricsCaches = clearAllLyricsCaches
+        self.clearSharedArtworkCaches = clearSharedArtworkCaches
     }
 
     /// Removes one source's caches while preserving unrelated sources.
@@ -132,6 +139,7 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
         try await targetRepository.deleteAllTargets()
         try await downloadManager.deleteAllDownloads()
         try await libraryRepository.deleteAllLibraryData()
+        try await hubRepository.deleteAllHubs()
         try await artworkDownloadManager.clearArtworkCache()
 
         let result = SourceCacheCleanupResult(
@@ -180,10 +188,14 @@ public final class SourceCacheCleanupService: SourceCacheCleaning, @unchecked Se
             _ = try await downloadManager.removeOrphanedDownloadFiles()
 
             try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)
+            try await hubRepository.deleteHubs(forSourceCompositeKey: sourceKey)
         }
 
         if !artworkKeysToDelete.isEmpty {
             artworkDownloadManager.deleteArtwork(forRatingKeys: artworkKeysToDelete)
+        }
+        if sourceKeys.contains(where: { MusicSourceIdentifier(compositeKey: $0)?.type == .appleMusic }) {
+            try await clearSharedArtworkCaches()
         }
 
         let result = SourceCacheCleanupResult(

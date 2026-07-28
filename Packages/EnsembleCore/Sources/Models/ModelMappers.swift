@@ -597,6 +597,9 @@ public extension Hub {
 public extension HubItem {
     init(from cd: CDHubItem) {
         let type = cd.type
+        let itemKey = MusicSourceIdentifier(compositeKey: cd.sourceCompositeKey)?.type == .appleMusic
+            ? "apple-catalog"
+            : cd.id
         
         var album: Album? = nil
         var track: Track? = nil
@@ -606,7 +609,7 @@ public extension HubItem {
         if type == "album" {
             album = Album(
                 id: cd.id,
-                key: cd.id,
+                key: itemKey,
                 title: cd.title,
                 artistName: cd.subtitle,
                 thumbPath: cd.thumbPath,
@@ -615,7 +618,7 @@ public extension HubItem {
         } else if type == "track" {
             track = Track(
                 id: cd.id,
-                key: cd.id,
+                key: itemKey,
                 title: cd.title,
                 artistName: cd.subtitle,
                 thumbPath: cd.thumbPath,
@@ -624,7 +627,7 @@ public extension HubItem {
         } else if type == "artist" {
             artist = Artist(
                 id: cd.id,
-                key: cd.id,
+                key: itemKey,
                 name: cd.title,
                 thumbPath: cd.thumbPath,
                 sourceCompositeKey: cd.sourceCompositeKey
@@ -632,7 +635,7 @@ public extension HubItem {
         } else if type == "playlist" {
             playlist = Playlist(
                 id: cd.id,
-                key: cd.id,
+                key: itemKey,
                 title: cd.title,
                 sourceCompositeKey: cd.sourceCompositeKey
             )
