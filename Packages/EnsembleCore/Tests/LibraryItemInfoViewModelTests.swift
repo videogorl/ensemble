@@ -4,6 +4,21 @@ import XCTest
 
 @MainActor
 final class LibraryItemInfoViewModelTests: XCTestCase {
+    func testAppleMusicSourceContextUsesNormalizedPresentation() {
+        let accountManager = AccountManager(keychain: TestKeychain())
+
+        XCTAssertEqual(
+            LibraryItemInfoViewModel.sourceContext(
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+                accountManager: accountManager
+            ),
+            LibraryItemInfoViewModel.SourceContext(
+                serverName: "Apple Music",
+                libraryName: "Apple Music"
+            )
+        )
+    }
+
     func testPersistedTrackDurationConvertsMillisecondsToSeconds() {
         XCTAssertEqual(
             LibraryItemInfoViewModel.persistedTrackDurationSeconds(210_000),
