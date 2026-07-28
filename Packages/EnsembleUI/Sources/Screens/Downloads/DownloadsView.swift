@@ -442,12 +442,9 @@ public struct DownloadsView: View {
     }
 
     private func displayLibraryAccountName(for library: LibraryDownloadSummary) -> String? {
-        guard let accountName = viewModel.disambiguatingAccountName(for: library) else {
-            return nil
-        }
-        return DemoModeRedaction.accountIdentifier(
-            accountName,
-            isEnabled: settingsManager.demoModeEnabled
+        viewModel.disambiguatingAccountLabel(
+            for: library,
+            demoModeEnabled: settingsManager.demoModeEnabled
         )
     }
 

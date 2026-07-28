@@ -10,6 +10,7 @@ public struct LibraryDownloadSummary: Identifiable, Equatable {
     public let sourceCompositeKey: String
     public let serverName: String
     public let libraryName: String
+    public let accountName: String
     public let canDownload: Bool
     /// Whether a library-level download target exists
     public let isEnabled: Bool
@@ -208,15 +209,29 @@ public final class DownloadsViewModel: ObservableObject {
         return "Loading libraries..."
     }
 
-    /// Returns the account label only when another source has the same visible server/library name.
-    public func disambiguatingAccountName(for library: LibraryDownloadSummary) -> String? {
+    /// Returns a privacy-safe, unique account label when rendered library names collide.
+    public func disambiguatingAccountLabel(
+        for library: LibraryDownloadSummary,
+        demoModeEnabled: Bool
+    ) -> String? {
+        let serverName = DemoModeRedaction.serverName(library.serverName, isEnabled: demoModeEnabled)
         // ponytail: library lists are small; precompute collision keys if that ever changes.
-        guard librarySummaries.contains(where: {
-            $0.id != library.id
-                && $0.serverName.caseInsensitiveCompare(library.serverName) == .orderedSame
+        let collisions = librarySummaries.filter {
+            DemoModeRedaction.serverName($0.serverName, isEnabled: demoModeEnabled)
+                .caseInsensitiveCompare(serverName) == .orderedSame
                 && $0.libraryName.caseInsensitiveCompare(library.libraryName) == .orderedSame
-        }) else { return nil }
-        return accountManager.sourceLibraryContext(for: library.sourceCompositeKey)?.accountName
+        }
+        guard collisions.count > 1,
+              let index = collisions.firstIndex(where: { $0.id == library.id }) else { return nil }
+
+        let accountLabels = collisions.map {
+            DemoModeRedaction.accountIdentifier($0.accountName, isEnabled: demoModeEnabled)
+        }
+        let accountLabel = accountLabels[index]
+        guard Set(accountLabels.map(\.localizedLowercase)).count < accountLabels.count else {
+            return accountLabel
+        }
+        return "\(accountLabel) \(index + 1)"
     }
 
     /// Toggle library-level download on or off
@@ -259,6 +274,7 @@ public final class DownloadsViewModel: ObservableObject {
                         sourceCompositeKey: sourceCompositeKey,
                         serverName: server.name,
                         libraryName: library.title,
+                        accountName: account.accountIdentifier,
                         canDownload: DownloadCapabilityPolicy.canAttemptDownload(
                             for: sourceCompositeKey,
                             accountManager: accountManager
@@ -356,6 +372,7 @@ public final class DownloadsViewModel: ObservableObject {
                         sourceCompositeKey: sourceCompositeKey,
                         serverName: server.name,
                         libraryName: library.title,
+                        accountName: account.accountIdentifier,
                         canDownload: DownloadCapabilityPolicy.canAttemptDownload(
                             for: sourceCompositeKey,
                             accountManager: accountManager

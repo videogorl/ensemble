@@ -105,7 +105,18 @@ final class DownloadsViewModelTests: XCTestCase {
             "plex:subscriber:server:3"
         ])
 
-        XCTAssertNil(viewModel.disambiguatingAccountName(for: viewModel.librarySummaries[0]))
+        XCTAssertNil(viewModel.disambiguatingAccountLabel(
+            for: viewModel.librarySummaries[0],
+            demoModeEnabled: false
+        ))
+
+        let demoCollisionLibraries = viewModel.librarySummaries.filter { $0.libraryName == "Music" }
+        let demoLabels = demoCollisionLibraries.compactMap {
+            viewModel.disambiguatingAccountLabel(for: $0, demoModeEnabled: true)
+        }
+        XCTAssertEqual(demoLabels.count, 2)
+        XCTAssertEqual(Set(demoLabels).count, 2)
+        XCTAssertTrue(demoLabels.allSatisfy { $0.hasPrefix("Plex Account ") })
 
         let summariesUpdated = expectation(description: "Duplicate library summary published")
         let summaryObservation = viewModel.$librarySummaries
@@ -113,22 +124,25 @@ final class DownloadsViewModelTests: XCTestCase {
             .sink { _ in summariesUpdated.fulfill() }
         defer { summaryObservation.cancel() }
 
-        accountManager.addPlexAccount(PlexAccountConfig(
-            id: "duplicate",
-            email: "other@nysics.com",
-            authToken: "duplicate-token",
-            servers: [
-                PlexServerConfig(
-                    id: "other-server",
-                    name: "Free Server",
-                    url: "http://127.0.0.1:32401",
-                    token: "server-token",
-                    libraries: [
-                        PlexLibraryConfig(id: "3", key: "3", title: "Music", isEnabled: true, allowSync: true)
-                    ]
-                )
-            ]
-        ))
+        let duplicateAccount: (String?) -> PlexAccountConfig = { email in
+            PlexAccountConfig(
+                id: "duplicate",
+                email: email,
+                authToken: "duplicate-token",
+                servers: [
+                    PlexServerConfig(
+                        id: "other-server",
+                        name: "Free Server",
+                        url: "http://127.0.0.1:32401",
+                        token: "server-token",
+                        libraries: [
+                            PlexLibraryConfig(id: "3", key: "3", title: "Music", isEnabled: true, allowSync: true)
+                        ]
+                    )
+                ]
+            )
+        }
+        accountManager.addPlexAccount(duplicateAccount("other@nysics.com"))
         await fulfillment(of: [summariesUpdated], timeout: 1)
 
         let collidingLibraries = viewModel.librarySummaries.filter {
@@ -136,9 +150,31 @@ final class DownloadsViewModelTests: XCTestCase {
         }
         XCTAssertEqual(collidingLibraries.count, 2)
         XCTAssertEqual(
-            Set(collidingLibraries.compactMap(viewModel.disambiguatingAccountName(for:))),
+            Set(collidingLibraries.compactMap {
+                viewModel.disambiguatingAccountLabel(for: $0, demoModeEnabled: false)
+            }),
             ["felicity+test@nysics.com", "other@nysics.com"]
         )
+
+        let accountUpdated = expectation(description: "Account label updated")
+        let accountObservation = viewModel.$librarySummaries
+            .dropFirst()
+            .first { summaries in
+                summaries.first(where: { $0.sourceCompositeKey == "plex:duplicate:other-server:3" })?.accountName
+                    == "felicity+test@nysics.com"
+            }
+            .sink { _ in accountUpdated.fulfill() }
+        defer { accountObservation.cancel() }
+
+        accountManager.addPlexAccount(duplicateAccount("felicity+test@nysics.com"))
+        await fulfillment(of: [accountUpdated], timeout: 1)
+
+        let repeatedAccountLabels = viewModel.librarySummaries
+            .filter { $0.serverName == "Free Server" && $0.libraryName == "Music" }
+            .compactMap { viewModel.disambiguatingAccountLabel(for: $0, demoModeEnabled: false) }
+        XCTAssertEqual(repeatedAccountLabels.count, 2)
+        XCTAssertEqual(Set(repeatedAccountLabels).count, 2)
+        XCTAssertTrue(repeatedAccountLabels.allSatisfy { $0.hasPrefix("felicity+test@nysics.com ") })
     }
 
     private func makeSnapshot(
