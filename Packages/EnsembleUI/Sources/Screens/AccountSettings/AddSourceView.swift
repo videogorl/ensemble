@@ -53,7 +53,11 @@ public struct AddSourceView: View {
                     } label: {
                         HStack {
                             Label {
-                                Text(appleMusicSyncNeedsRetry ? "Retry Apple Music" : "Apple Music")
+                                Text(
+                                    isAddingAppleMusic || isAppleMusicSyncing
+                                        ? "Adding Apple Music…"
+                                        : appleMusicSyncNeedsRetry ? "Retry Apple Music" : "Apple Music"
+                                )
                             } icon: {
                                 Image("AppleMusicSourceIcon")
                                     .resizable()
