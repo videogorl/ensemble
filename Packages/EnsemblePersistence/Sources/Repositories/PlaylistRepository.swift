@@ -211,6 +211,8 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
     /// Fetches one source-scoped playlist with memberships for detail and body operations.
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
+    /// Fetches one playlist's metadata without loading track memberships.
+    func fetchPlaylistHeader(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
     /// Fetches source-scoped playlist metadata without loading track memberships.
     func fetchPlaylistHeaders(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist]
     /// Fetches source-scoped playlists with track memberships for detail and body operations.
@@ -327,6 +329,15 @@ public extension PlaylistRepositoryProtocol {
             guard let sourceCompositeKey = $0.sourceCompositeKey else { return false }
             return sourceCompositeKeys.contains(sourceCompositeKey)
         }.count
+    }
+
+    func fetchPlaylistHeader(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
+        guard let sourceCompositeKey else { return nil }
+        let reference = SourceScopedArtworkReference(
+            ratingKey: ratingKey,
+            sourceCompositeKey: sourceCompositeKey
+        )
+        return try await fetchPlaylistHeaders(forReferences: [reference])[reference.lookupKey]
     }
 
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
@@ -837,6 +848,35 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 }
             }
         }
+    }
+
+    public func fetchPlaylistHeader(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
+        let resolvedSourceKey: String?
+        if let sourceCompositeKey {
+            resolvedSourceKey = sourceCompositeKey
+        } else {
+            resolvedSourceKey = try await withCheckedThrowingContinuation { continuation in
+                let context = self.coreDataStack.viewContext
+                context.perform {
+                    do {
+                        continuation.resume(returning: try RepositoryPredicates.uniqueSourceCompositeKey(
+                            forEntity: "CDPlaylist",
+                            ratingKey: ratingKey,
+                            in: context
+                        ))
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+
+        guard let resolvedSourceKey else { return nil }
+        let reference = SourceScopedArtworkReference(
+            ratingKey: ratingKey,
+            sourceCompositeKey: resolvedSourceKey
+        )
+        return try await fetchPlaylistHeaders(forReferences: [reference])[reference.lookupKey]
     }
 
     public func fetchPlaylistHeaders(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {

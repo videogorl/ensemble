@@ -3,6 +3,7 @@ import EnsemblePersistence
 import CoreGraphics
 import Foundation
 import ImageIO
+import Nuke
 import UniformTypeIdentifiers
 import XCTest
 @testable import EnsembleCore
@@ -177,6 +178,102 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         }
     }
 
+    private actor DelayedArtworkWriteGate {
+        private var events: [String] = []
+        private var isReleased = false
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+        func performWrite() async {
+            if !isReleased {
+                await withCheckedContinuation { continuation in
+                    releaseContinuation = continuation
+                }
+            }
+            events.append("write")
+        }
+
+        func releaseWrite() {
+            isReleased = true
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+
+        func recordCleanup() {
+            events.append("cleanup")
+        }
+
+        func recordedEvents() -> [String] {
+            events
+        }
+    }
+
+    private final class DelayedArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
+        private let gate: DelayedArtworkWriteGate
+        private let writeStarted: XCTestExpectation
+
+        init(gate: DelayedArtworkWriteGate, writeStarted: XCTestExpectation) {
+            self.gate = gate
+            self.writeStarted = writeStarted
+        }
+
+        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
+        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
+        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
+        func getLocalArtworkPath(
+            ratingKey _: String,
+            type _: ArtworkType,
+            sourcePath _: String?,
+            dateModifiedSeconds _: Int?
+        ) async throws -> String? { nil }
+        func getLocalArtworkPath(
+            ratingKey _: String,
+            type _: ArtworkType,
+            sourceCompositeKey _: String?,
+            sourcePath _: String?,
+            dateModifiedSeconds _: Int?
+        ) async throws -> String? { nil }
+        func downloadAndCacheArtwork(from _: URL, ratingKey _: String, type _: ArtworkType) async throws {}
+        func downloadAndCacheArtwork(from _: URL, identity _: ArtworkIdentity) async throws {
+            writeStarted.fulfill()
+            await gate.performWrite()
+        }
+        func deleteArtwork(ratingKey _: String, type _: ArtworkType) {}
+        func deleteArtwork(forRatingKeys _: Set<String>) {}
+        func clearArtworkCache() async throws {}
+        func getArtworkCacheSize() async throws -> Int64 { 0 }
+    }
+
+    private actor RecordingSourceCacheCleaner: SourceCacheCleaning {
+        private let gate: DelayedArtworkWriteGate
+
+        init(gate: DelayedArtworkWriteGate) {
+            self.gate = gate
+        }
+
+        func cleanupSource(_ sourceKey: String) async throws -> SourceCacheCleanupResult {
+            await gate.recordCleanup()
+            return result(sourceKeys: [sourceKey])
+        }
+
+        func cleanupAllLibraryData(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
+            await gate.recordCleanup()
+            return result(sourceKeys: cachedSourceKeys)
+        }
+
+        private func result(sourceKeys: Set<String>) -> SourceCacheCleanupResult {
+            SourceCacheCleanupResult(
+                sourceKeys: sourceKeys,
+                deletedAllLibraryData: false,
+                libraryItemCount: 0,
+                downloadRecordCount: 0,
+                targetCount: 0,
+                artworkItemCount: 0,
+                lyricsItemCount: 0,
+                duration: 0
+            )
+        }
+    }
+
     func testBlurMemoryCacheCanBePurgedWithoutDeletingPersistentFiles() throws {
         let url = try makeTemporaryJPEG(width: 32, height: 32)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -316,6 +413,94 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             artworkManager.downloadedIdentities.map(\.sourceCompositeKey),
             ["plex:account-1:server-1:1"]
         )
+    }
+
+    func testSourceCleanupWaitsForDelayedPersistentArtworkWrite() async throws {
+        let gate = DelayedArtworkWriteGate()
+        let writeStarted = expectation(description: "persistent artwork write started")
+        let artworkManager = DelayedArtworkDownloadManager(
+            gate: gate,
+            writeStarted: writeStarted
+        )
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        syncCoordinator.sourceCacheCleanupService = RecordingSourceCacheCleaner(gate: gate)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+
+        await artworkLoader.cacheResolvedArtwork(
+            from: try XCTUnwrap(URL(string: "https://example.com/library/metadata/album-1/thumb/2000")),
+            cacheHint: PersistentArtworkCacheHint(
+                ratingKey: "album-1",
+                kind: .album,
+                sourcePath: "/library/metadata/album-1/thumb/2000",
+                sourceCompositeKey: source.compositeKey
+            ),
+            minimumPixelDimension: ArtworkSize.detail.rawValue
+        )
+        await fulfillment(of: [writeStarted], timeout: 1)
+
+        syncCoordinator.accountManager.removeMusicSource(source)
+        syncCoordinator.refreshProviders()
+        let cleanupTask = Task { @MainActor in
+            await syncCoordinator.cleanupRemovedSource(source)
+        }
+        for _ in 0..<5 { await Task.yield() }
+        let eventsBeforeRelease = await gate.recordedEvents()
+        XCTAssertEqual(eventsBeforeRelease, [])
+
+        await gate.releaseWrite()
+        let cleanupSucceeded = await cleanupTask.value
+        let eventsAfterCleanup = await gate.recordedEvents()
+        XCTAssertTrue(cleanupSucceeded)
+        XCTAssertEqual(eventsAfterCleanup, ["write", "cleanup"])
+    }
+
+    func testTransientCacheResetInvalidatesOldPipelineAndInstallsFreshBoundedPipeline() async throws {
+        let artworkManager = RecordingArtworkDownloadManager(strictPath: nil, stalePath: nil)
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+        let oldPipeline = ImagePipeline.shared
+        let request = ImageRequest(
+            url: try XCTUnwrap(URL(string: "https://example.com/\(UUID().uuidString).jpg")),
+            options: [.returnCacheDataDontLoad]
+        )
+
+        try await artworkLoader.resetTransientCaches()
+
+        let newPipeline = ImagePipeline.shared
+        XCTAssertFalse(oldPipeline === newPipeline)
+        do {
+            _ = try await oldPipeline.image(for: request)
+            XCTFail("The old pipeline should reject work after reset.")
+        } catch ImagePipeline.Error.pipelineInvalidated {
+            // Expected: invalidation prevents old in-flight work from refilling cleared caches.
+        } catch {
+            XCTFail("Expected the old pipeline to be invalidated, got \(error)")
+        }
+
+        do {
+            _ = try await newPipeline.image(for: request)
+            XCTFail("A cache-only request for a unique URL should miss.")
+        } catch ImagePipeline.Error.dataMissingInCache {
+            // Expected: the replacement pipeline accepts requests and starts empty.
+        } catch {
+            XCTFail("Expected a cache miss from the replacement pipeline, got \(error)")
+        }
+
+        let memoryCache = try XCTUnwrap(newPipeline.configuration.imageCache as? ImageCache)
+        XCTAssertEqual(memoryCache.costLimit, 20 * 1024 * 1024)
+        XCTAssertEqual(memoryCache.countLimit, 40)
     }
 
     func testLocalArtworkExistsRequiresRequestedDimension() async throws {
@@ -474,6 +659,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
+        syncCoordinator.refreshProviders()
         await syncCoordinator.handleAppWillEnterForeground()
         return syncCoordinator
     }

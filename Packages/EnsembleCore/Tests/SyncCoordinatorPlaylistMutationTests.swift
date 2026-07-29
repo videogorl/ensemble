@@ -117,6 +117,9 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
             networkMonitor: networkMonitor,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitor)
         )
+        if withServer {
+            coordinator.refreshProviders()
+        }
         coordinator.setLastPlaylistTargetForTesting(nil, serverSourceKey: "plex:account-1:server-1")
         return coordinator
     }

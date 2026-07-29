@@ -13,6 +13,7 @@ public struct ArtworkResolutionDescriptor: Sendable {
     public let ratingKey: String?
     public let fallbackPath: String?
     public let fallbackRatingKey: String?
+    public let fallbackSourceKey: String?
     public let cacheHint: PersistentArtworkCacheHint?
     public let fallbackCacheHint: PersistentArtworkCacheHint?
     public let size: Int
@@ -24,6 +25,7 @@ public struct ArtworkResolutionDescriptor: Sendable {
         ratingKey: String?,
         fallbackPath: String?,
         fallbackRatingKey: String?,
+        fallbackSourceKey: String? = nil,
         cacheHint: PersistentArtworkCacheHint?,
         fallbackCacheHint: PersistentArtworkCacheHint?,
         size: Int,
@@ -34,6 +36,7 @@ public struct ArtworkResolutionDescriptor: Sendable {
         self.ratingKey = ratingKey
         self.fallbackPath = fallbackPath
         self.fallbackRatingKey = fallbackRatingKey
+        self.fallbackSourceKey = fallbackSourceKey
         self.cacheHint = cacheHint
         self.fallbackCacheHint = fallbackCacheHint
         self.size = size
@@ -47,11 +50,18 @@ public struct ArtworkResolutionDescriptor: Sendable {
         return fallbackCacheHint
     }
 
+    private var effectiveSourceKey: String? {
+        if let path, !path.isEmpty {
+            return sourceKey
+        }
+        return fallbackSourceKey ?? fallbackCacheHint?.sourceCompositeKey ?? sourceKey
+    }
+
     public var stableBlurCacheKey: String {
         if let cacheHint = effectiveCacheHint {
             return [
                 "hint",
-                cacheHint.sourceCompositeKey ?? sourceKey ?? "no-source",
+                cacheHint.sourceCompositeKey ?? effectiveSourceKey ?? "no-source",
                 cacheHint.kind.rawValue,
                 cacheHint.ratingKey,
                 cacheHint.sourcePath,
@@ -62,7 +72,7 @@ public struct ArtworkResolutionDescriptor: Sendable {
 
         return [
             "descriptor",
-            sourceKey ?? "no-source",
+            effectiveSourceKey ?? "no-source",
             ratingKey ?? "no-rating",
             path ?? "no-path",
             fallbackRatingKey ?? "no-fallback-rating",
@@ -93,19 +103,22 @@ public enum ArtworkImageResolver {
         for descriptor: ArtworkResolutionDescriptor,
         artworkLoader: ArtworkLoaderProtocol
     ) async -> ArtworkResolvedImage? {
-        guard let localURL = await artworkLoader.localArtworkURLAsync(
-            for: descriptor.path,
-            sourceKey: descriptor.sourceKey,
-            ratingKey: descriptor.ratingKey,
-            fallbackPath: descriptor.fallbackPath,
-            fallbackRatingKey: descriptor.fallbackRatingKey,
-            minimumPixelDimension: descriptor.size,
-            allowStaleIdentity: true
-        ) else {
-            return nil
+        for candidate in candidateDescriptors(for: descriptor) {
+            guard let localURL = await artworkLoader.localArtworkURLAsync(
+                for: candidate.path,
+                sourceKey: candidate.sourceKey,
+                ratingKey: candidate.ratingKey,
+                fallbackPath: nil,
+                fallbackRatingKey: nil,
+                minimumPixelDimension: candidate.size,
+                allowStaleIdentity: true
+            ),
+                  let resolved = await image(for: localURL, descriptor: candidate) else {
+                continue
+            }
+            return resolved
         }
-
-        return await image(for: localURL, descriptor: descriptor)
+        return nil
     }
 
     public static func resolvedImage(
@@ -218,7 +231,9 @@ public enum ArtworkImageResolver {
            descriptor.fallbackPath != descriptor.path {
             candidates.append(ArtworkResolutionDescriptor(
                 path: descriptor.fallbackPath,
-                sourceKey: descriptor.fallbackCacheHint?.sourceCompositeKey ?? descriptor.sourceKey,
+                sourceKey: descriptor.fallbackSourceKey
+                    ?? descriptor.fallbackCacheHint?.sourceCompositeKey
+                    ?? descriptor.sourceKey,
                 ratingKey: descriptor.fallbackRatingKey,
                 fallbackPath: nil,
                 fallbackRatingKey: nil,

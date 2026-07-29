@@ -13,8 +13,12 @@ public struct ArtistUpsertInput: Sendable {
     public let artPath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let updatesDateAdded: Bool
+    /// Opaque provider capability payload. `nil` preserves persisted overrides;
+    /// an encoded empty capability set clears them.
+    public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?) {
+    public init(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.name = name
@@ -23,6 +27,8 @@ public struct ArtistUpsertInput: Sendable {
         self.artPath = artPath
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.updatesDateAdded = updatesDateAdded
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 }
 
@@ -35,6 +41,7 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
     public let artPath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let actionCapabilitiesData: Data?
 
     public init(
         key: String,
@@ -43,7 +50,8 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
         thumbPath: String?,
         artPath: String?,
         dateAdded: Date? = nil,
-        dateModified: Date?
+        dateModified: Date?,
+        actionCapabilitiesData: Data? = nil
     ) {
         self.key = key
         self.name = name
@@ -52,6 +60,7 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
         self.artPath = artPath
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 
     public init(_ input: ArtistUpsertInput) {
@@ -62,7 +71,8 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
             thumbPath: input.thumbPath,
             artPath: input.artPath,
             dateAdded: input.dateAdded,
-            dateModified: input.dateModified
+            dateModified: input.dateModified,
+            actionCapabilitiesData: input.actionCapabilitiesData
         )
     }
 
@@ -73,8 +83,11 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
             summary == input.summary &&
             thumbPath == input.thumbPath &&
             artPath == input.artPath &&
-            !(dateAdded == nil && input.dateAdded != nil) &&
-            dateModified == input.dateModified
+            (input.updatesDateAdded
+                ? dateAdded == input.dateAdded
+                : !(dateAdded == nil && input.dateAdded != nil)) &&
+            dateModified == input.dateModified &&
+            (input.actionCapabilitiesData == nil || actionCapabilitiesData == input.actionCapabilitiesData)
     }
 }
 
@@ -95,6 +108,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
     public let rating: Int
     public let genreNames: String?
     public let releaseFormat: String?
+    public let actionCapabilitiesData: Data?
 
     public init(
         key: String,
@@ -111,7 +125,8 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
         dateModified: Date?,
         rating: Int,
         genreNames: String?,
-        releaseFormat: String?
+        releaseFormat: String?,
+        actionCapabilitiesData: Data? = nil
     ) {
         self.key = key
         self.title = title
@@ -128,6 +143,7 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
         self.rating = rating
         self.genreNames = genreNames
         self.releaseFormat = releaseFormat
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 
     public init(_ input: AlbumUpsertInput) {
@@ -146,7 +162,8 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
             dateModified: input.dateModified,
             rating: input.rating ?? 0,
             genreNames: input.genreNames,
-            releaseFormat: input.updatesReleaseFormat ? input.releaseFormat : nil
+            releaseFormat: input.updatesReleaseFormat ? input.releaseFormat : nil,
+            actionCapabilitiesData: input.actionCapabilitiesData
         )
     }
 
@@ -162,11 +179,14 @@ public struct AlbumSyncMetadata: Sendable, Equatable {
             artPath == input.artPath &&
             year == input.year &&
             (input.trackCount == nil || trackCount == input.trackCount) &&
-            !(dateAdded == nil && input.dateAdded != nil) &&
+            (input.updatesDateAdded
+                ? dateAdded == input.dateAdded
+                : !(dateAdded == nil && input.dateAdded != nil)) &&
             dateModified == input.dateModified &&
             rating == (input.rating ?? 0) &&
             genreNames == input.genreNames &&
-            (!input.updatesReleaseFormat || releaseFormat == input.releaseFormat)
+            (!input.updatesReleaseFormat || releaseFormat == input.releaseFormat) &&
+            (input.actionCapabilitiesData == nil || actionCapabilitiesData == input.actionCapabilitiesData)
     }
 }
 
@@ -189,8 +209,12 @@ public struct AlbumUpsertInput: Sendable {
     public let genreNames: String?
     public let releaseFormat: String?
     public let updatesReleaseFormat: Bool
+    public let updatesDateAdded: Bool
+    /// Opaque provider capability payload. `nil` preserves persisted overrides;
+    /// an encoded empty capability set clears them.
+    public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -208,6 +232,8 @@ public struct AlbumUpsertInput: Sendable {
         self.genreNames = genreNames
         self.releaseFormat = releaseFormat
         self.updatesReleaseFormat = updatesReleaseFormat
+        self.updatesDateAdded = updatesDateAdded
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 }
 
@@ -233,8 +259,12 @@ public struct TrackUpsertInput: Sendable {
     public let isFavorite: Bool?
     public let playCount: Int?
     public let genreNames: String?
+    public let updatesDateAdded: Bool
+    /// Opaque provider capability payload. `nil` preserves persisted overrides;
+    /// an encoded empty capability set clears them.
+    public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, isFavorite: Bool? = nil, playCount: Int?, genreNames: String? = nil) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, isFavorite: Bool? = nil, playCount: Int?, genreNames: String? = nil, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -255,6 +285,8 @@ public struct TrackUpsertInput: Sendable {
         self.isFavorite = isFavorite
         self.playCount = playCount
         self.genreNames = genreNames
+        self.updatesDateAdded = updatesDateAdded
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 }
 
@@ -279,6 +311,7 @@ public struct TrackSyncMetadata: Sendable, Equatable {
     public let isFavorite: Bool?
     public let playCount: Int
     public let genreNames: String?
+    public let actionCapabilitiesData: Data?
 
     public init(
         key: String,
@@ -299,7 +332,8 @@ public struct TrackSyncMetadata: Sendable, Equatable {
         rating: Int,
         isFavorite: Bool?,
         playCount: Int,
-        genreNames: String?
+        genreNames: String?,
+        actionCapabilitiesData: Data? = nil
     ) {
         self.key = key
         self.title = title
@@ -320,6 +354,7 @@ public struct TrackSyncMetadata: Sendable, Equatable {
         self.isFavorite = isFavorite
         self.playCount = playCount
         self.genreNames = genreNames
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 
     public init(_ input: TrackUpsertInput) {
@@ -342,7 +377,8 @@ public struct TrackSyncMetadata: Sendable, Equatable {
             rating: input.rating ?? 0,
             isFavorite: input.isFavorite,
             playCount: input.playCount ?? 0,
-            genreNames: input.genreNames
+            genreNames: input.genreNames,
+            actionCapabilitiesData: input.actionCapabilitiesData
         )
     }
 
@@ -359,14 +395,17 @@ public struct TrackSyncMetadata: Sendable, Equatable {
             thumbPath == input.thumbPath &&
             streamKey == input.streamKey &&
             streamId == input.streamId.flatMap { $0 > 0 ? $0 : nil } &&
-            !(dateAdded == nil && input.dateAdded != nil) &&
+            (input.updatesDateAdded
+                ? dateAdded == input.dateAdded
+                : !(dateAdded == nil && input.dateAdded != nil)) &&
             dateModified == input.dateModified &&
             lastPlayed == input.lastPlayed &&
             lastRatedAt == input.lastRatedAt &&
             rating == (input.rating ?? 0) &&
             (input.isFavorite == nil || isFavorite == input.isFavorite) &&
             playCount == (input.playCount ?? 0) &&
-            genreNames == input.genreNames
+            genreNames == input.genreNames &&
+            (input.actionCapabilitiesData == nil || actionCapabilitiesData == input.actionCapabilitiesData)
     }
 }
 

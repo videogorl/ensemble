@@ -73,6 +73,8 @@ public final class SearchViewModel: ObservableObject {
     private let playlistMergeDefaults: UserDefaults
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
+    private var searchGeneration: UInt64 = 0
+    private var exploreGeneration: UInt64 = 0
     private var cancellables = Set<AnyCancellable>()
     private var lastExploreLoadTime: Date?
     private let exploreDebounceInterval: TimeInterval = 2.0
@@ -144,24 +146,14 @@ public final class SearchViewModel: ObservableObject {
             }
             .store(in: &cancellables)
         
-        // Reload explore content when accounts change
-        accountManager.$plexAccounts
-            .receive(on: DispatchQueue.main)
+        // Reload search/explore content when any source configuration changes.
+        accountManager.sourceConfigurationPublisher
             .dropFirst()
             .sink { [weak self] _ in
+                guard let self else { return }
+                self.invalidateExploreLoad(resetCadence: true)
                 Task { @MainActor in
-                    guard let self else { return }
-
-                    let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmedQuery.isEmpty {
-                        await self.search(
-                            query: trimmedQuery,
-                            startedAt: Date(),
-                            requireCurrentQuery: true
-                        )
-                    } else if self.hasLoadedExploreContent {
-                        await self.loadExploreContent()
-                    }
+                    await self.reloadAfterExternalLibraryChange(forceExploreReload: false)
                 }
             }
             .store(in: &cancellables)
@@ -184,6 +176,15 @@ public final class SearchViewModel: ObservableObject {
             .store(in: &cancellables)
 
         observeMetadataChanges()
+        ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
+            guard let self else { return }
+            self.invalidateExploreLoad(resetCadence: true)
+            try? await self.moodRepository.deleteAllMoods()
+            await self.reloadAfterExternalLibraryChange(forceExploreReload: false)
+        }
+        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
+            await self?.reloadAfterExternalLibraryChange(forceExploreReload: true)
+        }
     }
 
     // MARK: - Search
@@ -191,6 +192,7 @@ public final class SearchViewModel: ObservableObject {
     private func prepareForSearchQueryChange(_ query: String) {
         searchTask?.cancel()
         searchTask = nil
+        searchGeneration &+= 1
 
         let trimmed = trimmedSearchQuery(query)
 
@@ -223,22 +225,40 @@ public final class SearchViewModel: ObservableObject {
         }
 
         let startedAt = Date()
+        searchGeneration &+= 1
+        let generation = searchGeneration
+        let requestedScope = scope
         UserJourneyLogger.log(
             context: "search",
             event: "started",
             details: ["queryLength": "\(trimmed.count)"]
         )
 
-        searchTask = Task { [trimmed, startedAt] in
-            await search(query: trimmed, startedAt: startedAt, requireCurrentQuery: true)
+        searchTask = Task { [trimmed, startedAt, requestedScope, generation] in
+            await search(
+                query: trimmed,
+                scope: requestedScope,
+                startedAt: startedAt,
+                generation: generation
+            )
         }
     }
 
     public func search(query: String) async {
-        await search(query: query, startedAt: Date(), requireCurrentQuery: false)
+        await search(
+            query: query,
+            scope: scope,
+            startedAt: Date(),
+            generation: nil
+        )
     }
 
-    private func search(query: String, startedAt: Date, requireCurrentQuery: Bool) async {
+    private func search(
+        query: String,
+        scope requestedScope: SearchScope,
+        startedAt: Date,
+        generation: UInt64?
+    ) async {
         let query = trimmedSearchQuery(query)
         guard !query.isEmpty else {
             isSearching = false
@@ -251,9 +271,11 @@ public final class SearchViewModel: ObservableObject {
 
         do {
             #if os(iOS)
-            if scope == .appleMusic, #available(iOS 18, *) {
+            if requestedScope == .appleMusic, #available(iOS 18, *) {
                 let results = try await AppleMusicCatalogSearch.search(query)
-                guard !requireCurrentQuery || isCurrentSearch(query) else { return }
+                guard isCurrentSearch(query, scope: requestedScope, generation: generation) else {
+                    return
+                }
                 unfilteredTrackResults = results.tracks
                 unfilteredArtistResults = results.artists
                 unfilteredAlbumResults = results.albums
@@ -271,7 +293,7 @@ public final class SearchViewModel: ObservableObject {
             
             let (tracks, artists, albums, playlists) = try await (localTracks, localArtists, localAlbums, localPlaylists)
 
-            guard !requireCurrentQuery || isCurrentSearch(query) else {
+            guard isCurrentSearch(query, scope: requestedScope, generation: generation) else {
                 UserJourneyLogger.log(
                     context: "search",
                     event: "discardedStale",
@@ -300,7 +322,8 @@ public final class SearchViewModel: ObservableObject {
                 ]
             )
         } catch {
-            if !Task.isCancelled, !requireCurrentQuery || isCurrentSearch(query) {
+            if !Task.isCancelled,
+               isCurrentSearch(query, scope: requestedScope, generation: generation) {
                 self.searchError = error.localizedDescription
                 UserJourneyLogger.log(
                     context: "search",
@@ -313,7 +336,7 @@ public final class SearchViewModel: ObservableObject {
             }
         }
 
-        if !requireCurrentQuery || isCurrentSearch(query) {
+        if isCurrentSearch(query, scope: requestedScope, generation: generation) {
             isSearching = false
         }
     }
@@ -336,8 +359,32 @@ public final class SearchViewModel: ObservableObject {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func isCurrentSearch(_ query: String) -> Bool {
-        trimmedSearchQuery(searchQuery) == query
+    private func isCurrentSearch(
+        _ query: String,
+        scope requestedScope: SearchScope,
+        generation: UInt64?
+    ) -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard let generation else { return true }
+        return Self.isCurrentSearchRequest(
+            query: query,
+            scope: requestedScope,
+            generation: generation,
+            currentQuery: trimmedSearchQuery(searchQuery),
+            currentScope: scope,
+            currentGeneration: searchGeneration
+        )
+    }
+
+    internal nonisolated static func isCurrentSearchRequest(
+        query: String,
+        scope: SearchScope,
+        generation: UInt64,
+        currentQuery: String,
+        currentScope: SearchScope,
+        currentGeneration: UInt64
+    ) -> Bool {
+        query == currentQuery && scope == currentScope && generation == currentGeneration
     }
 
     public func commitCurrentSearch() {
@@ -346,17 +393,25 @@ public final class SearchViewModel: ObservableObject {
 
     private func observeMetadataChanges() {
         ViewModelNotificationObserver.observeMetadataChanges(storingIn: &cancellables) { [weak self] in
-            guard let self else { return }
-            let trimmedQuery = self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedQuery.isEmpty {
-                await self.search(
-                    query: trimmedQuery,
-                    startedAt: Date(),
-                    requireCurrentQuery: true
-                )
-            } else if self.hasLoadedExploreContent {
-                await self.loadExploreContent()
-            }
+            await self?.reloadAfterExternalLibraryChange(forceExploreReload: false)
+        }
+    }
+
+    private func reloadAfterExternalLibraryChange(forceExploreReload: Bool) async {
+        searchTask?.cancel()
+        searchTask = nil
+        searchGeneration &+= 1
+        if forceExploreReload {
+            invalidateExploreLoad(resetCadence: true)
+        }
+        applyVisibilityToSearchResults()
+        applyVisibilityToExploreContent()
+
+        let query = trimmedSearchQuery(searchQuery)
+        if !query.isEmpty {
+            performSearch(query: query)
+        } else if hasLoadedExploreContent {
+            await loadExploreContent()
         }
     }
 
@@ -443,22 +498,30 @@ public final class SearchViewModel: ObservableObject {
 
     private func applyVisibilityToSearchResults() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let cachedSourceFilter = scope == .appleMusic
+            ? sourceConfiguration
+            : sourceConfigurationForCachedFiltering(sourceConfiguration)
         trackResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredTrackResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
         )
         artistResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredArtistResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
         )
         displayArtistResults = DisplayArtist.group(artistResults)
         albumResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredAlbumResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
         )
         let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
             unfilteredPlaylistResults,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
         )
         playlistResults = visiblePlaylists
         let nextDisplayPlaylists = Self.displayPlaylists(
@@ -492,45 +555,80 @@ public final class SearchViewModel: ObservableObject {
 
     private func applyVisibilityToExploreContent() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        recentlyPlayedAlbums = LibraryVisibilityFiltering.visibleItems(
+        let sourceConfiguration = sourceConfigurationForCachedFiltering(
+            accountManager.sourceConfigurationSnapshot
+        )
+        recentlyPlayedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedAlbums,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
-        )
-        recentlyPlayedArtists = LibraryVisibilityFiltering.visibleItems(
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: sourceConfiguration
+        ).prefix(6))
+        recentlyPlayedArtists = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedArtists,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
-        )
-        recentlyAddedAlbums = LibraryVisibilityFiltering.visibleItems(
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: sourceConfiguration
+        ).prefix(6))
+        recentlyAddedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyAddedAlbums,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
-        )
-        recommendedItems = Self.filterHubItemsForVisibility(
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: sourceConfiguration
+        ).prefix(6))
+        recommendedItems = Array(Self.filterHubItemsForVisibility(
             unfilteredRecommendedItems,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
-        )
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: sourceConfiguration
+        ).prefix(6))
         allMoods = Self.filterMoodsForVisibility(
             unfilteredMoods,
-            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: sourceConfiguration
         )
+    }
+
+    private func sourceConfigurationForCachedFiltering(
+        _ configuration: SourceConfigurationSnapshot
+    ) -> SourceConfigurationSnapshot? {
+        configuration.hasAnySources || !configuration.isAuthoritative ? configuration : nil
     }
 
     internal static func filterHubItemsForVisibility(
         _ items: [HubItem],
-        hiddenSourceCompositeKeys: Set<String>
+        hiddenSourceCompositeKeys: Set<String>,
+        sourceConfiguration: SourceConfigurationSnapshot? = nil
     ) -> [HubItem] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return items }
-        return items.filter { !hiddenSourceCompositeKeys.contains($0.sourceCompositeKey) }
+        items.filter { item in
+            (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
+                !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
+        }
     }
 
     internal static func filterMoodsForVisibility(
         _ moods: [Mood],
-        hiddenSourceCompositeKeys: Set<String>
+        hiddenSourceCompositeKeys: Set<String>,
+        sourceConfiguration: SourceConfigurationSnapshot? = nil
     ) -> [Mood] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return moods }
-        return moods.filter { mood in
-            let sourceKeys = moodSourceCompositeKeys(from: mood.sourceCompositeKey)
-            guard !sourceKeys.isEmpty else { return true }
-            return !sourceKeys.isSubset(of: hiddenSourceCompositeKeys)
+        moods.compactMap { mood in
+            let references = moodSourceReferences(from: mood.sourceCompositeKey)
+            guard !references.isEmpty else {
+                return sourceConfiguration?.isAuthoritative == true ? nil : mood
+            }
+            let visibleReferences = references.filter { reference in
+                (sourceConfiguration?.shouldPreserveSourceKey(reference.sourceCompositeKey) ?? true) &&
+                    !hiddenSourceCompositeKeys.contains(reference.sourceCompositeKey)
+            }
+            guard !visibleReferences.isEmpty else { return nil }
+            guard visibleReferences.count != references.count else { return mood }
+            return Mood(
+                id: mood.id,
+                key: mood.key,
+                title: mood.title,
+                sourceCompositeKey: visibleReferences.map {
+                    Mood.sourceReference(
+                        sourceCompositeKey: $0.sourceCompositeKey,
+                        moodKey: $0.moodKey
+                    )
+                }.joined(separator: "|")
+            )
         }
     }
 
@@ -581,30 +679,42 @@ public final class SearchViewModel: ObservableObject {
         
         // Cancel any existing load task
         exploreTask?.cancel()
+        exploreGeneration &+= 1
+        let generation = exploreGeneration
         
         // Record load time for debouncing
         lastExploreLoadTime = Date()
 
-        exploreTask = Task { [weak self] in
+        exploreTask = Task { [weak self, generation] in
             guard let self else { return }
-            await self.loadExploreContentInternal()
+            await self.loadExploreContentInternal(generation: generation)
         }
 
         await exploreTask?.value
     }
 
-    private func loadExploreContentInternal() async {
+    private func invalidateExploreLoad(resetCadence: Bool) {
+        exploreTask?.cancel()
+        exploreTask = nil
+        exploreGeneration &+= 1
+        if resetCadence {
+            lastExploreLoadTime = nil
+        }
+    }
+
+    private func loadExploreContentInternal(generation: UInt64) async {
         isLoadingExplore = false  // Show cached data immediately, don't block on loading state
         exploreError = nil
 
         // Load cached hubs first for fast offline-first rendering.
         do {
             let cachedHubs = try await hubRepository.fetchHubs()
+            guard isCurrentExploreLoad(generation) else { return }
             let results = Self.extractContentFromHubs(cachedHubs)
-            unfilteredRecentlyPlayedAlbums = Array(results.albums.prefix(6))
-            unfilteredRecentlyPlayedArtists = Array(results.artists.prefix(6))
-            unfilteredRecentlyAddedAlbums = Array(results.addedAlbums.prefix(6))
-            unfilteredRecommendedItems = Array(results.recommendedItems.prefix(6))
+            unfilteredRecentlyPlayedAlbums = results.albums
+            unfilteredRecentlyPlayedArtists = results.artists
+            unfilteredRecentlyAddedAlbums = results.addedAlbums
+            unfilteredRecommendedItems = results.recommendedItems
             applyVisibilityToExploreContent()
         } catch {
             EnsembleLogger.debug("ℹ️ No cached explore content available")
@@ -612,11 +722,12 @@ public final class SearchViewModel: ObservableObject {
 
         // Load cached moods immediately while fresh network fetch runs.
         if let cachedMoods = try? await moodRepository.fetchMoods(), !cachedMoods.isEmpty {
+            guard isCurrentExploreLoad(generation) else { return }
             unfilteredMoods = Self.mergeMoodsForDisplay(cachedMoods)
             applyVisibilityToExploreContent()
         }
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentExploreLoad(generation) else { return }
 
         let fetchTasks = buildExploreFetchTasks()
         guard !fetchTasks.isEmpty else { return }
@@ -626,7 +737,7 @@ public final class SearchViewModel: ObservableObject {
         var moodsByTitle: [String: Mood] = [:]
         var moodSourceReferencesByTitle: [String: [String: String]] = [:]
         for task in fetchTasks {
-            guard !Task.isCancelled else { return }
+            guard isCurrentExploreLoad(generation) else { return }
             do {
                 let plexMoods = try await task.client.getMoods(sectionKey: task.sectionKey)
                 for plexMood in plexMoods {
@@ -659,7 +770,7 @@ public final class SearchViewModel: ObservableObject {
             )
         }
 
-        guard !Task.isCancelled else { return }
+        guard isCurrentExploreLoad(generation) else { return }
 
         if !moodsByTitle.isEmpty {
             let moodsToPublish = moodsByTitle.values.sorted {
@@ -667,12 +778,19 @@ public final class SearchViewModel: ObservableObject {
             }
             do {
                 try await moodRepository.saveMoods(moodsToPublish)
+            } catch is CancellationError {
+                return
             } catch {
                 EnsembleLogger.debug("⚠️ Failed to cache moods: \(error)")
             }
+            guard isCurrentExploreLoad(generation) else { return }
             unfilteredMoods = moodsToPublish
             applyVisibilityToExploreContent()
         }
+    }
+
+    private func isCurrentExploreLoad(_ generation: UInt64) -> Bool {
+        !Task.isCancelled && generation == exploreGeneration
     }
 
     internal nonisolated static func normalizedMoodTitleKey(_ title: String) -> String {
@@ -768,7 +886,7 @@ public final class SearchViewModel: ObservableObject {
             let title = hub.title.lowercased()
             
             if hub.semanticKind == .recentlyPlayed {
-                for item in hub.items.prefix(12) {
+                for item in hub.items {
                     if let album = item.album {
                         recentAlbums.append(album)
                     }
@@ -777,13 +895,13 @@ public final class SearchViewModel: ObservableObject {
                     }
                 }
             } else if hub.semanticKind == .recentlyAdded {
-                for item in hub.items.prefix(12) {
+                for item in hub.items {
                     if let album = item.album {
                         addedAlbums.append(album)
                     }
                 }
             } else if title.contains("recommend") || title.contains("for you") || title.contains("similar") {
-                for item in hub.items.prefix(12) {
+                for item in hub.items {
                     recommendedItems.append(item)
                 }
             }

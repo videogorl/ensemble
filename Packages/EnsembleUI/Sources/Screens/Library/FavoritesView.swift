@@ -15,7 +15,7 @@ public struct FavoritesView: View {
     // Targeted singleton observation for empty state only
     @State private var hasAnySources = DependencyContainer.shared.accountManager.hasAnySources
     @State private var isSyncing = DependencyContainer.shared.syncCoordinator.isSyncing
-    @State private var hasEnabledLibrariesState = false
+    @State private var hasEnabledLibrariesState = !DependencyContainer.shared.accountManager.enabledSources().isEmpty
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
     @State private var showFilterSheet = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -61,10 +61,9 @@ public struct FavoritesView: View {
             let title = target?.title
             if title != nvmRecentPlaylistTitle { nvmRecentPlaylistTitle = title }
         }
-        .onReceive(DependencyContainer.shared.accountManager.$plexAccounts) { accounts in
-            let has = !accounts.isEmpty
-            if has != hasAnySources { hasAnySources = has }
-            let enabledLibs = Self.computeHasEnabledLibraries()
+        .onReceive(DependencyContainer.shared.accountManager.sourceConfigurationPublisher) { snapshot in
+            if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
+            let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
         .onReceive(DependencyContainer.shared.syncCoordinator.$isSyncing) { syncing in
@@ -181,14 +180,6 @@ public struct FavoritesView: View {
             return .noEnabledLibraries
         }
         return .empty(message: "Rate tracks 4 or 5 stars to add them here")
-    }
-
-    private static func computeHasEnabledLibraries() -> Bool {
-        DependencyContainer.shared.accountManager.plexAccounts.contains { account in
-            account.servers.contains { server in
-                server.libraries.contains(where: \.isEnabled)
-            }
-        }
     }
 
     @ViewBuilder

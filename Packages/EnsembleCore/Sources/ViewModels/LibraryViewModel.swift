@@ -2,6 +2,12 @@ import Combine
 import EnsemblePersistence
 import Foundation
 
+protocol LibraryRepositoryBackingStoreProviding: Sendable {
+    var backingCoreDataStack: CoreDataStack { get }
+}
+
+extension LibraryRepository: LibraryRepositoryBackingStoreProviding {}
+
 @MainActor
 public final class LibraryViewModel: ObservableObject {
     private struct TrackComputation: Equatable, Sendable {
@@ -153,6 +159,7 @@ public final class LibraryViewModel: ObservableObject {
     private var allAlbums: [Album] = []
     private var allTracks: [Track] = []
     private var allGenres: [Genre] = []
+    private var loadGeneration: UInt64 = 0
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -195,22 +202,15 @@ public final class LibraryViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .assign(to: &$isSyncing)
 
-        // Observe account state
-        accountManager.$plexAccounts
+        // Observe provider-neutral source state.
+        accountManager.sourceConfigurationPublisher
             .receive(on: DispatchQueue.main)
-            .map { !$0.isEmpty }
-            .assign(to: &$hasAnySources)
-
-        accountManager.$plexAccounts
-            .receive(on: DispatchQueue.main)
-            .map { accounts in
-                accounts.contains { account in
-                    account.servers.contains { server in
-                        server.libraries.contains(where: \.isEnabled)
-                    }
-                }
+            .sink { [weak self] configuration in
+                guard let self else { return }
+                self.hasAnySources = configuration.hasAnySources
+                self.hasEnabledLibraries = !configuration.enabledSources.isEmpty
             }
-            .assign(to: &$hasEnabledLibraries)
+            .store(in: &cancellables)
 
         accountManager.$isAwaitingCloudSources
             .receive(on: DispatchQueue.main)
@@ -227,10 +227,11 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Reflect account/library enablement changes immediately in cached browse surfaces.
-        accountManager.$plexAccounts
+        accountManager.sourceConfigurationPublisher
             .receive(on: DispatchQueue.main)
             .dropFirst()
             .sink { [weak self] _ in
+                self?.applyVisibilityToPublishedCollections()
                 Task { @MainActor in
                     await self?.loadLibrary()
                 }
@@ -491,6 +492,9 @@ public final class LibraryViewModel: ObservableObject {
         ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
             self?.handleLibraryDataCleared()
         }
+        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
+            await self?.loadLibrary()
+        }
     }
 
     private func setupVisibilityObservation() {
@@ -505,23 +509,31 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     public func loadLibrary() async {
+        loadGeneration += 1
+        let generation = loadGeneration
         setBrowsePhase(hasAnyVisibleBrowseSnapshot ? .refreshing : .loading)
         isLoading = true
         error = nil
         defer {
-            isLoading = false
-            let finalPhase: LibraryBrowseRefreshPhase = hasAnyVisibleBrowseSnapshot || canCommitAuthoritativeEmptyBrowseSnapshot
-                ? .idle
-                : .refreshing
-            setBrowsePhase(finalPhase)
+            if generation == loadGeneration {
+                isLoading = false
+                let finalPhase: LibraryBrowseRefreshPhase = hasAnyVisibleBrowseSnapshot || canCommitAuthoritativeEmptyBrowseSnapshot
+                    ? .idle
+                    : .refreshing
+                setBrowsePhase(finalPhase)
+            }
         }
 
         do {
             // Refresh view context to ensure merge state is current
             await libraryRepository.refreshContext()
+            guard generation == loadGeneration else { return }
 
-            let enabledSourceKeys = Set(accountManager.enabledSources().map(\.compositeKey))
-            guard let browseSourceKeys = try await reconcileCachedSourcesBeforeLoad(enabledSourceKeys: enabledSourceKeys) else {
+            let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+            guard let browseSourceKeys = try await reconcileCachedSourcesBeforeLoad(
+                sourceConfiguration: sourceConfiguration,
+                generation: generation
+            ) else {
                 return
             }
 
@@ -532,6 +544,7 @@ public final class LibraryViewModel: ObservableObject {
                 coreDataStack: Self.coreDataStack(for: libraryRepository),
                 sourceCompositeKeys: browseSourceKeys
             )
+            guard generation == loadGeneration else { return }
 
             allArtists = result.artists
             allAlbums = result.albums
@@ -539,30 +552,36 @@ public final class LibraryViewModel: ObservableObject {
             allGenres = result.genres
             applyVisibilityToPublishedCollections()
         } catch {
-            self.error = error.localizedDescription
+            if generation == loadGeneration {
+                self.error = error.localizedDescription
+            }
         }
     }
 
     /// Resolves the source keys that may be published without treating transient credentials as deletion intent.
-    private func reconcileCachedSourcesBeforeLoad(enabledSourceKeys: Set<String>) async throws -> Set<String>? {
+    private func reconcileCachedSourcesBeforeLoad(
+        sourceConfiguration: SourceConfigurationSnapshot,
+        generation: UInt64
+    ) async throws -> Set<String>? {
         let cachedSourceKeys = Set(try await libraryRepository.fetchMusicSources().map(\.compositeKey))
+        guard generation == loadGeneration else { return nil }
+        let enabledSourceKeys = Set(sourceConfiguration.enabledSources.map(\.compositeKey))
 
-        guard accountManager.isSourceConfigurationAuthoritative else {
-            guard !cachedSourceKeys.isEmpty else {
-                EnsembleLogger.info("LibraryViewModel: preserving visible library while source credentials are unresolved")
+        guard sourceConfiguration.isAuthoritative else {
+            let provisionalSourceKeys = cachedSourceKeys.filter(
+                sourceConfiguration.shouldPreserveSourceKey
+            )
+            guard !provisionalSourceKeys.isEmpty else {
+                clearInMemoryLibrary()
+                EnsembleLogger.info("LibraryViewModel: no provider-authoritative cached sources remain visible")
                 return nil
             }
-
-            if enabledSourceKeys.isEmpty {
-                EnsembleLogger.info("LibraryViewModel: using cached source keys while source credentials are unresolved")
-                return cachedSourceKeys
-            }
-
-            return enabledSourceKeys
+            EnsembleLogger.info("LibraryViewModel: using provider-authoritative cached source keys while credentials are unresolved")
+            return provisionalSourceKeys
         }
 
         guard !enabledSourceKeys.isEmpty else {
-            if !accountManager.hasAnySources, !cachedSourceKeys.isEmpty {
+            if !sourceConfiguration.hasAnySources, !cachedSourceKeys.isEmpty {
                 EnsembleLogger.info("LibraryViewModel: using last-good cached sources without saved credentials")
                 return cachedSourceKeys
             }
@@ -602,6 +621,7 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func handleLibraryDataCleared() {
+        loadGeneration += 1
         isLoading = false
         error = nil
         clearInMemoryLibrary()
@@ -611,7 +631,7 @@ public final class LibraryViewModel: ObservableObject {
     /// Fetches all library entities on a background CoreData context and maps
     /// them to domain model arrays. Runs entirely off the main thread.
     private nonisolated static func coreDataStack(for repository: LibraryRepositoryProtocol) -> CoreDataStack {
-        (repository as? LibraryRepository)?.backingCoreDataStack ?? .shared
+        (repository as? LibraryRepositoryBackingStoreProviding)?.backingCoreDataStack ?? .shared
     }
 
     private nonisolated static func fetchAndMapInBackground(
@@ -765,10 +785,30 @@ public final class LibraryViewModel: ObservableObject {
     /// which would cause spurious body re-evaluations in all subscribing views.
     private func applyVisibilityToPublishedCollections() {
         let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        let newArtists = LibraryVisibilityFiltering.visibleItems(allArtists, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        let newAlbums = LibraryVisibilityFiltering.visibleItems(allAlbums, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        let newTracks = LibraryVisibilityFiltering.visibleItems(allTracks, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
-        let newGenres = LibraryVisibilityFiltering.visibleItems(allGenres, hiddenSourceCompositeKeys: hiddenSourceCompositeKeys)
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let cachedSourceFilter = sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
+            ? sourceConfiguration
+            : nil
+        let newArtists = LibraryVisibilityFiltering.visibleItems(
+            allArtists,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
+        )
+        let newAlbums = LibraryVisibilityFiltering.visibleItems(
+            allAlbums,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
+        )
+        let newTracks = LibraryVisibilityFiltering.visibleItems(
+            allTracks,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
+        )
+        let newGenres = LibraryVisibilityFiltering.visibleItems(
+            allGenres,
+            hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+            sourceConfiguration: cachedSourceFilter
+        )
 
         if artists != newArtists { artists = newArtists }
         if albums != newAlbums { albums = newAlbums }

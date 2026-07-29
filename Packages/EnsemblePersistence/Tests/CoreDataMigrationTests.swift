@@ -3,6 +3,56 @@ import XCTest
 @testable import EnsemblePersistence
 
 final class CoreDataMigrationTests: XCTestCase {
+    func testEnsemble9StoreMigratesToEnsemble10WithItemCapabilitiesUnset() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ensemble-v9-v10-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appendingPathComponent("Legacy.sqlite")
+        let modelDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/CoreData/Compiled/SwiftPMEnsemble.momd", isDirectory: true)
+        let version9 = try XCTUnwrap(NSManagedObjectModel(
+            contentsOf: modelDirectory.appendingPathComponent("Ensemble 9.mom")
+        ))
+        let version10 = try XCTUnwrap(NSManagedObjectModel(
+            contentsOf: modelDirectory.appendingPathComponent("Ensemble 10.mom")
+        ))
+
+        let legacyContainer = try await loadContainer(model: version9, storeURL: storeURL)
+        let legacyContext = legacyContainer.viewContext
+        let artist = NSEntityDescription.insertNewObject(forEntityName: "CDArtist", into: legacyContext)
+        artist.setValue("artist-1", forKey: "ratingKey")
+        artist.setValue("/library/metadata/artist-1", forKey: "key")
+        artist.setValue("Legacy Artist", forKey: "name")
+
+        let album = NSEntityDescription.insertNewObject(forEntityName: "CDAlbum", into: legacyContext)
+        album.setValue("album-1", forKey: "ratingKey")
+        album.setValue("/library/metadata/album-1", forKey: "key")
+        album.setValue("Legacy Album", forKey: "title")
+
+        let track = NSEntityDescription.insertNewObject(forEntityName: "CDTrack", into: legacyContext)
+        track.setValue("track-1", forKey: "ratingKey")
+        track.setValue("/library/metadata/track-1", forKey: "key")
+        track.setValue("Legacy Track", forKey: "title")
+        try legacyContext.save()
+        try detachStores(from: legacyContainer)
+
+        let migratedContainer = try await loadContainer(model: version10, storeURL: storeURL)
+        let context = migratedContainer.viewContext
+        let migratedArtist = try XCTUnwrap(try context.fetch(fetchRequest("CDArtist")).first)
+        let migratedAlbum = try XCTUnwrap(try context.fetch(fetchRequest("CDAlbum")).first)
+        let migratedTrack = try XCTUnwrap(try context.fetch(fetchRequest("CDTrack")).first)
+        XCTAssertEqual(migratedArtist.value(forKey: "name") as? String, "Legacy Artist")
+        XCTAssertEqual(migratedAlbum.value(forKey: "title") as? String, "Legacy Album")
+        XCTAssertEqual(migratedTrack.value(forKey: "title") as? String, "Legacy Track")
+        XCTAssertNil(migratedArtist.value(forKey: "actionCapabilitiesData"))
+        XCTAssertNil(migratedAlbum.value(forKey: "actionCapabilitiesData"))
+        XCTAssertNil(migratedTrack.value(forKey: "actionCapabilitiesData"))
+    }
+
     func testEnsemble8StoreMigratesToEnsemble9WithNormalizedFieldsUnset() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ensemble-v8-v9-\(UUID().uuidString)", isDirectory: true)

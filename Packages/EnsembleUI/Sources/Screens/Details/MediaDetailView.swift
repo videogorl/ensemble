@@ -86,6 +86,106 @@ func resolvedMergedDownloadMenuAvailability(
     )
 }
 
+func makeMediaHeaderArtworkDescriptor(
+    headerData: MediaHeaderData,
+    mediaType: PinnedItemType?,
+    size: Int = 600
+) -> ArtworkResolutionDescriptor? {
+    guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
+    let cacheHint = mediaType
+        .flatMap(PersistentArtworkCacheHint.Kind.init)
+        .flatMap {
+            PersistentArtworkCacheHint(
+                ratingKey: headerData.ratingKey,
+                kind: $0,
+                sourcePath: path,
+                sourceCompositeKey: headerData.sourceKey
+            )
+        }
+    return ArtworkResolutionDescriptor(
+        path: path,
+        sourceKey: headerData.sourceKey,
+        ratingKey: headerData.ratingKey,
+        fallbackPath: nil,
+        fallbackRatingKey: nil,
+        cacheHint: cacheHint,
+        fallbackCacheHint: nil,
+        size: size,
+        priority: .high
+    )
+}
+
+func mediaHeaderArtworkLoadIdentity(
+    primary: ArtworkResolutionDescriptor?,
+    fallback: ArtworkResolutionDescriptor?
+) -> String? {
+    let keys = [primary, fallback].compactMap { $0?.stableBlurCacheKey }
+    return keys.isEmpty ? nil : keys.joined(separator: "|fallback|")
+}
+
+func mediaHeaderBlurCacheKey(
+    resolvedBlurCacheKey: String?,
+    descriptors: [ArtworkResolutionDescriptor]
+) -> String? {
+    if let resolvedBlurCacheKey {
+        return resolvedBlurCacheKey
+    }
+    guard descriptors.count == 1 else { return nil }
+    return descriptors[0].stableBlurCacheKey
+}
+
+func makePlaylistHeaderFallbackArtworkDescriptor(
+    playlist: Playlist?,
+    track: Track?,
+    fallbackSourceKey: String?,
+    size: Int = 600
+) -> ArtworkResolutionDescriptor? {
+    if let playlist,
+       let path = playlist.fallbackArtworkPath,
+       !path.isEmpty {
+        let sourceKey = playlist.fallbackArtworkSourceCompositeKey
+            ?? playlist.sourceCompositeKey
+            ?? fallbackSourceKey
+        return ArtworkResolutionDescriptor(
+            path: path,
+            sourceKey: sourceKey,
+            ratingKey: playlist.fallbackArtworkRatingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: PersistentArtworkCacheHint(
+                ratingKey: playlist.fallbackArtworkRatingKey,
+                kind: .album,
+                sourcePath: path,
+                sourceCompositeKey: sourceKey
+            ),
+            fallbackCacheHint: nil,
+            size: size,
+            priority: .high
+        )
+    }
+
+    guard let track else { return nil }
+    let primaryPath = track.thumbPath?.isEmpty == false ? track.thumbPath : nil
+    let fallbackPath = track.fallbackThumbPath?.isEmpty == false ? track.fallbackThumbPath : nil
+    guard let path = primaryPath ?? fallbackPath else { return nil }
+
+    return ArtworkResolutionDescriptor(
+        path: path,
+        sourceKey: track.sourceCompositeKey ?? fallbackSourceKey,
+        ratingKey: primaryPath == nil
+            ? (track.fallbackRatingKey ?? track.albumRatingKey ?? track.id)
+            : track.id,
+        fallbackPath: nil,
+        fallbackRatingKey: nil,
+        cacheHint: primaryPath == nil
+            ? PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track)
+            : nil,
+        fallbackCacheHint: nil,
+        size: size,
+        priority: .high
+    )
+}
+
 // MARK: - Media Detail View
 
 public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
@@ -114,7 +214,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     @State private var artworkImage: PlatformImage?
     @State private var blurredArtworkImage: PlatformImage?
-    @State private var currentLoadPath: String?
+    @State private var currentArtworkLoadIdentity: String?
+    @State private var resolvedHeaderBlurCacheKey: String?
     @State private var headerArtworkRetryToken = 0
     @State private var showFilterSheet = false
     @State private var showToolbarTitle = false
@@ -174,7 +275,28 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.customPinAction = customPinAction
         self.customIsPinned = customIsPinned
         self._artworkImage = State(initialValue: initialArtworkImage)
-        self._currentLoadPath = State(initialValue: initialArtworkImage == nil ? nil : headerData.artworkPath)
+        let initialFallbackTrack = mediaType == .playlist
+            ? viewModel.filteredTracks.first {
+                $0.thumbPath?.isEmpty == false || $0.fallbackThumbPath?.isEmpty == false
+            }
+            : nil
+        let initialFallbackDescriptor = mediaType == .playlist
+            ? makePlaylistHeaderFallbackArtworkDescriptor(
+                playlist: (viewModel as? PlaylistDetailViewModel)?.playlist,
+                track: initialFallbackTrack,
+                fallbackSourceKey: headerData.sourceKey
+            )
+            : nil
+        let initialLoadIdentity = mediaHeaderArtworkLoadIdentity(
+            primary: makeMediaHeaderArtworkDescriptor(
+                headerData: headerData,
+                mediaType: mediaType
+            ),
+            fallback: initialFallbackDescriptor
+        )
+        self._currentArtworkLoadIdentity = State(
+            initialValue: initialArtworkImage == nil ? nil : initialLoadIdentity
+        )
 
         let initialPinState: Bool
         let initialPinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
@@ -259,7 +381,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.serversBecameAvailable)
         ) { _ in
-            guard headerData.artworkPath?.isEmpty == false else { return }
+            guard headerArtworkContentIdentity != nil else { return }
             headerArtworkRetryToken &+= 1
         }
         .nowPlayingTrackListObservation(
@@ -289,28 +411,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var headerArtworkLoadKey: String {
-        [
-            headerData.sourceKey ?? "",
-            headerData.artworkPath ?? "",
-            headerData.ratingKey ?? "",
-            playlistHeaderFallbackArtworkKey,
-            String(headerArtworkRetryToken)
-        ].joined(separator: "|")
+        "\(headerArtworkContentIdentity ?? "no-header-artwork")|\(headerArtworkRetryToken)"
     }
 
-    private var playlistHeaderFallbackArtworkKey: String {
-        guard mediaType == .playlist,
-              let track = playlistHeaderFallbackArtworkTrack else {
-            return "no-playlist-fallback"
-        }
+    private var headerArtworkContentIdentity: String? {
+        mediaHeaderArtworkLoadIdentity(
+            primary: primaryHeaderArtworkDescriptor,
+            fallback: playlistHeaderFallbackArtworkDescriptor()
+        )
+    }
 
-        return [
-            track.sourceCompositeKey ?? "",
-            track.id,
-            track.thumbPath ?? "",
-            track.fallbackThumbPath ?? "",
-            track.fallbackRatingKey ?? ""
-        ].joined(separator: "|")
+    private var primaryHeaderArtworkDescriptor: ArtworkResolutionDescriptor? {
+        makeMediaHeaderArtworkDescriptor(
+            headerData: headerData,
+            mediaType: mediaType
+        )
     }
 
     private var playlistHeaderFallbackArtworkTrack: Track? {
@@ -878,43 +993,55 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadHeaderArtworkIfNeeded() async {
-        guard let path = headerData.artworkPath, !path.isEmpty else {
+        let descriptors = headerArtworkDescriptors
+        guard let loadIdentity = headerArtworkContentIdentity,
+              !descriptors.isEmpty else {
             await MainActor.run {
-                currentLoadPath = nil
+                currentArtworkLoadIdentity = nil
+                resolvedHeaderBlurCacheKey = nil
                 artworkImage = nil
                 blurredArtworkImage = nil
             }
             return
         }
 
-        await loadArtworkImage(path: path, sourceKey: headerData.sourceKey)
-    }
-
-    private func loadArtworkImage(path: String, sourceKey: String?) async {
         let existingImage = await MainActor.run { () -> SendableMediaDetailPlatformImage? in
-            if self.currentLoadPath != path {
+            if self.currentArtworkLoadIdentity != loadIdentity {
                 self.artworkImage = nil
                 self.blurredArtworkImage = nil
+                self.resolvedHeaderBlurCacheKey = nil
             }
-            self.currentLoadPath = path
+            self.currentArtworkLoadIdentity = loadIdentity
             return self.artworkImage.map(SendableMediaDetailPlatformImage.init)
         }?.value
 
         if let existingImage {
             let alreadyHasBlur = await MainActor.run { self.blurredArtworkImage != nil }
-            guard !alreadyHasBlur else { return }
-            let blurredImage = await ArtworkImageResolver.preBlurredImage(
-                for: existingImage,
-                cacheKey: headerBlurCacheKey(path: path)
-            )
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.blurredArtworkImage = blurredImage
+            let blurCacheKey = await MainActor.run { self.currentHeaderBlurCacheKey }
+            if !alreadyHasBlur, let blurCacheKey {
+                let blurredImage = await ArtworkImageResolver.preBlurredImage(
+                    for: existingImage,
+                    cacheKey: blurCacheKey
+                )
+                guard !Task.isCancelled,
+                      await isCurrentArtworkLoad(identity: loadIdentity) else {
+                    return
+                }
+                await MainActor.run {
+                    if self.currentArtworkLoadIdentity == loadIdentity {
+                        self.blurredArtworkImage = blurredImage
+                    }
                 }
             }
-            return
         }
 
+        _ = await resolveHeaderArtwork(descriptors, loadIdentity: loadIdentity)
+    }
+
+    private func resolveHeaderArtwork(
+        _ descriptors: [ArtworkResolutionDescriptor],
+        loadIdentity: String
+    ) async -> Bool {
         let retryDelays: [UInt64] = [
             0,
             300_000_000,
@@ -926,57 +1053,39 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
             }
-            guard await isCurrentArtworkLoad(path: path) else { return }
-
-            let descriptor = ArtworkResolutionDescriptor(
-                path: path,
-                sourceKey: sourceKey,
-                ratingKey: headerData.ratingKey,
-                fallbackPath: nil,
-                fallbackRatingKey: nil,
-                cacheHint: headerArtworkCacheHint(path: path),
-                fallbackCacheHint: nil,
-                size: 600,
-                priority: .high
-            )
-
-            guard let resolved = await ArtworkImageResolver.resolvedImage(
-                for: descriptor,
-                artworkLoader: deps.artworkLoader
-            ) else {
-                continue
-            }
-
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.artworkImage = resolved.image
+            guard !Task.isCancelled else { return false }
+            guard await isCurrentArtworkLoad(identity: loadIdentity) else { return false }
+            for descriptor in descriptors {
+                guard let resolved = await ArtworkImageResolver.resolvedImage(
+                    for: descriptor,
+                    artworkLoader: deps.artworkLoader
+                ) else {
+                    continue
                 }
-            }
-
-            let blurredImage = await ArtworkImageResolver.preBlurredImage(
-                for: resolved.image,
-                cacheKey: resolved.blurCacheKey
-            )
-            await MainActor.run {
-                if self.currentLoadPath == path {
-                    self.blurredArtworkImage = blurredImage
+                guard !Task.isCancelled,
+                      await isCurrentArtworkLoad(identity: loadIdentity) else {
+                    return false
                 }
+                await applyResolvedHeaderArtwork(
+                    resolved,
+                    loadIdentity: loadIdentity
+                )
+                return true
             }
-            return
         }
+        return false
+    }
 
-        guard let fallbackDescriptor = playlistHeaderFallbackArtworkDescriptor(),
-              await isCurrentArtworkLoad(path: path),
-              let resolved = await ArtworkImageResolver.resolvedImage(
-                for: fallbackDescriptor,
-                artworkLoader: deps.artworkLoader
-              ) else {
-            return
-        }
-
+    private func applyResolvedHeaderArtwork(
+        _ resolved: ArtworkResolvedImage,
+        loadIdentity: String
+    ) async {
+        guard !Task.isCancelled,
+              await isCurrentArtworkLoad(identity: loadIdentity) else { return }
         await MainActor.run {
-            if self.currentLoadPath == path {
+            if self.currentArtworkLoadIdentity == loadIdentity {
                 self.artworkImage = resolved.image
+                self.resolvedHeaderBlurCacheKey = resolved.blurCacheKey
             }
         }
 
@@ -984,84 +1093,44 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             for: resolved.image,
             cacheKey: resolved.blurCacheKey
         )
+        guard !Task.isCancelled,
+              await isCurrentArtworkLoad(identity: loadIdentity) else { return }
         await MainActor.run {
-            if self.currentLoadPath == path {
+            if self.currentArtworkLoadIdentity == loadIdentity {
                 self.blurredArtworkImage = blurredImage
             }
         }
     }
 
-    private func isCurrentArtworkLoad(path: String) async -> Bool {
+    private func isCurrentArtworkLoad(identity: String) async -> Bool {
         await MainActor.run {
-            self.currentLoadPath == path
+            self.currentArtworkLoadIdentity == identity
         }
     }
 
     private func playlistHeaderFallbackArtworkDescriptor() -> ArtworkResolutionDescriptor? {
-        guard let track = playlistHeaderFallbackArtworkTrack else { return nil }
-
-        let primaryPath = track.thumbPath?.isEmpty == false ? track.thumbPath : nil
-        let fallbackPath = track.fallbackThumbPath?.isEmpty == false ? track.fallbackThumbPath : nil
-        let path = primaryPath ?? fallbackPath
-        guard path?.isEmpty == false else { return nil }
-
-        let ratingKey = primaryPath == nil
-            ? (track.fallbackRatingKey ?? track.albumRatingKey ?? track.id)
-            : track.id
-        let cacheHint = primaryPath == nil
-            ? PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track)
-            : nil
-
-        return ArtworkResolutionDescriptor(
-            path: path,
-            sourceKey: track.sourceCompositeKey ?? headerData.sourceKey,
-            ratingKey: ratingKey,
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            cacheHint: cacheHint,
-            fallbackCacheHint: nil,
-            size: 600,
-            priority: .high
+        guard mediaType == .playlist else { return nil }
+        return makePlaylistHeaderFallbackArtworkDescriptor(
+            playlist: (viewModel as? PlaylistDetailViewModel)?.playlist,
+            track: playlistHeaderFallbackArtworkTrack,
+            fallbackSourceKey: headerData.sourceKey
         )
     }
 
-    private func headerArtworkCacheHint(path: String) -> PersistentArtworkCacheHint? {
-        guard let mediaType,
-              let kind = PersistentArtworkCacheHint.Kind(mediaType) else {
-            return nil
-        }
-
-        return PersistentArtworkCacheHint(
-            ratingKey: headerData.ratingKey,
-            kind: kind,
-            sourcePath: path
-        )
-    }
-
-    private func headerBlurCacheKey(path: String) -> String {
-        if let cacheHint = headerArtworkCacheHint(path: path) {
-            return [
-                "hint",
-                cacheHint.kind.rawValue,
-                cacheHint.ratingKey,
-                cacheHint.sourcePath,
-                cacheHint.dateModifiedSeconds.map(String.init) ?? "no-date",
-                "600"
-            ].joined(separator: "|")
-        }
-
-        return [
-            "header",
-            headerData.sourceKey ?? "no-source",
-            headerData.ratingKey ?? "no-rating",
-            path,
-            "600"
-        ].joined(separator: "|")
+    private var headerArtworkDescriptors: [ArtworkResolutionDescriptor] {
+        [
+            primaryHeaderArtworkDescriptor,
+            playlistHeaderFallbackArtworkDescriptor()
+        ].compactMap { $0 }
     }
 
     private var currentHeaderBlurCacheKey: String? {
-        guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
-        return headerBlurCacheKey(path: path)
+        mediaHeaderBlurCacheKey(
+            resolvedBlurCacheKey: currentArtworkLoadIdentity == headerArtworkContentIdentity
+                ? resolvedHeaderBlurCacheKey
+                : nil,
+            descriptors: headerArtworkDescriptors
+        )
     }
 
     /// Renders the subtitle text (artist name), optionally as a navigation link to the artist.

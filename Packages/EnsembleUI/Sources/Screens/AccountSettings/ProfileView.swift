@@ -56,15 +56,27 @@ public struct ProfileView: View {
                         let sourceIds = allSources(for: account)
                         let serverIds = account.servers.map(\.id)
                         accountManager.removePlexAccount(id: account.id)
+                        syncCoordinator.refreshProviders()
 
                         Task {
+                            var cleanupSucceeded = true
                             for sourceId in sourceIds {
-                                await syncCoordinator.cleanupRemovedSource(sourceId)
+                                let sourceCleanupSucceeded = await syncCoordinator.cleanupRemovedSource(sourceId)
+                                cleanupSucceeded = cleanupSucceeded && sourceCleanupSucceeded
                             }
                             for serverId in serverIds {
                                 await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverId)
                             }
-                            syncCoordinator.refreshProviders()
+                            if !cleanupSucceeded {
+                                DependencyContainer.shared.toastCenter.show(
+                                    ToastPayload(
+                                        style: .error,
+                                        iconSystemName: EnsembleDesign.Icon.error,
+                                        title: "Account Removed",
+                                        message: "Some local data could not be fully cleared. Try clearing all library data from Storage."
+                                    )
+                                )
+                            }
                         }
 
                         accountToDelete = nil
@@ -935,11 +947,11 @@ public struct ProfileView: View {
         for account in accounts {
             accountManager.removePlexAccount(id: account.id)
         }
+        syncCoordinator.refreshProviders()
 
         Task {
             do {
                 try await cacheManager.clearAllCaches()
-                syncCoordinator.refreshProviders()
                 EnsembleLogger.debug("ProfileView: removed all accounts and cleared cached library data")
             } catch {
                 EnsembleLogger.debug("ProfileView: failed to clear cached data after removing all accounts: \(error.localizedDescription)")
@@ -1006,6 +1018,7 @@ private struct AppleMusicSourceDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveAlert = false
     @State private var isRemoving = false
+    @State private var cleanupError: String?
 
     var body: some View {
         List {
@@ -1025,6 +1038,11 @@ private struct AppleMusicSourceDetailView: View {
                     showingRemoveAlert = true
                 }
                 .disabled(isRemoving)
+            } footer: {
+                if let cleanupError {
+                    Text(cleanupError)
+                        .foregroundStyle(.red)
+                }
             }
         }
         .navigationTitle("Apple Music")
@@ -1033,11 +1051,16 @@ private struct AppleMusicSourceDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
                 isRemoving = true
+                cleanupError = nil
                 accountManager.setAppleMusicEnabled(false)
+                syncCoordinator.refreshProviders()
                 Task {
-                    await syncCoordinator.cleanupRemovedSource(.appleMusic)
-                    syncCoordinator.refreshProviders()
-                    dismiss()
+                    if await syncCoordinator.cleanupRemovedSource(.appleMusic) {
+                        dismiss()
+                    } else {
+                        isRemoving = false
+                        cleanupError = "Apple Music was removed, but its local data could not be fully cleared. Tap Remove Source to retry."
+                    }
                 }
             }
         } message: {

@@ -311,8 +311,8 @@ public final class DependencyContainer: @unchecked Sendable {
                     lyricsService.clearAllCaches()
                 }
             },
-            clearSharedArtworkCaches: { [weak cacheManager = playback.cacheManager] in
-                try await cacheManager?.clearTransientArtworkCaches()
+            clearSharedArtworkCaches: { [weak artworkLoader = playback.artworkLoader as? ArtworkLoader] in
+                try await artworkLoader?.resetTransientCaches()
             }
         )
         sourceCacheCleanupService = builtSourceCacheCleanupService
@@ -509,7 +509,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: core.libraryRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 downloadManager: core.downloadManager,
-                lyricsService: lyricsService
+                lyricsService: lyricsService,
+                transientArtworkCacheReset: {
+                    try await artworkLoader.resetTransientCaches()
+                }
             )
         }
 

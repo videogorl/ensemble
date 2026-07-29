@@ -128,4 +128,143 @@ final class ModelMappersTests: XCTestCase {
         XCTAssertEqual(mappedFromInventory.trackCount, 1)
         XCTAssertTrue(fetched.hasFault(forRelationshipNamed: "tracks"))
     }
+
+    func testMediaMappersRestorePersistedItemActionCapabilities() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let sourceKey = "future-provider:account:server:library"
+        let capabilities = MusicItemActionCapabilities([
+            .download: .readOnly(reason: "Downloads require server permission."),
+            .editMetadata: .available,
+        ])
+        let data = try XCTUnwrap(capabilities.persistenceData)
+
+        try await repository.batchUpsertArtists([
+            ArtistUpsertInput(
+                ratingKey: "artist",
+                key: "/artist",
+                name: "Artist",
+                summary: nil,
+                thumbPath: nil,
+                artPath: nil,
+                dateAdded: nil,
+                dateModified: nil,
+                actionCapabilitiesData: data
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            AlbumUpsertInput(
+                ratingKey: "album",
+                key: "/album",
+                title: "Album",
+                artistName: "Artist",
+                albumArtist: "Artist",
+                artistRatingKey: nil,
+                summary: nil,
+                thumbPath: nil,
+                artPath: nil,
+                year: nil,
+                trackCount: 1,
+                dateAdded: nil,
+                dateModified: nil,
+                rating: nil,
+                actionCapabilitiesData: data
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            TrackUpsertInput(
+                ratingKey: "track",
+                key: "/track",
+                title: "Track",
+                artistName: "Artist",
+                albumName: "Album",
+                albumRatingKey: nil,
+                trackNumber: 1,
+                discNumber: 1,
+                duration: 180_000,
+                thumbPath: nil,
+                streamKey: nil,
+                dateAdded: nil,
+                dateModified: nil,
+                lastPlayed: nil,
+                rating: nil,
+                playCount: nil,
+                actionCapabilitiesData: data
+            )
+        ], sourceCompositeKey: sourceKey)
+
+        let fetchedArtist = try await repository.fetchArtist(ratingKey: "artist", sourceCompositeKey: sourceKey)
+        let fetchedAlbum = try await repository.fetchAlbum(ratingKey: "album", sourceCompositeKey: sourceKey)
+        let fetchedTrack = try await repository.fetchTrack(ratingKey: "track", sourceCompositeKey: sourceKey)
+        let artist = try XCTUnwrap(fetchedArtist)
+        let album = try XCTUnwrap(fetchedAlbum)
+        let track = try XCTUnwrap(fetchedTrack)
+
+        XCTAssertEqual(Artist(from: artist).actionCapabilities, capabilities)
+        XCTAssertEqual(Album(from: album).actionCapabilities, capabilities)
+        XCTAssertEqual(Track(from: track).actionCapabilities, capabilities)
+
+        let emptyCapabilities = MusicItemActionCapabilities([:])
+        let emptyData = try XCTUnwrap(emptyCapabilities.persistenceData)
+        try await repository.batchUpsertArtists([
+            ArtistUpsertInput(
+                ratingKey: "artist",
+                key: "/artist",
+                name: "Artist",
+                summary: nil,
+                thumbPath: nil,
+                artPath: nil,
+                dateAdded: nil,
+                dateModified: nil,
+                actionCapabilitiesData: emptyData
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            AlbumUpsertInput(
+                ratingKey: "album",
+                key: "/album",
+                title: "Album",
+                artistName: "Artist",
+                albumArtist: "Artist",
+                artistRatingKey: nil,
+                summary: nil,
+                thumbPath: nil,
+                artPath: nil,
+                year: nil,
+                trackCount: 1,
+                dateAdded: nil,
+                dateModified: nil,
+                rating: nil,
+                actionCapabilitiesData: emptyData
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            TrackUpsertInput(
+                ratingKey: "track",
+                key: "/track",
+                title: "Track",
+                artistName: "Artist",
+                albumName: "Album",
+                albumRatingKey: nil,
+                trackNumber: 1,
+                discNumber: 1,
+                duration: 180_000,
+                thumbPath: nil,
+                streamKey: nil,
+                dateAdded: nil,
+                dateModified: nil,
+                lastPlayed: nil,
+                rating: nil,
+                playCount: nil,
+                actionCapabilitiesData: emptyData
+            )
+        ], sourceCompositeKey: sourceKey)
+
+        let clearedArtist = try await repository.fetchArtist(ratingKey: "artist", sourceCompositeKey: sourceKey)
+        let clearedAlbum = try await repository.fetchAlbum(ratingKey: "album", sourceCompositeKey: sourceKey)
+        let clearedTrack = try await repository.fetchTrack(ratingKey: "track", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(Artist(from: try XCTUnwrap(clearedArtist)).actionCapabilities, emptyCapabilities)
+        XCTAssertEqual(Album(from: try XCTUnwrap(clearedAlbum)).actionCapabilities, emptyCapabilities)
+        XCTAssertEqual(Track(from: try XCTUnwrap(clearedTrack)).actionCapabilities, emptyCapabilities)
+    }
 }

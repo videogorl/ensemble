@@ -67,6 +67,7 @@ extension CDSyncCursor {
 
 @objc(CDArtist)
 public class CDArtist: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var name: String
@@ -102,6 +103,7 @@ extension CDArtist {
 
 @objc(CDAlbum)
 public class CDAlbum: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var title: String
@@ -145,6 +147,7 @@ extension CDAlbum {
 
 @objc(CDTrack)
 public class CDTrack: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var title: String

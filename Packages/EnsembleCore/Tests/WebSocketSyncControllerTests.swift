@@ -93,6 +93,26 @@ struct WebSocketSyncControllerTests {
     }
 
     @Test
+    func resolveSectionsIgnoresNonPlexProviderCollisions() {
+        let controller = WebSocketSyncController()
+        let appleSource = MusicSourceIdentifier(
+            type: .appleMusic,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "5"
+        )
+
+        let resolutions = controller.resolveSections(
+            sectionKey: "5",
+            serverKey: "account:server",
+            providers: [appleSource.compositeKey: MockWebSocketProvider(sourceIdentifier: appleSource)],
+            knownSources: [appleSource]
+        )
+
+        #expect(resolutions.isEmpty)
+    }
+
+    @Test
     func refreshServerPlaylistsReturnsProviderAndResult() async throws {
         let controller = WebSocketSyncController()
         let refreshController = PlaylistRefreshController()

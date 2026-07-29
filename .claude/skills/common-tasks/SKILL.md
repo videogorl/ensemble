@@ -180,7 +180,7 @@ When adding support for new music sources (Apple Music, Spotify, etc.):
 2. Add source type to `MusicSourceType` enum
 3. Register provider in `SyncCoordinator.refreshProviders()`
 4. Add account configuration model similar to `PlexAccountConfig`
-5. Update `AccountManager` to handle new account type
+5. Update `AccountManager` to handle the new account type, include it in `enabledSources()` and `sourceConfigurationPublisher`, and observe that provider-neutral publisher from shared ViewModels instead of adding provider-specific subscriptions
 6. Opt into only the focused `MusicSource*` capability protocols the provider actually supports (playback, reporting, ratings, playlist mutation, details/file info, lyrics, or radio)
 7. Map provider API models into Ensemble domain values at the provider boundary; do not expose a provider client to shared ViewModels or UI
 

@@ -97,8 +97,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     @MainActor
     public func loadCachedSnapshot() async throws -> HomeHubSnapshot {
-        let sourceContext = currentSourceContext()
-        let enabledSourceKeys = enabledSourceCompositeKeys()
         let cachedSnapshot = try await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil)
         let cached: [Hub]
         if let cachedSnapshot {
@@ -106,8 +104,10 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         } else {
             cached = try await hubRepository.fetchHubs()
         }
-        let filtered = accountManager.isSourceConfigurationAuthoritative && accountManager.hasAnySources
-            ? Self.filterHubsToEnabledSources(cached, enabledSourceCompositeKeys: enabledSourceKeys)
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let sourceContext = currentSourceContext()
+        let filtered = sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
+            ? Self.filterHubsToEnabledSources(cached, sourceConfiguration: sourceConfiguration)
             : cached
         let merged = Self.mergeAndGroupHubs(filtered)
 
@@ -148,36 +148,61 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         }
 
         let sourceContext = currentSourceContext()
-        let providers = syncCoordinator.configuredSourceProviders
+        let providerWork: [(registration: ConfiguredSourceProvider, lease: SourcePersistenceLease)] =
+            syncCoordinator.configuredSourceProviderRegistrations.compactMap { registration in
+            let sourceKey = registration.provider.sourceIdentifier.compositeKey
+            guard let lease = syncCoordinator.beginSourcePersistenceWork(
+                sourceKey: sourceKey,
+                revision: registration.revision
+            ) else { return nil }
+            return (registration: registration, lease: lease)
+            }
+        defer {
+            providerWork.forEach { syncCoordinator.finishSourcePersistenceWork($0.lease) }
+        }
 
-        guard !providers.isEmpty else {
+        guard !providerWork.isEmpty else {
             EnsembleLogger.debug("🏠 Hub loader skipped network fetch (no enabled sources)")
             return nil
         }
 
-        EnsembleLogger.debug("🏠 Hub loader network fetch tasks=\(providers.count) count=\(hubCount)")
+        EnsembleLogger.debug("🏠 Hub loader network fetch tasks=\(providerWork.count) count=\(hubCount)")
 
         var collectedHubs: [Hub] = []
         var updatedFailedHubKeys = Set<String>()
         var failedResults: [ProviderHubResult] = []
 
         await withTaskGroup(of: (index: Int, result: ProviderHubResult).self) { group in
-            for (index, provider) in providers.enumerated() {
+            for (index, work) in providerWork.enumerated() {
                 group.addTask {
-                    let result = await Self.fetchHubs(provider: provider, limit: Int(hubCount) ?? 12)
+                    let result = await Self.fetchHubs(
+                        provider: work.registration.provider,
+                        limit: Int(hubCount) ?? 12
+                    )
                     return (index, result)
                 }
             }
 
             var results = Array<ProviderHubResult?>(
                 repeating: nil,
-                count: providers.count
+                count: providerWork.count
             )
             for await result in group {
                 results[result.index] = result.result
             }
 
-            for result in results.compactMap({ $0 }) {
+            for (index, result) in results.enumerated() {
+                guard let result else { continue }
+                let work = providerWork[index]
+                let sourceKey = work.registration.provider.sourceIdentifier.compositeKey
+                guard syncCoordinator.isSourcePersistenceWorkCurrent(
+                    sourceKey: sourceKey,
+                    revision: work.registration.revision,
+                    lease: work.lease
+                ) else {
+                    EnsembleLogger.debug("🏠 Hub loader discarded stale provider result source=\(sourceKey)")
+                    continue
+                }
                 collectedHubs.append(contentsOf: result.hubs)
                 if result.hasFailure {
                     updatedFailedHubKeys.insert(result.sourceKey)
@@ -185,8 +210,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 }
             }
         }
-
-        persistFailedHubKeys(updatedFailedHubKeys)
 
         if !updatedFailedHubKeys.isEmpty,
            let cachedSnapshot = try? await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil) {
@@ -196,17 +219,28 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             ))
         }
 
+        var validSourceKeys = currentSourceKeys(for: providerWork)
+        collectedHubs = Self.filterHubs(collectedHubs, toSourceKeys: validSourceKeys)
+        updatedFailedHubKeys.formIntersection(validSourceKeys)
+        failedResults.removeAll { !validSourceKeys.contains($0.sourceKey) }
+        persistFailedHubKeys(updatedFailedHubKeys)
+
         let mergedHubs = Self.mergeAndGroupHubs(collectedHubs)
         EnsembleLogger.debug(
             "🏠 Hub loader merged result count=\(mergedHubs.count)"
         )
 
-        let orderedHubs = orderedSnapshot(
+        var orderedHubs = orderedSnapshot(
             from: mergedHubs,
             sourceContext: sourceContext,
             applySavedOrder: applySavedOrder,
             persistDefaultOrder: true
         )
+
+        validSourceKeys = currentSourceKeys(for: providerWork)
+        orderedHubs = Self.filterHubs(orderedHubs, toSourceKeys: validSourceKeys)
+        updatedFailedHubKeys.formIntersection(validSourceKeys)
+        persistFailedHubKeys(updatedFailedHubKeys)
 
         if orderedHubs.isEmpty {
             EnsembleLogger.debug("🏠 Hub loader skipped empty cache save to preserve last usable Feed cache")
@@ -229,13 +263,18 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             }
         }
 
+        validSourceKeys = currentSourceKeys(for: providerWork)
+        orderedHubs = Self.filterHubs(orderedHubs, toSourceKeys: validSourceKeys)
+        updatedFailedHubKeys.formIntersection(validSourceKeys)
+        persistFailedHubKeys(updatedFailedHubKeys)
+
         return HomeHubSnapshot(
             orderedHubs: orderedHubs,
             failedHubKeys: updatedFailedHubKeys,
             metadata: HomeHubSnapshotMetadata(
                 currentSourceKey: sourceContext.sourceKey,
                 currentSourceName: sourceContext.sourceName,
-                fetchTaskCount: providers.count,
+                fetchTaskCount: providerWork.count,
                 usedGlobalFallback: false,
                 networkFetchCompletedAt: Date(),
                 cacheCreatedAt: nil,
@@ -244,6 +283,20 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 refreshReason: updatedFailedHubKeys.isEmpty ? "network" : "partial-network"
             )
         )
+    }
+
+    @MainActor
+    private func currentSourceKeys(
+        for providerWork: [(registration: ConfiguredSourceProvider, lease: SourcePersistenceLease)]
+    ) -> Set<String> {
+        Set(providerWork.compactMap { work in
+            let sourceKey = work.registration.provider.sourceIdentifier.compositeKey
+            return syncCoordinator.isSourcePersistenceWorkCurrent(
+                sourceKey: sourceKey,
+                revision: work.registration.revision,
+                lease: work.lease
+            ) ? sourceKey : nil
+        })
     }
 
     @MainActor
@@ -298,11 +351,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         return SourceContext(sourceKey: nil, sourceName: "Editing Music")
     }
 
-    @MainActor
-    private func enabledSourceCompositeKeys() -> Set<String> {
-        Set(accountManager.enabledSources().map(\.compositeKey))
-    }
-
     private static func fetchHubs(
         provider: MusicSourceSyncProvider,
         limit: Int
@@ -355,17 +403,34 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     private static func filterHubsToEnabledSources(
         _ hubs: [Hub],
-        enabledSourceCompositeKeys: Set<String>
+        sourceConfiguration: SourceConfigurationSnapshot
     ) -> [Hub] {
-        guard !enabledSourceCompositeKeys.isEmpty else { return [] }
         return hubs.compactMap { hub in
-            let enabledItems = hub.items.filter { enabledSourceCompositeKeys.contains($0.sourceCompositeKey) }
+            let enabledItems = hub.items.filter {
+                sourceConfiguration.shouldPreserveSourceKey($0.sourceCompositeKey)
+            }
             guard !enabledItems.isEmpty else { return nil }
             return Hub(
                 id: hub.id,
                 title: hub.title,
                 type: hub.type,
                 items: enabledItems,
+                context: hub.context,
+                semanticKind: hub.semanticKind,
+                sourceScope: hub.sourceScope
+            )
+        }
+    }
+
+    private static func filterHubs(_ hubs: [Hub], toSourceKeys sourceKeys: Set<String>) -> [Hub] {
+        hubs.compactMap { hub in
+            let currentItems = hub.items.filter { sourceKeys.contains($0.sourceCompositeKey) }
+            guard !currentItems.isEmpty else { return nil }
+            return Hub(
+                id: hub.id,
+                title: hub.title,
+                type: hub.type,
+                items: currentItems,
                 context: hub.context,
                 semanticKind: hub.semanticKind,
                 sourceScope: hub.sourceScope

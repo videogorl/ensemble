@@ -220,7 +220,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         let networkMonitor = NetworkMonitor()
         let networkMonitorRef = networkMonitor
-        return SyncCoordinator(
+        let coordinator = SyncCoordinator(
             accountManager: accountManager,
             libraryRepository: MockLibraryRepository(),
             playlistRepository: MockPlaylistRepository(),
@@ -228,6 +228,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             networkMonitor: networkMonitorRef,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitorRef)
         )
+        coordinator.refreshProviders()
+        return coordinator
     }
 
     private func makeMutationCoordinator(syncCoordinator: SyncCoordinator) -> MutationCoordinator {
@@ -514,6 +516,149 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.error)
     }
 
+    func testPlaylistViewModelPersistentSeedFiltersAuthoritativeAppleButPreservesUnresolvedPlex() {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let coreDataStack = CoreDataStack.inMemory()
+        let playlistRepository = PlaylistRepository(coreDataStack: coreDataStack)
+        let accountManager = AccountManager(keychain: TestKeychain())
+        #if os(iOS)
+        let wasAppleMusicEnabled = accountManager.isAppleMusicEnabled
+        accountManager.setAppleMusicEnabled(false)
+        defer { accountManager.setAppleMusicEnabled(wasAppleMusicEnabled) }
+        #endif
+
+        let applePlaylist = makePlaylist(
+            id: "apple",
+            title: "Apple",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let plexPlaylist = makePlaylist(
+            id: "plex",
+            title: "Plex",
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        _ = makeCachedPlaylist(applePlaylist, tracks: [], context: coreDataStack.viewContext)
+        _ = makeCachedPlaylist(plexPlaylist, tracks: [], context: coreDataStack.viewContext)
+
+        let unfilteredViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            observesExternalChanges: false
+        )
+        XCTAssertEqual(unfilteredViewModel.playlists.map(\.id).sorted(), ["apple", "plex"])
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager,
+            observesExternalChanges: false
+        )
+
+        XCTAssertFalse(accountManager.sourceConfigurationSnapshot.isAuthoritative)
+        XCTAssertEqual(accountManager.sourceConfigurationSnapshot.authoritativeSourceTypes, [.appleMusic])
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["plex"])
+
+        accountManager.loadAccounts()
+        let settledEmptyViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager,
+            observesExternalChanges: false
+        )
+        XCTAssertEqual(settledEmptyViewModel.playlists.map(\.id), ["plex"])
+    }
+
+    func testPlaylistViewModelSourceAuthorityChangeHidesUnconfiguredPlexWithoutManualReload() async throws {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        let context = CoreDataStack.inMemory().viewContext
+        let enabledPlaylist = makePlaylist(
+            id: "enabled",
+            title: "Enabled",
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        let unconfiguredPlaylist = makePlaylist(
+            id: "unconfigured",
+            title: "Unconfigured",
+            sourceCompositeKey: "plex:account-1:server-2"
+        )
+        for playlist in [enabledPlaylist, unconfiguredPlaylist] {
+            playlistRepository.playlists[playlistRepository.playlistKey(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        }
+
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager
+        )
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id).sorted(), ["enabled", "unconfigured"])
+
+        accountManager.addPlexAccount(makePlaylistAccount(libraryEnabled: true))
+
+        try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: ["enabled"])
+    }
+
+    func testPlaylistViewModelPreservesLastGoodForAuthoritativeEmptyCredentialSnapshot() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+
+        let firstViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+        await firstViewModel.loadPlaylists()
+        playlistRepository.playlists.removeAll()
+
+        let accountManager = AccountManager(keychain: TestKeychain())
+        #if os(iOS)
+        let wasAppleMusicEnabled = accountManager.isAppleMusicEnabled
+        accountManager.setAppleMusicEnabled(false)
+        defer { accountManager.setAppleMusicEnabled(wasAppleMusicEnabled) }
+        #endif
+        accountManager.loadAccounts()
+        let secondViewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager
+        )
+
+        XCTAssertTrue(accountManager.sourceConfigurationSnapshot.isAuthoritative)
+        XCTAssertFalse(accountManager.sourceConfigurationSnapshot.hasAnySources)
+        XCTAssertEqual(secondViewModel.playlists.map(\.id), ["playlist-a"])
+
+        await secondViewModel.loadPlaylists()
+
+        XCTAssertEqual(secondViewModel.playlists.map(\.id), ["playlist-a"])
+        XCTAssertTrue(secondViewModel.isShowingStaleSnapshot)
+    }
+
     func testPlaylistViewModelCanOptOutOfExternalReloads() async throws {
         let syncCoordinator = makeSyncCoordinator()
         let playlistRepository = MockPlaylistRepository()
@@ -567,6 +712,52 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
+    func testPlaylistViewModelReloadsAfterSourceCleanupCompletion() async throws {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(makePlaylistAccount(libraryEnabled: true))
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(
+            id: "playlist-a",
+            title: "Road",
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            accountManager: accountManager
+        )
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
+        accountManager.updatePlexAccount(makePlaylistAccount(libraryEnabled: false))
+        try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: [])
+        let reloadCountBeforeCleanup = viewModel.sourceCleanupReloadCountForTesting
+
+        playlistRepository.playlists.removeAll()
+        NotificationCenter.default.post(
+            name: SyncCoordinator.sourceCleanupDidComplete,
+            object: syncCoordinator,
+            userInfo: ["sourceCompositeKey": "plex:account-1:server-1:music"]
+        )
+
+        let deadline = Date().addingTimeInterval(2)
+        while viewModel.sourceCleanupReloadCountForTesting == reloadCountBeforeCleanup,
+              Date() < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertGreaterThan(viewModel.sourceCleanupReloadCountForTesting, reloadCountBeforeCleanup)
+        XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
+        XCTAssertFalse(viewModel.isShowingStaleSnapshot)
+    }
+
     func testPlaylistViewModelKeepsCompletedDeleteHiddenWhenCacheReloadIsStale() async {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()
@@ -606,7 +797,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-b"])
     }
 
-    func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async {
+    func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async throws {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()
         let playlistRepository = MockPlaylistRepository()
@@ -631,7 +822,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-a"])
 
         accountManager.updatePlexAccount(makePlaylistAccount(libraryEnabled: false))
-        await viewModel.loadPlaylists()
+        try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: [])
 
         XCTAssertTrue(viewModel.playlists.isEmpty)
         XCTAssertTrue(viewModel.displayPlaylists.isEmpty)
@@ -814,6 +1005,41 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         await viewModel.loadTracks()
 
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
+    }
+
+    func testPlaylistDetailLoadsBodyAfterStartingFromHeaderOnlyState() async {
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        let key = playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        playlistRepository.playlists[key] = makeCachedPlaylist(
+            playlist,
+            tracks: [makeTrack(id: "track-1"), makeTrack(id: "track-2")],
+            context: context
+        )
+
+        let viewModel = PlaylistDetailViewModel(
+            playlist: playlist,
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+        )
+
+        XCTAssertEqual(viewModel.playlist.title, "Road")
+        XCTAssertTrue(viewModel.isLoading)
+        XCTAssertFalse(viewModel.hasLoadedTracks)
+        XCTAssertTrue(viewModel.tracks.isEmpty)
+
+        await viewModel.loadTracks()
+
+        XCTAssertFalse(viewModel.isLoading)
+        XCTAssertTrue(viewModel.hasLoadedTracks)
+        XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1", "track-2"])
+        XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 1)
     }
 
     func testPlaylistDetailCanOptOutOfExternalReloads() async throws {

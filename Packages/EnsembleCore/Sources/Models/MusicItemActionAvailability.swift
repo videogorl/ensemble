@@ -66,6 +66,44 @@ public struct MusicItemActionCapabilities: Sendable, Equatable, Hashable, Codabl
     }
 }
 
+private struct MusicItemActionCapabilitiesPersistencePayload: Codable {
+    struct Entry: Codable {
+        let action: MusicItemAction
+        let availability: MusicItemActionAvailability
+    }
+
+    let version: Int
+    let entries: [Entry]
+}
+
+extension MusicItemActionCapabilities {
+    var persistenceData: Data? {
+        let payload = MusicItemActionCapabilitiesPersistencePayload(
+            version: 1,
+            entries: availabilityByAction
+                .map { .init(action: $0.key, availability: $0.value) }
+                .sorted { $0.action.rawValue < $1.action.rawValue }
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try? encoder.encode(payload)
+    }
+
+    init?(persistenceData: Data?) {
+        guard let persistenceData,
+              let payload = try? JSONDecoder().decode(
+                MusicItemActionCapabilitiesPersistencePayload.self,
+                from: persistenceData
+              ),
+              payload.version == 1 else {
+            return nil
+        }
+        self.init(payload.entries.reduce(into: [:]) { result, entry in
+            result[entry.action] = entry.availability
+        })
+    }
+}
+
 public extension Track {
     func actionAvailability(
         for action: MusicItemAction,

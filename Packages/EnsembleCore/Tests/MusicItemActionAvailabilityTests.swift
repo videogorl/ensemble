@@ -202,4 +202,31 @@ final class MusicItemActionAvailabilityTests: XCTestCase {
             .readOnly(reason: "Read-only source.")
         )
     }
+
+    func testCapabilityPersistenceEncodingIsCanonicalAndRoundTrips() throws {
+        var firstOrder: [MusicItemAction: MusicItemActionAvailability] = [:]
+        firstOrder[.download] = .readOnly(reason: "Downloads require permission.")
+        firstOrder[.editMetadata] = .available
+
+        var reverseOrder: [MusicItemAction: MusicItemActionAvailability] = [:]
+        reverseOrder[.editMetadata] = .available
+        reverseOrder[.download] = .readOnly(reason: "Downloads require permission.")
+
+        let first = MusicItemActionCapabilities(firstOrder)
+        let second = MusicItemActionCapabilities(reverseOrder)
+        let firstData = try XCTUnwrap(first.persistenceData)
+        let secondData = try XCTUnwrap(second.persistenceData)
+
+        XCTAssertEqual(firstData, secondData)
+        XCTAssertEqual(MusicItemActionCapabilities(persistenceData: firstData), first)
+    }
+
+    func testEmptyCapabilityPersistencePayloadClearsOverrides() throws {
+        let empty = MusicItemActionCapabilities([:])
+        let data = try XCTUnwrap(empty.persistenceData)
+
+        XCTAssertEqual(MusicItemActionCapabilities(persistenceData: data), empty)
+        XCTAssertNil(MusicItemActionCapabilities(persistenceData: nil))
+        XCTAssertNil(MusicItemActionCapabilities(persistenceData: Data("invalid".utf8)))
+    }
 }

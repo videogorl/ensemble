@@ -13,6 +13,7 @@ public struct ArtworkView: View {
     let ratingKey: String?
     let fallbackPath: String?
     let fallbackRatingKey: String?
+    let fallbackSourceKey: String?
     let cacheHint: PersistentArtworkCacheHint?
     let fallbackCacheHint: PersistentArtworkCacheHint?
     let size: ArtworkSize
@@ -51,7 +52,7 @@ public struct ArtworkView: View {
     /// Unique ID to identify this specific artwork request — avoids string interpolation
     /// by using a stable struct key
     private var loadID: String {
-        "\(path ?? "")|\(ratingKey ?? "")|\(fallbackPath ?? "")|\(fallbackRatingKey ?? "")|\(sourceKey ?? "")|\(size.rawValue)"
+        "\(path ?? "")|\(ratingKey ?? "")|\(fallbackPath ?? "")|\(fallbackRatingKey ?? "")|\(sourceKey ?? "")|\(fallbackSourceKey ?? "")|\(size.rawValue)"
     }
 
     private var imagePriority: ArtworkImagePriority {
@@ -73,6 +74,7 @@ public struct ArtworkView: View {
         ratingKey: String? = nil,
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
+        fallbackSourceKey: String? = nil,
         cacheHint: PersistentArtworkCacheHint? = nil,
         fallbackCacheHint: PersistentArtworkCacheHint? = nil,
         size: ArtworkSize = .medium,
@@ -84,6 +86,7 @@ public struct ArtworkView: View {
         self.ratingKey = ratingKey
         self.fallbackPath = fallbackPath
         self.fallbackRatingKey = fallbackRatingKey
+        self.fallbackSourceKey = fallbackSourceKey
         self.cacheHint = cacheHint
         self.fallbackCacheHint = fallbackCacheHint
         self.size = size
@@ -212,6 +215,7 @@ public struct ArtworkView: View {
             ratingKey: ratingKey,
             fallbackPath: fallbackPath,
             fallbackRatingKey: fallbackRatingKey,
+            fallbackSourceKey: fallbackSourceKey,
             cacheHint: cacheHint,
             fallbackCacheHint: fallbackCacheHint,
             size: size.rawValue,
@@ -315,6 +319,7 @@ public extension ArtworkView {
             ratingKey: playlist.id,
             fallbackPath: playlist.fallbackArtworkPath,
             fallbackRatingKey: playlist.fallbackArtworkRatingKey,
+            fallbackSourceKey: playlist.fallbackArtworkSourceCompositeKey,
             cacheHint: PersistentArtworkCacheHint(playlist: playlist),
             fallbackCacheHint: PersistentArtworkCacheHint(
                 ratingKey: playlist.fallbackArtworkRatingKey,

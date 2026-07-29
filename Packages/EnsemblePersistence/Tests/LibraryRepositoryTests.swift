@@ -1531,6 +1531,64 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertNil(album?.releaseFormat)
     }
 
+    func testBatchUpsertsPersistAndPreserveItemActionCapabilities() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "apple-music:device:system:library"
+        let original = Data("original-capabilities".utf8)
+        let updated = Data("updated-capabilities".utf8)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil, actionCapabilitiesData: original)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil, actionCapabilitiesData: original)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", actionCapabilitiesData: original)
+        ], sourceCompositeKey: sourceKey)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track")
+        ], sourceCompositeKey: sourceKey)
+
+        var artist = try await repository.fetchArtist(ratingKey: "artist", sourceCompositeKey: sourceKey)
+        var album = try await repository.fetchAlbum(ratingKey: "album", sourceCompositeKey: sourceKey)
+        var track = try await repository.fetchTrack(ratingKey: "track", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(artist?.actionCapabilitiesData, original)
+        XCTAssertEqual(album?.actionCapabilitiesData, original)
+        XCTAssertEqual(track?.actionCapabilitiesData, original)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil, actionCapabilitiesData: updated)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil, actionCapabilitiesData: updated)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", actionCapabilitiesData: updated)
+        ], sourceCompositeKey: sourceKey)
+
+        artist = try await repository.fetchArtist(ratingKey: "artist", sourceCompositeKey: sourceKey)
+        album = try await repository.fetchAlbum(ratingKey: "album", sourceCompositeKey: sourceKey)
+        track = try await repository.fetchTrack(ratingKey: "track", sourceCompositeKey: sourceKey)
+        XCTAssertEqual(artist?.actionCapabilitiesData, updated)
+        XCTAssertEqual(album?.actionCapabilitiesData, updated)
+        XCTAssertEqual(track?.actionCapabilitiesData, updated)
+
+        let artistMetadata = try await repository.fetchArtistSyncMetadata(forSource: sourceKey)
+        let albumMetadata = try await repository.fetchAlbumSyncMetadata(forSource: sourceKey)
+        let trackMetadata = try await repository.fetchTrackSyncMetadata(forSource: sourceKey)
+        XCTAssertEqual(artistMetadata["artist"]?.actionCapabilitiesData, updated)
+        XCTAssertEqual(albumMetadata["album"]?.actionCapabilitiesData, updated)
+        XCTAssertEqual(trackMetadata["track"]?.actionCapabilitiesData, updated)
+    }
+
     func testBatchUpsertsBackfillMissingDateAddedWithoutReplacingKnownDates() async throws {
         let repository = LibraryRepository(coreDataStack: .inMemory())
         let sourceKey = "appleMusic/account/device/library"
@@ -1625,6 +1683,26 @@ final class LibraryRepositoryTests: XCTestCase {
             dateAdded: originalDate,
             isFavorite: true
         )
+        let artist = makeArtistInput(
+            ratingKey: "artist",
+            thumbPath: "/artist-art",
+            dateModified: originalDate,
+            dateAdded: originalDate
+        )
+
+        XCTAssertTrue(ArtistSyncMetadata(artist).matches(makeArtistInput(
+            ratingKey: "artist",
+            thumbPath: "/artist-art",
+            dateModified: originalDate,
+            dateAdded: laterDate
+        )))
+        XCTAssertFalse(ArtistSyncMetadata(artist).matches(makeArtistInput(
+            ratingKey: "artist",
+            thumbPath: "/artist-art",
+            dateModified: originalDate,
+            dateAdded: laterDate,
+            updatesDateAdded: true
+        )))
 
         XCTAssertTrue(AlbumSyncMetadata(album).matches(makeAlbumInput(
             ratingKey: "album",
@@ -1633,6 +1711,15 @@ final class LibraryRepositoryTests: XCTestCase {
             dateAdded: laterDate,
             releaseFormat: "ignored",
             updatesReleaseFormat: false
+        )))
+        XCTAssertFalse(AlbumSyncMetadata(album).matches(makeAlbumInput(
+            ratingKey: "album",
+            thumbPath: "/art",
+            dateModified: originalDate,
+            dateAdded: laterDate,
+            releaseFormat: "album",
+            updatesReleaseFormat: true,
+            updatesDateAdded: true
         )))
         XCTAssertFalse(AlbumSyncMetadata(album).matches(makeAlbumInput(
             ratingKey: "album",
@@ -1653,8 +1740,75 @@ final class LibraryRepositoryTests: XCTestCase {
             dateModified: originalDate,
             rating: 10,
             dateAdded: laterDate,
+            updatesDateAdded: true
+        )))
+        XCTAssertFalse(TrackSyncMetadata(track).matches(makeTrackInput(
+            ratingKey: "track",
+            dateModified: originalDate,
+            rating: 10,
+            dateAdded: laterDate,
             isFavorite: false
         )))
+    }
+
+    func testAuthoritativeDateAddedInputsReplaceExistingDates() async throws {
+        let repository = LibraryRepository(coreDataStack: .inMemory())
+        let sourceKey = "apple-music:device:system:library"
+        let oldDate = Date(timeIntervalSince1970: 1_000)
+        let exactDate = Date(timeIntervalSince1970: 2_000)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(ratingKey: "artist", thumbPath: nil, dateModified: nil, dateAdded: oldDate)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(ratingKey: "album", thumbPath: nil, dateModified: nil, dateAdded: oldDate)
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(ratingKey: "track", dateAdded: oldDate)
+        ], sourceCompositeKey: sourceKey)
+
+        try await repository.batchUpsertArtists([
+            makeArtistInput(
+                ratingKey: "artist",
+                thumbPath: nil,
+                dateModified: nil,
+                dateAdded: exactDate,
+                updatesDateAdded: true
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums([
+            makeAlbumInput(
+                ratingKey: "album",
+                thumbPath: nil,
+                dateModified: nil,
+                dateAdded: exactDate,
+                updatesDateAdded: true
+            )
+        ], sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks([
+            makeTrackInput(
+                ratingKey: "track",
+                dateAdded: exactDate,
+                updatesDateAdded: true
+            )
+        ], sourceCompositeKey: sourceKey)
+
+        let artist = try await repository.fetchArtist(
+            ratingKey: "artist",
+            sourceCompositeKey: sourceKey
+        )
+        let album = try await repository.fetchAlbum(
+            ratingKey: "album",
+            sourceCompositeKey: sourceKey
+        )
+        let track = try await repository.fetchTrack(
+            ratingKey: "track",
+            sourceCompositeKey: sourceKey
+        )
+
+        XCTAssertEqual(artist?.dateAdded, exactDate)
+        XCTAssertEqual(album?.dateAdded, exactDate)
+        XCTAssertEqual(track?.dateAdded, exactDate)
     }
 
     func testBatchUpsertGenresUpdatesOneSourceWithoutTouchingAnother() async throws {
@@ -1689,7 +1843,9 @@ final class LibraryRepositoryTests: XCTestCase {
         dateAdded: Date? = nil,
         trackCount: Int? = 1,
         releaseFormat: String? = nil,
-        updatesReleaseFormat: Bool = false
+        updatesReleaseFormat: Bool = false,
+        updatesDateAdded: Bool = false,
+        actionCapabilitiesData: Data? = nil
     ) -> AlbumUpsertInput {
         AlbumUpsertInput(
             ratingKey: ratingKey,
@@ -1708,7 +1864,9 @@ final class LibraryRepositoryTests: XCTestCase {
             rating: nil,
             genreNames: genreNames,
             releaseFormat: releaseFormat,
-            updatesReleaseFormat: updatesReleaseFormat
+            updatesReleaseFormat: updatesReleaseFormat,
+            updatesDateAdded: updatesDateAdded,
+            actionCapabilitiesData: actionCapabilitiesData
         )
     }
 
@@ -1716,7 +1874,9 @@ final class LibraryRepositoryTests: XCTestCase {
         ratingKey: String,
         thumbPath: String?,
         dateModified: Date?,
-        dateAdded: Date? = nil
+        dateAdded: Date? = nil,
+        updatesDateAdded: Bool = false,
+        actionCapabilitiesData: Data? = nil
     ) -> ArtistUpsertInput {
         ArtistUpsertInput(
             ratingKey: ratingKey,
@@ -1726,7 +1886,9 @@ final class LibraryRepositoryTests: XCTestCase {
             thumbPath: thumbPath,
             artPath: nil,
             dateAdded: dateAdded,
-            dateModified: dateModified
+            dateModified: dateModified,
+            updatesDateAdded: updatesDateAdded,
+            actionCapabilitiesData: actionCapabilitiesData
         )
     }
 
@@ -1738,7 +1900,9 @@ final class LibraryRepositoryTests: XCTestCase {
         duration: Int = 180_000,
         genreNames: String? = nil,
         dateAdded: Date? = nil,
-        isFavorite: Bool? = nil
+        isFavorite: Bool? = nil,
+        updatesDateAdded: Bool = false,
+        actionCapabilitiesData: Data? = nil
     ) -> TrackUpsertInput {
         TrackUpsertInput(
             ratingKey: ratingKey,
@@ -1759,7 +1923,9 @@ final class LibraryRepositoryTests: XCTestCase {
             rating: rating,
             isFavorite: isFavorite,
             playCount: nil,
-            genreNames: genreNames
+            genreNames: genreNames,
+            updatesDateAdded: updatesDateAdded,
+            actionCapabilitiesData: actionCapabilitiesData
         )
     }
 }

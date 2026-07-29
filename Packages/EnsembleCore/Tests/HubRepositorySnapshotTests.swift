@@ -274,6 +274,63 @@ final class HubRepositorySnapshotTests: XCTestCase {
         XCTAssertEqual(fetchedHub?.items.first?.sourceCompositeKey, plexSource)
     }
 
+    func testDeletingLastSnapshotSourceRemovesSnapshotAndRevealsSurvivingLegacyCache() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = HubRepository(coreDataStack: stack)
+        let appleMusicSource = MusicSourceIdentifier.appleMusic.compositeKey
+        let plexSource = "plex:account:server:library"
+        let plexItem = HubItem(
+            id: "plex-album",
+            type: "album",
+            title: "Plex Album",
+            subtitle: nil,
+            thumbPath: nil,
+            year: nil,
+            sourceCompositeKey: plexSource
+        )
+        try await repository.saveHubs([
+            Hub(id: "legacy-plex", title: "Recently Added", type: "album", items: [plexItem])
+        ])
+        try await repository.saveHomeFeedSnapshot(
+            HomeFeedCachedSnapshot(
+                sourceScopeKey: nil,
+                sourceName: "Music",
+                fetchedAt: Date(),
+                refreshReason: "network",
+                freshnessState: .fresh,
+                isLastGood: true,
+                hubs: [
+                    Hub(
+                        id: "snapshot-apple",
+                        title: "Recently Added",
+                        type: "album",
+                        items: [
+                            HubItem(
+                                id: "removed-apple-album",
+                                type: "album",
+                                title: "Removed Apple Album",
+                                subtitle: nil,
+                                thumbPath: nil,
+                                year: nil,
+                                sourceCompositeKey: appleMusicSource
+                            )
+                        ]
+                    )
+                ]
+            )
+        )
+
+        try await repository.deleteHubs(forSourceCompositeKey: appleMusicSource)
+
+        let restoredHubs = try await repository.fetchHubs()
+        XCTAssertEqual(restoredHubs.map(\.id), ["legacy-plex"])
+        XCTAssertEqual(restoredHubs.flatMap(\.items).map(\.sourceCompositeKey), [plexSource])
+        let snapshotCount = try await stack.performViewContext { context in
+            try context.fetch(CDHomeFeedSnapshot.fetchRequest()).count
+        }
+        XCTAssertEqual(snapshotCount, 0)
+    }
+
     func testSaveAndFetchPreservesExplicitOpaqueSemanticsAndGlobalScope() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = HubRepository(coreDataStack: stack)

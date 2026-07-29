@@ -88,6 +88,12 @@ public final class PlaylistViewModel: ObservableObject {
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
     private var optimisticDeletedPlaylistIDs: Set<String> = []
+    private var lastObservedSourceConfiguration: SourceConfigurationSnapshot?
+    /// A settled empty credential read is not proof that cached browse data was deleted.
+    /// Once this ViewModel observes an explicit source removal, however, it must not
+    /// re-publish that source's cache while cleanup converges.
+    private var preservesAuthoritativeEmptySourceSnapshot = true
+    internal private(set) var sourceCleanupReloadCountForTesting = 0
     /// Suppresses observer-triggered reloads during pull-to-refresh so intermediate
     /// CoreData states (partial data while sync rebuilds records) don't clobber the list.
     /// Published so the view can freeze its cached list during refresh.
@@ -106,6 +112,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
         self.accountManager = accountManager
+        self.lastObservedSourceConfiguration = accountManager?.sourceConfigurationSnapshot
         self.isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
@@ -136,6 +143,11 @@ public final class PlaylistViewModel: ObservableObject {
         ViewModelNotificationObserver.observeLibraryDataCleared(storingIn: &cancellables) { [weak self] in
             self?.handleLibraryDataCleared()
         }
+        ViewModelNotificationObserver.observeSourceCleanupCompleted(storingIn: &cancellables) { [weak self] in
+            guard let self else { return }
+            self.sourceCleanupReloadCountForTesting += 1
+            await self.reloadPlaylists(showLoading: false)
+        }
     }
 
     private func observeExternalChanges() {
@@ -158,6 +170,14 @@ public final class PlaylistViewModel: ObservableObject {
                 let serverKey = notification.userInfo?["serverSourceKey"] as? String ?? "unknown"
                 EnsembleLogger.debug("📋 PlaylistViewModel: playlistsDidRefresh notification from \(serverKey)")
                 self?.scheduleCoalescedPlaylistReload(reason: "playlistsDidRefresh")
+            }
+            .store(in: &cancellables)
+
+        accountManager?.sourceConfigurationPublisher
+            .receive(on: DispatchQueue.main)
+            .dropFirst()
+            .sink { [weak self] configuration in
+                self?.handleSourceConfigurationChange(configuration)
             }
             .store(in: &cancellables)
     }
@@ -463,8 +483,10 @@ public final class PlaylistViewModel: ObservableObject {
                 serverPlaylists.contains(where: { matchesPlaylistIdentity($0, optimistic) })
             }
             let renamedApplied = applyOptimisticRenames(to: serverPlaylists)
-            let merged = filterOptimisticallyDeletedPlaylists(
-                mergeWithOptimisticCreatingPlaylists(renamedApplied)
+            let merged = filterPlaylistsForSourceConfiguration(
+                filterOptimisticallyDeletedPlaylists(
+                    mergeWithOptimisticCreatingPlaylists(renamedApplied)
+                )
             )
 
             // Never replace populated playlists with empty or degraded results.
@@ -493,9 +515,14 @@ public final class PlaylistViewModel: ObservableObject {
     private func seedFromLastGoodSnapshotIfAvailable() {
         let snapshot = Self.lastGoodPlaylistsSnapshot
         guard !snapshot.isEmpty else { return }
-        playlists = snapshot
-        visibleSnapshot = snapshot
-        applyDerivedPlaylistSnapshots(snapshot)
+        let visibleSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
+        if visibleSnapshot != snapshot {
+            Self.lastGoodPlaylistsSnapshot = visibleSnapshot
+        }
+        guard !visibleSnapshot.isEmpty else { return }
+        playlists = visibleSnapshot
+        self.visibleSnapshot = visibleSnapshot
+        applyDerivedPlaylistSnapshots(visibleSnapshot)
         isShowingStaleSnapshot = true
     }
 
@@ -505,7 +532,7 @@ public final class PlaylistViewModel: ObservableObject {
               let snapshot = try? repository.fetchPlaylistsSnapshot().map({ Playlist(from: $0) }) else {
             return
         }
-        let filteredSnapshot = filterPlaylistsForEnabledSources(snapshot)
+        let filteredSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
         guard !filteredSnapshot.isEmpty else { return }
         playlists = filteredSnapshot
         visibleSnapshot = filteredSnapshot
@@ -526,7 +553,10 @@ public final class PlaylistViewModel: ObservableObject {
             return isShowingStaleSnapshot
         }
 
-        return !accountManager.isAwaitingCloudSources && accountManager.enabledSources().isEmpty
+        let configuration = accountManager.sourceConfigurationSnapshot
+        return configuration.isAuthoritative &&
+            ((configuration.enabledSources.isEmpty && configuration.hasAnySources) ||
+             !preservesAuthoritativeEmptySourceSnapshot)
     }
 
     private func clearLocalPlaylistCache(resetLastGoodSnapshot: Bool) {
@@ -597,6 +627,39 @@ public final class PlaylistViewModel: ObservableObject {
             await self.loadPlaylists()
             self.coalescedReloadTask = nil
         }
+    }
+
+    private func handleSourceConfigurationChange(_ configuration: SourceConfigurationSnapshot) {
+        let previous = lastObservedSourceConfiguration
+        lastObservedSourceConfiguration = configuration
+
+        let removedEnabledSources = previous?.enabledSourceKeys
+            .subtracting(configuration.enabledSourceKeys) ?? []
+        if configuration.hasAnySources {
+            preservesAuthoritativeEmptySourceSnapshot = true
+        } else if !removedEnabledSources.isEmpty || previous?.hasAnySources == true {
+            preservesAuthoritativeEmptySourceSnapshot = false
+        }
+
+        optimisticCreatingPlaylists = filterPlaylistsForSourceConfiguration(
+            optimisticCreatingPlaylists,
+            configuration: configuration
+        )
+        let visible = filterPlaylistsForSourceConfiguration(
+            playlists,
+            configuration: configuration
+        )
+        if visible != playlists {
+            publishPlaylistsIfChanged(visible)
+            if !visible.contains(where: { $0.title.isEmpty }) {
+                Self.lastGoodPlaylistsSnapshot = visible
+            }
+            if visible.isEmpty {
+                isShowingStaleSnapshot = false
+            }
+        }
+
+        scheduleCoalescedPlaylistReload(reason: "source-configuration")
     }
 
     private func handleLibraryDataCleared() {
@@ -722,43 +785,44 @@ public final class PlaylistViewModel: ObservableObject {
             return try await playlistRepository.fetchPlaylists().map { Playlist(from: $0) }
         }
 
-        let enabledSources = accountManager.enabledSources()
-        guard !enabledSources.isEmpty else { return [] }
-        var sourceKeys = Set(enabledSources.map(\.compositeKey))
-        sourceKeys.formUnion(enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
-        return try await playlistRepository.fetchPlaylists(sourceCompositeKeys: sourceKeys).map { Playlist(from: $0) }
+        let configuration = accountManager.sourceConfigurationSnapshot
+        let cachedPlaylists: [Playlist]
+        if configuration.isAuthoritative &&
+            (configuration.hasAnySources || !preservesAuthoritativeEmptySourceSnapshot) {
+            var sourceKeys = configuration.enabledSourceKeys
+            sourceKeys.formUnion(configuration.enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
+            guard !sourceKeys.isEmpty else { return [] }
+            cachedPlaylists = try await playlistRepository.fetchPlaylists(sourceCompositeKeys: sourceKeys)
+                .map(Playlist.init(from:))
+        } else {
+            cachedPlaylists = try await playlistRepository.fetchPlaylists().map(Playlist.init(from:))
+        }
+
+        return filterPlaylistsForSourceConfiguration(
+            cachedPlaylists,
+            configuration: accountManager.sourceConfigurationSnapshot
+        )
     }
 
-    private func filterPlaylistsForEnabledSources(_ playlists: [Playlist]) -> [Playlist] {
+    private func filterPlaylistsForSourceConfiguration(
+        _ playlists: [Playlist],
+        configuration: SourceConfigurationSnapshot? = nil
+    ) -> [Playlist] {
         guard let accountManager else {
             return playlists
         }
 
-        let enabledSources = accountManager.enabledSources()
-        guard !enabledSources.isEmpty else {
-            return []
-        }
-
-        let enabledLibraryKeys = Set(enabledSources.map(\.compositeKey))
-        let enabledServerKeys = Set(enabledSources.map { MediaSourceIdentity.serverSourceKey(for: $0) })
-        return playlists.filter {
-            Self.isPlaylistSourceEnabled(
-                $0.sourceCompositeKey,
-                enabledLibraryKeys: enabledLibraryKeys,
-                enabledServerKeys: enabledServerKeys
-            )
-        }
-    }
-
-    private static func isPlaylistSourceEnabled(
-        _ sourceCompositeKey: String?,
-        enabledLibraryKeys: Set<String>,
-        enabledServerKeys: Set<String>
-    ) -> Bool {
-        guard let sourceCompositeKey else { return false }
-        if enabledLibraryKeys.contains(sourceCompositeKey) { return true }
-        guard let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey) else { return false }
-        return enabledServerKeys.contains(serverKey)
+        let configuration = configuration ?? accountManager.sourceConfigurationSnapshot
+        let sourceFilter = configuration.hasAnySources ||
+            !configuration.isAuthoritative ||
+            !preservesAuthoritativeEmptySourceSnapshot
+            ? configuration
+            : nil
+        return LibraryVisibilityFiltering.visibleItems(
+            playlists,
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: sourceFilter
+        )
     }
 }
 

@@ -3,6 +3,20 @@ import AVFoundation
 import XCTest
 
 final class PlaybackServiceTests: XCTestCase {
+    private func sourceConfiguration(
+        enabledSourceKeys: Set<String>,
+        isAuthoritative: Bool = true
+    ) -> SourceConfigurationSnapshot {
+        let enabledSources = enabledSourceKeys.compactMap(MusicSourceIdentifier.init(compositeKey:))
+        return SourceConfigurationSnapshot(
+            configuredSources: enabledSources,
+            enabledSources: enabledSources,
+            authoritativeSourceTypes: isAuthoritative ? [.appleMusic, .plex] : [.appleMusic],
+            hasAnySources: !enabledSources.isEmpty,
+            isAuthoritative: isAuthoritative
+        )
+    }
+
     func testAudioPlaybackEngineResolvedPlaybackPositionFallsBackToSeekOffsetWithoutRenderSample() {
         let time = AudioPlaybackEngine.resolvedPlaybackPosition(
             renderSampleTime: nil,
@@ -586,36 +600,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(effectiveNegative, 179.44, accuracy: 0.001)
     }
 
-    func testEnabledSourceCompositeKeysIncludesOnlyEnabledLibraries() {
-        let accounts = [
-            PlexAccountConfig(
-                id: "account-1",
-                email: "user@example.com",
-                plexUsername: "felicity",
-                displayTitle: "Felicity",
-                authToken: "token",
-                servers: [
-                    PlexServerConfig(
-                        id: "server-1",
-                        name: "Server 1",
-                        url: "https://server-1.example.com",
-                        connections: [],
-                        token: "server-token",
-                        platform: "Linux",
-                        libraries: [
-                            PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Library One", isEnabled: true),
-                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Library Two", isEnabled: false),
-                        ]
-                    ),
-                ]
-            ),
-        ]
-
-        let keys = PlaybackService.enabledSourceCompositeKeys(from: accounts)
-
-        XCTAssertEqual(keys, ["plex:account-1:server-1:lib-1"])
-    }
-
     func testPruneQueueRemovesDisabledSourceItemsAndAdvancesToNextAvailable() {
         let current = QueueItem(
             id: "current",
@@ -648,12 +632,14 @@ final class PlaybackServiceTests: XCTestCase {
             source: .autoplay
         )
 
-        let result = PlaybackService.pruneQueueForEnabledSources(
+        let result = PlaybackService.pruneQueueForSourceConfiguration(
             queue: [current, next, removedLater],
             originalQueue: [current, next, removedLater],
             playbackHistory: [current, next],
             currentQueueIndex: 0,
-            enabledSourceCompositeKeys: ["plex:account-1:server-1:lib-enabled"]
+            configuration: sourceConfiguration(
+                enabledSourceKeys: ["plex:account-1:server-1:lib-enabled"]
+            )
         )
 
         XCTAssertEqual(result.queue.map(\.id), ["next"])
@@ -779,12 +765,14 @@ final class PlaybackServiceTests: XCTestCase {
             source: .continuePlaying
         )
 
-        let result = PlaybackService.pruneQueueForEnabledSources(
+        let result = PlaybackService.pruneQueueForSourceConfiguration(
             queue: [current, removedNext, otherEnabled],
             originalQueue: [current, removedNext, otherEnabled],
             playbackHistory: [],
             currentQueueIndex: 0,
-            enabledSourceCompositeKeys: ["plex:account-1:server-1:lib-enabled"]
+            configuration: sourceConfiguration(
+                enabledSourceKeys: ["plex:account-1:server-1:lib-enabled"]
+            )
         )
 
         XCTAssertEqual(result.queue.map(\.id), ["current", "other"])
@@ -793,7 +781,7 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(result.removedQueueItemCount, 1)
     }
 
-    func testAppleMusicTracksRemainPlayableWithoutAPlexServer() {
+    func testAppleMusicTracksRequireEnabledAppleSourceButNotAPlexServer() {
         let track = Track(
             id: "apple-track",
             key: "apple-catalog",
@@ -802,7 +790,267 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertTrue(PlaybackService.isQueueTrackPlayable(track, serverPossiblyAvailable: false))
-        XCTAssertTrue(PlaybackService.isTrackSourceAvailable(track, enabledSourceCompositeKeys: []))
+        XCTAssertFalse(PlaybackService.isTrackSourceAvailable(
+            track,
+            configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
+        ))
+        XCTAssertTrue(PlaybackService.isTrackSourceAvailable(
+            track,
+            configuration: sourceConfiguration(
+                enabledSourceKeys: [MusicSourceIdentifier.appleMusic.compositeKey],
+                isAuthoritative: false
+            )
+        ))
+    }
+
+    func testSourceLessTrackIsPreservedOnlyWhileSourceConfigurationIsUnresolved() {
+        let track = Track(id: "legacy", key: "/library/metadata/1", title: "Legacy")
+
+        XCTAssertTrue(PlaybackService.isTrackSourceAvailable(
+            track,
+            configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
+        ))
+        XCTAssertFalse(PlaybackService.isTrackSourceAvailable(
+            track,
+            configuration: sourceConfiguration(enabledSourceKeys: [])
+        ))
+    }
+
+    func testRestoredSnapshotDropsDisabledAndSourceLessItemsWhenConfigurationIsAuthoritative() {
+        let unknown = QueueItem(
+            id: "unknown",
+            track: Track(id: "legacy", key: "/library/metadata/1", title: "Unknown"),
+            source: .continuePlaying
+        )
+        let disabled = QueueItem(
+            id: "disabled",
+            track: Track(
+                id: "disabled-track",
+                key: "/library/metadata/2",
+                title: "Disabled",
+                sourceCompositeKey: "plex:account:server:disabled"
+            ),
+            source: .continuePlaying
+        )
+        let enabled = QueueItem(
+            id: "enabled",
+            track: Track(
+                id: "enabled-track",
+                key: "/library/metadata/3",
+                title: "Enabled",
+                sourceCompositeKey: "plex:account:server:enabled"
+            ),
+            source: .continuePlaying
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [unknown, disabled, enabled],
+            history: [unknown, enabled],
+            currentIndex: 0,
+            currentTime: 42,
+            hasUserQueueEdits: true
+        )
+
+        let pruned = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(
+                enabledSourceKeys: ["plex:account:server:enabled"]
+            )
+        )
+
+        XCTAssertEqual(pruned.queue.map(\.id), ["enabled"])
+        XCTAssertEqual(pruned.history.map(\.id), ["enabled"])
+        XCTAssertEqual(pruned.currentIndex, 0)
+        XCTAssertEqual(pruned.currentTime, 0)
+        XCTAssertTrue(pruned.hasUserQueueEdits)
+    }
+
+    func testRestoredSnapshotPreservesEverythingWhileSourceConfigurationIsUnresolved() {
+        let unknown = QueueItem(
+            id: "unknown",
+            track: Track(id: "legacy", key: "/library/metadata/1", title: "Unknown"),
+            source: .continuePlaying
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [unknown],
+            history: [unknown],
+            currentIndex: 0,
+            currentTime: 42
+        )
+
+        let preserved = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
+        )
+
+        XCTAssertEqual(preserved, snapshot)
+    }
+
+    func testAppleRemovalPrunesFutureAppleItemWithoutResettingCurrentPlexPlayhead() {
+        let plex = QueueItem(
+            id: "plex",
+            track: Track(
+                id: "plex-track",
+                key: "/library/metadata/1",
+                title: "Plex",
+                sourceCompositeKey: "plex:account:server:library"
+            )
+        )
+        let apple = QueueItem(
+            id: "apple",
+            track: Track(
+                id: "apple-track",
+                key: "apple-track",
+                title: "Apple",
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+            )
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [plex, apple],
+            history: [plex],
+            currentIndex: 0,
+            currentTime: 42
+        )
+
+        let pruned = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
+        )
+
+        XCTAssertEqual(pruned.queue.map(\.id), ["plex"])
+        XCTAssertEqual(pruned.currentIndex, 0)
+        XCTAssertEqual(pruned.currentTime, 42)
+    }
+
+    func testAppleRemovalPromotesFuturePlexItemAndResetsRemovedApplePlayhead() {
+        let apple = QueueItem(
+            id: "apple",
+            track: Track(
+                id: "apple-track",
+                key: "apple-track",
+                title: "Apple",
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+            )
+        )
+        let plex = QueueItem(
+            id: "plex",
+            track: Track(
+                id: "plex-track",
+                key: "/library/metadata/1",
+                title: "Plex",
+                sourceCompositeKey: "plex:account:server:library"
+            )
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [apple, plex],
+            history: [apple],
+            currentIndex: 0,
+            currentTime: 42
+        )
+
+        let pruned = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
+        )
+
+        XCTAssertEqual(pruned.queue.map(\.id), ["plex"])
+        XCTAssertTrue(pruned.history.isEmpty)
+        XCTAssertEqual(pruned.currentIndex, 0)
+        XCTAssertEqual(pruned.currentTime, 0)
+    }
+
+    func testPlaybackRequestMustKeepItsGenerationAndQueueTarget() {
+        let track = Track(
+            id: "track",
+            key: "/library/metadata/1",
+            title: "Track",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+        let item = QueueItem(id: "item", track: track)
+
+        XCTAssertTrue(PlaybackService.shouldContinuePlaybackRequest(
+            generation: 4,
+            currentGeneration: 4,
+            queuedTrack: track,
+            queue: [item],
+            currentQueueIndex: 0
+        ))
+        XCTAssertFalse(PlaybackService.shouldContinuePlaybackRequest(
+            generation: 4,
+            currentGeneration: 5,
+            queuedTrack: track,
+            queue: [item],
+            currentQueueIndex: 0
+        ))
+        XCTAssertFalse(PlaybackService.shouldContinuePlaybackRequest(
+            generation: 4,
+            currentGeneration: 4,
+            queuedTrack: track,
+            queue: [
+                QueueItem(
+                    id: "replacement",
+                    track: Track(id: "other", key: "other", title: "Other")
+                )
+            ],
+            currentQueueIndex: 0
+        ))
+    }
+
+    func testRestoredSnapshotRepairsInvalidCurrentIndexAndClearsStalePlayhead() {
+        let item = QueueItem(
+            id: "enabled",
+            track: Track(
+                id: "enabled-track",
+                key: "/library/metadata/3",
+                title: "Enabled",
+                sourceCompositeKey: "plex:account:server:enabled"
+            )
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [item],
+            history: [],
+            currentIndex: 99,
+            currentTime: 73
+        )
+
+        let repaired = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(
+                enabledSourceKeys: ["plex:account:server:enabled"]
+            )
+        )
+
+        XCTAssertEqual(repaired.currentIndex, 0)
+        XCTAssertEqual(repaired.currentTime, 0)
+        XCTAssertNotEqual(repaired, snapshot)
+    }
+
+    func testRestoredHistoryOnlySnapshotClearsStalePlayhead() {
+        let historyItem = QueueItem(
+            id: "history",
+            track: Track(
+                id: "history-track",
+                key: "/library/metadata/4",
+                title: "History",
+                sourceCompositeKey: "plex:account:server:enabled"
+            )
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [],
+            history: [historyItem],
+            currentIndex: -1,
+            currentTime: 73
+        )
+
+        let repaired = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(
+                enabledSourceKeys: ["plex:account:server:enabled"]
+            )
+        )
+
+        XCTAssertEqual(repaired.currentIndex, -1)
+        XCTAssertEqual(repaired.currentTime, 0)
+        XCTAssertNotEqual(repaired, snapshot)
     }
 
     func testAppleMusicSegmentStopsBeforeDuplicateQueueEntry() {
@@ -814,6 +1062,56 @@ final class PlaybackServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
+    }
+
+    func testAppleMusicCallbackAcceptanceRequiresTheCurrentEnabledAppleQueue() {
+        for state in [PlaybackState.loading, .buffering, .playing] {
+            XCTAssertTrue(PlaybackService.shouldAcceptAppleMusicCallback(
+                queueGeneration: 42,
+                activeQueueGeneration: 42,
+                isAppleMusicEnabled: true,
+                currentTrackIsAppleMusic: true,
+                playbackState: state
+            ))
+        }
+
+        XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
+            queueGeneration: 41,
+            activeQueueGeneration: 42,
+            isAppleMusicEnabled: true,
+            currentTrackIsAppleMusic: true,
+            playbackState: .playing
+        ))
+        XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
+            queueGeneration: 42,
+            activeQueueGeneration: 42,
+            isAppleMusicEnabled: false,
+            currentTrackIsAppleMusic: true,
+            playbackState: .playing
+        ))
+        XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
+            queueGeneration: 42,
+            activeQueueGeneration: 42,
+            isAppleMusicEnabled: true,
+            currentTrackIsAppleMusic: false,
+            playbackState: .playing
+        ))
+    }
+
+    func testAppleMusicCallbackAcceptanceRejectsInactivePlaybackStates() {
+        for state in [
+            PlaybackState.paused,
+            .stopped,
+            .failed("test")
+        ] {
+            XCTAssertFalse(PlaybackService.shouldAcceptAppleMusicCallback(
+                queueGeneration: 42,
+                activeQueueGeneration: 42,
+                isAppleMusicEnabled: true,
+                currentTrackIsAppleMusic: true,
+                playbackState: state
+            ))
+        }
     }
 
     func testAppleMusicResolutionSkipsOnlyUnresolvedLaterItems() throws {

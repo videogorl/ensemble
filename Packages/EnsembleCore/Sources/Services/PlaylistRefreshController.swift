@@ -48,14 +48,14 @@ final class PlaylistRefreshController {
 
         for provider in providers.values {
             let sourceId = provider.sourceIdentifier
-            let serverKey = "\(sourceId.accountId):\(sourceId.serverId)"
+            let serverKey = MediaSourceIdentity.serverSourceKey(for: sourceId)
 
             guard !refreshedServerKeys.contains(serverKey) else { continue }
             refreshedServerKeys.insert(serverKey)
 
             do {
                 if let result = try await refreshServer(
-                    serverSourceKey: "plex:\(serverKey)",
+                    serverSourceKey: serverKey,
                     providers: providers,
                     playlistRepository: playlistRepository,
                     trigger: trigger,
@@ -87,8 +87,7 @@ final class PlaylistRefreshController {
         }
 
         for (_, provider) in providers where
-            provider.sourceIdentifier.accountId == parsed.accountId &&
-            provider.sourceIdentifier.serverId == parsed.serverId {
+            MediaSourceIdentity.isSameServer(provider.sourceIdentifier.compositeKey, parsed.serverSourceKey) {
             let sourceId = provider.sourceIdentifier
 
             do {
@@ -99,7 +98,7 @@ final class PlaylistRefreshController {
                 )
                 return RefreshResult(
                     sourceId: sourceId,
-                    serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                    serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
                     provider: provider,
                     playlistResult: playlistResult
                 )
@@ -121,7 +120,7 @@ final class PlaylistRefreshController {
                     )
                     return RefreshResult(
                         sourceId: sourceId,
-                        serverSourceKey: "plex:\(sourceId.accountId):\(sourceId.serverId)",
+                        serverSourceKey: MediaSourceIdentity.serverSourceKey(for: sourceId),
                         provider: provider,
                         playlistResult: playlistResult
                     )

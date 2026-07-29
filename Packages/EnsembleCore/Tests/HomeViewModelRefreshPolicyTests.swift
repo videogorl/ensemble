@@ -5,6 +5,28 @@ import EnsemblePersistence
 
 @MainActor
 final class HomeViewModelRefreshPolicyTests: XCTestCase {
+    private actor AsyncGate {
+        private var didEnter = false
+        private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+        func enterAndWait() async {
+            didEnter = true
+            entryWaiters.forEach { $0.resume() }
+            entryWaiters.removeAll()
+            await withCheckedContinuation { releaseContinuation = $0 }
+        }
+
+        func waitUntilEntered() async {
+            guard !didEnter else { return }
+            await withCheckedContinuation { entryWaiters.append($0) }
+        }
+
+        func release() {
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+    }
 
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         func refreshContext() async {}
@@ -121,6 +143,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     private final class MockHomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         var cachedSnapshot: HomeHubSnapshot
         var networkSnapshot: HomeHubSnapshot?
+        var loadCachedSnapshotHandler: (() async throws -> HomeHubSnapshot)?
         var loadSnapshotHandler: ((Bool, String) async -> HomeHubSnapshot?)?
 
         init(
@@ -141,6 +164,9 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         }
 
         func loadCachedSnapshot() async throws -> HomeHubSnapshot {
+            if let loadCachedSnapshotHandler {
+                return try await loadCachedSnapshotHandler()
+            }
             return cachedSnapshot
         }
 
@@ -187,8 +213,10 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         var homeHubs: [Hub] = []
         var homeFetchFails = false
         var failedHomeHubKinds: Set<HubSemanticKind> = []
+        var homeHubsHandler: (@Sendable () async throws -> [Hub])?
 
         func getHomeHubs(limit: Int) async throws -> [Hub] {
+            if let homeHubsHandler { return try await homeHubsHandler() }
             if homeFetchFails { throw MockError.unimplemented }
             return homeHubs
         }
@@ -339,7 +367,9 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         return makeHarness(accounts: [enabledAccount]).viewModel
     }
 
-    private func makeViewModel(hubLoader: HomeHubLoaderProtocol) -> (HomeViewModel, SyncCoordinator) {
+    private func makeViewModel(
+        hubLoader: HomeHubLoaderProtocol
+    ) -> (viewModel: HomeViewModel, coordinator: SyncCoordinator, accountManager: AccountManager) {
         let enabledAccount = PlexAccountConfig(
             id: "account-enabled",
             email: "enabled@example.com",
@@ -383,7 +413,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             libraryRepository: MockLibraryRepository(),
             playlistRepository: MockPlaylistRepository()
         )
-        return (viewModel, coordinator)
+        return (viewModel, coordinator, accountManager)
     }
 
     private func makeHub(id: String = "hub-1") -> Hub {
@@ -403,6 +433,38 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
                 )
             ]
         )
+    }
+
+    private func makeAdditionalEnabledAccount(id: String = "account-added") -> PlexAccountConfig {
+        PlexAccountConfig(
+            id: id,
+            displayTitle: "Added",
+            authToken: "added-auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-added",
+                    name: "Added Server",
+                    url: "https://added.example.com",
+                    token: "added-token",
+                    libraries: [
+                        PlexLibraryConfig(
+                            id: "lib-added",
+                            key: "lib-added",
+                            title: "Added Music",
+                            isEnabled: true
+                        )
+                    ]
+                )
+            ]
+        )
+    }
+
+    private func eventually(_ condition: @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<1_000 {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
     }
 
     func testFeedRestoresCombinedSnapshotWithoutFirstServerScope() async {
@@ -452,6 +514,35 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(harness.accountManager.credentialLoadState, .loaded)
         XCTAssertFalse(harness.accountManager.hasAnySources)
         XCTAssertEqual(snapshot.orderedHubs.map(\.id), [cachedHub.id])
+    }
+
+    func testFeedCacheRestoreFiltersSettledAppleWhilePreservingUnresolvedPlex() async throws {
+        let plexSource = "plex:account-added:server-added:lib-added"
+        let appleSource = MusicSourceIdentifier.appleMusic.compositeKey
+        let cachedHub = Hub(
+            id: "mixed-cache",
+            title: "Recently Played",
+            type: "track",
+            items: [
+                HubItem(id: "apple", type: "track", title: "Apple", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: appleSource),
+                HubItem(id: "plex", type: "track", title: "Plex", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: plexSource),
+            ]
+        )
+        let harness = makeHarness(
+            accounts: [makeAdditionalEnabledAccount()],
+            cachedHubs: [cachedHub]
+        )
+        #if os(iOS)
+        let wasAppleMusicEnabled = harness.accountManager.isAppleMusicEnabled
+        harness.accountManager.setAppleMusicEnabled(false)
+        defer { harness.accountManager.setAppleMusicEnabled(wasAppleMusicEnabled) }
+        #endif
+        harness.accountManager.setAwaitingCloudSources(true)
+
+        let snapshot = try await harness.hubLoader.loadCachedSnapshot()
+
+        XCTAssertFalse(harness.accountManager.sourceConfigurationSnapshot.isAuthoritative)
+        XCTAssertEqual(snapshot.orderedHubs.flatMap(\.items).map(\.id), ["plex"])
     }
 
     func testFeedMergesCachedPriorityHubsBeforePublishing() async throws {
@@ -702,6 +793,58 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             plexSource.compositeKey,
             appleSource.compositeKey,
         ])
+    }
+
+    func testFeedLoaderDoesNotSaveDelayedOldProviderResultAfterSameKeyRemoveAndReadd() async {
+        let sources = [
+            MusicSourceIdentifier.appleMusic,
+            MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "library"),
+        ]
+
+        for source in sources {
+            let harness = makeHarness()
+            let gate = AsyncGate()
+            let delayedHub = Hub(
+                id: "\(source.compositeKey):music.recent.added",
+                title: "Recently Added",
+                type: "album",
+                items: [
+                    HubItem(
+                        id: "delayed",
+                        type: "album",
+                        title: "Delayed",
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source.compositeKey
+                    )
+                ]
+            )
+            harness.coordinator.setSyncProvidersForTesting([
+                source.compositeKey: MockSyncProvider(
+                    sourceIdentifier: source,
+                    homeHubsHandler: {
+                        await gate.enterAndWait()
+                        return [delayedHub]
+                    }
+                )
+            ])
+
+            let loadTask = Task {
+                await harness.hubLoader.loadSnapshot(applySavedOrder: false, hubCount: "12")
+            }
+            await gate.waitUntilEntered()
+
+            harness.coordinator.setSyncProvidersForTesting([:])
+            harness.coordinator.setSyncProvidersForTesting([
+                source.compositeKey: MockSyncProvider(sourceIdentifier: source)
+            ])
+            await gate.release()
+
+            let snapshot = await loadTask.value
+            XCTAssertTrue(snapshot?.orderedHubs.isEmpty == true, source.compositeKey)
+            XCTAssertNil(harness.hubRepository.cachedSnapshot, source.compositeKey)
+        }
     }
 
     func testFeedLoaderClearsRecoveredProviderFailure() async throws {
@@ -1033,7 +1176,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             cachedFetchedAt: Date(),
             cachedFreshnessState: .fresh
         )
-        let (sut, _) = makeViewModel(hubLoader: loader)
+        let (sut, _, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.seedHubsForTesting([cachedHub])
@@ -1067,7 +1210,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         let cachedHub = makeHub(id: "cached-hub")
         let networkHub = makeHub(id: "network-hub")
         let loader = MockHomeHubLoader(cachedHubs: [cachedHub], networkHubs: [networkHub])
-        let (sut, _) = makeViewModel(hubLoader: loader)
+        let (sut, _, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.seedHubsForTesting([cachedHub])
@@ -1091,6 +1234,76 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         await loadTask.value
 
         XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
+    }
+
+    func testLateCanceledNetworkResponseCannotReplaceNewerFeed() async throws {
+        let oldHub = makeHub(id: "old-network")
+        let newHub = makeHub(id: "new-network")
+        let loader = MockHomeHubLoader(networkHubs: [oldHub])
+        func snapshot(hub: Hub, sourceName: String) -> HomeHubSnapshot {
+            HomeHubSnapshot(
+                orderedHubs: [hub],
+                failedHubKeys: [],
+                metadata: HomeHubSnapshotMetadata(
+                    currentSourceKey: nil,
+                    currentSourceName: sourceName,
+                    fetchTaskCount: 1,
+                    usedGlobalFallback: false,
+                    networkFetchCompletedAt: Date()
+                )
+            )
+        }
+        let oldSnapshot = snapshot(hub: oldHub, sourceName: "Old Source")
+        let newSnapshot = snapshot(hub: newHub, sourceName: "New Source")
+        let (sut, _, _) = makeViewModel(hubLoader: loader)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+
+        let oldStarted = expectation(description: "old network load started")
+        let releaseOld = expectation(description: "release old network load")
+        var requestCount = 0
+        loader.loadSnapshotHandler = { [self] _, _ in
+            requestCount += 1
+            guard requestCount == 1 else { return newSnapshot }
+            oldStarted.fulfill()
+            await fulfillment(of: [releaseOld], timeout: 1.0)
+            return oldSnapshot
+        }
+
+        let oldLoad = Task { await sut.loadHubs() }
+        await fulfillment(of: [oldStarted], timeout: 1.0)
+        await sut.refresh()
+        XCTAssertEqual(sut.currentSourceName, "New Source")
+
+        releaseOld.fulfill()
+        await oldLoad.value
+
+        XCTAssertEqual(sut.currentSourceName, "New Source")
+    }
+
+    func testLibraryDataClearInvalidatesLateCachedRestore() async {
+        let cachedHub = makeHub(id: "late-cache")
+        let loader = MockHomeHubLoader(cachedHubs: [cachedHub])
+        let cachedSnapshot = loader.cachedSnapshot
+        let restoreStarted = expectation(description: "cache restore started")
+        let releaseRestore = expectation(description: "release cache restore")
+        loader.loadCachedSnapshotHandler = { [self] in
+            restoreStarted.fulfill()
+            await fulfillment(of: [releaseRestore], timeout: 1.0)
+            return cachedSnapshot
+        }
+        let (sut, _, _) = makeViewModel(hubLoader: loader)
+        await fulfillment(of: [restoreStarted], timeout: 1.0)
+        sut.seedHubsForTesting([makeHub(id: "visible-before-clear")])
+
+        NotificationCenter.default.post(name: CacheManager.libraryDataDidClear, object: nil)
+        try? await Task.sleep(nanoseconds: 180_000_000)
+        XCTAssertTrue(sut.hubs.isEmpty)
+
+        releaseRestore.fulfill()
+        for _ in 0..<20 { await Task.yield() }
+
+        XCTAssertTrue(sut.hubs.isEmpty)
     }
 
     func testPeriodicRefreshDoesNotRunWhenViewHidden() async {
@@ -1126,6 +1339,387 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(refreshCount, 1)
         XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
     }
+
+    func testSourceConfigurationChangeInvalidatesFreshFeedAndDefersUntilVisible() async {
+        let harness = makeHarness(accounts: [
+            PlexAccountConfig(
+                id: "account-enabled",
+                displayTitle: "Enabled",
+                authToken: "auth-token",
+                servers: [
+                    PlexServerConfig(
+                        id: "server-enabled",
+                        name: "Enabled Server",
+                        url: "https://enabled.example.com",
+                        token: "token-enabled",
+                        libraries: [
+                            PlexLibraryConfig(
+                                id: "lib-enabled",
+                                key: "lib-enabled",
+                                title: "Music",
+                                isEnabled: true
+                            )
+                        ]
+                    )
+                ]
+            )
+        ])
+        let sut = harness.viewModel
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        sut.seedLastNetworkHubFetchTimeForTesting(Date())
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { refreshReasons.append($0) }
+
+        harness.accountManager.addPlexAccount(
+            PlexAccountConfig(
+                id: "account-added",
+                displayTitle: "Added",
+                authToken: "added-auth-token",
+                servers: [
+                    PlexServerConfig(
+                        id: "server-added",
+                        name: "Added Server",
+                        url: "https://added.example.com",
+                        token: "added-token",
+                        libraries: [
+                            PlexLibraryConfig(
+                                id: "lib-added",
+                                key: "lib-added",
+                                title: "Added Music",
+                                isEnabled: true
+                            )
+                        ]
+                    )
+                ]
+            )
+        )
+        try? await Task.sleep(nanoseconds: 60_000_000)
+
+        XCTAssertTrue(sut.isFeedCacheStale)
+        XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
+        XCTAssertTrue(refreshReasons.isEmpty)
+
+        sut.handleViewVisibilityChange(isVisible: true)
+        try? await Task.sleep(nanoseconds: 60_000_000)
+
+        XCTAssertEqual(refreshReasons, [.accountChange])
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+    }
+
+    func testDisablingSourceImmediatelyFiltersItsItemsFromVisibleFeed() async {
+        let account = PlexAccountConfig(
+            id: "account-mixed",
+            displayTitle: "Mixed",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-mixed",
+                    name: "Mixed Server",
+                    url: "https://mixed.example.com",
+                    token: "token-mixed",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-enabled", key: "lib-enabled", title: "Enabled", isEnabled: true),
+                        PlexLibraryConfig(id: "lib-disabled", key: "lib-disabled", title: "To Disable", isEnabled: true),
+                    ]
+                )
+            ]
+        )
+        let harness = makeHarness(accounts: [account])
+        let sut = harness.viewModel
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        sut.seedHubsForTesting([
+            Hub(
+                id: "mixed-hub",
+                title: "Recently Played",
+                type: "track",
+                items: [
+                    HubItem(id: "keep", type: "track", title: "Keep", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: "plex:account-mixed:server-mixed:lib-enabled"),
+                    HubItem(id: "remove", type: "track", title: "Remove", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: "plex:account-mixed:server-mixed:lib-disabled"),
+                ]
+            )
+        ])
+
+        XCTAssertTrue(harness.accountManager.setLibraryEnabled(
+            accountId: "account-mixed",
+            serverId: "server-mixed",
+            libraryKey: "lib-disabled",
+            isEnabled: false
+        ))
+
+        let didFilter = await eventually {
+            sut.hubs.flatMap(\.items).map(\.id) == ["keep"]
+        }
+        XCTAssertTrue(didFilter)
+    }
+
+    func testAuthoritativeEmptyConfigurationPreservesLastGoodVisibleFeedUntilCleanup() {
+        let hubs = [
+            Hub(
+                id: "last-good",
+                title: "Recently Played",
+                type: "track",
+                items: [
+                    HubItem(id: "apple", type: "track", title: "Apple", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+                    HubItem(id: "plex", type: "track", title: "Plex", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: "plex:a:s:l"),
+                    HubItem(id: "legacy", type: "track", title: "Legacy", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: ""),
+                ]
+            )
+        ]
+        let emptyConfiguration = SourceConfigurationSnapshot(
+            configuredSources: [],
+            enabledSources: [],
+            authoritativeSourceTypes: [.appleMusic, .plex],
+            hasAnySources: false,
+            isAuthoritative: true
+        )
+
+        let visible = HomeViewModel.filterHubsForVisibility(
+            hubs,
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: emptyConfiguration
+        )
+
+        XCTAssertEqual(visible.flatMap(\.items).map(\.id), ["apple", "plex", "legacy"])
+    }
+
+    func testFinalSourceRemovalHidesFeedImmediatelyAndCleanupClearsLateState() async {
+        let account = PlexAccountConfig(
+            id: "account-final",
+            displayTitle: "Final",
+            authToken: "auth-token",
+            servers: [
+                PlexServerConfig(
+                    id: "server-final",
+                    name: "Final Server",
+                    url: "https://final.example.com",
+                    token: "token-final",
+                    libraries: [
+                        PlexLibraryConfig(
+                            id: "lib-final",
+                            key: "lib-final",
+                            title: "Music",
+                            isEnabled: true
+                        )
+                    ]
+                )
+            ]
+        )
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-final",
+            serverId: "server-final",
+            libraryId: "lib-final"
+        )
+        let harness = makeHarness(accounts: [account])
+        harness.viewModel.seedHubsForTesting([
+            Hub(
+                id: "last-good",
+                title: "Recently Played",
+                type: "track",
+                items: [
+                    HubItem(
+                        id: "final-track",
+                        type: "track",
+                        title: "Final Track",
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source.compositeKey
+                    )
+                ]
+            )
+        ])
+
+        harness.accountManager.removePlexAccount(id: "account-final")
+        harness.coordinator.refreshProviders()
+        let didHideRemovedSource = await eventually { harness.viewModel.hubs.isEmpty }
+        XCTAssertTrue(didHideRemovedSource)
+
+        // Simulate a late in-memory restore that raced the source change. The
+        // post-purge completion must still clear it authoritatively.
+        harness.viewModel.seedHubsForTesting([
+            Hub(
+                id: "late-last-good",
+                title: "Recently Played",
+                type: "track",
+                items: [
+                    HubItem(
+                        id: "late-track",
+                        type: "track",
+                        title: "Late Track",
+                        subtitle: nil,
+                        thumbPath: nil,
+                        year: nil,
+                        sourceCompositeKey: source.compositeKey
+                    )
+                ]
+            )
+        ])
+
+        await harness.coordinator.cleanupRemovedSource(source)
+
+        try? await Task.sleep(for: .milliseconds(100))
+        let didClear = await eventually { harness.viewModel.hubs.isEmpty }
+        XCTAssertTrue(didClear)
+    }
+
+    func testHomeVisibilityFiltersSettledAppleWhilePreservingUnresolvedPlexAndLegacy() {
+        let hubs = [
+            Hub(
+                id: "mixed-provider",
+                title: "Recently Played",
+                type: "track",
+                items: [
+                    HubItem(id: "apple", type: "track", title: "Apple", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+                    HubItem(id: "plex", type: "track", title: "Plex", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: "plex:a:s:l"),
+                    HubItem(id: "legacy", type: "track", title: "Legacy", subtitle: nil, thumbPath: nil, year: nil, sourceCompositeKey: ""),
+                ]
+            )
+        ]
+        let unresolvedPlex = SourceConfigurationSnapshot(
+            configuredSources: [],
+            enabledSources: [],
+            authoritativeSourceTypes: [.appleMusic],
+            hasAnySources: false,
+            isAuthoritative: false
+        )
+
+        let visible = HomeViewModel.filterHubsForVisibility(
+            hubs,
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: unresolvedPlex
+        )
+
+        XCTAssertEqual(visible.flatMap(\.items).map(\.id), ["plex", "legacy"])
+    }
+
+    func testUnresolvedSourceConfigurationWaitsToScheduleFeedRefresh() async {
+        let harness = makeHarness(accounts: [makeAdditionalEnabledAccount()])
+        let sut = harness.viewModel
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        sut.seedHubsForTesting([makeHub()])
+        sut.seedLastNetworkHubFetchTimeForTesting(Date())
+
+        harness.accountManager.setAwaitingCloudSources(true)
+        for _ in 0..<10 { await Task.yield() }
+
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+
+        harness.accountManager.setAwaitingCloudSources(false)
+
+        let didInvalidate = await eventually {
+            sut.hasPendingAutoRefreshForTesting
+        }
+        XCTAssertTrue(didInvalidate)
+    }
+
+    func testSourceChangeDuringInitialLoadFlushesWhenInitialLoadCompletes() async {
+        let loader = MockHomeHubLoader(cachedHubs: [makeHub(id: "cached-initial")])
+        let (sut, _, accountManager) = makeViewModel(hubLoader: loader)
+        sut.handleViewVisibilityChange(isVisible: true)
+        let refreshed = expectation(description: "deferred account refresh")
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { reason in
+            refreshReasons.append(reason)
+            refreshed.fulfill()
+        }
+
+        accountManager.addPlexAccount(makeAdditionalEnabledAccount())
+
+        let didDeferRefresh = await eventually { sut.hasPendingAutoRefreshForTesting }
+        XCTAssertTrue(didDeferRefresh)
+        sut.markInitialLoadCompletedForTesting()
+        await fulfillment(of: [refreshed], timeout: 1.0)
+        XCTAssertEqual(refreshReasons, [.accountChange])
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+    }
+
+    func testSourceChangeDuringActiveLoadFlushesAfterLoadCompletes() async {
+        let loader = MockHomeHubLoader(networkHubs: [makeHub(id: "initial-network")])
+        let (sut, _, accountManager) = makeViewModel(hubLoader: loader)
+        sut.markInitialLoadCompletedForTesting()
+        sut.handleViewVisibilityChange(isVisible: true)
+        let loadStarted = expectation(description: "active load started")
+        let releaseLoad = expectation(description: "release active load")
+        let refreshed = expectation(description: "account refresh after active load")
+        loader.loadSnapshotHandler = { [self] _, _ in
+            loadStarted.fulfill()
+            await fulfillment(of: [releaseLoad], timeout: 1.0)
+            return loader.networkSnapshot
+        }
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { reason in
+            refreshReasons.append(reason)
+            refreshed.fulfill()
+        }
+        let activeLoad = Task { await sut.loadHubs() }
+        await fulfillment(of: [loadStarted], timeout: 1.0)
+
+        accountManager.addPlexAccount(makeAdditionalEnabledAccount())
+
+        let didDeferRefresh = await eventually { sut.hasPendingAutoRefreshForTesting }
+        XCTAssertTrue(didDeferRefresh)
+        releaseLoad.fulfill()
+        await activeLoad.value
+        await fulfillment(of: [refreshed], timeout: 1.0)
+        XCTAssertEqual(refreshReasons, [.accountChange])
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+    }
+
+    func testHidingAfterSourceChangeDoesNotDiscardDeferredRefresh() async {
+        let loader = MockHomeHubLoader(cachedHubs: [makeHub(id: "cached-initial")])
+        let (sut, _, accountManager) = makeViewModel(hubLoader: loader)
+        sut.handleViewVisibilityChange(isVisible: true)
+        let refreshed = expectation(description: "account refresh after returning visible")
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { reason in
+            refreshReasons.append(reason)
+            refreshed.fulfill()
+        }
+
+        accountManager.addPlexAccount(makeAdditionalEnabledAccount())
+        let didDeferRefresh = await eventually { sut.hasPendingAutoRefreshForTesting }
+        XCTAssertTrue(didDeferRefresh)
+        sut.handleViewVisibilityChange(isVisible: false)
+        sut.markInitialLoadCompletedForTesting()
+        XCTAssertTrue(sut.hasPendingAutoRefreshForTesting)
+
+        sut.handleViewVisibilityChange(isVisible: true)
+        await fulfillment(of: [refreshed], timeout: 1.0)
+        XCTAssertEqual(refreshReasons, [.accountChange])
+        XCTAssertFalse(sut.hasPendingAutoRefreshForTesting)
+    }
+
+    #if os(iOS)
+    func testAppleMusicEnablementTriggersAccountRefresh() async {
+        let harness = makeHarness()
+        let wasEnabled = harness.accountManager.isAppleMusicEnabled
+        harness.accountManager.setAppleMusicEnabled(false)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        let sut = harness.viewModel
+        sut.markInitialLoadCompletedForTesting()
+        sut.clearPendingAutoRefreshForTesting()
+        sut.handleViewVisibilityChange(isVisible: true)
+        var refreshReasons: [HomeViewModel.AutoRefreshReason] = []
+        sut.autoRefreshRunnerForTesting = { refreshReasons.append($0) }
+
+        harness.accountManager.setAppleMusicEnabled(true)
+        try? await Task.sleep(nanoseconds: 60_000_000)
+        let hasConfiguredAccounts = sut.hasConfiguredAccounts
+        let hasEnabledLibraries = sut.hasEnabledLibraries
+        harness.accountManager.setAppleMusicEnabled(wasEnabled)
+        try? await Task.sleep(nanoseconds: 30_000_000)
+
+        XCTAssertTrue(hasConfiguredAccounts)
+        XCTAssertTrue(hasEnabledLibraries)
+        XCTAssertEqual(refreshReasons, [.accountChange])
+    }
+    #endif
 
     func testNoEnabledLibrariesClearsCachedFeedContent() async {
         let account = PlexAccountConfig(
@@ -1178,7 +1772,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testUnavailableNetworkSnapshotPreservesExistingCachedFeedContent() async {
         let cachedHub = makeHub()
         let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: nil)
-        let (sut, _) = makeViewModel(hubLoader: loader)
+        let (sut, _, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.seedHubsForTesting([cachedHub])
@@ -1192,7 +1786,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
         let cachedHub = makeHub()
         let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: [])
-        let (sut, _) = makeViewModel(hubLoader: loader)
+        let (sut, _, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.seedHubsForTesting([cachedHub])
@@ -1206,7 +1800,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
     func testOfflineEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
         let cachedHub = makeHub()
         let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: [])
-        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        let (sut, coordinator, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.seedHubsForTesting([cachedHub])
@@ -1500,7 +2094,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
     func testSourceStatusOnlyUpdateDoesNotTriggerFeedAutoRefresh() async {
         let loader = MockHomeHubLoader()
-        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        let (sut, coordinator, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()
@@ -1526,7 +2120,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
 
     func testMaterialContentChangeTriggersVisibleFeedAutoRefresh() async {
         let loader = MockHomeHubLoader()
-        let (sut, coordinator) = makeViewModel(hubLoader: loader)
+        let (sut, coordinator, _) = makeViewModel(hubLoader: loader)
         try? await Task.sleep(nanoseconds: 30_000_000)
         sut.markInitialLoadCompletedForTesting()
         sut.clearPendingAutoRefreshForTesting()

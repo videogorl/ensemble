@@ -50,6 +50,7 @@ struct PlaylistDetailLoader: View {
     @MainActor
     private func loadPlaylist() async {
         do {
+            #if os(macOS)
             guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylist(
                 ratingKey: playlistId,
                 sourceCompositeKey: playlistSourceKey
@@ -57,13 +58,23 @@ struct PlaylistDetailLoader: View {
                 finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: nil)
                 return
             }
+            let loadedItems: [PlaylistItem]? = cdPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
+            #else
+            guard let cdPlaylist = try await deps.playlistRepository.fetchPlaylistHeader(
+                ratingKey: playlistId,
+                sourceCompositeKey: playlistSourceKey
+            ) else {
+                finishLoading(playlist: nil, initialTracks: nil, initialItems: nil, initialArtworkImage: nil, error: nil)
+                return
+            }
+            let loadedItems: [PlaylistItem]? = nil
+            #endif
 
             let loadedPlaylist = Playlist(from: cdPlaylist)
-            let loadedItems = cdPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
             let loadedArtworkImage = await loadCachedArtwork(for: loadedPlaylist)
             finishLoading(
                 playlist: loadedPlaylist,
-                initialTracks: loadedItems.map(\.track),
+                initialTracks: loadedItems?.map(\.track),
                 initialItems: loadedItems,
                 initialArtworkImage: loadedArtworkImage,
                 error: nil
@@ -74,14 +85,23 @@ struct PlaylistDetailLoader: View {
     }
 
     private func loadCachedArtwork(for playlist: Playlist) async -> PlatformImage? {
+        let hasCompositeArtwork = playlist.compositePath?.isEmpty == false
+        let fallbackSourceKey = playlist.fallbackArtworkSourceCompositeKey
+            ?? playlist.sourceCompositeKey
         let descriptor = ArtworkResolutionDescriptor(
             path: playlist.compositePath,
-            sourceKey: playlist.sourceCompositeKey,
+            sourceKey: hasCompositeArtwork ? playlist.sourceCompositeKey : fallbackSourceKey,
             ratingKey: playlist.id,
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
+            fallbackPath: playlist.fallbackArtworkPath,
+            fallbackRatingKey: playlist.fallbackArtworkRatingKey,
+            fallbackSourceKey: fallbackSourceKey,
             cacheHint: PersistentArtworkCacheHint(playlist: playlist),
-            fallbackCacheHint: nil,
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: playlist.fallbackArtworkRatingKey,
+                kind: .album,
+                sourcePath: playlist.fallbackArtworkPath,
+                sourceCompositeKey: fallbackSourceKey
+            ),
             size: 600,
             priority: .high
         )

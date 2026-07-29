@@ -135,7 +135,10 @@ public extension Track {
             favoriteState: cd.isFavorite?.boolValue,
             playCount: Int(cd.playCount),
             genres: trackGenres,
-            sourceCompositeKey: cd.sourceCompositeKey
+            sourceCompositeKey: cd.sourceCompositeKey,
+            actionCapabilities: MusicItemActionCapabilities(
+                persistenceData: cd.actionCapabilitiesData
+            )
         )
     }
 }
@@ -231,7 +234,10 @@ public extension Album {
             rating: Int(cd.rating),
             genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
             sourceCompositeKey: cd.sourceCompositeKey,
-            releaseFormat: AlbumReleaseFormat(rawValue: cd.releaseFormat ?? "")
+            releaseFormat: AlbumReleaseFormat(rawValue: cd.releaseFormat ?? ""),
+            actionCapabilities: MusicItemActionCapabilities(
+                persistenceData: cd.actionCapabilitiesData
+            )
         )
     }
 }
@@ -264,7 +270,10 @@ public extension Artist {
             dateModified: cd.dateModified,
             sourceCompositeKey: cd.sourceCompositeKey,
             fallbackThumbPath: firstAlbum?.thumbPath,
-            fallbackRatingKey: firstAlbum?.ratingKey
+            fallbackRatingKey: firstAlbum?.ratingKey,
+            actionCapabilities: MusicItemActionCapabilities(
+                persistenceData: cd.actionCapabilitiesData
+            )
         )
     }
 }

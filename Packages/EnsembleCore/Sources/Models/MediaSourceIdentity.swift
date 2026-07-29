@@ -66,6 +66,12 @@ public struct MediaSourceIdentity: Equatable, Hashable, Sendable {
         parse(sourceKey)?.serverSourceKey
     }
 
+    /// Returns a provider only when the source key has a complete, valid identity.
+    /// A missing or malformed key has unresolved ownership.
+    public static func sourceType(from sourceKey: String?) -> MusicSourceType? {
+        parse(sourceKey)?.sourceType
+    }
+
     public static func serverSourceKey(for source: MusicSourceIdentifier) -> String {
         "\(source.type.rawValue):\(source.accountId):\(source.serverId)"
     }
@@ -75,5 +81,22 @@ public struct MediaSourceIdentity: Equatable, Hashable, Sendable {
         return lhs.sourceType == rhs.sourceType
             && lhs.accountId == rhs.accountId
             && lhs.serverId == rhs.serverId
+    }
+
+    /// Whether an exact library key, or a server-scoped item such as a Plex playlist,
+    /// is covered by the currently enabled source keys.
+    public static func isEnabledSourceKey(
+        _ sourceKey: String?,
+        within enabledSourceKeys: Set<String>
+    ) -> Bool {
+        guard let sourceKey else { return false }
+        if enabledSourceKeys.contains(sourceKey) { return true }
+        guard let identity = parse(sourceKey), identity.isServerScoped else { return false }
+        return enabledSourceKeys.contains {
+            guard let enabledIdentity = parse($0) else { return false }
+            return enabledIdentity.sourceType == identity.sourceType &&
+                enabledIdentity.accountId == identity.accountId &&
+                enabledIdentity.serverId == identity.serverId
+        }
     }
 }

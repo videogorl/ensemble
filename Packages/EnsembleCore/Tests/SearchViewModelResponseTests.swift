@@ -59,15 +59,15 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertEqual(result.addedAlbums.map(\.id), ["added"])
     }
 
-    func testLibraryPlaylistSearchMergesCrossProviderAmbientElectricResults() async throws {
-        let harness = makeHarness(mergeEnabled: true)
-        try await seedAmbientElectric(in: harness.playlistRepository)
+    func testPlaylistProjectionMergesCrossProviderAmbientElectricResults() throws {
+        let results = SearchViewModel.displayPlaylists(
+            ambientElectricPlaylists(),
+            scope: .library,
+            mergeEnabled: true
+        )
 
-        await harness.viewModel.search(query: "Ambient Electric")
-
-        XCTAssertEqual(harness.viewModel.playlistResults.count, 3)
-        let result = try XCTUnwrap(harness.viewModel.displayPlaylistResults.first)
-        XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 1)
+        let result = try XCTUnwrap(results.first)
+        XCTAssertEqual(results.count, 1)
         XCTAssertEqual(result.playlists.count, 3)
         XCTAssertEqual(result.trackCount, 292)
         XCTAssertEqual(
@@ -76,16 +76,17 @@ final class SearchViewModelResponseTests: XCTestCase {
         )
     }
 
-    func testLibraryPlaylistSearchLeavesResultsSeparateWhenMergeIsDisabled() async throws {
-        let harness = makeHarness(mergeEnabled: false)
-        try await seedAmbientElectric(in: harness.playlistRepository)
+    func testPlaylistProjectionLeavesResultsSeparateWhenMergeIsDisabled() {
+        let results = SearchViewModel.displayPlaylists(
+            ambientElectricPlaylists(),
+            scope: .library,
+            mergeEnabled: false
+        )
 
-        await harness.viewModel.search(query: "Ambient Electric")
-
-        XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 3)
-        XCTAssertTrue(harness.viewModel.displayPlaylistResults.allSatisfy { !$0.isMerged })
+        XCTAssertEqual(results.count, 3)
+        XCTAssertTrue(results.allSatisfy { !$0.isMerged })
         XCTAssertEqual(
-            harness.viewModel.displayPlaylistResults.map(\.trackCount).sorted(),
+            results.map(\.trackCount).sorted(),
             [1, 17, 274]
         )
     }
@@ -99,7 +100,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let resultsUpdated = expectation(description: "Retained playlist results reprojected")
         let update = harness.viewModel.$displayPlaylistResults
             .dropFirst()
-            .first(where: { $0.count == 3 })
+            .first(where: { $0.count == 2 })
             .sink { _ in resultsUpdated.fulfill() }
 
         harness.defaults.set(false, forKey: SettingsManager.playlistMergeEnabledKey)
@@ -110,26 +111,24 @@ final class SearchViewModelResponseTests: XCTestCase {
 
         await fulfillment(of: [resultsUpdated], timeout: 1)
         withExtendedLifetime(update) {}
-        XCTAssertEqual(harness.viewModel.playlistResults.count, 3)
+        XCTAssertEqual(harness.viewModel.playlistResults.count, 2)
         XCTAssertTrue(harness.viewModel.displayPlaylistResults.allSatisfy { !$0.isMerged })
     }
 
-    func testLibraryPlaylistSearchKeepsSmartAndRegularPlaylistsSeparate() async throws {
-        let harness = makeHarness(mergeEnabled: true)
-        try await seedAmbientElectric(
-            in: harness.playlistRepository,
-            appleIsSmart: true
+    func testPlaylistProjectionKeepsSmartAndRegularPlaylistsSeparate() {
+        let results = SearchViewModel.displayPlaylists(
+            ambientElectricPlaylists(appleIsSmart: true),
+            scope: .library,
+            mergeEnabled: true
         )
 
-        await harness.viewModel.search(query: "Ambient Electric")
-
-        XCTAssertEqual(harness.viewModel.displayPlaylistResults.count, 2)
+        XCTAssertEqual(results.count, 2)
         XCTAssertEqual(
-            harness.viewModel.displayPlaylistResults.first(where: { $0.isSmart })?.trackCount,
+            results.first(where: { $0.isSmart })?.trackCount,
             274
         )
         XCTAssertEqual(
-            harness.viewModel.displayPlaylistResults.first(where: { !$0.isSmart })?.trackCount,
+            results.first(where: { !$0.isSmart })?.trackCount,
             18
         )
     }
@@ -182,28 +181,255 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertTrue(results.allSatisfy { !$0.isMerged })
     }
 
+    func testSearchRequestIdentityRejectsSameQueryFromOldScopeOrGeneration() {
+        XCTAssertTrue(SearchViewModel.isCurrentSearchRequest(
+            query: "AJR",
+            scope: .library,
+            generation: 4,
+            currentQuery: "AJR",
+            currentScope: .library,
+            currentGeneration: 4
+        ))
+        XCTAssertFalse(SearchViewModel.isCurrentSearchRequest(
+            query: "AJR",
+            scope: .appleMusic,
+            generation: 4,
+            currentQuery: "AJR",
+            currentScope: .library,
+            currentGeneration: 4
+        ))
+        XCTAssertFalse(SearchViewModel.isCurrentSearchRequest(
+            query: "AJR",
+            scope: .library,
+            generation: 3,
+            currentQuery: "AJR",
+            currentScope: .library,
+            currentGeneration: 4
+        ))
+    }
+
+    func testLibrarySearchFiltersCachedRowsOutsideAuthoritativeEnabledSources() async throws {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(Self.accountWithOnlyFirstServerEnabled)
+        let harness = makeHarness(accountManager: accountManager)
+        try await seedAmbientElectric(in: harness.playlistRepository)
+
+        await harness.viewModel.search(query: "Ambient Electric")
+
+        XCTAssertEqual(
+            harness.viewModel.playlistResults.compactMap(\.sourceCompositeKey),
+            [Self.plexSourceOne]
+        )
+    }
+
+    func testSourceCleanupCompletionReloadsActiveLibrarySearchAfterPurge() async throws {
+        let accountManager = AccountManager(keychain: TestKeychain())
+        accountManager.addPlexAccount(Self.accountWithOnlyFirstServerEnabled)
+        let harness = makeHarness(accountManager: accountManager)
+        let sourceKey = Self.firstPlexSource.compositeKey
+        _ = try await harness.libraryRepository.upsertMusicSource(
+            compositeKey: sourceKey,
+            type: MusicSourceType.plex.rawValue,
+            accountId: Self.firstPlexSource.accountId,
+            serverId: Self.firstPlexSource.serverId,
+            libraryId: Self.firstPlexSource.libraryId,
+            displayName: "Music",
+            accountName: "Account"
+        )
+        _ = try await harness.libraryRepository.upsertTrack(
+            ratingKey: "espresso",
+            key: "/library/metadata/espresso",
+            title: "Espresso",
+            artistName: "Sabrina Carpenter",
+            albumName: nil,
+            albumRatingKey: nil,
+            trackNumber: nil,
+            discNumber: nil,
+            duration: nil,
+            thumbPath: nil,
+            streamKey: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            lastPlayed: nil,
+            rating: nil,
+            playCount: nil,
+            sourceCompositeKey: sourceKey
+        )
+        harness.viewModel.searchQuery = "Espresso"
+        await harness.viewModel.search(query: "Espresso")
+        XCTAssertEqual(harness.viewModel.trackResults.map(\.id), ["espresso"])
+
+        try await harness.libraryRepository.deleteAllData(forSourceCompositeKey: sourceKey)
+        NotificationCenter.default.post(
+            name: SyncCoordinator.sourceCleanupDidComplete,
+            object: nil,
+            userInfo: ["sourceCompositeKey": sourceKey]
+        )
+
+        let deadline = Date().addingTimeInterval(2)
+        while !harness.viewModel.trackResults.isEmpty && Date() < deadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertTrue(harness.viewModel.trackResults.isEmpty)
+    }
+
+    func testExploreFilteringTrimsDisabledServerReferences() throws {
+        let sourceConfiguration = SourceConfigurationSnapshot(
+            configuredSources: [Self.firstPlexSource],
+            enabledSources: [Self.firstPlexSource],
+            authoritativeSourceTypes: [.plex],
+            hasAnySources: true,
+            isAuthoritative: false
+        )
+        let items = [
+            HubItem(
+                id: "one",
+                type: "album",
+                title: "One",
+                subtitle: nil,
+                thumbPath: nil,
+                year: nil,
+                sourceCompositeKey: Self.plexSourceOne
+            ),
+            HubItem(
+                id: "two",
+                type: "album",
+                title: "Two",
+                subtitle: nil,
+                thumbPath: nil,
+                year: nil,
+                sourceCompositeKey: Self.plexSourceTwo
+            )
+        ]
+        let mood = Mood(
+            id: "mood:ambient",
+            key: "ambient",
+            title: "Ambient",
+            sourceCompositeKey: [
+                Mood.sourceReference(sourceCompositeKey: Self.plexSourceOne, moodKey: "1"),
+                Mood.sourceReference(sourceCompositeKey: Self.plexSourceTwo, moodKey: "2")
+            ].joined(separator: "|")
+        )
+
+        XCTAssertEqual(
+            SearchViewModel.filterHubItemsForVisibility(
+                items,
+                hiddenSourceCompositeKeys: [],
+                sourceConfiguration: sourceConfiguration
+            ).map(\.id),
+            ["one"]
+        )
+        let filteredMood = try XCTUnwrap(SearchViewModel.filterMoodsForVisibility(
+            [mood],
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: sourceConfiguration
+        ).first)
+        XCTAssertEqual(
+            SearchViewModel.moodSourceCompositeKeys(from: filteredMood.sourceCompositeKey),
+            [Self.plexSourceOne]
+        )
+    }
+
+    func testCachedExploreFiltersHiddenItemsBeforeApplyingSixItemLimit() async throws {
+        let harness = makeHarness()
+        let hiddenAlbums = (0..<13).map {
+            Album(
+                id: "hidden-\($0)",
+                key: "/hidden/\($0)",
+                title: "Hidden \($0)",
+                sourceCompositeKey: Self.plexSourceOne
+            )
+        }
+        let visibleAlbums = (0..<2).map {
+            Album(
+                id: "visible-\($0)",
+                key: "/visible/\($0)",
+                title: "Visible \($0)",
+                sourceCompositeKey: Self.plexSourceTwo
+            )
+        }
+        try await harness.hubRepository.saveHubs([
+            Hub(
+                id: "recently-played",
+                title: "Recently Played",
+                type: "album",
+                items: (hiddenAlbums + visibleAlbums).map {
+                    hubItem(album: $0, source: $0.sourceCompositeKey ?? "")
+                },
+                semanticKind: .recentlyPlayed
+            )
+        ])
+        harness.visibilityStore.setSourceVisibility(
+            sourceCompositeKey: Self.plexSourceOne,
+            isVisible: false
+        )
+
+        await harness.viewModel.loadExploreContent()
+
+        XCTAssertEqual(harness.viewModel.recentlyPlayedAlbums.map(\.id), ["visible-0", "visible-1"])
+    }
+
+    func testCancelledMoodSaveCannotRepopulateClearedCache() async throws {
+        let harness = makeHarness()
+        let gate = AsyncGate()
+        let staleMood = Mood(
+            id: "stale",
+            key: "stale",
+            title: "Stale",
+            sourceCompositeKey: Self.plexSourceOne
+        )
+        let staleWrite = Task {
+            await gate.wait()
+            try await harness.moodRepository.saveMoods([staleMood])
+        }
+        await gate.waitUntilBlocked()
+
+        staleWrite.cancel()
+        try await harness.moodRepository.deleteAllMoods()
+        await gate.open()
+
+        do {
+            try await staleWrite.value
+            XCTFail("Expected the stale mood save to observe cancellation")
+        } catch is CancellationError {
+            // Expected.
+        }
+        let cachedMoods = try await harness.moodRepository.fetchMoods()
+        XCTAssertTrue(cachedMoods.isEmpty)
+    }
+
     private func makeViewModel() -> SearchViewModel {
         makeHarness().viewModel
     }
 
-    private func makeHarness(mergeEnabled: Bool = true) -> SearchHarness {
+    private func makeHarness(
+        mergeEnabled: Bool = true,
+        accountManager: AccountManager? = nil
+    ) -> SearchHarness {
+        let accountManager = accountManager ?? AccountManager(keychain: TestKeychain())
         let defaults = isolatedUserDefaults()
         defaults.set(mergeEnabled, forKey: SettingsManager.playlistMergeEnabledKey)
         let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
+        let hubRepository = HubRepository(coreDataStack: stack)
+        let moodRepository = MoodRepository(coreDataStack: stack)
         let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
         let viewModel = SearchViewModel(
-            libraryRepository: LibraryRepository(coreDataStack: stack),
+            libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
-            hubRepository: HubRepository(coreDataStack: stack),
-            moodRepository: MoodRepository(coreDataStack: stack),
-            accountManager: AccountManager(keychain: TestKeychain()),
+            hubRepository: hubRepository,
+            moodRepository: moodRepository,
+            accountManager: accountManager,
             visibilityStore: visibilityStore,
             playlistMergeDefaults: defaults
         )
         return SearchHarness(
             viewModel: viewModel,
+            libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
+            hubRepository: hubRepository,
+            moodRepository: moodRepository,
             visibilityStore: visibilityStore,
             defaults: defaults
         )
@@ -237,6 +463,33 @@ final class SearchViewModelResponseTests: XCTestCase {
         }
     }
 
+    private func ambientElectricPlaylists(appleIsSmart: Bool = false) -> [Playlist] {
+        [
+            Playlist(
+                id: "10425",
+                key: "10425",
+                title: "Ambient Electric",
+                trackCount: 17,
+                sourceCompositeKey: Self.plexSourceOne
+            ),
+            Playlist(
+                id: "26898",
+                key: "26898",
+                title: "Ambient Electric",
+                trackCount: 1,
+                sourceCompositeKey: Self.plexSourceTwo
+            ),
+            Playlist(
+                id: "p.1YeW3rpCkzaPXR",
+                key: "p.1YeW3rpCkzaPXR",
+                title: "Ambient Electric",
+                isSmart: appleIsSmart,
+                trackCount: 274,
+                sourceCompositeKey: Self.appleMusicSource
+            )
+        ]
+    }
+
     private func hubItem(album: Album, source: String) -> HubItem {
         HubItem(
             id: album.id,
@@ -261,7 +514,10 @@ final class SearchViewModelResponseTests: XCTestCase {
 
     private struct SearchHarness {
         let viewModel: SearchViewModel
+        let libraryRepository: LibraryRepository
         let playlistRepository: PlaylistRepository
+        let hubRepository: HubRepository
+        let moodRepository: MoodRepository
         let visibilityStore: LibraryVisibilityStore
         let defaults: UserDefaults
     }
@@ -269,4 +525,72 @@ final class SearchViewModelResponseTests: XCTestCase {
     private static let plexSourceOne = "plex:account:server-one"
     private static let plexSourceTwo = "plex:account:server-two"
     private static let appleMusicSource = MusicSourceIdentifier.appleMusic.compositeKey
+    private static let firstPlexSource = MusicSourceIdentifier(
+        type: .plex,
+        accountId: "account",
+        serverId: "server-one",
+        libraryId: "music"
+    )
+
+    private static let accountWithOnlyFirstServerEnabled = PlexAccountConfig(
+        id: "account",
+        displayTitle: "Account",
+        authToken: "token",
+        servers: [
+            PlexServerConfig(
+                id: "server-one",
+                name: "Server One",
+                url: "https://one.example.com",
+                token: "one-token",
+                libraries: [
+                    PlexLibraryConfig(
+                        id: "music",
+                        key: "music",
+                        title: "Music",
+                        isEnabled: true
+                    )
+                ]
+            ),
+            PlexServerConfig(
+                id: "server-two",
+                name: "Server Two",
+                url: "https://two.example.com",
+                token: "two-token",
+                libraries: [
+                    PlexLibraryConfig(
+                        id: "music",
+                        key: "music",
+                        title: "Music",
+                        isEnabled: false
+                    )
+                ]
+            )
+        ]
+    )
+}
+
+private actor AsyncGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var isOpen = false
+    private var isBlocked = false
+
+    func wait() async {
+        guard !isOpen else { return }
+        isBlocked = true
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func waitUntilBlocked() async {
+        while !isBlocked {
+            await Task.yield()
+        }
+    }
+
+    func open() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
+    }
 }

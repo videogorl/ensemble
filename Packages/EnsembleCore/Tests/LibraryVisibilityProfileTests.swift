@@ -85,6 +85,30 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         XCTAssertEqual(playlists.map(\.id), ["playlist-visible"])
     }
 
+    func testProviderAuthorityFiltersRemovedAppleWhilePreservingUnresolvedPlex() {
+        let appleKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let tracks = [
+            Track(id: "apple", key: "apple", title: "Apple", sourceCompositeKey: appleKey),
+            Track(id: "plex", key: "plex", title: "Plex", sourceCompositeKey: "plex:a:s:l"),
+            Track(id: "legacy", key: "legacy", title: "Legacy"),
+        ]
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [],
+            enabledSources: [],
+            authoritativeSourceTypes: [.appleMusic],
+            hasAnySources: false,
+            isAuthoritative: false
+        )
+
+        let visible = LibraryVisibilityFiltering.visibleItems(
+            tracks,
+            hiddenSourceCompositeKeys: [],
+            sourceConfiguration: configuration
+        )
+
+        XCTAssertEqual(visible.map(\.id), ["plex", "legacy"])
+    }
+
     func testMergedMoodVisibilityStaysVisibleWhenAnySourceIsVisible() {
         let hidden = Set(["plex:a:s:hidden"])
         let moods = [

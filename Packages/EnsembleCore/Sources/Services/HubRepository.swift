@@ -149,6 +149,11 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
                             context.delete(hub)
                         }
                     }
+                    context.processPendingChanges()
+                    let snapshots = try context.fetch(CDHomeFeedSnapshot.fetchRequest())
+                    for snapshot in snapshots where snapshot.hubsArray.isEmpty {
+                        context.delete(snapshot)
+                    }
                     try context.save()
                     continuation.resume()
                 } catch {

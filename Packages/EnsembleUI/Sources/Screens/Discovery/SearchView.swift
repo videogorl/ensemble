@@ -50,7 +50,7 @@ public struct SearchView: View {
         _hasAppleMusic = State(initialValue: container.accountManager.isAppleMusicEnabled)
         _isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
         _hasEnabledLibrariesState = State(
-            initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
+            initialValue: !container.accountManager.enabledSources().isEmpty
         )
         _isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
         _activeDownloadTrackIdentities = State(
@@ -106,10 +106,9 @@ public struct SearchView: View {
             currentTrackId: $currentTrackId,
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
-        .onReceive(accountManager.$plexAccounts) { accounts in
-            let has = !accounts.isEmpty || accountManager.isAppleMusicEnabled
-            if has != hasAnySources { hasAnySources = has }
-            let enabledLibs = Self.computeHasEnabledLibraries(in: accounts)
+        .onReceive(accountManager.sourceConfigurationPublisher) { snapshot in
+            if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
+            let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
         .onReceive(accountManager.$isAppleMusicEnabled) { enabled in
@@ -1031,14 +1030,6 @@ public struct SearchView: View {
 
     private var gridColumns: [GridItem] {
         AlbumCardLayoutMetrics.compact.gridColumns
-    }
-
-    private static func computeHasEnabledLibraries(in accounts: [PlexAccountConfig]) -> Bool {
-        accounts.contains { account in
-            account.servers.contains { server in
-                server.libraries.contains(where: \.isEnabled)
-            }
-        }
     }
 
     private var hasEnabledSearchLibrary: Bool {

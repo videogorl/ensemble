@@ -70,6 +70,17 @@ final class MediaSourceIdentityTests: XCTestCase {
         XCTAssertEqual(identity?.libraryId, "library")
     }
 
+    func testSourceTypeRequiresValidProviderOwnership() {
+        XCTAssertEqual(MediaSourceIdentity.sourceType(from: "plex:a:s:l"), .plex)
+        XCTAssertEqual(
+            MediaSourceIdentity.sourceType(from: MusicSourceIdentifier.appleMusic.compositeKey),
+            .appleMusic
+        )
+        XCTAssertNil(MediaSourceIdentity.sourceType(from: nil))
+        XCTAssertNil(MediaSourceIdentity.sourceType(from: "appleMusic:device"))
+        XCTAssertNil(MediaSourceIdentity.sourceType(from: "unknown:a:s:l"))
+    }
+
     func testMusicSourceIdentifierUsesStrictCoreIdentityParser() {
         XCTAssertEqual(
             MusicSourceIdentifier(compositeKey: "plex:account:server:library")?.compositeKey,

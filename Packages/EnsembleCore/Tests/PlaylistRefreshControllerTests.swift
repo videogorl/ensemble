@@ -174,6 +174,30 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         XCTAssertNil(result)
     }
 
+    func testRefreshServerDoesNotCrossProviderBoundary() async throws {
+        let controller = PlaylistRefreshController()
+        let appleSource = MusicSourceIdentifier(
+            type: .appleMusic,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let provider = MockProvider(
+            sourceIdentifier: appleSource,
+            incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+        )
+
+        let result = try await controller.refreshServer(
+            serverSourceKey: "plex:account-1:server-1",
+            providers: [appleSource.compositeKey: provider],
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .playlistOnly,
+            allowFullFallback: false
+        )
+
+        XCTAssertNil(result)
+    }
+
     func testRefreshAllServersDeduplicatesProvidersByServer() async throws {
         let controller = PlaylistRefreshController()
         let serverOneSourceA = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
@@ -202,5 +226,26 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         )
 
         XCTAssertEqual(Set(results.map(\.serverSourceKey)), ["plex:account-1:server-1", "plex:account-1:server-2"])
+    }
+
+    func testRefreshAllServersKeepsProviderScopesDistinct() async {
+        let controller = PlaylistRefreshController()
+        let plexSource = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
+        let appleSource = MusicSourceIdentifier(type: .appleMusic, accountId: "account", serverId: "server", libraryId: "2")
+        let providers: [String: MusicSourceSyncProvider] = [plexSource, appleSource].reduce(into: [:]) { result, source in
+            result[source.compositeKey] = MockProvider(
+                sourceIdentifier: source,
+                incrementalResult: .success(PlaylistSyncResult(changedPlaylists: 1))
+            )
+        }
+
+        let results = await controller.refreshAllServers(
+            providers: providers,
+            playlistRepository: MockPlaylistRepository(),
+            trigger: .playlistOnly,
+            allowFullFallback: false
+        )
+
+        XCTAssertEqual(Set(results.map(\.serverSourceKey)), ["plex:account:server", "appleMusic:account:server"])
     }
 }

@@ -13,10 +13,14 @@ extension Playlist: LibraryVisibilitySourceIdentifiable {}
 enum LibraryVisibilityFiltering {
     static func visibleItems<Item: LibraryVisibilitySourceIdentifiable>(
         _ items: [Item],
-        hiddenSourceCompositeKeys: Set<String>
+        hiddenSourceCompositeKeys: Set<String>,
+        sourceConfiguration: SourceConfigurationSnapshot? = nil
     ) -> [Item] {
-        guard !hiddenSourceCompositeKeys.isEmpty else { return items }
         return items.filter { item in
+            if let sourceConfiguration,
+               !sourceConfiguration.shouldPreserveSourceKey(item.sourceCompositeKey) {
+                return false
+            }
             guard let sourceKey = item.sourceCompositeKey else { return true }
             return !hiddenSourceCompositeKeys.contains(sourceKey)
         }

@@ -61,6 +61,64 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(repairedPlaylist?.sourceCompositeKey, sourceA)
     }
 
+    func testSinglePlaylistHeaderLookupRequiresUniqueOwnerWithoutLoadingBody() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let sourceA = "plex/account/server-a"
+        let sourceB = "plex/account/server-b"
+
+        for sourceKey in [sourceA, sourceB] {
+            _ = try await upsertPlaylist(
+                in: repository,
+                ratingKey: "shared",
+                compositePath: nil,
+                dateModified: nil,
+                sourceCompositeKey: sourceKey,
+                trackCount: 1
+            )
+            try await repository.setPlaylistTrackSnapshots(
+                [PlaylistTrackSnapshot(ratingKey: "track", title: "Track")],
+                forPlaylist: "shared",
+                sourceCompositeKey: sourceKey
+            )
+        }
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: "unique",
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA,
+            trackCount: 1
+        )
+        try await repository.setPlaylistTrackSnapshots(
+            [PlaylistTrackSnapshot(ratingKey: "track", title: "Track")],
+            forPlaylist: "unique",
+            sourceCompositeKey: sourceA
+        )
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+
+        let ambiguousHeader = try await repository.fetchPlaylistHeader(
+            ratingKey: "shared",
+            sourceCompositeKey: nil
+        )
+        let scopedHeaderResult = try await repository.fetchPlaylistHeader(
+            ratingKey: "shared",
+            sourceCompositeKey: sourceB
+        )
+        let repairedHeaderResult = try await repository.fetchPlaylistHeader(
+            ratingKey: "unique",
+            sourceCompositeKey: nil
+        )
+        let scopedHeader = try XCTUnwrap(scopedHeaderResult)
+        let repairedHeader = try XCTUnwrap(repairedHeaderResult)
+
+        XCTAssertNil(ambiguousHeader)
+        XCTAssertEqual(scopedHeader.sourceCompositeKey, sourceB)
+        XCTAssertEqual(repairedHeader.sourceCompositeKey, sourceA)
+        XCTAssertTrue(scopedHeader.hasFault(forRelationshipNamed: "playlistTracks"))
+        XCTAssertTrue(repairedHeader.hasFault(forRelationshipNamed: "playlistTracks"))
+    }
+
     func testPlaylistCountsUseDirectSourceScope() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server/library-a"

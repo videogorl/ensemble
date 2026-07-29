@@ -59,6 +59,18 @@ enum ViewModelNotificationObserver {
         )
     }
 
+    static func observeSourceCleanupCompleted(
+        storingIn cancellables: inout Set<AnyCancellable>,
+        action: @escaping @MainActor () async -> Void
+    ) {
+        observe(
+            SyncCoordinator.sourceCleanupDidComplete,
+            debounce: .milliseconds(50),
+            storingIn: &cancellables,
+            action: action
+        )
+    }
+
     static func observe(
         _ name: Notification.Name,
         debounce: DispatchQueue.SchedulerTimeType.Stride,

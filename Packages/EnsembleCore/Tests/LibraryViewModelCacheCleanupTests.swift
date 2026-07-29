@@ -5,6 +5,18 @@ import EnsemblePersistence
 
 @MainActor
 final class LibraryViewModelCacheCleanupTests: XCTestCase {
+    private struct FailingSourceCacheCleanup: SourceCacheCleaning {
+        struct Failure: Error {}
+
+        func cleanupSource(_ sourceKey: String) async throws -> SourceCacheCleanupResult {
+            throw Failure()
+        }
+
+        func cleanupAllLibraryData(cachedSourceKeys: Set<String>) async throws -> SourceCacheCleanupResult {
+            throw Failure()
+        }
+    }
+
     private actor CleanupRecorder {
         private var sourceKeys: [String] = []
 
@@ -287,6 +299,43 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertTrue(cleanedSourceKeys.isEmpty)
     }
 
+    func testFinalSourceCleanupNotificationClearsLastGoodLibrarySnapshotAfterPurge() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", true)])
+        )
+        harness.syncCoordinator.refreshProviders()
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let viewModel = makeViewModel(harness: harness)
+        await viewModel.loadLibrary()
+        XCTAssertEqual(viewModel.tracks.map(\.sourceCompositeKey), [sourceKey])
+
+        harness.accountManager.removePlexAccount(id: "account-1")
+        harness.syncCoordinator.refreshProviders()
+        await viewModel.loadLibrary()
+        XCTAssertEqual(
+            viewModel.tracks.map(\.sourceCompositeKey),
+            [sourceKey],
+            "The last-good snapshot should remain until explicit cleanup completes"
+        )
+
+        await harness.syncCoordinator.cleanupRemovedSource(
+            MusicSourceIdentifier(
+                type: .plex,
+                accountId: "account-1",
+                serverId: "server-1",
+                libraryId: "lib-1"
+            )
+        )
+
+        try await waitForTrackCount(viewModel: viewModel, expectedCount: 0)
+        XCTAssertTrue(viewModel.trackBrowseSnapshot.tracks.isEmpty)
+        let cachedTracks = try await harness.libraryRepository.fetchTracks()
+        XCTAssertTrue(cachedTracks.isEmpty)
+    }
+
     func testSourceCleanupResultReportsRemovedCounts() async throws {
         let harness = makeHarness(
             clearLyricsCache: { _ in 2 },
@@ -337,6 +386,103 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(calls, ["artwork"])
         XCTAssertTrue(FileManager.default.fileExists(atPath: plexArtworkURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: legacyArtworkURL.path))
+    }
+
+    func testSourceCleanupWaitsForSharedPersistenceLease() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", true)])
+        )
+        harness.syncCoordinator.refreshProviders()
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let sourceHandle = try XCTUnwrap(
+            harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey)
+        )
+
+        harness.accountManager.removePlexAccount(id: "account-1")
+        harness.syncCoordinator.refreshProviders()
+        XCTAssertNil(harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey))
+
+        var sourceCleanupCompleted = false
+        let sourceCleanup = Task { @MainActor in
+            await harness.syncCoordinator.cleanupRemovedSource(
+                MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: "account-1",
+                    serverId: "server-1",
+                    libraryId: "lib-1"
+                )
+            )
+            sourceCleanupCompleted = true
+        }
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(sourceCleanupCompleted)
+
+        harness.syncCoordinator.finishSourcePersistenceWork(sourceHandle)
+        await sourceCleanup.value
+        XCTAssertTrue(sourceCleanupCompleted)
+        let remainingTracks = try await harness.libraryRepository.fetchTracks()
+        XCTAssertTrue(remainingTracks.isEmpty)
+    }
+
+    func testFailedSourceCleanupReturnsFailureAndDoesNotPublishCompletion() async {
+        let harness = makeHarness()
+        harness.syncCoordinator.sourceCacheCleanupService = FailingSourceCacheCleanup()
+        let notification = expectation(description: "source cleanup completion")
+        notification.isInverted = true
+        let observer = NotificationCenter.default.addObserver(
+            forName: SyncCoordinator.sourceCleanupDidComplete,
+            object: harness.syncCoordinator,
+            queue: nil
+        ) { _ in
+            notification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let succeeded = await harness.syncCoordinator.cleanupRemovedSource(
+            MusicSourceIdentifier(
+                type: .plex,
+                accountId: "account-1",
+                serverId: "server-1",
+                libraryId: "lib-1"
+            )
+        )
+
+        XCTAssertFalse(succeeded)
+        await fulfillment(of: [notification], timeout: 0.2)
+    }
+
+    func testServerPlaylistCleanupWaitsForSharedPersistenceLease() async throws {
+        let harness = makeHarness()
+        let serverSourceKey = "plex:account-1:server-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", true)])
+        )
+        harness.syncCoordinator.refreshProviders()
+        let serverHandle = try XCTUnwrap(
+            harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: serverSourceKey)
+        )
+
+        harness.accountManager.removePlexAccount(id: "account-1")
+        harness.syncCoordinator.refreshProviders()
+        XCTAssertNil(harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: serverSourceKey))
+
+        var serverCleanupCompleted = false
+        let serverCleanup = Task { @MainActor in
+            await harness.syncCoordinator.cleanupServerPlaylists(
+                accountId: "account-1",
+                serverId: "server-1"
+            )
+            serverCleanupCompleted = true
+        }
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(serverCleanupCompleted)
+
+        harness.syncCoordinator.finishSourcePersistenceWork(serverHandle)
+        await serverCleanup.value
+        XCTAssertTrue(serverCleanupCompleted)
     }
 
     func testAppleMusicRemovalClearsOnlySourceOwnedFunctionalPreferences() async {
