@@ -816,6 +816,59 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
     }
 
+    func testAppleMusicResolutionSkipsOnlyUnresolvedLaterItems() throws {
+        let first = makeAppleTrack(id: "first")
+        let unresolvedMiddle = makeAppleTrack(id: "unresolved-middle")
+        let resolvedLater = makeAppleTrack(id: "resolved-later")
+        let unresolvedTail = makeAppleTrack(id: "unresolved-tail")
+
+        let resolution = try XCTUnwrap(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [first, unresolvedMiddle, resolvedLater, unresolvedTail],
+            resolvedPlaybackIdentities: [first.playbackIdentity, resolvedLater.playbackIdentity]
+        ))
+
+        XCTAssertEqual(resolution.resolvedTracks, [first, resolvedLater])
+        XCTAssertEqual(
+            resolution.unresolvedPlaybackIdentities,
+            [unresolvedMiddle.playbackIdentity, unresolvedTail.playbackIdentity]
+        )
+    }
+
+    func testAppleMusicResolutionRequiresTheSelectedFirstItem() {
+        let first = makeAppleTrack(id: "first")
+        let later = makeAppleTrack(id: "later")
+
+        XCTAssertNil(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [first, later],
+            resolvedPlaybackIdentities: [later.playbackIdentity]
+        ))
+        XCTAssertNil(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [first, later],
+            resolvedPlaybackIdentities: []
+        ))
+    }
+
+    func testAppleMusicUnresolvedPruningPreservesDuplicateOutsideSubmittedSegment() {
+        let first = QueueItem(id: "first", track: makeAppleTrack(id: "first"))
+        let unresolved = QueueItem(id: "unresolved", track: makeAppleTrack(id: "duplicate"))
+        let duplicateBoundary = QueueItem(id: "duplicate-boundary", track: unresolved.track)
+        let plex = QueueItem(
+            id: "plex",
+            track: makeTrack(id: "plex", title: "Plex", artist: "Artist", duration: 180)
+        )
+
+        let result = PlaybackService.pruningUnresolvedAppleMusicItems(
+            queue: [first, unresolved, duplicateBoundary, plex],
+            originalQueue: [first, duplicateBoundary, unresolved, plex],
+            submittedItems: [first, unresolved],
+            unresolvedPlaybackIdentities: [unresolved.track.playbackIdentity]
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["first", "duplicate-boundary", "plex"])
+        XCTAssertEqual(result.originalQueue.map(\.id), ["first", "duplicate-boundary", "plex"])
+        XCTAssertEqual(result.removedItemIDs, ["unresolved"])
+    }
+
     func testAppleMusicAutoplayReplacesAnExistingAutoplaySuffix() {
         let autoplay = QueueItem(
             id: "plex-autoplay",
@@ -883,6 +936,15 @@ final class PlaybackServiceTests: XCTestCase {
             albumArtistName: artist,
             duration: duration,
             sourceCompositeKey: "plex:account:server:library"
+        )
+    }
+
+    private func makeAppleTrack(id: String) -> Track {
+        Track(
+            id: id,
+            key: "apple-catalog",
+            title: id,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
     }
 

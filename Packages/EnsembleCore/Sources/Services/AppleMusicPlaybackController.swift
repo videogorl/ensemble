@@ -4,6 +4,32 @@ protocol AppleMusicStationPlaybackStarting: AnyObject {
     func play() async throws
 }
 
+struct AppleMusicPlaybackResolution: Equatable, Sendable {
+    let resolvedTracks: [Track]
+    let unresolvedPlaybackIdentities: Set<String>
+}
+
+enum AppleMusicPlaybackResolutionPolicy {
+    static func select(
+        requestedTracks: [Track],
+        resolvedPlaybackIdentities: Set<String>
+    ) -> AppleMusicPlaybackResolution? {
+        guard let first = requestedTracks.first,
+              resolvedPlaybackIdentities.contains(first.playbackIdentity) else {
+            return nil
+        }
+
+        let resolvedTracks = requestedTracks.filter {
+            resolvedPlaybackIdentities.contains($0.playbackIdentity)
+        }
+        return AppleMusicPlaybackResolution(
+            resolvedTracks: resolvedTracks,
+            unresolvedPlaybackIdentities: Set(requestedTracks.map(\.playbackIdentity))
+                .subtracting(resolvedPlaybackIdentities)
+        )
+    }
+}
+
 enum AppleMusicStationStartSequence {
     static func startAfterSeed(on player: AppleMusicStationPlaybackStarting) async throws {
         try await player.prepareToPlay()
@@ -27,7 +53,11 @@ protocol AppleMusicPlaybackControlling: AnyObject {
     var onDynamicTrack: ((Track) -> Void)? { get set }
     var onTrackMetadataChanged: ((Track) -> Void)? { get set }
     var onDynamicQueueChanged: (([Track]) -> Void)? { get set }
-    func play(tracks: [Track], smartMixEnabled: Bool, startTime: TimeInterval?) async throws
+    func play(
+        tracks: [Track],
+        smartMixEnabled: Bool,
+        startTime: TimeInterval?
+    ) async throws -> Set<String>
     func pause()
     func resume() async throws
     func stop()
@@ -85,8 +115,13 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             .store(in: &cancellables)
     }
 
-    func play(tracks: [Track], smartMixEnabled: Bool, startTime: TimeInterval?) async throws {
-        let resolvedTracks = try await resolveSongs(for: tracks)
+    func play(
+        tracks: [Track],
+        smartMixEnabled: Bool,
+        startTime: TimeInterval?
+    ) async throws -> Set<String> {
+        let resolution = try await resolveSongs(for: tracks)
+        let resolvedTracks = resolution.resolvedTracks
         let songs = resolvedTracks.map(\.song)
         guard let first = songs.first else { throw AppleMusicSourceError.musicKitPlaybackRequired }
 
@@ -123,9 +158,13 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         wasPlaying = true
         isPreparingQueue = false
         publishCurrentEntry()
+        return resolution.unresolvedPlaybackIdentities
     }
 
-    private func resolveSongs(for tracks: [Track]) async throws -> [(track: Track, song: Song)] {
+    private func resolveSongs(for tracks: [Track]) async throws -> (
+        resolvedTracks: [(track: Track, song: Song)],
+        unresolvedPlaybackIdentities: Set<String>
+    ) {
         let catalogIDs = tracks.compactMap { track -> String? in
             guard case .catalog(let id) = track.appleMusicPlaybackIdentifier else { return nil }
             return id
@@ -133,10 +172,11 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         var catalogSongs: [String: Song] = [:]
         for start in stride(from: 0, to: catalogIDs.count, by: 25) {
             let end = min(start + 25, catalogIDs.count)
-            let request = MusicCatalogResourceRequest<Song>(
+            var request = MusicCatalogResourceRequest<Song>(
                 matching: \.id,
                 memberOf: catalogIDs[start..<end].map { MusicItemID($0) }
             )
+            request.limit = end - start
             for song in try await request.response().items {
                 catalogSongs[String(describing: song.id)] = song
             }
@@ -152,17 +192,40 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             librarySongs[id] = try await request.response().items.first
         }
 
-        let resolved = tracks.compactMap { track -> (track: Track, song: Song)? in
-            switch track.appleMusicPlaybackIdentifier {
-            case .catalog(let id): catalogSongs[id].map { (track, $0) }
-            case .library(let id): librarySongs[id].map { (track, $0) }
+        var resolvedByPlaybackIdentity: [String: (track: Track, song: Song)] = [:]
+        for track in tracks {
+            let song: Song? = switch track.appleMusicPlaybackIdentifier {
+            case .catalog(let id): catalogSongs[id]
+            case .library(let id): librarySongs[id]
             case nil: nil
             }
+            if let song {
+                resolvedByPlaybackIdentity[track.playbackIdentity] = (track, song)
+            }
         }
-        guard resolved.count == tracks.count else {
+
+        guard let resolution = AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: tracks,
+            resolvedPlaybackIdentities: Set(resolvedByPlaybackIdentity.keys)
+        ) else {
             throw AppleMusicSourceError.musicKitPlaybackRequired
         }
-        return resolved
+        if !resolution.unresolvedPlaybackIdentities.isEmpty {
+            let identifiers = resolution.unresolvedPlaybackIdentities
+                .sorted()
+                .prefix(10)
+                .joined(separator: ",")
+            EnsembleLogger.info(
+                "🎵 Apple Music skipped \(resolution.unresolvedPlaybackIdentities.count) unresolved queue item(s) ids=\(identifiers)"
+            )
+        }
+        let resolved = resolution.resolvedTracks.compactMap { track in
+            resolvedByPlaybackIdentity[track.playbackIdentity]
+        }
+        return (
+            resolvedTracks: resolved,
+            unresolvedPlaybackIdentities: resolution.unresolvedPlaybackIdentities
+        )
     }
 
     func pause() { player.pause() }

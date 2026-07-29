@@ -446,6 +446,25 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         })
     }
 
+    static func pruningUnresolvedAppleMusicItems(
+        queue: [QueueItem],
+        originalQueue: [QueueItem],
+        submittedItems: [QueueItem],
+        unresolvedPlaybackIdentities: Set<String>
+    ) -> (queue: [QueueItem], originalQueue: [QueueItem], removedItemIDs: Set<String>) {
+        let removedItemIDs = Set(submittedItems.compactMap { item in
+            unresolvedPlaybackIdentities.contains(item.track.playbackIdentity) ? item.id : nil
+        })
+        guard !removedItemIDs.isEmpty else {
+            return (queue, originalQueue, [])
+        }
+        return (
+            queue.filter { !removedItemIDs.contains($0.id) },
+            originalQueue.filter { !removedItemIDs.contains($0.id) },
+            removedItemIDs
+        )
+    }
+
     static func shouldStartAppleMusicAutoplay(nextItem: QueueItem?, isEnabled: Bool) -> Bool {
         isEnabled && (nextItem == nil || nextItem?.source == .autoplay)
     }
@@ -5309,6 +5328,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             pendingPreBufferTime = nil
             let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
+            let submittedItems = Array(queue[currentQueueIndex...].prefix(segment.count))
 
             audioEngine?.stop()
             audioAnalyzer.pauseUpdates()
@@ -5320,11 +5340,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updateNowPlayingInfo()
 
             do {
-                try await appleMusicPlaybackController?.play(
+                guard let controller = appleMusicPlaybackController else {
+                    throw AppleMusicSourceError.musicKitPlaybackRequired
+                }
+                controller.stop()
+                let unresolvedPlaybackIdentities = try await controller.play(
                     tracks: segment,
                     smartMixEnabled: isSmartMixEnabled,
                     startTime: startTime
                 )
+                let pruned = Self.pruningUnresolvedAppleMusicItems(
+                    queue: queue,
+                    originalQueue: originalQueue,
+                    submittedItems: submittedItems,
+                    unresolvedPlaybackIdentities: unresolvedPlaybackIdentities
+                )
+                if !pruned.removedItemIDs.isEmpty {
+                    queue = pruned.queue
+                    originalQueue = pruned.originalQueue
+                    savePlaybackState()
+                }
                 playbackState = .playing
                 updateNowPlayingInfo()
             } catch {
