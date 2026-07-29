@@ -1,6 +1,13 @@
 import EnsembleCore
 import SwiftUI
 
+func resolvedDownloadMenuAvailability(
+    isDownloaded: Bool,
+    sourceAvailability: MusicItemActionAvailability
+) -> MusicItemActionAvailability {
+    isDownloaded ? .available : sourceAvailability
+}
+
 /// Shared track actions used by standalone media cards, feed rows, mini player, and fallback queue rows.
 struct TrackActionsContextMenu: View {
     let track: Track
@@ -20,6 +27,10 @@ struct TrackActionsContextMenu: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     var body: some View {
+        let isFavorited = nowPlayingVM.isTrackFavorited(track)
+        let favoriteAvailability = track.actionAvailability(for: .favorite, isFavorited: isFavorited)
+        let editAvailability = track.actionAvailability(for: .editMetadata)
+        let deleteAvailability = track.actionAvailability(for: .delete)
         let recentTitle = recentPlaylistTarget.map { target in
             PlaylistActionPresentationHost.recentPlaylistTitle(
                 for: [track],
@@ -44,20 +55,25 @@ struct TrackActionsContextMenu: View {
                     canGetInfo: onGetInfo != nil,
                     canShareLink: true,
                     canShareAudioFile: track.sourceCapabilities.supportsAudioFileSharing,
-                    canFavorite: track.sourceCapabilities.supportsFavoriteRemoval || !nowPlayingVM.isTrackFavorited(track),
+                    canFavorite: true,
                     canDownload: false,
                     canPin: false,
-                    canEditMetadata: onEditMetadata != nil && track.sourceCapabilities.supportsMetadataEditing,
-                    canDelete: onDelete != nil && track.sourceCapabilities.supportsTrackDeletion,
+                    canEditMetadata: onEditMetadata != nil,
+                    canDelete: onDelete != nil,
                     canRename: false,
                     canEditPlaylist: false,
                     canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
-                    canRemoveFromQueue: onRemoveFromQueue != nil
+                    canRemoveFromQueue: onRemoveFromQueue != nil,
+                    itemActions: [
+                        .favorite: favoriteAvailability,
+                        .editMetadata: editAvailability,
+                        .deleteTrack: deleteAvailability
+                    ]
                 )
             ),
             state: MediaMenuState(
                 recentPlaylistTitle: recentTitle,
-                isFavorited: nowPlayingVM.isTrackFavorited(track),
+                isFavorited: isFavorited,
                 isShuffleEnabled: nowPlayingVM.isShuffleEnabled,
                 repeatMode: nowPlayingVM.repeatMode
             ),
@@ -157,10 +173,16 @@ struct AlbumActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+        let downloadStatus = DownloadCapabilityPolicy.status(
             for: album.sourceCompositeKey,
             accountManager: deps.accountManager
         )
+        let downloadAvailability = resolvedDownloadMenuAvailability(
+            isDownloaded: isDownloaded,
+            sourceAvailability: album.actionAvailability(for: .download, downloadStatus: downloadStatus)
+        )
+        let editAvailability = album.actionAvailability(for: .editMetadata)
+        let deleteAvailability = album.actionAvailability(for: .delete)
         let isPinned = pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
         let recentTarget = nowPlayingVM.lastPlaylistTarget
         let recentPlaylistTitle = recentTarget.flatMap { target in
@@ -188,13 +210,18 @@ struct AlbumActionsContextMenu: View {
                     canShareLink: true,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: canDownload,
+                    canDownload: true,
                     canPin: true,
                     canEditMetadata: onEditMetadata != nil,
-                    canDelete: onDelete != nil && album.sourceCompositeKey != MusicSourceIdentifier.appleMusic.compositeKey,
+                    canDelete: onDelete != nil,
                     canRename: false,
                     canEditPlaylist: false,
-                    canRemoveFromQueue: false
+                    canRemoveFromQueue: false,
+                    itemActions: [
+                        .download: downloadAvailability,
+                        .editMetadata: editAvailability,
+                        .deleteAlbum: deleteAvailability
+                    ]
                 )
             ),
             state: MediaMenuState(
@@ -355,10 +382,15 @@ struct ArtistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+        let downloadStatus = DownloadCapabilityPolicy.status(
             for: artist.sourceCompositeKey,
             accountManager: deps.accountManager
         )
+        let downloadAvailability = resolvedDownloadMenuAvailability(
+            isDownloaded: isDownloaded,
+            sourceAvailability: artist.actionAvailability(for: .download, downloadStatus: downloadStatus)
+        )
+        let editAvailability = artist.actionAvailability(for: .editMetadata)
         let isPinned = pinManager.isPinned(id: artist.id, sourceKey: artist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
@@ -373,13 +405,17 @@ struct ArtistActionsContextMenu: View {
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: canDownload,
+                    canDownload: true,
                     canPin: true,
                     canEditMetadata: onEditMetadata != nil,
                     canDelete: false,
                     canRename: false,
                     canEditPlaylist: false,
-                    canRemoveFromQueue: false
+                    canRemoveFromQueue: false,
+                    itemActions: [
+                        .download: downloadAvailability,
+                        .editMetadata: editAvailability
+                    ]
                 )
             ),
             state: MediaMenuState(
@@ -478,15 +514,22 @@ struct PlaylistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
+        let downloadStatus = DownloadCapabilityPolicy.status(
             for: playlist.sourceCompositeKey,
             accountManager: deps.accountManager
         )
+        let downloadAvailability = resolvedDownloadMenuAvailability(
+            isDownloaded: isDownloaded,
+            sourceAvailability: playlist.actionAvailability(for: .download, downloadStatus: downloadStatus)
+        )
+        let renameAvailability = playlist.actionAvailability(for: .rename)
+        let reorderAvailability = playlist.actionAvailability(for: .reorder)
+        let deleteAvailability = playlist.actionAvailability(for: .delete)
         let isPinned = pinManager.isPinned(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
-                for: .playlist(isSmart: !playlist.supportsPlaylistEditing),
+                for: .playlist(isSmart: playlist.isSmart),
                 context: .library,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: false,
@@ -497,13 +540,19 @@ struct PlaylistActionsContextMenu: View {
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: canDownload,
+                    canDownload: true,
                     canPin: true,
                     canEditMetadata: false,
-                    canDelete: onDelete != nil && playlist.supportsPlaylistDeletion,
-                    canRename: onRename != nil && playlist.supportsPlaylistEditing,
-                    canEditPlaylist: onEdit != nil && playlist.supportsPlaylistEditing,
-                    canRemoveFromQueue: false
+                    canDelete: onDelete != nil,
+                    canRename: onRename != nil,
+                    canEditPlaylist: onEdit != nil,
+                    canRemoveFromQueue: false,
+                    itemActions: [
+                        .download: downloadAvailability,
+                        .rename: renameAvailability,
+                        .editPlaylist: reorderAvailability,
+                        .deletePlaylist: deleteAvailability
+                    ]
                 )
             ),
             state: MediaMenuState(
@@ -604,13 +653,36 @@ struct MergedPlaylistActionsContextMenu: View {
     @Environment(\.dependencies) private var deps
 
     var body: some View {
-        let downloadablePlaylists = displayPlaylist.playlists.filter {
-            DownloadCapabilityPolicy.canAttemptDownload(
-                for: $0.sourceCompositeKey,
+        let downloadablePlaylists = displayPlaylist.playlists.filter { playlist in
+            let downloadStatus = DownloadCapabilityPolicy.status(
+                for: playlist.sourceCompositeKey,
                 accountManager: deps.accountManager
             )
+            return playlist.actionAvailability(
+                for: .download,
+                downloadStatus: downloadStatus
+            ).isAvailable
         }
+        let downloadAvailability = MusicItemActionAvailability.combined(
+            displayPlaylist.playlists.map { playlist in
+                let status = DownloadCapabilityPolicy.status(
+                    for: playlist.sourceCompositeKey,
+                    accountManager: deps.accountManager
+                )
+                return playlist.actionAvailability(for: .download, downloadStatus: status)
+            }
+        )
+        let renameAvailability = MusicItemActionAvailability.combined(
+            displayPlaylist.playlists.map { $0.actionAvailability(for: .rename) }
+        )
+        let deleteAvailability = MusicItemActionAvailability.combined(
+            displayPlaylist.playlists.map { $0.actionAvailability(for: .delete) }
+        )
         let isDownloaded = isAnyConstituentDownloaded
+        let removeDownloadAvailability = resolvedDownloadMenuAvailability(
+            isDownloaded: isDownloaded,
+            sourceAvailability: downloadAvailability
+        )
         let downloadAll: (() -> Void)? = isDownloaded ? nil : {
             Task {
                 for playlist in downloadablePlaylists {
@@ -628,7 +700,7 @@ struct MergedPlaylistActionsContextMenu: View {
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
-                for: .mergedPlaylist(isSmart: displayPlaylist.editablePlaylists.isEmpty),
+                for: .mergedPlaylist(isSmart: displayPlaylist.isSmart),
                 context: context,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: false,
@@ -638,13 +710,19 @@ struct MergedPlaylistActionsContextMenu: View {
                     canShareLink: false,
                     canShareAudioFile: false,
                     canFavorite: false,
-                    canDownload: !downloadablePlaylists.isEmpty,
+                    canDownload: true,
                     canPin: false,
                     canEditMetadata: false,
-                    canDelete: onDelete != nil && !displayPlaylist.deletablePlaylists.isEmpty,
-                    canRename: onRename != nil && !displayPlaylist.editablePlaylists.isEmpty,
+                    canDelete: onDelete != nil,
+                    canRename: onRename != nil,
                     canEditPlaylist: false,
-                    canRemoveFromQueue: false
+                    canRemoveFromQueue: false,
+                    itemActions: [
+                        .downloadAll: downloadAvailability,
+                        .removeDownloads: removeDownloadAvailability,
+                        .renameAll: renameAvailability,
+                        .deleteAll: deleteAvailability
+                    ]
                 )
             ),
             state: MediaMenuState(isDownloaded: isDownloaded),

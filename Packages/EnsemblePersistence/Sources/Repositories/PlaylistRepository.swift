@@ -84,7 +84,11 @@ public struct PlaylistSyncState: Sendable, Equatable {
     public let dateModified: Date?
     public let lastPlayed: Date?
     public let actionCapabilities: PlaylistActionCapabilities?
-    public let membershipRatingKeys: [String]
+    public let membershipSnapshots: [PlaylistTrackSnapshot]
+
+    public var membershipRatingKeys: [String] {
+        membershipSnapshots.map(\.ratingKey)
+    }
 
     public init(
         key: String,
@@ -101,7 +105,8 @@ public struct PlaylistSyncState: Sendable, Equatable {
         dateModified: Date?,
         lastPlayed: Date?,
         actionCapabilities: PlaylistActionCapabilities?,
-        membershipRatingKeys: [String]
+        membershipRatingKeys: [String] = [],
+        membershipSnapshots: [PlaylistTrackSnapshot]? = nil
     ) {
         self.key = key
         self.title = title
@@ -117,7 +122,8 @@ public struct PlaylistSyncState: Sendable, Equatable {
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
         self.actionCapabilities = actionCapabilities
-        self.membershipRatingKeys = membershipRatingKeys
+        self.membershipSnapshots = membershipSnapshots
+            ?? membershipRatingKeys.map { PlaylistTrackSnapshot(ratingKey: $0) }
     }
 
     /// Compares a header input using the repository's merge semantics.
@@ -201,9 +207,14 @@ public protocol PlaylistRepositoryProtocol: Sendable {
     func fetchPlaylists(sourceCompositeKey: String?) async throws -> [CDPlaylist]
     func fetchPlaylists(sourceCompositeKeys: Set<String>) async throws -> [CDPlaylist]
     func countPlaylists(sourceCompositeKeys: Set<String>?) async throws -> Int
+    /// Fetches one playlist with memberships for detail and body operations.
     func fetchPlaylist(ratingKey: String) async throws -> CDPlaylist?
+    /// Fetches one source-scoped playlist with memberships for detail and body operations.
     func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist?
-    func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist]
+    /// Fetches source-scoped playlist metadata without loading track memberships.
+    func fetchPlaylistHeaders(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist]
+    /// Fetches source-scoped playlists with track memberships for detail and body operations.
+    func fetchPlaylistBodies(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist]
     func fetchPlaylistCompositePaths(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: String]
     func searchPlaylists(query: String) async throws -> [CDPlaylist]
     func findPlaylistsByTitle(_ title: String, sourceCompositeKeys: Set<String>?) async throws -> [CDPlaylist]
@@ -356,12 +367,41 @@ public extension PlaylistRepositoryProtocol {
                 dateModified: playlist.dateModified,
                 lastPlayed: playlist.lastPlayed,
                 actionCapabilities: playlist.persistedActionCapabilities,
-                membershipRatingKeys: memberships.compactMap { $0.trackRatingKey ?? $0.track?.ratingKey }
+                membershipSnapshots: memberships.compactMap { membership in
+                    guard let ratingKey = membership.trackRatingKey ?? membership.track?.ratingKey else {
+                        return nil
+                    }
+                    return PlaylistTrackSnapshot(
+                        ratingKey: ratingKey,
+                        playlistItemID: membership.playlistItemID,
+                        key: membership.trackKey ?? "",
+                        title: membership.trackTitle ?? "",
+                        artistName: membership.trackArtistName,
+                        albumName: membership.trackAlbumName,
+                        duration: membership.trackDuration,
+                        thumbPath: membership.trackThumbPath,
+                        sourceCompositeKey: membership.trackSourceCompositeKey
+                    )
+                }
             ))
         })
     }
 
-    func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+    func fetchPlaylistHeaders(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+        guard !references.isEmpty else { return [:] }
+        let requestedKeys = Set(references.map(\.lookupKey))
+        var result: [String: CDPlaylist] = [:]
+        result.reserveCapacity(references.count)
+        for playlist in try await fetchPlaylists() {
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { continue }
+            let lookupKey = "\(sourceCompositeKey)|\(playlist.ratingKey)"
+            guard requestedKeys.contains(lookupKey) else { continue }
+            result[lookupKey] = playlist
+        }
+        return result
+    }
+
+    func fetchPlaylistBodies(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
         guard !references.isEmpty else { return [:] }
         var result: [String: CDPlaylist] = [:]
         result.reserveCapacity(references.count)
@@ -492,6 +532,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     playlist.fallbackArtworkRatingKey = album.ratingKey
                     playlist.fallbackArtworkSourceCompositeKey = album.sourceCompositeKey
                         ?? sourceCompositeKey
+                        ?? playlist.sourceCompositeKey
                 } else {
                     playlist.fallbackArtworkPath = track?.thumbPath ?? membership.trackThumbPath ?? ""
                     playlist.fallbackArtworkRatingKey = nil
@@ -611,20 +652,45 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
             let membershipRequest = NSFetchRequest<NSDictionary>(entityName: "CDPlaylistTrack")
             membershipRequest.resultType = .dictionaryResultType
             membershipRequest.predicate = NSPredicate(format: "playlist.sourceCompositeKey == %@", sourceKey)
-            membershipRequest.propertiesToFetch = [playlistID, "trackRatingKey", linkedTrackID, "order"]
+            membershipRequest.propertiesToFetch = [
+                playlistID,
+                "trackRatingKey",
+                linkedTrackID,
+                "order",
+                "playlistItemID",
+                "trackSourceCompositeKey",
+                "trackKey",
+                "trackTitle",
+                "trackArtistName",
+                "trackAlbumName",
+                "trackDuration",
+                "trackThumbPath"
+            ]
             membershipRequest.sortDescriptors = [
                 NSSortDescriptor(key: "playlist.ratingKey", ascending: true),
                 NSSortDescriptor(key: "order", ascending: true)
             ]
             membershipRequest.fetchBatchSize = 500
 
-            var membershipIDsByPlaylist: [String: [String]] = [:]
+            var membershipSnapshotsByPlaylist: [String: [PlaylistTrackSnapshot]] = [:]
             for row in try context.fetch(membershipRequest) {
                 let trackID = (row["trackRatingKey"] as? String) ?? (row["linkedTrackID"] as? String)
                 guard let playlistID = row["playlistID"] as? String, let trackID else {
                     continue
                 }
-                membershipIDsByPlaylist[playlistID, default: []].append(trackID)
+                membershipSnapshotsByPlaylist[playlistID, default: []].append(
+                    PlaylistTrackSnapshot(
+                        ratingKey: trackID,
+                        playlistItemID: row["playlistItemID"] as? String,
+                        key: row["trackKey"] as? String ?? "",
+                        title: row["trackTitle"] as? String ?? "",
+                        artistName: row["trackArtistName"] as? String,
+                        albumName: row["trackAlbumName"] as? String,
+                        duration: (row["trackDuration"] as? NSNumber)?.doubleValue ?? 0,
+                        thumbPath: row["trackThumbPath"] as? String,
+                        sourceCompositeKey: row["trackSourceCompositeKey"] as? String
+                    )
+                )
             }
 
             var result: [String: PlaylistSyncState] = [:]
@@ -645,7 +711,7 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     dateModified: playlist.dateModified,
                     lastPlayed: playlist.lastPlayed,
                     actionCapabilities: playlist.persistedActionCapabilities,
-                    membershipRatingKeys: membershipIDsByPlaylist[playlist.ratingKey] ?? []
+                    membershipSnapshots: membershipSnapshotsByPlaylist[playlist.ratingKey] ?? []
                 )
             }
             return result
@@ -742,15 +808,28 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         try await withCheckedThrowingContinuation { continuation in
             let context = self.coreDataStack.viewContext
             context.perform {
-                let request = CDPlaylist.fetchRequest()
-                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
-                if sourceCompositeKey == nil {
-                    // Prefer the freshest copy if multiple servers share a rating key.
-                    request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
-                }
-                request.fetchLimit = 1
-                request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                 do {
+                    let resolvedSourceKey: String
+                    if let sourceCompositeKey {
+                        resolvedSourceKey = sourceCompositeKey
+                    } else if let uniqueSourceKey = try RepositoryPredicates.uniqueSourceCompositeKey(
+                        forEntity: "CDPlaylist",
+                        ratingKey: ratingKey,
+                        in: context
+                    ) {
+                        resolvedSourceKey = uniqueSourceKey
+                    } else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+
+                    let request = CDPlaylist.fetchRequest()
+                    request.predicate = RepositoryPredicates.ratingKey(
+                        ratingKey,
+                        sourceCompositeKey: resolvedSourceKey
+                    )
+                    request.fetchLimit = 1
+                    request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
                     let playlist = try context.fetch(request).first
                     continuation.resume(returning: playlist)
                 } catch {
@@ -760,16 +839,40 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         }
     }
 
-    public func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+    public func fetchPlaylistHeaders(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
         guard !references.isEmpty else { return [:] }
+        let sourceCompositeKeys = Set(references.map(\.sourceCompositeKey))
+        try await backfillPlaylistFallbackArtwork(sourceCompositeKeys: sourceCompositeKeys)
+        return try await fetchPlaylists(
+            forReferences: references,
+            relationshipKeyPathsForPrefetching: []
+        )
+    }
+
+    public func fetchPlaylistBodies(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+        guard !references.isEmpty else { return [:] }
+        return try await fetchPlaylists(
+            forReferences: references,
+            relationshipKeyPathsForPrefetching: ["playlistTracks", "playlistTracks.track"]
+        )
+    }
+
+    private func fetchPlaylists(
+        forReferences references: [SourceScopedArtworkReference],
+        relationshipKeyPathsForPrefetching: [String]
+    ) async throws -> [String: CDPlaylist] {
         return try await withCheckedThrowingContinuation { continuation in
             let context = self.coreDataStack.viewContext
             context.perform {
                 do {
-                    let ratingKeys = Array(Set(references.map(\.ratingKey)))
                     let request = CDPlaylist.fetchRequest()
-                    request.predicate = NSPredicate(format: "ratingKey IN %@", ratingKeys)
-                    request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
+                    request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: Set(references).map { reference in
+                        NSCompoundPredicate(andPredicateWithSubpredicates: [
+                            NSPredicate(format: "ratingKey == %@", reference.ratingKey),
+                            NSPredicate(format: "sourceCompositeKey == %@", reference.sourceCompositeKey)
+                        ])
+                    })
+                    request.relationshipKeyPathsForPrefetching = relationshipKeyPathsForPrefetching
 
                     let requestedKeys = Set(references.map(\.lookupKey))
                     let playlists = try context.fetch(request)

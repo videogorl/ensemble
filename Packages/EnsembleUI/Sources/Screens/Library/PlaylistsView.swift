@@ -949,6 +949,7 @@ public struct PlaylistDetailView: View {
     }
 
     public var body: some View {
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(viewModel.playlist)
         Group {
             if isEditingPlaylist {
                 inlinePlaylistEditor
@@ -971,9 +972,32 @@ public struct PlaylistDetailView: View {
                         )
                     ),
                     playlistMenuActions: PlaylistDetailMenuActions(
-                        canRename: viewModel.playlist.supportsPlaylistEditing,
-                        canEdit: viewModel.canEditPlaylistItems,
-                        canDelete: viewModel.playlist.supportsPlaylistDeletion,
+                        downloadAvailability: resolvedDownloadMenuAvailability(
+                            isDownloaded: isDownloaded,
+                            sourceAvailability: viewModel.playlist.actionAvailability(
+                                for: .download,
+                                downloadStatus: DownloadCapabilityPolicy.status(
+                                    for: viewModel.playlist.sourceCompositeKey,
+                                    accountManager: deps.accountManager
+                                )
+                            )
+                        ),
+                        isDownloaded: isDownloaded,
+                        renameAvailability: viewModel.playlist.actionAvailability(for: .rename),
+                        editAvailability: resolvedPlaylistDetailEditAvailability(
+                            actionAvailability: viewModel.playlist.actionAvailability(for: .reorder),
+                            canEditContents: viewModel.canEditPlaylistItems,
+                            unavailableReason: "Playlist contents are not available to edit."
+                        ),
+                        deleteAvailability: viewModel.playlist.actionAvailability(for: .delete),
+                        onToggleDownload: {
+                            Task {
+                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                    viewModel.playlist,
+                                    isEnabled: !isDownloaded
+                                )
+                            }
+                        },
                         onRename: {
                             renamePromptText = viewModel.playlist.title
                             showRenamePrompt = true

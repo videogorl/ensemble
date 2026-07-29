@@ -65,9 +65,27 @@ extension LibraryRepository {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
-                let request = CDArtist.fetchRequest()
-                request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
                 do {
+                    let resolvedSourceKey: String
+                    if let sourceCompositeKey {
+                        resolvedSourceKey = sourceCompositeKey
+                    } else if let uniqueSourceKey = try RepositoryPredicates.uniqueSourceCompositeKey(
+                        forEntity: "CDArtist",
+                        ratingKey: ratingKey,
+                        in: context
+                    ) {
+                        resolvedSourceKey = uniqueSourceKey
+                    } else {
+                        continuation.resume(returning: nil)
+                        return
+                    }
+
+                    let request = CDArtist.fetchRequest()
+                    request.predicate = RepositoryPredicates.ratingKey(
+                        ratingKey,
+                        sourceCompositeKey: resolvedSourceKey
+                    )
+                    request.fetchLimit = 1
                     let artist = try context.fetch(request).first
                     continuation.resume(returning: artist)
                 } catch {

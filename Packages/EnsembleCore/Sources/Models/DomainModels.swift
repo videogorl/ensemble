@@ -84,6 +84,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let genres: [String]
     public let sourceCompositeKey: String?
     public let unavailableReason: String?
+    public let actionCapabilities: MusicItemActionCapabilities?
 
     public init(
         id: String,
@@ -112,7 +113,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         playCount: Int = 0,
         genres: [String] = [],
         sourceCompositeKey: String? = nil,
-        unavailableReason: String? = nil
+        unavailableReason: String? = nil,
+        actionCapabilities: MusicItemActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -145,6 +147,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
         self.unavailableReason = unavailableReason
+        self.actionCapabilities = actionCapabilities
     }
 
     public var isDownloaded: Bool {
@@ -268,7 +271,8 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             playCount: playCount,
             genres: genres,
             sourceCompositeKey: sourceCompositeKey,
-            unavailableReason: unavailableReason
+            unavailableReason: unavailableReason,
+            actionCapabilities: actionCapabilities
         )
     }
 }
@@ -340,6 +344,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
     public let genres: [String]
     public let sourceCompositeKey: String?
     public let releaseFormat: AlbumReleaseFormat?
+    public let actionCapabilities: MusicItemActionCapabilities?
 
     public init(
         id: String,
@@ -357,7 +362,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         rating: Int = 0,
         genres: [String] = [],
         sourceCompositeKey: String? = nil,
-        releaseFormat: AlbumReleaseFormat? = nil
+        releaseFormat: AlbumReleaseFormat? = nil,
+        actionCapabilities: MusicItemActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -375,6 +381,7 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
         self.genres = genres
         self.sourceCompositeKey = sourceCompositeKey
         self.releaseFormat = releaseFormat
+        self.actionCapabilities = actionCapabilities
     }
 
     /// Convenience initializer for radio/minimal album creation
@@ -409,7 +416,8 @@ public struct Album: Identifiable, Hashable, Sendable, Codable {
             lhs.dateModified == rhs.dateModified &&
             lhs.rating == rhs.rating &&
             lhs.genres == rhs.genres &&
-            lhs.releaseFormat == rhs.releaseFormat
+            lhs.releaseFormat == rhs.releaseFormat &&
+            lhs.actionCapabilities == rhs.actionCapabilities
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -436,6 +444,7 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
     public let dateAdded: Date?
     public let dateModified: Date?
     public let sourceCompositeKey: String?
+    public let actionCapabilities: MusicItemActionCapabilities?
 
     // Fallback artwork from first album
     public let fallbackThumbPath: String?
@@ -452,7 +461,8 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
         dateModified: Date? = nil,
         sourceCompositeKey: String? = nil,
         fallbackThumbPath: String? = nil,
-        fallbackRatingKey: String? = nil
+        fallbackRatingKey: String? = nil,
+        actionCapabilities: MusicItemActionCapabilities? = nil
     ) {
         self.id = id
         self.key = key
@@ -465,6 +475,7 @@ public struct Artist: Identifiable, Hashable, Sendable, Codable {
         self.sourceCompositeKey = sourceCompositeKey
         self.fallbackThumbPath = fallbackThumbPath
         self.fallbackRatingKey = fallbackRatingKey
+        self.actionCapabilities = actionCapabilities
     }
 
     /// Convenience initializer for radio/minimal artist creation
@@ -825,7 +836,7 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     }
 
     public var sourceType: MusicSourceType? {
-        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+        MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType
     }
 
     public var isSmartForPlaylistGrouping: Bool {
@@ -877,7 +888,16 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     private static let appleMusicCreatedPlaylistIDsKey = "appleMusicCreatedPlaylistIDs"
     private static let legacyAppleMusicEditablePlaylistIDsKey = "appleMusicEditablePlaylistIDs"
 
-    private var resolvedActionCapabilities: PlaylistActionCapabilities {
+    var resolvedActionCapabilities: PlaylistActionCapabilities {
+        guard let sourceType else {
+            return PlaylistActionCapabilities(
+                canAddItems: false,
+                canRename: false,
+                canReorder: false,
+                canDelete: false,
+                unavailableReason: "This playlist’s music source is unknown."
+            )
+        }
         if let actionCapabilities {
             return actionCapabilities
         }

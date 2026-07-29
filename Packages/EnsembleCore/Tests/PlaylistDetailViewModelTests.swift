@@ -65,7 +65,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         var playlists: [String: CDPlaylist] = [:]
         var fetchPlaylistCallCount = 0
         var fetchPlaylistsCallCount = 0
-        var fetchPlaylistsForReferencesCallCount = 0
+        var fetchPlaylistBodiesCallCount = 0
 
         func fetchPlaylists() async throws -> [CDPlaylist] {
             fetchPlaylistsCallCount += 1
@@ -87,8 +87,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             return playlists[playlistKey(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)] ?? playlists[ratingKey]
         }
 
-        func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
-            fetchPlaylistsForReferencesCallCount += 1
+        func fetchPlaylistBodies(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+            fetchPlaylistBodiesCallCount += 1
             var result: [String: CDPlaylist] = [:]
             result.reserveCapacity(references.count)
             for reference in references {
@@ -1009,7 +1009,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         playlistRepository.playlists[playlistRepository.playlistKey(
             ratingKey: firstPlaylist.id,
             sourceCompositeKey: firstPlaylist.sourceCompositeKey
-        )] = makeCachedPlaylist(firstPlaylist, tracks: firstTracks, context: context)
+        )] = makeCachedPlaylist(firstPlaylist, tracks: firstTracks, serverTrackCount: 3, context: context)
         playlistRepository.playlists[playlistRepository.playlistKey(
             ratingKey: secondPlaylist.id,
             sourceCompositeKey: secondPlaylist.sourceCompositeKey
@@ -1032,8 +1032,18 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
         await viewModel.loadTracks()
 
-        XCTAssertEqual(playlistRepository.fetchPlaylistsForReferencesCallCount, 1)
+        XCTAssertEqual(playlistRepository.fetchPlaylistBodiesCallCount, 1)
         XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 0)
+        XCTAssertTrue(viewModel.hasUnavailableTracks)
+        XCTAssertEqual(
+            viewModel.editAvailability(for: firstPlaylist),
+            .unavailable(reason: "Playlist contents are not available to edit.")
+        )
+        XCTAssertEqual(viewModel.editAvailability(for: secondPlaylist), .available)
+        XCTAssertEqual(
+            viewModel.editAvailability(for: editorialPlaylist),
+            .readOnly(reason: "Smart playlists are read-only.")
+        )
 
         let didRemove = await viewModel.removeTrackFromPlaylist(secondTracks[0], displayIndex: 1)
 

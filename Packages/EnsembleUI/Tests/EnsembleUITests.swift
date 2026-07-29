@@ -1143,6 +1143,71 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNil(model.resolve(for: library).onAddToLibrary)
     }
 
+    func testTrackRowInteractionModelUsesNormalizedAppleMusicActionAvailability() {
+        let track = Track(
+            id: "apple-song",
+            key: "apple-library:apple-song",
+            title: "Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let model = TrackRowInteractionModel(
+            onToggleFavorite: { _ in },
+            onEditMetadata: { _ in },
+            onDeleteTrack: { _ in },
+            isTrackFavorited: { _ in true }
+        )
+
+        let resolved = model.resolve(for: track)
+
+        XCTAssertNotNil(resolved.onToggleFavorite)
+        XCTAssertNotNil(resolved.onEditMetadata)
+        XCTAssertNotNil(resolved.onDeleteTrack)
+        XCTAssertFalse(resolved.favoriteAvailability.isAvailable)
+        XCTAssertFalse(resolved.editMetadataAvailability.isAvailable)
+        XCTAssertFalse(resolved.deleteAvailability.isAvailable)
+        XCTAssertTrue(model.hasContextMenu(for: track))
+    }
+
+    func testMediaMenuCatalogRetainsDisabledModelActionAndReason() throws {
+        let availability = MusicItemActionAvailability.readOnly(reason: "This playlist is read-only.")
+        let sections = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: false),
+            context: .library,
+            availability: MediaMenuAvailability(
+                canRename: true,
+                itemActions: [.rename: availability]
+            )
+        )
+
+        let rename = try XCTUnwrap(sections.flatMap(\.actions).first { $0.id == .rename })
+        XCTAssertEqual(rename.availability, availability)
+        XCTAssertFalse(rename.availability.isAvailable)
+        XCTAssertEqual(rename.availability.reason, "This playlist is read-only.")
+    }
+
+    func testMediaMenuCatalogRetainsUnavailableAppleUnfavoriteForMiniPlayer() throws {
+        let availability = MusicItemActionAvailability.unavailable(
+            reason: "Apple Music favorites cannot be removed in Ensemble."
+        )
+        let sections = MediaMenuCatalog.sections(
+            for: .track,
+            context: .miniPlayer,
+            availability: MediaMenuAvailability(
+                canFavorite: true,
+                itemActions: [.favorite: availability]
+            )
+        )
+        let renderable = MediaMenuCatalog.renderableSections(
+            sections,
+            state: MediaMenuState(isFavorited: true),
+            handlers: MediaMenuHandlers(favorite: {})
+        )
+
+        let favorite = try XCTUnwrap(renderable.flatMap(\.actions).first { $0.id == .favorite })
+        XCTAssertEqual(favorite.label(state: MediaMenuState(isFavorited: true))?.title, "Unfavorite")
+        XCTAssertEqual(favorite.availability, availability)
+    }
+
     func testMediaMenuCatalogQueueAndHistoryTrackContextsDivergeOnlyForRemoval() {
         let queue = MediaMenuCatalog.sections(
             for: .track,
@@ -1234,21 +1299,155 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNil(sections.first { $0.id == .management })
     }
 
-    func testMediaMenuCatalogLibraryPlaylistManagementExcludesSmartPlaylists() {
+    func testMediaMenuCatalogRetainsSmartPlaylistManagementActionsAsReadOnly() throws {
         let regular = MediaMenuCatalog.sections(
             for: .playlist(isSmart: false),
             context: .library,
             availability: .full
         )
+        let readOnly = MusicItemActionAvailability.readOnly(reason: "Smart playlists are read-only.")
         let smart = MediaMenuCatalog.sections(
             for: .playlist(isSmart: true),
             context: .library,
-            availability: .full
+            availability: MediaMenuAvailability(
+                itemActions: [
+                    .rename: readOnly,
+                    .editPlaylist: readOnly,
+                    .deletePlaylist: readOnly
+                ]
+            )
         )
 
         XCTAssertEqual(regular.actions(in: .management), [.getInfo, .rename, .editPlaylist, .deletePlaylist])
         XCTAssertEqual(regular.role(for: .deletePlaylist), .destructive)
-        XCTAssertEqual(smart.actions(in: .management), [.getInfo])
+        XCTAssertEqual(smart.actions(in: .management), [.getInfo, .rename, .editPlaylist, .deletePlaylist])
+        for actionID in [MediaMenuActionID.rename, .editPlaylist, .deletePlaylist] {
+            let action = try XCTUnwrap(smart.flatMap(\.actions).first { $0.id == actionID })
+            XCTAssertEqual(action.availability, readOnly)
+        }
+    }
+
+    func testMediaMenuCatalogOmitsSmartPlaylistManagementWithoutHandlers() {
+        let sections = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: true),
+            context: .library,
+            availability: .full
+        )
+        let renderable = MediaMenuCatalog.renderableSections(
+            sections,
+            state: MediaMenuState(),
+            handlers: MediaMenuHandlers(getInfo: {})
+        )
+
+        XCTAssertEqual(renderable.actions(in: .management), [.getInfo])
+    }
+
+    func testMediaMenuCatalogRetainsMergedSmartManagementActionsAsReadOnly() throws {
+        let readOnly = MusicItemActionAvailability.readOnly(reason: "Smart playlists are read-only.")
+        let sections = MediaMenuCatalog.sections(
+            for: .mergedPlaylist(isSmart: true),
+            context: .library,
+            availability: MediaMenuAvailability(
+                itemActions: [
+                    .renameAll: readOnly,
+                    .deleteAll: readOnly
+                ]
+            )
+        )
+
+        XCTAssertEqual(sections.actions(in: .management), [.renameAll, .deleteAll])
+        for actionID in [MediaMenuActionID.renameAll, .deleteAll] {
+            let action = try XCTUnwrap(sections.flatMap(\.actions).first { $0.id == actionID })
+            XCTAssertEqual(action.availability, readOnly)
+        }
+    }
+
+    func testDownloadMenuKeepsLocalRemovalAvailableWhenSourceSyncIsUnavailable() {
+        let sourceAvailability = MusicItemActionAvailability.unavailable(
+            reason: "This source is unavailable."
+        )
+
+        XCTAssertEqual(
+            resolvedDownloadMenuAvailability(
+                isDownloaded: true,
+                sourceAvailability: sourceAvailability
+            ),
+            .available
+        )
+        XCTAssertEqual(
+            resolvedDownloadMenuAvailability(
+                isDownloaded: false,
+                sourceAvailability: sourceAvailability
+            ),
+            sourceAvailability
+        )
+    }
+
+    func testDetailMenuKeepsUnknownDownloadVisibleButUnavailable() {
+        let album = Album(id: "legacy", key: "/album/legacy", title: "Legacy")
+        let availability = album.actionAvailability(for: .download, downloadStatus: .unknown)
+
+        XCTAssertEqual(
+            resolvedDownloadMenuAvailability(
+                isDownloaded: false,
+                sourceAvailability: availability
+            ),
+            .unavailable(reason: "This item’s music source is unknown.")
+        )
+    }
+
+    func testPlaylistDetailEditAvailabilityPreservesModelReasonAndLocalReadiness() {
+        let readOnly = MusicItemActionAvailability.readOnly(reason: "Smart playlists are read-only.")
+        XCTAssertEqual(
+            resolvedPlaylistDetailEditAvailability(
+                actionAvailability: readOnly,
+                canEditContents: true,
+                unavailableReason: "Playlist contents are not available to edit."
+            ),
+            readOnly
+        )
+        XCTAssertEqual(
+            resolvedPlaylistDetailEditAvailability(
+                actionAvailability: .available,
+                canEditContents: false,
+                unavailableReason: "Playlist contents are not available to edit."
+            ),
+            .unavailable(reason: "Playlist contents are not available to edit.")
+        )
+    }
+
+    func testMergedDetailDownloadUsesAnyDownloadableOrDownloadedConstituent() {
+        let apple = Playlist(
+            id: "apple",
+            key: "apple",
+            title: "Mix",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let plex = Playlist(
+            id: "plex",
+            key: "/playlists/plex",
+            title: "Mix",
+            sourceCompositeKey: "plex:account:server"
+        )
+        let sourceAvailabilities = [
+            apple.actionAvailability(for: .download),
+            plex.actionAvailability(for: .download)
+        ]
+
+        XCTAssertEqual(
+            resolvedMergedDownloadMenuAvailability(
+                isAnyDownloaded: false,
+                sourceAvailabilities: sourceAvailabilities
+            ),
+            .available
+        )
+        XCTAssertEqual(
+            resolvedMergedDownloadMenuAvailability(
+                isAnyDownloaded: true,
+                sourceAvailabilities: [.unavailable(reason: "New downloads are unavailable.")]
+            ),
+            .available
+        )
     }
 
     func testMediaMenuCatalogPinnedMergedPlaylistAddsUnpinAll() {
@@ -1265,7 +1464,12 @@ final class EnsembleUITests: XCTestCase {
     }
 
     func testTrackActionPresentationUsesSharedFavoriteState() {
-        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            sourceCompositeKey: "plex:account:server:library"
+        )
         let resolved = TrackRowInteractionModel(
             onPlayNext: { _ in },
             onToggleFavorite: { _ in },
@@ -1282,7 +1486,7 @@ final class EnsembleUITests: XCTestCase {
         )
         XCTAssertEqual(
             TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
-            "test-swipe-play-next-track-1"
+            "test-swipe-play-next-plex:account:server:library||track-1"
         )
     }
 
@@ -1305,6 +1509,26 @@ final class EnsembleUITests: XCTestCase {
     }
 
     #if os(macOS)
+    func testAppKitTrackMenuRendersUnavailableAppleActionDisabledWithReason() throws {
+        let track = Track(
+            id: "apple-song",
+            key: "apple-library:apple-song",
+            title: "Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let resolved = TrackRowInteractionModel(
+            onToggleFavorite: { _ in },
+            isTrackFavorited: { _ in true }
+        )
+        .resolve(for: track)
+
+        let menu = try XCTUnwrap(NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolved))
+        let favoriteItem = try XCTUnwrap(menu.items.first { $0.title == "Unfavorite" })
+
+        XCTAssertFalse(favoriteItem.isEnabled)
+        XCTAssertEqual(favoriteItem.toolTip, "Apple Music favorites cannot be removed in Ensemble.")
+    }
+
     func testAppKitTrackContextMenuUsesSharedCatalogOrder() throws {
         let track = Track(
             id: "track-1",

@@ -44,9 +44,12 @@ public struct MediaHeaderData {
 }
 
 public struct PlaylistDetailMenuActions {
-    let canRename: Bool
-    let canEdit: Bool
-    let canDelete: Bool
+    let downloadAvailability: MusicItemActionAvailability
+    let isDownloaded: Bool
+    let renameAvailability: MusicItemActionAvailability
+    let editAvailability: MusicItemActionAvailability
+    let deleteAvailability: MusicItemActionAvailability
+    let onToggleDownload: () -> Void
     let onRename: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -55,10 +58,32 @@ public struct PlaylistDetailMenuActions {
 }
 
 public struct AlbumDetailMenuActions {
+    let downloadAvailability: MusicItemActionAvailability
+    let editMetadataAvailability: MusicItemActionAvailability
+    let deleteAvailability: MusicItemActionAvailability
     let onEditMetadata: () -> Void
     let onDelete: () -> Void
     let onPlayNext: () -> Void
     let onPlayLast: () -> Void
+}
+
+func resolvedPlaylistDetailEditAvailability(
+    actionAvailability: MusicItemActionAvailability,
+    canEditContents: Bool,
+    unavailableReason: String
+) -> MusicItemActionAvailability {
+    guard actionAvailability.isAvailable else { return actionAvailability }
+    return canEditContents ? .available : .unavailable(reason: unavailableReason)
+}
+
+func resolvedMergedDownloadMenuAvailability(
+    isAnyDownloaded: Bool,
+    sourceAvailabilities: [MusicItemActionAvailability]
+) -> MusicItemActionAvailability {
+    resolvedDownloadMenuAvailability(
+        isDownloaded: isAnyDownloaded,
+        sourceAvailability: .combined(sourceAvailabilities)
+    )
 }
 
 // MARK: - Media Detail View
@@ -382,7 +407,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         key: headerData.ratingKey ?? ratingKey,
                         title: headerData.title,
                         artistName: headerData.subtitle,
-                        sourceCompositeKey: sourceKey ?? ""
+                        sourceCompositeKey: sourceKey
                     )
                     Button {
                         ShareActions.shareEnsembleLink(album, deps: deps)
@@ -418,29 +443,24 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .pin(isPinned: isPinned))
                     }
 
-                    if let sourceKey {
-                        let album = Album(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            title: headerData.title,
-                            artistName: headerData.subtitle,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                    Button {
+                        Task {
+                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                         }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                     }
+                    .disabled(!albumMenuActions.downloadAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.downloadAvailability.reason ?? "")
 
                     Button {
                         albumMenuActions.onEditMetadata()
                     } label: {
                         MediaActionLabel(kind: .editMetadata)
                     }
+                    .disabled(!albumMenuActions.editMetadataAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.editMetadataAvailability.reason ?? "")
 
                     Divider()
 
@@ -449,6 +469,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } label: {
                         MediaActionLabel(kind: .deleteAlbum)
                     }
+                    .disabled(!albumMenuActions.deleteAvailability.isAvailable)
+                    .accessibilityHint(albumMenuActions.deleteAvailability.reason ?? "")
                 }
             } else {
                     Button {
@@ -497,67 +519,107 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     MediaActionLabel(kind: .pin(isPinned: isPinned))
                 }
 
-                if
-                    let sourceKey,
-                    DownloadCapabilityPolicy.canAttemptDownload(for: sourceKey, accountManager: deps.accountManager)
-                {
-                    switch mediaType {
-                    case .album:
-                        let album = Album(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            title: headerData.title,
-                            artistName: headerData.subtitle,
-                            sourceCompositeKey: sourceKey
+                switch mediaType {
+                case .album:
+                    let album = Album(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        artistName: headerData.subtitle,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+                    let availability = resolvedDownloadMenuAvailability(
+                        isDownloaded: isDownloaded,
+                        sourceAvailability: album.actionAvailability(
+                            for: .download,
+                            downloadStatus: DownloadCapabilityPolicy.status(
+                                for: sourceKey,
+                                accountManager: deps.accountManager
+                            )
                         )
-                        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                    )
+                    Button {
+                        Task {
+                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
                         }
-
-                    case .artist:
-                        let artist = Artist(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            name: headerData.title,
-                            summary: nil,
-                            thumbPath: headerData.artworkPath,
-                            artPath: nil,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                        }
-
-                    case .playlist:
-                        let playlist = Playlist(
-                            id: ratingKey,
-                            key: headerData.ratingKey ?? ratingKey,
-                            title: headerData.title,
-                            summary: nil,
-                            isSmart: false,
-                            trackCount: 0,
-                            duration: 0,
-                            sourceCompositeKey: sourceKey
-                        )
-                        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-                        Button {
-                            Task {
-                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
-                            }
-                        } label: {
-                            MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
-                        }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                     }
+                    .disabled(!availability.isAvailable)
+                    .accessibilityHint(availability.reason ?? "")
+
+                case .artist:
+                    let artist = Artist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        name: headerData.title,
+                        summary: nil,
+                        thumbPath: headerData.artworkPath,
+                        artPath: nil,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+                    let availability = resolvedDownloadMenuAvailability(
+                        isDownloaded: isDownloaded,
+                        sourceAvailability: artist.actionAvailability(
+                            for: .download,
+                            downloadStatus: DownloadCapabilityPolicy.status(
+                                for: sourceKey,
+                                accountManager: deps.accountManager
+                            )
+                        )
+                    )
+                    Button {
+                        Task {
+                            await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                        }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                    }
+                    .disabled(!availability.isAvailable)
+                    .accessibilityHint(availability.reason ?? "")
+
+                case .playlist:
+                    let playlist = Playlist(
+                        id: ratingKey,
+                        key: headerData.ratingKey ?? ratingKey,
+                        title: headerData.title,
+                        summary: nil,
+                        isSmart: false,
+                        trackCount: 0,
+                        duration: 0,
+                        sourceCompositeKey: sourceKey
+                    )
+                    let isDownloaded = playlistMenuActions?.isDownloaded
+                        ?? deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+                    let availability = playlistMenuActions?.downloadAvailability
+                        ?? resolvedDownloadMenuAvailability(
+                            isDownloaded: isDownloaded,
+                            sourceAvailability: playlist.actionAvailability(
+                                for: .download,
+                                downloadStatus: DownloadCapabilityPolicy.status(
+                                    for: sourceKey,
+                                    accountManager: deps.accountManager
+                                )
+                            )
+                    )
+                    Button {
+                        if let playlistMenuActions {
+                            playlistMenuActions.onToggleDownload()
+                        } else {
+                            Task {
+                                await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                    playlist,
+                                    isEnabled: !isDownloaded
+                                )
+                            }
+                        }
+                    } label: {
+                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                    }
+                    .disabled(!availability.isAvailable)
+                    .accessibilityHint(availability.reason ?? "")
                 }
             }
 
@@ -581,21 +643,24 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     MediaActionLabel(kind: .rename)
                 }
-                .disabled(!playlistMenuActions.canRename)
+                .disabled(!playlistMenuActions.renameAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.renameAvailability.reason ?? "")
 
                 Button {
                     playlistMenuActions.onEdit()
                 } label: {
                     MediaActionLabel(kind: .editPlaylist)
                 }
-                .disabled(!playlistMenuActions.canEdit)
+                .disabled(!playlistMenuActions.editAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.editAvailability.reason ?? "")
 
                 Button(role: .destructive) {
                     playlistMenuActions.onDelete()
                 } label: {
                     MediaActionLabel(kind: .deletePlaylist)
                 }
-                .disabled(!playlistMenuActions.canDelete)
+                .disabled(!playlistMenuActions.deleteAvailability.isAvailable)
+                .accessibilityHint(playlistMenuActions.deleteAvailability.reason ?? "")
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)

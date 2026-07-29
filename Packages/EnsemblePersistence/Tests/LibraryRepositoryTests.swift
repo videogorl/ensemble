@@ -71,6 +71,79 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertTrue(tracks.isEmpty)
     }
 
+    func testSourceOwnerResolutionRequiresOneNonemptyOwner() {
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+
+        XCTAssertEqual(
+            RepositoryPredicates.uniqueSourceCompositeKey(in: [sourceA, nil, sourceA, ""]),
+            sourceA
+        )
+        XCTAssertNil(RepositoryPredicates.uniqueSourceCompositeKey(in: [sourceA, sourceB]))
+        XCTAssertNil(RepositoryPredicates.uniqueSourceCompositeKey(in: [nil, ""]))
+    }
+
+    func testUnscopedLibraryItemLookupsRequireUniqueSourceOwner() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = LibraryRepository(coreDataStack: stack)
+        let sourceA = "plex/account/server/library-a"
+        let sourceB = "plex/account/server/library-b"
+        let ratingKey = "shared"
+
+        for sourceKey in [sourceA, sourceB] {
+            try await repository.batchUpsertArtists(
+                [makeArtistInput(ratingKey: ratingKey, thumbPath: nil, dateModified: nil)],
+                sourceCompositeKey: sourceKey
+            )
+            try await repository.batchUpsertAlbums(
+                [makeAlbumInput(ratingKey: ratingKey, thumbPath: nil, dateModified: nil)],
+                sourceCompositeKey: sourceKey
+            )
+            try await repository.batchUpsertTracks(
+                [makeTrackInput(ratingKey: ratingKey)],
+                sourceCompositeKey: sourceKey
+            )
+        }
+
+        let ambiguousArtist = try await repository.fetchArtist(ratingKey: ratingKey)
+        let ambiguousAlbum = try await repository.fetchAlbum(ratingKey: ratingKey)
+        let ambiguousTrack = try await repository.fetchTrack(ratingKey: ratingKey)
+        let scopedArtist = try await repository.fetchArtist(ratingKey: ratingKey, sourceCompositeKey: sourceB)
+        let scopedAlbum = try await repository.fetchAlbum(ratingKey: ratingKey, sourceCompositeKey: sourceB)
+        let scopedTrack = try await repository.fetchTrack(ratingKey: ratingKey, sourceCompositeKey: sourceB)
+
+        XCTAssertNil(ambiguousArtist)
+        XCTAssertNil(ambiguousAlbum)
+        XCTAssertNil(ambiguousTrack)
+        XCTAssertEqual(scopedArtist?.sourceCompositeKey, sourceB)
+        XCTAssertEqual(scopedAlbum?.sourceCompositeKey, sourceB)
+        XCTAssertEqual(scopedTrack?.sourceCompositeKey, sourceB)
+
+        try await stack.performBackgroundContext { context in
+            let artistRequest = CDArtist.fetchRequest()
+            artistRequest.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceB)
+            try context.fetch(artistRequest).forEach { $0.sourceCompositeKey = nil }
+
+            let albumRequest = CDAlbum.fetchRequest()
+            albumRequest.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceB)
+            try context.fetch(albumRequest).forEach { $0.sourceCompositeKey = nil }
+
+            let trackRequest = CDTrack.fetchRequest()
+            trackRequest.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceB)
+            try context.fetch(trackRequest).forEach { $0.sourceCompositeKey = nil }
+            try context.save()
+        }
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+
+        let repairedArtist = try await repository.fetchArtist(ratingKey: ratingKey)
+        let repairedAlbum = try await repository.fetchAlbum(ratingKey: ratingKey)
+        let repairedTrack = try await repository.fetchTrack(ratingKey: ratingKey)
+
+        XCTAssertEqual(repairedArtist?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(repairedAlbum?.sourceCompositeKey, sourceA)
+        XCTAssertEqual(repairedTrack?.sourceCompositeKey, sourceA)
+    }
+
     func testRefreshContextPreservesRegisteredObjects() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)

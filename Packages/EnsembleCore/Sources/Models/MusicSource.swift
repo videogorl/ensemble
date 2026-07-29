@@ -217,7 +217,7 @@ public struct MusicSource: Identifiable, Sendable {
 
 public extension Track {
     var sourceType: MusicSourceType? {
-        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+        MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType
     }
 
     var isAppleMusic: Bool { sourceType == .appleMusic }

@@ -24,6 +24,43 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(playlists.isEmpty)
     }
 
+    func testUnscopedPlaylistLookupRequiresUniqueSourceOwner() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let sourceA = "plex/account/server-a"
+        let sourceB = "plex/account/server-b"
+        let ratingKey = "shared"
+
+        for sourceKey in [sourceA, sourceB] {
+            _ = try await upsertPlaylist(
+                in: repository,
+                ratingKey: ratingKey,
+                compositePath: nil,
+                dateModified: nil,
+                sourceCompositeKey: sourceKey
+            )
+        }
+
+        let ambiguousPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey)
+        let scopedPlaylist = try await repository.fetchPlaylist(
+            ratingKey: ratingKey,
+            sourceCompositeKey: sourceB
+        )
+        XCTAssertNil(ambiguousPlaylist)
+        XCTAssertEqual(scopedPlaylist?.sourceCompositeKey, sourceB)
+
+        try await stack.performBackgroundContext { context in
+            let request = CDPlaylist.fetchRequest()
+            request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceB)
+            try context.fetch(request).forEach { $0.sourceCompositeKey = nil }
+            try context.save()
+        }
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+
+        let repairedPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey)
+        XCTAssertEqual(repairedPlaylist?.sourceCompositeKey, sourceA)
+    }
+
     func testPlaylistCountsUseDirectSourceScope() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server/library-a"
@@ -276,8 +313,9 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertNil(compositePaths["\(sourceA)|missing"])
     }
 
-    func testFetchPlaylistsBatchUsesSourceScopedReferences() async throws {
-        let repository = PlaylistRepository(coreDataStack: .inMemory())
+    func testFetchPlaylistHeadersUsesSourceScopedReferencesWithoutLoadingBodies() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
         let sourceA = "plex/account/server-a"
         let sourceB = "plex/account/server-b"
         let sourceC = "plex/account/server-c"
@@ -303,8 +341,25 @@ final class PlaylistRepositoryTests: XCTestCase {
             dateModified: nil,
             sourceCompositeKey: sourceC
         )
+        for (source, artworkPath) in [(sourceA, "/art/a"), (sourceB, "/art/b"), (sourceC, "/art/c")] {
+            try await repository.setPlaylistTrackSnapshots(
+                [PlaylistTrackSnapshot(ratingKey: "track", title: "Track", thumbPath: artworkPath)],
+                forPlaylist: "shared",
+                sourceCompositeKey: source
+            )
+        }
+        try await stack.performBackgroundContext { context in
+            let request = CDPlaylist.fetchRequest()
+            request.predicate = RepositoryPredicates.ratingKey("shared", sourceCompositeKey: sourceA)
+            let playlist = try XCTUnwrap(context.fetch(request).first)
+            playlist.fallbackArtworkPath = nil
+            playlist.fallbackArtworkRatingKey = nil
+            playlist.fallbackArtworkSourceCompositeKey = nil
+            try context.save()
+        }
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
 
-        let playlistsByKey = try await repository.fetchPlaylists(
+        let playlistsByKey = try await repository.fetchPlaylistHeaders(
             forReferences: [
                 SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceA),
                 SourceScopedArtworkReference(ratingKey: "shared", sourceCompositeKey: sourceB),
@@ -315,8 +370,104 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(playlistsByKey.count, 2)
         XCTAssertEqual(playlistsByKey["\(sourceA)|shared"]?.sourceCompositeKey, sourceA)
         XCTAssertEqual(playlistsByKey["\(sourceB)|shared"]?.sourceCompositeKey, sourceB)
+        XCTAssertEqual(playlistsByKey["\(sourceA)|shared"]?.fallbackArtworkPath, "/art/a")
+        XCTAssertEqual(playlistsByKey["\(sourceB)|shared"]?.fallbackArtworkPath, "/art/b")
+        XCTAssertTrue(try XCTUnwrap(playlistsByKey["\(sourceA)|shared"]).hasFault(forRelationshipNamed: "playlistTracks"))
+        XCTAssertTrue(try XCTUnwrap(playlistsByKey["\(sourceB)|shared"]).hasFault(forRelationshipNamed: "playlistTracks"))
         XCTAssertNil(playlistsByKey["\(sourceC)|shared"])
         XCTAssertNil(playlistsByKey["\(sourceA)|missing"])
+    }
+
+    func testPlaylistRootSearchAndTitleQueriesDoNotLoadBodies() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let sourceA = "plex/account/server-a"
+        let sourceB = "appleMusic/account/device/library"
+
+        for (source, artworkPath) in [(sourceA, "/art/a"), (sourceB, "/art/b")] {
+            _ = try await upsertPlaylist(
+                in: repository,
+                ratingKey: "shared",
+                compositePath: nil,
+                dateModified: nil,
+                sourceCompositeKey: source,
+                trackCount: 1
+            )
+            try await repository.setPlaylistTrackSnapshots(
+                [PlaylistTrackSnapshot(ratingKey: "track", title: "Track", thumbPath: artworkPath)],
+                forPlaylist: "shared",
+                sourceCompositeKey: source
+            )
+        }
+
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+        let root = try await repository.fetchPlaylists(sourceCompositeKeys: [sourceA])
+        XCTAssertEqual(root.map(\.sourceCompositeKey), [sourceA])
+        XCTAssertEqual(root.first?.fallbackArtworkPath, "/art/a")
+        XCTAssertTrue(try XCTUnwrap(root.first).hasFault(forRelationshipNamed: "playlistTracks"))
+
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+        let search = try await repository.searchPlaylists(query: "Playlist shared")
+        XCTAssertEqual(Set(search.compactMap(\.sourceCompositeKey)), [sourceA, sourceB])
+        XCTAssertEqual(Set(search.compactMap(\.fallbackArtworkPath)), ["/art/a", "/art/b"])
+        XCTAssertTrue(search.allSatisfy { $0.hasFault(forRelationshipNamed: "playlistTracks") })
+
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+        let titleMatches = try await repository.findPlaylistsByTitle(
+            "Playlist shared",
+            sourceCompositeKeys: [sourceB]
+        )
+        XCTAssertEqual(titleMatches.map(\.sourceCompositeKey), [sourceB])
+        XCTAssertEqual(titleMatches.first?.fallbackArtworkPath, "/art/b")
+        XCTAssertTrue(try XCTUnwrap(titleMatches.first).hasFault(forRelationshipNamed: "playlistTracks"))
+    }
+
+    func testFetchPlaylistBodiesLoadsRequestedSourceScopedMemberships() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = PlaylistRepository(coreDataStack: stack)
+        let sourceA = "plex/account/server-a"
+        let sourceB = "plex/account/server-b"
+
+        for source in [sourceA, sourceB] {
+            for playlistID in ["x", "y"] {
+                _ = try await upsertPlaylist(
+                    in: repository,
+                    ratingKey: playlistID,
+                    compositePath: nil,
+                    dateModified: nil,
+                    sourceCompositeKey: source,
+                    trackCount: 1
+                )
+                try await repository.setPlaylistTrackSnapshots(
+                    [PlaylistTrackSnapshot(ratingKey: "track-\(source)-\(playlistID)", title: "Track")],
+                    forPlaylist: playlistID,
+                    sourceCompositeKey: source
+                )
+            }
+        }
+        stack.viewContext.performAndWait { stack.viewContext.reset() }
+
+        let playlistsByKey = try await repository.fetchPlaylistBodies(forReferences: [
+            SourceScopedArtworkReference(ratingKey: "x", sourceCompositeKey: sourceA),
+            SourceScopedArtworkReference(ratingKey: "y", sourceCompositeKey: sourceB)
+        ])
+        let sourceAX = try XCTUnwrap(playlistsByKey["\(sourceA)|x"])
+        let sourceBY = try XCTUnwrap(playlistsByKey["\(sourceB)|y"])
+
+        XCTAssertEqual(playlistsByKey.count, 2)
+        XCTAssertEqual(sourceAX.playlistItemsArray.map(\.trackRatingKey), ["track-\(sourceA)-x"])
+        XCTAssertEqual(sourceBY.playlistItemsArray.map(\.trackRatingKey), ["track-\(sourceB)-y"])
+
+        let decoys = try await stack.performViewContext { context in
+            let request = CDPlaylist.fetchRequest()
+            request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: [
+                RepositoryPredicates.ratingKey("y", sourceCompositeKey: sourceA),
+                RepositoryPredicates.ratingKey("x", sourceCompositeKey: sourceB)
+            ])
+            return try context.fetch(request)
+        }
+        XCTAssertEqual(decoys.count, 2)
+        XCTAssertTrue(decoys.allSatisfy { $0.hasFault(forRelationshipNamed: "playlistTracks") })
     }
 
     func testOrphanRemovalKeepsValidAndOtherSourcePlaylists() async throws {
@@ -683,7 +834,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(playlist.persistedActionCapabilities, capabilities)
     }
 
-    func testPlaylistSyncStatesReturnHeadersAndOrderedMembershipIDs() async throws {
+    func testPlaylistSyncStatesReturnHeadersAndOrderedMembershipSnapshots() async throws {
         let repository = PlaylistRepository(coreDataStack: .inMemory())
         let sourceKey = "appleMusic/account/device/library"
         _ = try await repository.upsertPlaylist(
@@ -708,10 +859,35 @@ final class PlaylistRepositoryTests: XCTestCase {
             ),
             sourceCompositeKey: sourceKey
         )
-        try await repository.setPlaylistTrackSnapshots([
-            PlaylistTrackSnapshot(ratingKey: "second", title: "Second"),
-            PlaylistTrackSnapshot(ratingKey: "first", title: "First")
-        ], forPlaylist: "playlist", sourceCompositeKey: sourceKey)
+        let snapshots = [
+            PlaylistTrackSnapshot(
+                ratingKey: "second",
+                playlistItemID: "item-two",
+                key: "apple-catalog:second",
+                title: "Second",
+                artistName: "Artist Two",
+                albumName: "Album Two",
+                duration: 202,
+                thumbPath: "https://example.com/two.jpg",
+                sourceCompositeKey: sourceKey
+            ),
+            PlaylistTrackSnapshot(
+                ratingKey: "first",
+                playlistItemID: "item-one",
+                key: "apple-library:first",
+                title: "First",
+                artistName: "Artist One",
+                albumName: "Album One",
+                duration: 101,
+                thumbPath: "https://example.com/one.jpg",
+                sourceCompositeKey: sourceKey
+            )
+        ]
+        try await repository.setPlaylistTrackSnapshots(
+            snapshots,
+            forPlaylist: "playlist",
+            sourceCompositeKey: sourceKey
+        )
 
         let states = try await repository.fetchPlaylistSyncStates(forSource: sourceKey)
         let state = try XCTUnwrap(states["playlist"])
@@ -719,6 +895,7 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(state.trackCount, 2)
         XCTAssertTrue(state.actionCapabilities?.canAddItems == true)
         XCTAssertEqual(state.membershipRatingKeys, ["second", "first"])
+        XCTAssertEqual(state.membershipSnapshots, snapshots)
     }
 
     func testPlaylistRootBackfillsFallbackArtworkWithoutRealizingMemberships() async throws {
@@ -796,6 +973,17 @@ final class PlaylistRepositoryTests: XCTestCase {
                 playlist.fallbackArtworkRatingKey = nil
                 playlist.fallbackArtworkSourceCompositeKey = nil
             }
+
+            let albumRequest = CDAlbum.fetchRequest()
+            albumRequest.predicate = NSPredicate(format: "ratingKey == %@", "album")
+            try context.fetch(albumRequest).forEach { $0.sourceCompositeKey = nil }
+
+            let trackRequest = CDTrack.fetchRequest()
+            trackRequest.predicate = NSPredicate(format: "ratingKey == %@", "track")
+            try context.fetch(trackRequest).forEach { $0.sourceCompositeKey = nil }
+
+            let membershipRequest = CDPlaylistTrack.fetchRequest()
+            try context.fetch(membershipRequest).forEach { $0.trackSourceCompositeKey = nil }
             try context.save()
         }
         stack.viewContext.performAndWait { stack.viewContext.reset() }
@@ -811,6 +999,16 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertEqual(unresolved.fallbackArtworkSourceCompositeKey, sourceKey)
         XCTAssertTrue(linked.hasFault(forRelationshipNamed: "playlistTracks"))
         XCTAssertTrue(unresolved.hasFault(forRelationshipNamed: "playlistTracks"))
+
+        let repairCandidateCount = try await stack.performBackgroundContext { context in
+            let request = CDPlaylist.fetchRequest()
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+                NSPredicate(format: "sourceCompositeKey == %@", sourceKey),
+                NSPredicate(format: "fallbackArtworkPath == nil OR fallbackArtworkSourceCompositeKey == nil")
+            ])
+            return try context.count(for: request)
+        }
+        XCTAssertEqual(repairCandidateCount, 0)
     }
 
     @discardableResult

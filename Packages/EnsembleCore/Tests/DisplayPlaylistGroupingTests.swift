@@ -362,7 +362,12 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     @available(iOS 18, *)
     func testAppleMusicIncrementalPlaylistBodySelection() {
         let modifiedAt = Date(timeIntervalSince1970: 100)
-        let populated = applePlaylistState(trackCount: 5, membershipRatingKeys: ["one"], modifiedAt: modifiedAt)
+        let complete = applePlaylistState(
+            trackCount: 5,
+            membershipRatingKeys: ["one", "two", "three", "four", "five"],
+            modifiedAt: modifiedAt
+        )
+        let partial = applePlaylistState(trackCount: 5, membershipRatingKeys: ["one"], modifiedAt: modifiedAt)
         let bodyless = applePlaylistState(trackCount: 5, membershipRatingKeys: [], modifiedAt: modifiedAt)
         let empty = applePlaylistState(trackCount: 0, membershipRatingKeys: [], modifiedAt: modifiedAt)
 
@@ -372,13 +377,18 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             refreshAllBodies: false
         ))
         XCTAssertFalse(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
-            existing: populated,
+            existing: complete,
             modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
         XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
-            existing: populated,
+            existing: complete,
             modifiedAt: modifiedAt.addingTimeInterval(1),
+            refreshAllBodies: false
+        ))
+        XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
+            existing: partial,
+            modifiedAt: modifiedAt,
             refreshAllBodies: false
         ))
         XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
@@ -392,15 +402,281 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             refreshAllBodies: false
         ))
         XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
-            existing: populated,
+            existing: complete,
             modifiedAt: modifiedAt,
             refreshAllBodies: true
         ))
         XCTAssertTrue(AppleMusicSourceProvider.shouldRefreshPlaylistBody(
-            existing: populated,
+            existing: complete,
             modifiedAt: nil,
             refreshAllBodies: false
         ))
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicPlaylistPersistenceSkipsUnchangedHeaderAndOrderedBody() {
+        let modifiedAt = Date(timeIntervalSince1970: 100)
+        let existing = applePlaylistState(
+            trackCount: 2,
+            membershipRatingKeys: ["one", "two"],
+            modifiedAt: modifiedAt
+        )
+
+        let plan = AppleMusicSourceProvider.playlistPersistencePlan(
+            existing: existing,
+            input: applePlaylistInput(trackCount: 2, modifiedAt: modifiedAt),
+            membershipSnapshots: appleMembershipSnapshots(["one", "two"])
+        )
+
+        XCTAssertEqual(
+            plan,
+            .init(writesHeader: false, writesBody: false, ignoresStaleResponse: false)
+        )
+        XCTAssertFalse(plan.hasChanges)
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicPlaylistPersistenceSeparatesHeaderAndBodyChanges() {
+        let modifiedAt = Date(timeIntervalSince1970: 100)
+        let existing = applePlaylistState(
+            trackCount: 2,
+            membershipRatingKeys: ["one", "two"],
+            modifiedAt: modifiedAt
+        )
+
+        XCTAssertEqual(
+            AppleMusicSourceProvider.playlistPersistencePlan(
+                existing: existing,
+                input: applePlaylistInput(
+                    title: "Renamed Playlist",
+                    trackCount: 2,
+                    modifiedAt: modifiedAt
+                ),
+                membershipSnapshots: appleMembershipSnapshots(["one", "two"])
+            ),
+            .init(writesHeader: true, writesBody: false, ignoresStaleResponse: false)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.playlistPersistencePlan(
+                existing: existing,
+                input: applePlaylistInput(trackCount: 2, modifiedAt: modifiedAt),
+                membershipSnapshots: appleMembershipSnapshots(["two", "one"])
+            ),
+            .init(writesHeader: false, writesBody: true, ignoresStaleResponse: false)
+        )
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicPlaylistPersistenceRewritesChangedSnapshotMetadataWithStableIDs() {
+        let modifiedAt = Date(timeIntervalSince1970: 100)
+        let existingSnapshot = PlaylistTrackSnapshot(
+            ratingKey: "one",
+            key: "apple-library:one",
+            title: "Old Title",
+            artistName: "Old Artist",
+            albumName: "Old Album",
+            duration: 100,
+            thumbPath: "https://example.com/old.jpg",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let existing = applePlaylistState(
+            trackCount: 1,
+            membershipRatingKeys: ["one"],
+            membershipSnapshots: [existingSnapshot],
+            modifiedAt: modifiedAt
+        )
+        let changedSnapshot = PlaylistTrackSnapshot(
+            ratingKey: "one",
+            key: "apple-library:one-remastered",
+            title: "New Title",
+            artistName: "New Artist",
+            albumName: "New Album",
+            duration: 101,
+            thumbPath: "https://example.com/new.jpg",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        let plan = AppleMusicSourceProvider.playlistPersistencePlan(
+            existing: existing,
+            input: applePlaylistInput(trackCount: 1, modifiedAt: modifiedAt),
+            membershipSnapshots: [changedSnapshot]
+        )
+
+        XCTAssertFalse(plan.writesHeader)
+        XCTAssertTrue(plan.writesBody)
+        XCTAssertFalse(plan.ignoresStaleResponse)
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicPlaylistPersistenceRewritesAddedRemovedAndIncompleteBodies() {
+        let modifiedAt = Date(timeIntervalSince1970: 100)
+        let existing = applePlaylistState(
+            trackCount: 2,
+            membershipRatingKeys: ["one", "two"],
+            modifiedAt: modifiedAt
+        )
+
+        let added = AppleMusicSourceProvider.playlistPersistencePlan(
+            existing: existing,
+            input: applePlaylistInput(trackCount: 3, modifiedAt: modifiedAt),
+            membershipSnapshots: appleMembershipSnapshots(["one", "two", "three"])
+        )
+        let removed = AppleMusicSourceProvider.playlistPersistencePlan(
+            existing: existing,
+            input: applePlaylistInput(trackCount: 1, modifiedAt: modifiedAt),
+            membershipSnapshots: appleMembershipSnapshots(["one"])
+        )
+        let incomplete = AppleMusicSourceProvider.playlistPersistencePlan(
+            existing: applePlaylistState(
+                trackCount: 2,
+                membershipRatingKeys: [],
+                modifiedAt: modifiedAt
+            ),
+            input: applePlaylistInput(trackCount: 0, modifiedAt: modifiedAt),
+            membershipSnapshots: []
+        )
+
+        XCTAssertTrue(added.writesHeader)
+        XCTAssertTrue(added.writesBody)
+        XCTAssertTrue(removed.writesHeader)
+        XCTAssertTrue(removed.writesBody)
+        XCTAssertTrue(incomplete.writesHeader)
+        XCTAssertTrue(incomplete.writesBody)
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicPlaylistPersistenceCreatesNewPlaylistAndRejectsOlderSnapshot() {
+        let currentModifiedAt = Date(timeIntervalSince1970: 200)
+        let existing = applePlaylistState(
+            trackCount: 2,
+            membershipRatingKeys: ["one", "two"],
+            modifiedAt: currentModifiedAt
+        )
+
+        XCTAssertEqual(
+            AppleMusicSourceProvider.playlistPersistencePlan(
+                existing: nil,
+                input: applePlaylistInput(trackCount: 1, modifiedAt: currentModifiedAt),
+                membershipSnapshots: appleMembershipSnapshots(["one"])
+            ),
+            .init(writesHeader: true, writesBody: true, ignoresStaleResponse: false)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.playlistPersistencePlan(
+                existing: existing,
+                input: applePlaylistInput(
+                    trackCount: 1,
+                    modifiedAt: currentModifiedAt.addingTimeInterval(-1)
+                ),
+                membershipSnapshots: appleMembershipSnapshots(["one"])
+            ),
+            .init(writesHeader: false, writesBody: false, ignoresStaleResponse: true)
+        )
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicIncrementalLibraryInventoryReusesOnlyARecentMatchingDeviceRevision() {
+        let revision = Date(timeIntervalSince1970: 1_000)
+        let inventoryDate = Date(timeIntervalSince1970: 2_000)
+        let state = AppleMusicSourceProvider.LibraryInventoryState(
+            deviceRevision: revision,
+            authoritativeInventoryDate: inventoryDate
+        )
+
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: revision,
+                state: state,
+                now: inventoryDate.addingTimeInterval(60)
+            ),
+            .reuseAuthoritativeInventory
+        )
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicIncrementalLibraryInventoryFetchesWhenSignalIsChangedOrInconclusive() {
+        let revision = Date(timeIntervalSince1970: 1_000)
+        let inventoryDate = Date(timeIntervalSince1970: 2_000)
+        let state = AppleMusicSourceProvider.LibraryInventoryState(
+            deviceRevision: revision,
+            authoritativeInventoryDate: inventoryDate
+        )
+
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: nil,
+                state: state,
+                now: inventoryDate
+            ),
+            .fetchAuthoritativeInventory(reason: .deviceRevisionUnavailable)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: revision,
+                state: .init(deviceRevision: nil, authoritativeInventoryDate: inventoryDate),
+                now: inventoryDate
+            ),
+            .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: revision.addingTimeInterval(1),
+                state: state,
+                now: inventoryDate
+            ),
+            .fetchAuthoritativeInventory(reason: .deviceRevisionChanged)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: revision.addingTimeInterval(-1),
+                state: state,
+                now: inventoryDate
+            ),
+            .fetchAuthoritativeInventory(reason: .deviceRevisionRegressed)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: revision,
+                state: state,
+                now: inventoryDate.addingTimeInterval(-1)
+            ),
+            .fetchAuthoritativeInventory(reason: .localClockRegressed)
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryPlan(
+                observedDeviceRevision: revision,
+                state: state,
+                now: inventoryDate.addingTimeInterval(
+                    AppleMusicSourceProvider.authoritativeLibraryInventoryInterval
+                )
+            ),
+            .fetchAuthoritativeInventory(reason: .periodicReconciliationDue)
+        )
+    }
+
+    @available(iOS 18, *)
+    func testAppleMusicLibraryInventoryStatePersistsOnlyAfterAuthoritativeFetchAndClearsWithSource() throws {
+        let suiteName = "DisplayPlaylistGroupingTests.apple-inventory.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let revision = Date(timeIntervalSince1970: 1_000)
+        let inventoryDate = Date(timeIntervalSince1970: 2_000)
+
+        AppleMusicSourceProvider.recordAuthoritativeLibraryInventory(
+            observedDeviceRevision: revision,
+            completedAt: inventoryDate,
+            defaults: defaults
+        )
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryState(defaults: defaults),
+            .init(deviceRevision: revision, authoritativeInventoryDate: inventoryDate)
+        )
+
+        AppleMusicSourceProvider.clearLibraryInventoryState(defaults: defaults)
+        XCTAssertEqual(
+            AppleMusicSourceProvider.libraryInventoryState(defaults: defaults),
+            .init(deviceRevision: nil, authoritativeInventoryDate: nil)
+        )
     }
 
     @available(iOS 18, *)
@@ -408,7 +684,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         let restModifiedAt = Date(timeIntervalSince1970: 100)
         let existing = applePlaylistState(
             trackCount: 5,
-            membershipRatingKeys: ["one"],
+            membershipRatingKeys: ["one", "two", "three", "four", "five"],
             modifiedAt: restModifiedAt
         )
         let effectiveModifiedAt = AppleMusicSourceProvider.effectivePlaylistModifiedDate(
@@ -475,6 +751,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     private func applePlaylistState(
         trackCount: Int,
         membershipRatingKeys: [String],
+        membershipSnapshots: [PlaylistTrackSnapshot]? = nil,
         modifiedAt: Date
     ) -> PlaylistSyncState {
         PlaylistSyncState(
@@ -491,7 +768,35 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
             dateModified: modifiedAt,
             lastPlayed: nil,
             actionCapabilities: nil,
-            membershipRatingKeys: membershipRatingKeys
+            membershipRatingKeys: membershipRatingKeys,
+            membershipSnapshots: membershipSnapshots
+        )
+    }
+
+    @available(iOS 18, *)
+    private func appleMembershipSnapshots(_ ratingKeys: [String]) -> [PlaylistTrackSnapshot] {
+        ratingKeys.map { PlaylistTrackSnapshot(ratingKey: $0) }
+    }
+
+    @available(iOS 18, *)
+    private func applePlaylistInput(
+        title: String = "Playlist",
+        trackCount: Int,
+        modifiedAt: Date
+    ) -> PlaylistUpsertInput {
+        PlaylistUpsertInput(
+            ratingKey: "playlist",
+            key: "playlist",
+            title: title,
+            summary: nil,
+            compositePath: nil,
+            isSmart: false,
+            duration: 0,
+            trackCount: trackCount,
+            dateAdded: nil,
+            dateModified: modifiedAt,
+            lastPlayed: nil,
+            actionCapabilities: nil
         )
     }
 

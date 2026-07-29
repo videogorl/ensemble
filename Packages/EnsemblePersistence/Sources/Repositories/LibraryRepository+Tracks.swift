@@ -242,11 +242,27 @@ extension LibraryRepository {
     }
 
     public func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
-        try await fetchFirstTrack { request in
-            request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceCompositeKey)
-            if sourceCompositeKey == nil {
-                request.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
+        try await coreDataStack.performViewContext { context in
+            let resolvedSourceKey: String
+            if let sourceCompositeKey {
+                resolvedSourceKey = sourceCompositeKey
+            } else if let uniqueSourceKey = try RepositoryPredicates.uniqueSourceCompositeKey(
+                forEntity: "CDTrack",
+                ratingKey: ratingKey,
+                in: context
+            ) {
+                resolvedSourceKey = uniqueSourceKey
+            } else {
+                return nil
             }
+
+            let request = CDTrack.fetchRequest()
+            request.predicate = RepositoryPredicates.ratingKey(
+                ratingKey,
+                sourceCompositeKey: resolvedSourceKey
+            )
+            request.fetchLimit = 1
+            return try context.fetch(request).first
         }
     }
 

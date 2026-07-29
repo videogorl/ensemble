@@ -643,7 +643,10 @@ public struct ControlsCard: View {
 
     private var canChangeFavorite: Bool {
         guard let track = playbackProjection.currentTrack else { return false }
-        return track.sourceCapabilities.supportsFavoriteRemoval || ratingProjection.currentRating == .none
+        return track.actionAvailability(
+            for: .favorite,
+            isFavorited: ratingProjection.currentRating != .none
+        ).isAvailable
     }
 
     // MARK: - Secondary Controls

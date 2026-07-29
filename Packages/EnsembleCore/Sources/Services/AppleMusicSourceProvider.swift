@@ -1,6 +1,7 @@
 #if os(iOS)
 import EnsemblePersistence
 import Foundation
+import MediaPlayer
 import MusicKit
 
 @available(iOS 18, *)
@@ -15,6 +16,9 @@ public actor AppleMusicSourceProvider:
     public nonisolated let sourceIdentifier = MusicSourceIdentifier.appleMusic
     static let librarySongsPath = "/v1/me/library/songs?limit=100&extend=inFavorites&include=albums,artists,catalog"
     static let libraryPlaylistsPath = "/v1/me/library/playlists?limit=100&include=catalog"
+    static let authoritativeLibraryInventoryInterval: TimeInterval = 24 * 60 * 60
+    private static let deviceLibraryRevisionKey = "sources.appleMusic.libraryInventory.deviceRevision"
+    private static let authoritativeLibraryInventoryDateKey = "sources.appleMusic.libraryInventory.authoritativeDate"
     private var catalogIDsByLibraryID: [String: String] = [:]
     private var pendingFavoriteCatalogIDs = Set<String>()
 
@@ -42,6 +46,18 @@ public actor AppleMusicSourceProvider:
     }
 
     public func syncLibrary(
+        to repository: LibraryRepositoryProtocol,
+        progressHandler: @Sendable (Double) -> Void
+    ) async throws -> LibrarySyncResult {
+        try await syncLibraryAuthoritatively(
+            observedDeviceRevision: Self.currentDeviceLibraryRevision(),
+            to: repository,
+            progressHandler: progressHandler
+        )
+    }
+
+    private func syncLibraryAuthoritatively(
+        observedDeviceRevision: Date?,
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
@@ -113,6 +129,10 @@ public actor AppleMusicSourceProvider:
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumKeys, forSource: sourceKey)
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        Self.recordAuthoritativeLibraryInventory(
+            observedDeviceRevision: observedDeviceRevision,
+            completedAt: Date()
+        )
         progressHandler(1)
 
         return LibrarySyncResult(
@@ -149,11 +169,117 @@ public actor AppleMusicSourceProvider:
     }
 
     public func syncLibraryIncremental(
-        since timestamp: TimeInterval,
+        since _: TimeInterval,
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
-        try await syncLibrary(to: repository, progressHandler: progressHandler)
+        let observedDeviceRevision = Self.currentDeviceLibraryRevision()
+        let state = Self.libraryInventoryState()
+        let plan = Self.libraryInventoryPlan(
+            observedDeviceRevision: observedDeviceRevision,
+            state: state,
+            now: Date()
+        )
+
+        switch plan {
+        case .reuseAuthoritativeInventory:
+            EnsembleLogger.debug(
+                "🎵 Apple Music device library revision unchanged; reusing the recent authoritative inventory"
+            )
+            try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceIdentifier.compositeKey)
+            progressHandler(1)
+            return LibrarySyncResult()
+        case .fetchAuthoritativeInventory(let reason):
+            EnsembleLogger.debug(
+                "🎵 Apple Music authoritative library inventory required reason=\(reason.rawValue)"
+            )
+            return try await syncLibraryAuthoritatively(
+                observedDeviceRevision: observedDeviceRevision,
+                to: repository,
+                progressHandler: progressHandler
+            )
+        }
+    }
+
+    enum LibraryInventoryRefreshReason: String, Equatable {
+        case noTrustedBaseline
+        case deviceRevisionUnavailable
+        case deviceRevisionChanged
+        case deviceRevisionRegressed
+        case localClockRegressed
+        case periodicReconciliationDue
+    }
+
+    enum LibraryInventoryPlan: Equatable {
+        case reuseAuthoritativeInventory
+        case fetchAuthoritativeInventory(reason: LibraryInventoryRefreshReason)
+    }
+
+    struct LibraryInventoryState: Equatable {
+        let deviceRevision: Date?
+        let authoritativeInventoryDate: Date?
+    }
+
+    static func libraryInventoryPlan(
+        observedDeviceRevision: Date?,
+        state: LibraryInventoryState,
+        now: Date,
+        reconciliationInterval: TimeInterval = authoritativeLibraryInventoryInterval
+    ) -> LibraryInventoryPlan {
+        guard let observedDeviceRevision else {
+            return .fetchAuthoritativeInventory(reason: .deviceRevisionUnavailable)
+        }
+        guard let savedRevision = state.deviceRevision,
+              let inventoryDate = state.authoritativeInventoryDate else {
+            return .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
+        }
+        guard observedDeviceRevision >= savedRevision else {
+            return .fetchAuthoritativeInventory(reason: .deviceRevisionRegressed)
+        }
+        guard observedDeviceRevision == savedRevision else {
+            return .fetchAuthoritativeInventory(reason: .deviceRevisionChanged)
+        }
+
+        let inventoryAge = now.timeIntervalSince(inventoryDate)
+        guard inventoryAge >= 0 else {
+            return .fetchAuthoritativeInventory(reason: .localClockRegressed)
+        }
+        guard inventoryAge < reconciliationInterval else {
+            return .fetchAuthoritativeInventory(reason: .periodicReconciliationDue)
+        }
+        return .reuseAuthoritativeInventory
+    }
+
+    static func libraryInventoryState(
+        defaults: UserDefaults = .standard
+    ) -> LibraryInventoryState {
+        LibraryInventoryState(
+            deviceRevision: defaults.object(forKey: deviceLibraryRevisionKey) as? Date,
+            authoritativeInventoryDate: defaults.object(forKey: authoritativeLibraryInventoryDateKey) as? Date
+        )
+    }
+
+    static func recordAuthoritativeLibraryInventory(
+        observedDeviceRevision: Date?,
+        completedAt: Date,
+        defaults: UserDefaults = .standard
+    ) {
+        if let observedDeviceRevision {
+            defaults.set(observedDeviceRevision, forKey: deviceLibraryRevisionKey)
+        } else {
+            defaults.removeObject(forKey: deviceLibraryRevisionKey)
+        }
+        defaults.set(completedAt, forKey: authoritativeLibraryInventoryDateKey)
+    }
+
+    static func clearLibraryInventoryState(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: deviceLibraryRevisionKey)
+        defaults.removeObject(forKey: authoritativeLibraryInventoryDateKey)
+    }
+
+    private static func currentDeviceLibraryRevision() -> Date? {
+        let revision = MPMediaLibrary.default().lastModifiedDate
+        return revision.timeIntervalSince1970 > 0 ? revision : nil
     }
 
     public func syncPlaylists(
@@ -201,7 +327,10 @@ public actor AppleMusicSourceProvider:
         let validIDs = Set(libraryPlaylistsByID.keys).union(musicKitPlaylistIDs)
         let inventoryCount = playlists.count + restOnlyPlaylists.count
         var changedPlaylists = 0
-        var refreshedBodies = 0
+        var fetchedBodies = 0
+        var rewrittenBodies = 0
+        var headerWrites = 0
+        var ignoredStaleBodies = 0
 
         for (index, playlist) in playlists.enumerated() {
             let id = String(describing: playlist.id)
@@ -218,12 +347,14 @@ public actor AppleMusicSourceProvider:
                 modifiedAt: effectiveModifiedAt,
                 refreshAllBodies: refreshAllBodies
             ) {
+                let result: PlaylistPersistenceResult
                 do {
                     if let libraryPlaylist {
-                        try await Self.withNativePlaylistBodyFallback {
+                        result = try await Self.withNativePlaylistBodyFallback {
                             try await persistLibraryPlaylist(
                                 libraryPlaylist,
                                 musicKitPlaylist: playlist,
+                                existing: existing,
                                 to: repository
                             )
                         } native: { restError in
@@ -231,13 +362,15 @@ public actor AppleMusicSourceProvider:
                                 "🎵 Apple Music REST playlist body unavailable; trying MusicKit id=\(id) title=\(playlist.name) \(Self.requestErrorDetails(restError))"
                             )
                             do {
-                                _ = try await persistPlaylist(
+                                guard let result = try await persistPlaylist(
                                     playlist,
                                     artworkURL: artworkURL,
                                     canEdit: canEdit,
                                     dateModified: effectiveModifiedAt,
+                                    existing: existing,
                                     to: repository
-                                )
+                                ) else { throw PlaylistMutationError.incompletePlaylistContents }
+                                return result
                             } catch {
                                 EnsembleLogger.error(
                                     "🎵 Apple Music native playlist fallback failed id=\(id) title=\(playlist.name) \(Self.requestErrorDetails(error))"
@@ -246,19 +379,24 @@ public actor AppleMusicSourceProvider:
                             }
                         }
                     } else {
-                        _ = try await persistPlaylist(
+                        guard let persisted = try await persistPlaylist(
                             playlist,
                             artworkURL: artworkURL,
                             canEdit: canEdit,
+                            existing: existing,
                             to: repository
-                        )
+                        ) else { throw PlaylistMutationError.incompletePlaylistContents }
+                        result = persisted
                     }
                 } catch {
                     Self.logPlaylistBodyFailure(id: id, title: playlist.name, error: error)
                     throw error
                 }
-                changedPlaylists += 1
-                refreshedBodies += 1
+                fetchedBodies += 1
+                changedPlaylists += result.plan.hasChanges ? 1 : 0
+                headerWrites += result.plan.writesHeader ? 1 : 0
+                rewrittenBodies += result.plan.writesBody ? 1 : 0
+                ignoredStaleBodies += result.plan.ignoresStaleResponse ? 1 : 0
             } else {
                 let input = Self.playlistInput(
                     playlist,
@@ -271,6 +409,7 @@ public actor AppleMusicSourceProvider:
                 if existing?.headerMatches(input) != true {
                     _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
                     changedPlaylists += 1
+                    headerWrites += 1
                 }
             }
             progressHandler(Double(index + 1) / Double(max(inventoryCount, 1)))
@@ -283,8 +422,13 @@ public actor AppleMusicSourceProvider:
                 modifiedAt: playlist.dateModified,
                 refreshAllBodies: refreshAllBodies
             ) {
+                let result: PlaylistPersistenceResult
                 do {
-                    try await persistLibraryPlaylist(playlist, to: repository)
+                    result = try await persistLibraryPlaylist(
+                        playlist,
+                        existing: existing,
+                        to: repository
+                    )
                 } catch {
                     Self.logPlaylistBodyFailure(
                         id: playlist.id,
@@ -293,8 +437,11 @@ public actor AppleMusicSourceProvider:
                     )
                     throw error
                 }
-                changedPlaylists += 1
-                refreshedBodies += 1
+                fetchedBodies += 1
+                changedPlaylists += result.plan.hasChanges ? 1 : 0
+                headerWrites += result.plan.writesHeader ? 1 : 0
+                rewrittenBodies += result.plan.writesBody ? 1 : 0
+                ignoredStaleBodies += result.plan.ignoresStaleResponse ? 1 : 0
             } else {
                 let input = Self.playlistInput(
                     playlist,
@@ -304,13 +451,14 @@ public actor AppleMusicSourceProvider:
                 if existing?.headerMatches(input) != true {
                     _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
                     changedPlaylists += 1
+                    headerWrites += 1
                 }
             }
             progressHandler(Double(playlists.count + index + 1) / Double(max(inventoryCount, 1)))
         }
 
         EnsembleLogger.debug(
-            "🎵 Apple Music playlist inventory \(validIDs.count); refreshed \(refreshedBodies) bodies, wrote \(changedPlaylists - refreshedBodies) headers"
+            "🎵 Apple Music playlist inventory \(validIDs.count); fetched \(fetchedBodies) bodies, rewrote \(rewrittenBodies) bodies, wrote \(headerWrites) headers, ignored \(ignoredStaleBodies) stale responses"
         )
         let removed = try await repository.removeOrphanedPlaylists(notIn: validIDs, forSource: sourceKey)
         progressHandler(1)
@@ -330,7 +478,7 @@ public actor AppleMusicSourceProvider:
             minimumTrackCount: minimumTrackCount,
             requiredTracks: requiredTracks,
             to: repository
-        )
+        ).map(\.trackCount)
     }
 
     public func syncPlaylistsIncremental(
@@ -735,7 +883,46 @@ public actor AppleMusicSourceProvider:
             || modifiedAt == nil
             || existing == nil
             || existing?.dateModified != modifiedAt
-            || ((existing?.trackCount ?? 0) > 0 && existing?.membershipRatingKeys.isEmpty == true)
+            || existing.map { $0.trackCount != $0.membershipSnapshots.count } == true
+    }
+
+    struct PlaylistPersistencePlan: Sendable, Equatable {
+        let writesHeader: Bool
+        let writesBody: Bool
+        let ignoresStaleResponse: Bool
+
+        var hasChanges: Bool { writesHeader || writesBody }
+    }
+
+    private struct PlaylistPersistenceResult {
+        let trackCount: Int
+        let plan: PlaylistPersistencePlan
+    }
+
+    static func playlistPersistencePlan(
+        existing: PlaylistSyncState?,
+        input: PlaylistUpsertInput,
+        membershipSnapshots: [PlaylistTrackSnapshot]
+    ) -> PlaylistPersistencePlan {
+        if let existingModifiedAt = existing?.dateModified,
+           let incomingModifiedAt = input.dateModified,
+           incomingModifiedAt < existingModifiedAt {
+            return PlaylistPersistencePlan(
+                writesHeader: false,
+                writesBody: false,
+                ignoresStaleResponse: true
+            )
+        }
+
+        let existingBodyIsComplete = existing.map {
+            $0.trackCount == $0.membershipRatingKeys.count
+        } ?? false
+        return PlaylistPersistencePlan(
+            writesHeader: existing?.headerMatches(input) != true,
+            writesBody: !existingBodyIsComplete
+                || existing?.membershipSnapshots != membershipSnapshots,
+            ignoresStaleResponse: false
+        )
     }
 
     static func effectivePlaylistModifiedDate(musicKit: Date?, library: Date?) -> Date? {
@@ -873,10 +1060,11 @@ public actor AppleMusicSourceProvider:
         artworkURL: String?,
         canEdit: Bool,
         dateModified: Date? = nil,
+        existing: PlaylistSyncState? = nil,
         minimumTrackCount: Int = 0,
         requiredTracks: [Track] = [],
         to repository: PlaylistRepositoryProtocol
-    ) async throws -> Int? {
+    ) async throws -> PlaylistPersistenceResult? {
         let id = String(describing: playlist.id)
         let sourceKey = sourceIdentifier.compositeKey
         let detailed = try await playlist.with([.tracks])
@@ -900,31 +1088,42 @@ public actor AppleMusicSourceProvider:
             duration: Int(songs.reduce(0) { $0 + ($1.duration ?? 0) } * 1000),
             trackCount: songs.count
         )
-        _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
-        try await repository.setPlaylistTrackSnapshots(
-            songs.map {
-                PlaylistTrackSnapshot(
-                    ratingKey: String(describing: $0.id),
-                    key: Self.playlistTrackKey($0),
-                    title: $0.title,
-                    artistName: $0.artistName,
-                    albumName: $0.albumTitle,
-                    duration: $0.duration ?? 0,
-                    thumbPath: $0.artwork?.ensembleResolvableURL(),
-                    sourceCompositeKey: sourceKey
-                )
-            },
-            forPlaylist: id,
-            sourceCompositeKey: sourceKey
+        let snapshots = songs.map {
+            PlaylistTrackSnapshot(
+                ratingKey: String(describing: $0.id),
+                key: Self.playlistTrackKey($0),
+                title: $0.title,
+                artistName: $0.artistName,
+                albumName: $0.albumTitle,
+                duration: $0.duration ?? 0,
+                thumbPath: $0.artwork?.ensembleResolvableURL(),
+                sourceCompositeKey: sourceKey
+            )
+        }
+        let plan = Self.playlistPersistencePlan(
+            existing: existing,
+            input: input,
+            membershipSnapshots: snapshots
         )
-        return songs.count
+        if plan.writesHeader {
+            _ = try await repository.upsertPlaylist(input, sourceCompositeKey: sourceKey)
+        }
+        if plan.writesBody {
+            try await repository.setPlaylistTrackSnapshots(
+                snapshots,
+                forPlaylist: id,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        return PlaylistPersistenceResult(trackCount: songs.count, plan: plan)
     }
 
     private func persistLibraryPlaylist(
         _ playlist: LibraryPlaylist,
         musicKitPlaylist: MusicKit.Playlist? = nil,
+        existing: PlaylistSyncState? = nil,
         to repository: PlaylistRepositoryProtocol
-    ) async throws {
+    ) async throws -> PlaylistPersistenceResult {
         let sourceKey = sourceIdentifier.compositeKey
         let encodedID = playlist.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlist.id
         let fetchedTracks: [LibrarySong] = try await fetchAll(
@@ -947,26 +1146,37 @@ public actor AppleMusicSourceProvider:
         } else {
             Self.playlistInput(playlist, duration: duration, trackCount: songs.count)
         }
-        _ = try await repository.upsertPlaylist(
-            input,
-            sourceCompositeKey: sourceKey
+        let snapshots = songs.map {
+            PlaylistTrackSnapshot(
+                ratingKey: $0.id,
+                key: $0.trackKey,
+                title: $0.attributes.name,
+                artistName: $0.attributes.artistName,
+                albumName: $0.attributes.albumName,
+                duration: TimeInterval($0.attributes.durationInMillis ?? 0) / 1000,
+                thumbPath: $0.artworkURL,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        let plan = Self.playlistPersistencePlan(
+            existing: existing,
+            input: input,
+            membershipSnapshots: snapshots
         )
-        try await repository.setPlaylistTrackSnapshots(
-            songs.map {
-                PlaylistTrackSnapshot(
-                    ratingKey: $0.id,
-                    key: $0.trackKey,
-                    title: $0.attributes.name,
-                    artistName: $0.attributes.artistName,
-                    albumName: $0.attributes.albumName,
-                    duration: TimeInterval($0.attributes.durationInMillis ?? 0) / 1000,
-                    thumbPath: $0.artworkURL,
-                    sourceCompositeKey: sourceKey
-                )
-            },
-            forPlaylist: playlist.id,
-            sourceCompositeKey: sourceKey
-        )
+        if plan.writesHeader {
+            _ = try await repository.upsertPlaylist(
+                input,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        if plan.writesBody {
+            try await repository.setPlaylistTrackSnapshots(
+                snapshots,
+                forPlaylist: playlist.id,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        return PlaylistPersistenceResult(trackCount: songs.count, plan: plan)
     }
 
     private func request(path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> Data {

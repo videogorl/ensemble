@@ -607,7 +607,7 @@ public final class HomeViewModel: ObservableObject {
             async let artistsByKeyTask = libraryRepository.fetchArtists(
                 forReferences: Self.sourceScopedReferences(in: hubs, itemType: "artist")
             )
-            async let playlistsByKeyTask = playlistRepository.fetchPlaylists(
+            async let playlistsByKeyTask = playlistRepository.fetchPlaylistHeaders(
                 forReferences: Self.sourceScopedReferences(in: hubs, itemType: "playlist")
             )
             async let tracksByKeyTask = libraryRepository.fetchTracksBatch(

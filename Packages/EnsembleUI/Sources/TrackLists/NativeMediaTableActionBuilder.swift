@@ -24,7 +24,7 @@ enum TrackActionPresentation {
         case .addToPlaylist:
             return resolvedActions.onAddToPlaylist != nil
         case .favoriteToggle:
-            return resolvedActions.onToggleFavorite != nil
+            return resolvedActions.onToggleFavorite != nil && resolvedActions.favoriteAvailability.isAvailable
         }
     }
 
@@ -157,7 +157,12 @@ private func nativeMediaTableMenuAvailability(
         canRename: false,
         canEditPlaylist: false,
         canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
-        canRemoveFromQueue: onRemoveFromQueue != nil
+        canRemoveFromQueue: onRemoveFromQueue != nil,
+        itemActions: [
+            .favorite: resolvedActions.favoriteAvailability,
+            .editMetadata: resolvedActions.editMetadataAvailability,
+            .deleteTrack: resolvedActions.deleteAvailability
+        ]
     )
 }
 

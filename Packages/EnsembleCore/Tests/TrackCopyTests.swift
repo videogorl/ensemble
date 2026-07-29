@@ -3,6 +3,9 @@ import XCTest
 
 final class TrackCopyTests: XCTestCase {
     func testTrackCopiesPreserveMetadataWhenChangingRatingAndLocalFilePath() {
+        let actionCapabilities = MusicItemActionCapabilities([
+            .editMetadata: .readOnly(reason: "Provider-owned metadata.")
+        ])
         let original = Track(
             id: "track-1",
             key: "/library/metadata/track-1",
@@ -28,7 +31,8 @@ final class TrackCopyTests: XCTestCase {
             rating: 2,
             playCount: 9,
             genres: ["Rock", "Live"],
-            sourceCompositeKey: "plex:account:server:library"
+            sourceCompositeKey: "plex:account:server:library",
+            actionCapabilities: actionCapabilities
         )
 
         let rated = original.withRating(10)
@@ -36,17 +40,20 @@ final class TrackCopyTests: XCTestCase {
         XCTAssertEqual(rated.albumArtistName, original.albumArtistName)
         XCTAssertEqual(rated.genres, original.genres)
         XCTAssertEqual(rated.localFilePath, original.localFilePath)
+        XCTAssertEqual(rated.actionCapabilities, actionCapabilities)
 
         let downloaded = rated.withLocalFilePath("/new.mp3")
         XCTAssertEqual(downloaded.localFilePath, "/new.mp3")
         XCTAssertEqual(downloaded.rating, rated.rating)
         XCTAssertEqual(downloaded.albumArtistName, original.albumArtistName)
         XCTAssertEqual(downloaded.genres, original.genres)
+        XCTAssertEqual(downloaded.actionCapabilities, actionCapabilities)
 
         let artwork = downloaded.withThumbPath("https://example.com/new.jpg")
         XCTAssertEqual(artwork.thumbPath, "https://example.com/new.jpg")
         XCTAssertEqual(artwork.playbackIdentity, downloaded.playbackIdentity)
         XCTAssertEqual(artwork.localFilePath, downloaded.localFilePath)
+        XCTAssertEqual(artwork.actionCapabilities, actionCapabilities)
     }
 
     func testRatingCopyUpdatesExplicitFavoriteStateButPreservesLegacyFallback() {

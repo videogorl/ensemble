@@ -26,6 +26,22 @@ public struct MergedPlaylistDetailView: View {
     }
 
     public var body: some View {
+        let playlists = viewModel.displayPlaylist.playlists
+        let downloadAvailabilities = playlists.map { playlist in
+            playlist.actionAvailability(
+                for: .download,
+                downloadStatus: DownloadCapabilityPolicy.status(
+                    for: playlist.sourceCompositeKey,
+                    accountManager: deps.accountManager
+                )
+            )
+        }
+        let isAnyDownloaded = playlists.contains {
+            deps.offlineDownloadService.isPlaylistDownloadEnabled($0)
+        }
+        let downloadablePlaylists = zip(playlists, downloadAvailabilities).compactMap { playlist, availability in
+            availability.isAvailable ? playlist : nil
+        }
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -49,9 +65,31 @@ public struct MergedPlaylistDetailView: View {
                 }
             ),
             playlistMenuActions: PlaylistDetailMenuActions(
-                canRename: !viewModel.displayPlaylist.editablePlaylists.isEmpty,
-                canEdit: !viewModel.displayPlaylist.editablePlaylists.isEmpty && !viewModel.tracks.isEmpty && !viewModel.hasUnavailableTracks,
-                canDelete: !viewModel.displayPlaylist.deletablePlaylists.isEmpty,
+                downloadAvailability: resolvedMergedDownloadMenuAvailability(
+                    isAnyDownloaded: isAnyDownloaded,
+                    sourceAvailabilities: downloadAvailabilities
+                ),
+                isDownloaded: isAnyDownloaded,
+                renameAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .rename) }
+                ),
+                editAvailability: .combined(
+                    playlists.map { viewModel.editAvailability(for: $0) }
+                ),
+                deleteAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .delete) }
+                ),
+                onToggleDownload: {
+                    Task {
+                        let targets = isAnyDownloaded ? playlists : downloadablePlaylists
+                        for playlist in targets {
+                            await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                playlist,
+                                isEnabled: !isAnyDownloaded
+                            )
+                        }
+                    }
+                },
                 onRename: {
                     renamePromptText = viewModel.displayPlaylist.title
                     showRenamePrompt = true
@@ -218,6 +256,7 @@ public struct MergedPlaylistDetailView: View {
     private var editPickerSheet: some View {
         List {
             ForEach(viewModel.displayPlaylist.playlists, id: \.sourceScopedID) { playlist in
+                let editAvailability = viewModel.editAvailability(for: playlist)
                 Button {
                     pendingEditTarget = playlist
                     showEditPicker = false
@@ -229,7 +268,7 @@ public struct MergedPlaylistDetailView: View {
                             Text("\(playlist.trackCount) songs")
                                 .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            if let reason = playlist.playlistEditingUnavailableReason {
+                            if let reason = editAvailability.reason {
                                 Text(reason)
                                     .font(EnsembleDesign.Typography.rowSecondary)
                                     .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -242,7 +281,7 @@ public struct MergedPlaylistDetailView: View {
                     }
                 }
                 .foregroundColor(EnsembleDesign.Color.primaryText)
-                .disabled(!playlist.supportsPlaylistEditing)
+                .disabled(!editAvailability.isAvailable)
             }
         }
         .listStyle(.plain)
