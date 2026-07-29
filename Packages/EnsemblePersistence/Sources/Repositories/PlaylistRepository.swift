@@ -681,8 +681,6 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                 NSSortDescriptor(key: "playlist.ratingKey", ascending: true),
                 NSSortDescriptor(key: "order", ascending: true)
             ]
-            membershipRequest.fetchBatchSize = 500
-
             var membershipSnapshotsByPlaylist: [String: [PlaylistTrackSnapshot]] = [:]
             for row in try context.fetch(membershipRequest) {
                 let trackID = (row["trackRatingKey"] as? String) ?? (row["linkedTrackID"] as? String)
