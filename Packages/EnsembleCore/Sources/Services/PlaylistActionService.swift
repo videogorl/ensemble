@@ -31,8 +31,7 @@ public struct PlaylistActionService {
         guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: serverSourceKey) else { return 0 }
         return tracks.reduce(0) { count, track in
             guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) else {
-                // Unknown source should not hard-block selection; mutation flow resolves via cache lookup.
-                return count + 1
+                return count
             }
             return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
         }
@@ -51,21 +50,13 @@ public struct PlaylistActionService {
         var filtered: [Track] = []
 
         for track in tracks {
-            if let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey),
-               trackServerSourceKey != serverSourceKey
-            {
-                continue
-            }
+            guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey),
+                  trackServerSourceKey == serverSourceKey else { continue }
 
             let identity = track.sourceScopedID
             guard !seen.contains(identity) else { continue }
             seen.insert(identity)
-
-            if track.sourceCompositeKey == nil {
-                filtered.append(track.withSourceCompositeKey(serverSourceKey))
-            } else {
-                filtered.append(track)
-            }
+            filtered.append(track)
         }
 
         return filtered
@@ -98,35 +89,5 @@ public struct PlaylistActionService {
         let firstAlbum = DisplayPlaylist.normalizedTitle(first.albumName ?? "")
         let secondAlbum = DisplayPlaylist.normalizedTitle(second.albumName ?? "")
         return !firstAlbum.isEmpty && firstAlbum == secondAlbum
-    }
-}
-
-private extension Track {
-    func withSourceCompositeKey(_ sourceCompositeKey: String) -> Track {
-        Track(
-            id: id,
-            key: key,
-            title: title,
-            artistName: artistName,
-            albumName: albumName,
-            albumRatingKey: albumRatingKey,
-            artistRatingKey: artistRatingKey,
-            trackNumber: trackNumber,
-            discNumber: discNumber,
-            duration: duration,
-            thumbPath: thumbPath,
-            fallbackThumbPath: fallbackThumbPath,
-            fallbackRatingKey: fallbackRatingKey,
-            streamKey: streamKey,
-            streamId: streamId,
-            localFilePath: localFilePath,
-            dateAdded: dateAdded,
-            dateModified: dateModified,
-            lastPlayed: lastPlayed,
-            lastRatedAt: lastRatedAt,
-            rating: rating,
-            playCount: playCount,
-            sourceCompositeKey: sourceCompositeKey
-        )
     }
 }

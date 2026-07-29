@@ -171,10 +171,7 @@ public struct PlaylistDropResolver {
               !references.isEmpty,
               MediaTrackResolver.normalizedServerSourceKey(target.sourceKey) != nil,
               references.allSatisfy({ reference in
-                  reference.isSmartPlaylist != true && (
-                      reference.kind == .track && MediaTrackResolver.normalizedServerSourceKey(reference.sourceKey) == nil ||
-                      isSourceCompatible(reference.sourceKey, with: target.sourceKey)
-                  )
+                  reference.isSmartPlaylist != true && isSourceCompatible(reference.sourceKey, with: target.sourceKey)
               }) else {
             return false
         }
@@ -380,6 +377,6 @@ public struct PlaylistDropResolver {
         guard lhs.id == rhs.id else { return false }
         let lhsServer = MediaTrackResolver.normalizedServerSourceKey(lhs.sourceCompositeKey)
         let rhsServer = MediaTrackResolver.normalizedServerSourceKey(rhs.sourceCompositeKey)
-        return lhsServer == nil || rhsServer == nil || lhsServer == rhsServer
+        return lhsServer == rhsServer
     }
 }

@@ -1456,6 +1456,11 @@ public final class SyncCoordinator: ObservableObject {
     public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
         if sourceId.type == .appleMusic {
             Playlist.clearAppleMusicPlaylistCapabilityCache()
+            #if os(iOS)
+            if #available(iOS 18, *) {
+                AppleMusicSourceProvider.clearLibraryInventoryState()
+            }
+            #endif
             HomeHubLoader.removeFailedHubKey(forSourceCompositeKey: sourceId.compositeKey)
             clearLastPlaylistTargets(forServerSourceKey: sourceId.compositeKey)
         }
@@ -1712,12 +1717,8 @@ public final class SyncCoordinator: ObservableObject {
         var ids: [String] = []
 
         for track in tracks {
-            if let trackServerSource = await resolvedServerSourceKey(for: track) {
-                guard trackServerSource == targetServerSourceKey else { continue }
-            } else {
-                // If source is unknown and app only has one server, allow it through.
-                guard hasSingleServerMatching(targetServerSourceKey) else { continue }
-            }
+            guard let trackServerSource = await resolvedServerSourceKey(for: track),
+                  trackServerSource == targetServerSourceKey else { continue }
             guard !seen.contains(track.id) else { continue }
             seen.insert(track.id)
             ids.append(track.id)
@@ -1738,8 +1739,7 @@ public final class SyncCoordinator: ObservableObject {
     private func resolvedTrackSourceCompositeKey(for track: Track) async -> String? {
         if let explicitSource = Self.resolveTrackSourceKey(
             explicitSourceKey: track.sourceCompositeKey,
-            cachedSourceKey: nil,
-            configuredProviderKeys: Array(syncProviders.keys)
+            cachedSourceKey: nil
         ) {
             return explicitSource
         }
@@ -1756,14 +1756,9 @@ public final class SyncCoordinator: ObservableObject {
         let cachedSource = Self.uniqueSourceKey(cachedSources)
         if let source = Self.resolveTrackSourceKey(
             explicitSourceKey: nil,
-            cachedSourceKey: cachedSource,
-            configuredProviderKeys: Array(syncProviders.keys)
+            cachedSourceKey: cachedSource
         ) {
-            if cachedSource != nil {
-                EnsembleLogger.debug("🎵 Resolved missing track source from cache: \(track.id) -> \(source)")
-            } else {
-                EnsembleLogger.debug("🎵 Resolved missing track source via single-provider fallback: \(track.id) -> \(source)")
-            }
+            EnsembleLogger.debug("🎵 Resolved missing track source from cache: \(track.id) -> \(source)")
             return source
         }
 
@@ -1802,17 +1797,13 @@ public final class SyncCoordinator: ObservableObject {
     /// malformed or unavailable sources cannot silently cross a provider boundary.
     internal static func resolveTrackSourceKey(
         explicitSourceKey: String?,
-        cachedSourceKey: String?,
-        configuredProviderKeys: [String]
+        cachedSourceKey: String?
     ) -> String? {
         if let explicitSourceKey {
             return explicitSourceKey
         }
         if let cachedSourceKey {
             return cachedSourceKey
-        }
-        if configuredProviderKeys.count == 1 {
-            return configuredProviderKeys[0]
         }
         return nil
     }
@@ -1840,15 +1831,6 @@ public final class SyncCoordinator: ObservableObject {
         } else {
             EnsembleLogger.debug("🔍 Using provider for sourceKey: \(sourceKey)")
         }
-    }
-
-    private func hasSingleServerMatching(_ serverSourceKey: String) -> Bool {
-        let uniqueServerSources = Set(
-            syncProviders.keys.compactMap { key in
-                MediaSourceIdentity.serverSourceKey(from: key)
-            }
-        )
-        return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
     }
 
     private func apiClient(forServerSourceKey serverSourceKey: String) -> (MediaSourceIdentity, PlexAPIClient)? {

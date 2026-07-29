@@ -111,38 +111,27 @@ final class SyncProviderResolverTests: XCTestCase {
         }
     }
 
-    func testSingleProviderRepairAppliesOnlyWhenSourceMetadataIsAbsent() {
+    func testMissingSourceRequiresAuthoritativeCachedOwnership() {
         let providerKey = "plex:account:server:library"
 
         XCTAssertEqual(
             SyncCoordinator.resolveTrackSourceKey(
                 explicitSourceKey: "unknown:explicit:key:value",
-                cachedSourceKey: nil,
-                configuredProviderKeys: [providerKey]
+                cachedSourceKey: nil
             ),
             "unknown:explicit:key:value"
         )
         XCTAssertEqual(
             SyncCoordinator.resolveTrackSourceKey(
                 explicitSourceKey: nil,
-                cachedSourceKey: "plex:cached:server:library",
-                configuredProviderKeys: [providerKey]
+                cachedSourceKey: "plex:cached:server:library"
             ),
             "plex:cached:server:library"
-        )
-        XCTAssertEqual(
-            SyncCoordinator.resolveTrackSourceKey(
-                explicitSourceKey: nil,
-                cachedSourceKey: nil,
-                configuredProviderKeys: [providerKey]
-            ),
-            providerKey
         )
         XCTAssertNil(
             SyncCoordinator.resolveTrackSourceKey(
                 explicitSourceKey: nil,
-                cachedSourceKey: nil,
-                configuredProviderKeys: [providerKey, MusicSourceIdentifier.appleMusic.compositeKey]
+                cachedSourceKey: nil
             )
         )
     }
