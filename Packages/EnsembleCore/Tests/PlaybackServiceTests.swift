@@ -803,6 +803,24 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testQueueAdvancePrefersTheFutureDuplicateIdentity() {
+        let track = Track(id: "duplicate", key: "/duplicate", title: "Duplicate")
+        let queue = [
+            QueueItem(id: "past", track: track),
+            QueueItem(id: "current", track: Track(id: "current", key: "/current", title: "Current")),
+            QueueItem(id: "future", track: track)
+        ]
+
+        XCTAssertEqual(
+            PlaybackService.queueIndexForAdvance(
+                matching: track.playbackIdentity,
+                in: queue,
+                after: 1
+            ),
+            2
+        )
+    }
+
     func testSourceLessTrackIsRejectedEvenWhileSourceConfigurationIsUnresolved() {
         let track = Track(id: "legacy", key: "/library/metadata/1", title: "Legacy")
 

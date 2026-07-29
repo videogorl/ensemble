@@ -53,11 +53,7 @@ public struct AddSourceView: View {
                     } label: {
                         HStack {
                             Label {
-                                Text(
-                                    isAddingAppleMusic || isAppleMusicSyncing
-                                        ? "Adding Apple Music…"
-                                        : appleMusicSyncNeedsRetry ? "Retry Apple Music" : "Apple Music"
-                                )
+                                Text(appleMusicSyncNeedsRetry ? "Retry Apple Music" : "Apple Music")
                             } icon: {
                                 Image("AppleMusicSourceIcon")
                                     .resizable()
@@ -65,9 +61,7 @@ public struct AddSourceView: View {
                                     .frame(width: 30, height: 30)
                             }
                             Spacer()
-                            if isAddingAppleMusic || isAppleMusicSyncing {
-                                ProgressView()
-                            } else if appleMusicSyncNeedsRetry {
+                            if appleMusicSyncNeedsRetry {
                                 Image(systemName: "arrow.clockwise")
                                     .foregroundStyle(.secondary)
                             } else if accountManager.isAppleMusicEnabled {

@@ -668,6 +668,16 @@ public actor AppleMusicSourceProvider:
     public func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws {}
     public func scrobble(ratingKey: String) async throws {}
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {
+        var libraryRequest = MusicLibraryRequest<MusicKit.Album>()
+        libraryRequest.filter(matching: \.id, equalTo: MusicItemID(albumKey))
+        if let libraryAlbum = try await libraryRequest.response().items.first {
+            let detailed = try await libraryAlbum.with([.tracks])
+            return detailed.tracks?.compactMap { item in
+                guard case .song(let song) = item else { return nil }
+                return Self.domainTrack(song, key: Self.playlistTrackKey(song))
+            } ?? []
+        }
+
         var request = MusicCatalogResourceRequest<MusicKit.Album>(matching: \.id, equalTo: MusicItemID(albumKey))
         request.properties = [.tracks]
         guard let album = try await request.response().items.first else { return [] }

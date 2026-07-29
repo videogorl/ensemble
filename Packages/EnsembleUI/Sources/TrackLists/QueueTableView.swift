@@ -354,8 +354,8 @@ public struct QueueTableView: UIViewRepresentable {
             tableView.visibleCells.forEach { cell in
                 if let queueCell = cell as? QueueItemCell,
                    let indexPath = tableView.indexPath(for: cell),
-                   !context.coordinator.isMoreRow(indexPath) {
-                    let item = context.coordinator.item(at: indexPath)
+                   !context.coordinator.isMoreRow(indexPath),
+                   let item = context.coordinator.item(at: indexPath) {
                     let absoluteIndex = context.coordinator.absoluteQueueIndex(for: indexPath)
                     let isPlaying = absoluteIndex == currentQueueIndex
                     queueCell.configure(
@@ -517,13 +517,21 @@ public struct QueueTableView: UIViewRepresentable {
             }
         }
         
-        func item(at indexPath: IndexPath) -> QueueItem {
-            sections[indexPath.section].items[indexPath.row]
+        func section(at index: Int) -> QueueSection? {
+            guard sections.indices.contains(index) else { return nil }
+            return sections[index]
+        }
+
+        func item(at indexPath: IndexPath) -> QueueItem? {
+            guard let section = section(at: indexPath.section),
+                  section.items.indices.contains(indexPath.row)
+            else { return nil }
+            return section.items[indexPath.row]
         }
         
         func absoluteQueueIndex(for indexPath: IndexPath) -> Int? {
             guard !showHistory else { return nil } // History has no queue index
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return nil }
             return queueItems.firstIndex(where: { $0.id == item.id })
         }
         
@@ -534,21 +542,25 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            if case .more = sections[section].type {
+            guard let section = self.section(at: section) else { return 0 }
+            if case .more = section.type {
                 return 1
             }
-            return sections[section].items.count
+            return section.items.count
         }
         
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            if case let .more(hiddenCount) = sections[indexPath.section].type {
+            guard let section = section(at: indexPath.section) else {
+                return UITableViewCell()
+            }
+            if case let .more(hiddenCount) = section.type {
                 let cell = tableView.dequeueReusableCell(withIdentifier: "QueueMoreItemsCell", for: indexPath) as! QueueMoreItemsCell
                 cell.configure(hiddenCount: hiddenCount)
                 return cell
             }
 
             let cell = tableView.dequeueReusableCell(withIdentifier: "QueueItemCell", for: indexPath) as! QueueItemCell
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return cell }
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
             let isPlaying = absoluteIndex == currentQueueIndex
             cell.configure(
@@ -565,7 +577,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            let sectionData = sections[section]
+            guard let sectionData = self.section(at: section) else { return nil }
             if sectionData.items.isEmpty {
                 return nil
             }
@@ -610,7 +622,7 @@ public struct QueueTableView: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            if sections[section].items.isEmpty {
+            guard let section = self.section(at: section), !section.items.isEmpty else {
                 return CGFloat.leastNormalMagnitude
             }
             return 40
@@ -624,11 +636,11 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
             tableView.deselectRow(at: indexPath, animated: true)
-            let section = sections[indexPath.section]
+            guard let section = section(at: indexPath.section) else { return }
             if case .more = section.type {
                 return
             }
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return }
 
             // Handle history items separately
             if case .history = section.type {
@@ -652,12 +664,12 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Context Menu
         
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {
-            let section = sections[indexPath.section]
+            guard let section = section(at: indexPath.section) else { return nil }
             if case .more = section.type {
                 return nil
             }
 
-            let item = self.item(at: indexPath)
+            guard let item = item(at: indexPath) else { return nil }
             let absoluteIndex = absoluteQueueIndex(for: indexPath)
             if !isHistorySection(section), absoluteIndex == nil {
                 return nil
@@ -704,8 +716,8 @@ public struct QueueTableView: UIViewRepresentable {
         // MARK: - Drag & Drop
         
         public func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-            guard !showHistory else { return false }
-            if case .more = sections[indexPath.section].type {
+            guard !showHistory, let section = section(at: indexPath.section) else { return false }
+            if case .more = section.type {
                 return false
             }
             return true
@@ -747,10 +759,11 @@ public struct QueueTableView: UIViewRepresentable {
         
         public func tableView(_ tableView: UITableView, itemsForBeginning session: UIDragSession, at indexPath: IndexPath) -> [UIDragItem] {
             guard !showHistory,
-                  !isMoreRow(indexPath) else { return [] }
+                  !isMoreRow(indexPath),
+                  let item = item(at: indexPath)
+            else { return [] }
             reorderFeedback.prepare()
             lastReorderFeedbackIndexPath = indexPath
-            let item = self.item(at: indexPath)
             let itemProvider = MediaDragPayload.trackItemProvider(for: item.track, shareService: shareService)
             itemProvider.registerObject(item.id as NSString, visibility: .ownProcess)
             let dragItem = UIDragItem(itemProvider: itemProvider)

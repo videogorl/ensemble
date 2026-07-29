@@ -118,4 +118,36 @@ final class TrackCopyTests: XCTestCase {
             )
         )
     }
+
+    func testPlaylistTrackCopyPreservesArtworkAndCapabilities() {
+        let capabilities = PlaylistActionCapabilities(
+            canAddItems: true,
+            canRename: false,
+            canReorder: false,
+            canDelete: false,
+            unavailableReason: "Provider-managed."
+        )
+        let playlist = Playlist(
+            id: "playlist",
+            key: "/playlist",
+            title: "Playlist",
+            compositePath: "/custom-art",
+            fallbackArtworkPath: "/fallback-art",
+            fallbackArtworkRatingKey: "album",
+            fallbackArtworkSourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            actionCapabilities: capabilities
+        )
+        let tracks = [Track(id: "track", key: "/track", title: "Track", duration: 42)]
+
+        let updated = playlist.withTracks(tracks, dateModified: Date(timeIntervalSince1970: 5))
+
+        XCTAssertEqual(updated.trackCount, 1)
+        XCTAssertEqual(updated.duration, 42)
+        XCTAssertEqual(updated.compositePath, playlist.compositePath)
+        XCTAssertEqual(updated.fallbackArtworkPath, playlist.fallbackArtworkPath)
+        XCTAssertEqual(updated.fallbackArtworkRatingKey, playlist.fallbackArtworkRatingKey)
+        XCTAssertEqual(updated.fallbackArtworkSourceCompositeKey, playlist.fallbackArtworkSourceCompositeKey)
+        XCTAssertEqual(updated.actionCapabilities, capabilities)
+    }
 }

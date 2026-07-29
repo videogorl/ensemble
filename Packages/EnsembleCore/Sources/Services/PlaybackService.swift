@@ -482,6 +482,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
     }
 
+    static func queueIndexForAdvance(
+        matching playbackIdentity: String,
+        in queue: [QueueItem],
+        after currentQueueIndex: Int
+    ) -> Int? {
+        futureQueueIndex(
+            matching: playbackIdentity,
+            in: queue,
+            after: currentQueueIndex
+        ) ?? queue.firstIndex { $0.track.playbackIdentity == playbackIdentity }
+    }
+
     static func isSameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
         lhs.id == rhs.id && lhs.sourceCompositeKey == rhs.sourceCompositeKey
     }
@@ -1451,7 +1463,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        guard let index = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) else {
+        guard let index = Self.queueIndexForAdvance(
+            matching: trackId,
+            in: queue,
+            after: currentQueueIndex
+        ) else {
             EnsembleLogger.debug("[AudioEngine] Track advance: trackId \(trackId) not found in queue")
             return
         }
@@ -1500,7 +1516,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func handleSmartMixPromotion(trackId: String) {
-        guard let index = queue.firstIndex(where: { $0.track.playbackIdentity == trackId }) else {
+        guard let index = Self.queueIndexForAdvance(
+            matching: trackId,
+            in: queue,
+            after: currentQueueIndex
+        ) else {
             EnsembleLogger.debug("[SmartMix] Promotion ignored: trackId \(trackId) not found in queue")
             return
         }
@@ -1617,6 +1637,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Cancel any pending stall retry. End-of-queue is not a recoverable stall.
         stallRecoveryTask?.cancel()
         stallRecoveryTask = nil
+
+        if queue.indices.contains(currentQueueIndex) {
+            recordToHistory(queue[currentQueueIndex])
+        }
 
         // Find the next playable track, skipping unavailable ones (offline server, not downloaded).
         // This prevents trying to play a track we already know will fail.
@@ -3281,7 +3305,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard let engine = audioEngine,
               engine.isSmartMixTransitionActive,
               let incomingTrackId = engine.smartMixIncomingTrackId,
-              let incomingIndex = queue.firstIndex(where: { $0.track.playbackIdentity == incomingTrackId })
+              let incomingIndex = Self.queueIndexForAdvance(
+                  matching: incomingTrackId,
+                  in: queue,
+                  after: currentQueueIndex
+              )
         else {
             return false
         }
@@ -4123,6 +4151,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if uniqueNewTracks.isEmpty {
                 EnsembleLogger.debug("⚠️ All recommended tracks already in queue")
                 recommendationsExhausted = true
+                if await appendAppleMusicAutoplayFallback(for: seedTrack) { return }
             } else {
                 for track in uniqueNewTracks.prefix(3) {
                     EnsembleLogger.debug("  ✅ Adding to queue: \(track.title) by \(track.artistName ?? "Unknown")")
@@ -4886,6 +4915,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         guard !prefetchSnapshot.shouldDefer else { return }
 
         guard let track = prefetchSnapshot.track else { return }
+        guard !track.isAppleMusic else {
+            engine.clearScheduledFiles()
+            return
+        }
         let trackIdentity = track.playbackIdentity
 
         // Don't schedule if already in the engine's gapless queue
@@ -5105,7 +5138,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let trackIdentity = track.playbackIdentity
 
         #if !os(macOS)
-            try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+            guard await audioSessionCoordinator.activateForPlayback(shouldStartPlayback: true) else {
+                playbackState = .failed("Audio output is unavailable. Try playback again.")
+                endTrackTransitionBackgroundTask()
+                return
+            }
         #endif
 
         if let fileURL = source.fileURL {
@@ -5527,7 +5564,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
             guard currentTrack?.playbackIdentity != identity,
-                  let index = queue.firstIndex(where: { $0.track.playbackIdentity == identity }),
+                  let index = Self.queueIndexForAdvance(
+                      matching: identity,
+                      in: queue,
+                      after: currentQueueIndex
+                  ),
                   index != currentQueueIndex else { return }
             if queue.indices.contains(currentQueueIndex) { recordToHistory(queue[currentQueueIndex]) }
             currentQueueIndex = index
@@ -5607,6 +5648,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 currentTrack = track
                 updateNowPlayingInfo()
                 return
+            }
+            if queue.indices.contains(currentQueueIndex) {
+                recordToHistory(queue[currentQueueIndex])
             }
             if let existing = Self.futureQueueIndex(
                 matching: track.playbackIdentity,

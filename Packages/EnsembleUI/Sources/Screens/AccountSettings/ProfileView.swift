@@ -209,6 +209,7 @@ public struct ProfileView: View {
                     MusicSourceAccountDetailView(accountId: account.id)
                 } label: {
                     MusicSourceAccountRow(
+                        sourceType: .plex,
                         sourceName: "Plex",
                         accountIdentifier: displayAccountIdentifier(for: account)
                     )
@@ -228,6 +229,7 @@ public struct ProfileView: View {
                     AppleMusicSourceDetailView()
                 } label: {
                     MusicSourceAccountRow(
+                        sourceType: .appleMusic,
                         sourceName: "Apple Music",
                         accountIdentifier: appleMusicAccountIdentifier
                     )
@@ -575,6 +577,7 @@ public struct ProfileView: View {
                         } label: {
                             HStack {
                                 MusicSourceAccountRow(
+                                    sourceType: .plex,
                                     sourceName: "Plex",
                                     accountIdentifier: displayAccountIdentifier(for: account)
                                 )

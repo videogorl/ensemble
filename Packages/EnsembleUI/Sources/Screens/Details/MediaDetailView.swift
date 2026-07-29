@@ -1139,7 +1139,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         if let subtitle = headerData.subtitle {
             if let artistId = headerData.artistRatingKey {
                 navigationCoordinator.routeLink(
-                    to: .artist(id: artistId, sourceKey: headerData.sourceKey)
+                    to: .artistNamed(
+                        name: subtitle,
+                        fallbackID: artistId,
+                        sourceKey: headerData.sourceKey
+                    )
                 ) {
                     Text(subtitle)
                         .font(EnsembleDesign.Typography.detailSubtitle)
@@ -1357,7 +1361,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             onGoToArtist: { track in
                 if let artistId = track.artistRatingKey {
                     navigationCoordinator.routeFromMenu(
-                        to: .artist(id: artistId, sourceKey: track.sourceCompositeKey),
+                        to: track.artistName.map {
+                            .artistNamed(
+                                name: $0,
+                                fallbackID: artistId,
+                                sourceKey: track.sourceCompositeKey
+                            )
+                        } ?? .artist(id: artistId, sourceKey: track.sourceCompositeKey),
                         in: navigationCoordinator.selectedTab
                     )
                 }

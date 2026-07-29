@@ -639,7 +639,7 @@ public final class DependencyContainer: @unchecked Sendable {
         foregroundWorkScheduler: ForegroundWorkScheduler
     ) -> SiriBootstrap {
         let enabledSystemMediaSourceKeys: SystemMediaEnabledSourceKeysProvider = { @MainActor in
-            Set(network.accountManager.enabledSources().filter { $0.type == .plex }.map(\.compositeKey))
+            SystemMediaSourceScope.enabledLibraryKeys(for: network.accountManager.enabledSources())
         }
         let siriMediaIndexStore = MainActor.assumeIsolated {
             SiriMediaIndexStore(

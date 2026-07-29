@@ -42,6 +42,18 @@ struct NavigationDestinationFactory {
             } else {
                 return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
             }
+        case .artistNamed(let name, let fallbackID, let sourceKey):
+            if let displayArtist = displayArtist(named: name, libraryVM: libraryVM) {
+                return AnyView(ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM))
+            }
+            if let fallbackID {
+                return AnyView(ArtistDetailLoader(
+                    artistId: fallbackID,
+                    artistSourceKey: sourceKey,
+                    nowPlayingVM: nowPlayingVM
+                ))
+            }
+            return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
         case .displayGenre(let id):
             if let displayGenre = displayGenre(for: id, libraryVM: libraryVM) {
                 return AnyView(GenreDetailContentView(
@@ -119,6 +131,16 @@ struct NavigationDestinationFactory {
         }
 
         return DisplayArtist.group(libraryVM.artists).first { $0.id == id }
+    }
+
+    @MainActor
+    private static func displayArtist(named name: String, libraryVM: LibraryViewModel) -> DisplayArtist? {
+        let normalizedName = DisplayArtist.normalizedName(name)
+        return libraryVM.artistBrowseSnapshot.displayArtists.first {
+            DisplayArtist.normalizedName($0.name) == normalizedName
+        } ?? DisplayArtist.group(libraryVM.artists).first {
+            DisplayArtist.normalizedName($0.name) == normalizedName
+        }
     }
 
     @MainActor

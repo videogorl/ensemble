@@ -232,6 +232,20 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         XCTAssertTrue(SystemMediaSourceScope.allows(nil, within: nil))
     }
 
+    func testSystemMediaSourceScopeIncludesEveryEnabledProvider() {
+        let plex = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "library"
+        )
+
+        XCTAssertEqual(
+            SystemMediaSourceScope.enabledLibraryKeys(for: [plex, .appleMusic]),
+            [plex.compositeKey, MusicSourceIdentifier.appleMusic.compositeKey]
+        )
+    }
+
     func testSystemMediaSourceScopeExpandsPlaylistKeysToEnabledServers() {
         let playlistSources = SystemMediaSourceScope.playlistSourceKeys(
             forEnabledLibraryKeys: ["plex:account-one:server-one:music"]

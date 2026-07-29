@@ -826,6 +826,28 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
         )
     }
 
+    /// Returns a copy with updated track-derived metadata while preserving source metadata.
+    public func withTracks(_ tracks: [Track], dateModified: Date = Date()) -> Playlist {
+        Playlist(
+            id: id,
+            key: key,
+            title: title,
+            summary: summary,
+            isSmart: isSmart,
+            trackCount: tracks.count,
+            duration: tracks.reduce(0) { $0 + $1.duration },
+            compositePath: compositePath,
+            fallbackArtworkPath: fallbackArtworkPath,
+            fallbackArtworkRatingKey: fallbackArtworkRatingKey,
+            fallbackArtworkSourceCompositeKey: fallbackArtworkSourceCompositeKey,
+            dateAdded: dateAdded,
+            dateModified: dateModified,
+            lastPlayed: lastPlayed,
+            sourceCompositeKey: sourceCompositeKey,
+            actionCapabilities: actionCapabilities
+        )
+    }
+
     public var formattedDuration: String {
         MediaFormatters.collectionDuration(duration)
     }

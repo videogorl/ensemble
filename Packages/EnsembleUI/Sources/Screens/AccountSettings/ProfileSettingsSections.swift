@@ -4,16 +4,27 @@ import SwiftUI
 // MARK: - Music Source Account Row
 
 struct MusicSourceAccountRow: View {
+    let sourceType: MusicSourceType
     let sourceName: String
     let accountIdentifier: String
 
     var body: some View {
-        EnsembleUtilityRowLabel(
-            iconSystemName: EnsembleDesign.Icon.playlist,
-            title: sourceName,
-            subtitle: accountIdentifier,
-            iconFont: EnsembleDesign.Typography.utilityIcon
-        )
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sourceName)
+                Text(accountIdentifier)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } icon: {
+            Image(sourceType == .plex ? "PlexSourceIcon" : "AppleMusicSourceIcon")
+                .resizable()
+                .scaledToFit()
+                .padding(sourceType == .plex ? 3 : 0)
+                .frame(width: 30, height: 30)
+                .background(sourceType == .plex ? Color.black : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
     }
 }
 

@@ -1147,20 +1147,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private func applyTrackSnapshot(_ editedTracks: [Track], skipNextLoadAfterLocalEdit: Bool) {
         shouldSkipNextLoadAfterLocalEdit = skipNextLoadAfterLocalEdit
         tracks = editedTracks
-        playlist = Playlist(
-            id: playlist.id,
-            key: playlist.key,
-            title: playlist.title,
-            summary: playlist.summary,
-            isSmart: playlist.isSmart,
-            trackCount: editedTracks.count,
-            duration: editedTracks.reduce(0) { $0 + $1.duration },
-            compositePath: playlist.compositePath,
-            dateAdded: playlist.dateAdded,
-            dateModified: Date(),
-            lastPlayed: playlist.lastPlayed,
-            sourceCompositeKey: playlist.sourceCompositeKey
-        )
+        playlist = playlist.withTracks(editedTracks)
     }
 
     private func applyItemSnapshot(_ editedItems: [PlaylistItem], skipNextLoadAfterLocalEdit: Bool) {
