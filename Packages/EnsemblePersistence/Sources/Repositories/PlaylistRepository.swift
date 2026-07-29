@@ -255,6 +255,9 @@ public protocol PlaylistRepositoryProtocol: Sendable {
 
     /// Returns and clears artwork invalidations accumulated during playlist upserts.
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo]
+
+    /// Discards pending artwork invalidations owned by a removed source.
+    func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String)
 }
 
 public extension PlaylistRepositoryProtocol {
@@ -341,6 +344,7 @@ public extension PlaylistRepositoryProtocol {
     }
 
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
+    func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {}
 
     func fetchPlaylistLocalTrackStates(forSource sourceKey: String) async throws -> [String: PlaylistLocalTrackState] {
         let playlists = try await fetchPlaylists(sourceCompositeKey: sourceKey)
@@ -453,6 +457,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
 
     public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
         artworkInvalidations.drain()
+    }
+
+    public func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {
+        artworkInvalidations.discard(sourceCompositeKey: sourceCompositeKey)
     }
 
     func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {

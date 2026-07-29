@@ -597,6 +597,22 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
             for url in urls where url.lastPathComponent.hasPrefix(prefix) {
                 try? FileManager.default.removeItem(at: url)
             }
+
+            for identityURL in urls where Self.isIdentitySidecar(identityURL) {
+                let artworkURL = identityURL
+                    .deletingPathExtension()
+                    .deletingPathExtension()
+                    .appendingPathExtension("jpg")
+                guard let identity = Self.readIdentity(for: artworkURL),
+                      identity.sourceCompositeKey == sourceCompositeKey,
+                      artworkURL == Self.artworkFileURL(
+                          ratingKey: identity.ratingKey,
+                          type: identity.type
+                      ) else {
+                    continue
+                }
+                Self.deleteArtworkAndIdentity(at: artworkURL)
+            }
         }
     }
 
@@ -659,6 +675,11 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         let url = identityURL(for: artworkURL)
         guard let data = try? Data(contentsOf: url) else { return nil }
         return try? JSONDecoder().decode(ArtworkIdentity.self, from: data)
+    }
+
+    private static func isIdentitySidecar(_ url: URL) -> Bool {
+        url.pathExtension == "json"
+            && url.deletingPathExtension().pathExtension == "identity"
     }
 
     private static func writeIdentity(_ identity: ArtworkIdentity, for artworkURL: URL) throws {

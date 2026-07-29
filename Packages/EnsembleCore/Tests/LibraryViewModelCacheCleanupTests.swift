@@ -585,6 +585,119 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: identityURLB.path))
     }
 
+    func testSourceCleanupDiscardsOnlyRemovedSourcesPendingArtworkInvalidations() async throws {
+        let harness = makeHarness()
+        let removedSourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let retainedSourceKey = "plex:account-1:server-1:lib-1"
+
+        for sourceKey in [removedSourceKey, retainedSourceKey] {
+            try await harness.libraryRepository.batchUpsertAlbums(
+                [makeAlbumInput(thumbPath: "/old-artwork")],
+                sourceCompositeKey: sourceKey
+            )
+            _ = try await harness.playlistRepository.upsertPlaylist(
+                ratingKey: "shared-playlist",
+                key: "shared-playlist",
+                title: "Shared Playlist",
+                summary: nil,
+                compositePath: "/old-composite",
+                isSmart: false,
+                duration: nil,
+                trackCount: nil,
+                dateAdded: nil,
+                dateModified: Date(timeIntervalSince1970: 1_000),
+                lastPlayed: nil,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        _ = harness.libraryRepository.drainArtworkInvalidationInfo()
+        _ = harness.playlistRepository.drainArtworkInvalidationInfo()
+
+        for sourceKey in [removedSourceKey, retainedSourceKey] {
+            try await harness.libraryRepository.batchUpsertAlbums(
+                [makeAlbumInput(thumbPath: "/new-artwork")],
+                sourceCompositeKey: sourceKey
+            )
+            _ = try await harness.playlistRepository.upsertPlaylist(
+                ratingKey: "shared-playlist",
+                key: "shared-playlist",
+                title: "Shared Playlist",
+                summary: nil,
+                compositePath: "/new-composite",
+                isSmart: false,
+                duration: nil,
+                trackCount: nil,
+                dateAdded: nil,
+                dateModified: Date(timeIntervalSince1970: 2_000),
+                lastPlayed: nil,
+                sourceCompositeKey: sourceKey
+            )
+        }
+
+        let cleanupSucceeded = await harness.syncCoordinator.cleanupRemovedSource(.appleMusic)
+
+        XCTAssertTrue(cleanupSucceeded)
+        XCTAssertEqual(
+            Set(harness.libraryRepository.drainArtworkInvalidationInfo().compactMap(\.sourceCompositeKey)),
+            [retainedSourceKey]
+        )
+        XCTAssertEqual(
+            Set(harness.playlistRepository.drainArtworkInvalidationInfo().compactMap(\.sourceCompositeKey)),
+            [retainedSourceKey]
+        )
+    }
+
+    func testServerPlaylistCleanupDiscardsOnlyRemovedServersPendingArtworkInvalidations() async throws {
+        let harness = makeHarness()
+        let removedServerKey = "plex:account-1:server-1"
+        let retainedServerKey = "plex:account-2:server-2"
+
+        for sourceKey in [removedServerKey, retainedServerKey] {
+            _ = try await harness.playlistRepository.upsertPlaylist(
+                ratingKey: "shared-playlist",
+                key: "shared-playlist",
+                title: "Shared Playlist",
+                summary: nil,
+                compositePath: "/old-composite",
+                isSmart: false,
+                duration: nil,
+                trackCount: nil,
+                dateAdded: nil,
+                dateModified: Date(timeIntervalSince1970: 1_000),
+                lastPlayed: nil,
+                sourceCompositeKey: sourceKey
+            )
+        }
+        _ = harness.playlistRepository.drainArtworkInvalidationInfo()
+
+        for sourceKey in [removedServerKey, retainedServerKey] {
+            _ = try await harness.playlistRepository.upsertPlaylist(
+                ratingKey: "shared-playlist",
+                key: "shared-playlist",
+                title: "Shared Playlist",
+                summary: nil,
+                compositePath: "/new-composite",
+                isSmart: false,
+                duration: nil,
+                trackCount: nil,
+                dateAdded: nil,
+                dateModified: Date(timeIntervalSince1970: 2_000),
+                lastPlayed: nil,
+                sourceCompositeKey: sourceKey
+            )
+        }
+
+        await harness.syncCoordinator.cleanupServerPlaylists(
+            accountId: "account-1",
+            serverId: "server-1"
+        )
+
+        XCTAssertEqual(
+            Set(harness.playlistRepository.drainArtworkInvalidationInfo().compactMap(\.sourceCompositeKey)),
+            [retainedServerKey]
+        )
+    }
+
     func testSourceCleanupRemovesDownloadFilesAndOrphanedSidecars() async throws {
         let harness = makeHarness()
         let sourceKey = "plex:account-1:server-1:lib-1"
@@ -878,6 +991,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator
         let libraryRepository: LibraryRepository
+        let playlistRepository: PlaylistRepository
         let downloadManager: DownloadManager
         let targetRepository: OfflineDownloadTargetRepository
         let artworkDownloadManager: ArtworkDownloadManager
@@ -949,6 +1063,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
             downloadManager: downloadManager,
             targetRepository: targetRepository,
             artworkDownloadManager: artworkDownloadManager,
@@ -1117,6 +1232,25 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             rating: nil,
             playCount: nil,
             sourceCompositeKey: sourceKey
+        )
+    }
+
+    private func makeAlbumInput(thumbPath: String) -> AlbumUpsertInput {
+        AlbumUpsertInput(
+            ratingKey: "shared-album",
+            key: "shared-album",
+            title: "Shared Album",
+            artistName: nil,
+            albumArtist: nil,
+            artistRatingKey: nil,
+            summary: nil,
+            thumbPath: thumbPath,
+            artPath: nil,
+            year: nil,
+            trackCount: nil,
+            dateAdded: nil,
+            dateModified: nil,
+            rating: nil
         )
     }
 

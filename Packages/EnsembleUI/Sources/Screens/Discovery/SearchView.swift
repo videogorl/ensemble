@@ -85,6 +85,8 @@ public struct SearchView: View {
                 exploreView
             } else if viewModel.isSearching {
                 loadingView
+            } else if let searchError = viewModel.searchError {
+                searchErrorView(searchError)
             } else if viewModel.orderedSections.isEmpty {
                 noResultsView
             } else {
@@ -988,6 +990,21 @@ public struct SearchView: View {
 
     private var loadingView: some View {
         EnsembleStateScaffold(kind: .loading, title: "Searching…")
+    }
+
+    private func searchErrorView(_ message: String) -> some View {
+        EnsembleStateScaffold(
+            kind: .error,
+            title: "Unable to Search",
+            message: message
+        ) {
+            Button {
+                viewModel.retrySearch()
+            } label: {
+                EnsembleStateActionLabel("Retry", systemImage: EnsembleDesign.Icon.retry)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     @ViewBuilder

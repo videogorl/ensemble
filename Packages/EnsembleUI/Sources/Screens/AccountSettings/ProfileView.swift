@@ -8,8 +8,8 @@ public struct ProfileView: View {
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let playbackService = DependencyContainer.shared.playbackService
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
 
     @State private var showingDeleteAlert = false
@@ -229,7 +229,7 @@ public struct ProfileView: View {
                 } label: {
                     MusicSourceAccountRow(
                         sourceName: "Apple Music",
-                        accountIdentifier: "This Device"
+                        accountIdentifier: appleMusicAccountIdentifier
                     )
                 }
             }
@@ -253,6 +253,25 @@ public struct ProfileView: View {
             if !accountManager.hasAnySources {
                 Text("Add a music source account to access your libraries.")
             }
+        }
+    }
+
+    private var appleMusicAccountIdentifier: String {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return accountManager.isAppleMusicInitialSyncPending
+                ? "This Device • Sync Pending"
+                : "This Device"
+        }
+
+        switch syncStatus {
+        case .syncing:
+            return "This Device • Syncing"
+        case .error:
+            return "This Device • Sync Failed"
+        case .idle where accountManager.isAppleMusicInitialSyncPending:
+            return "This Device • Sync Pending"
+        case .idle, .lastSynced:
+            return "This Device"
         }
     }
 
@@ -1014,7 +1033,7 @@ public struct ProfileView: View {
 #if os(iOS)
 private struct AppleMusicSourceDetailView: View {
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveAlert = false
     @State private var isRemoving = false
@@ -1031,6 +1050,29 @@ private struct AppleMusicSourceDetailView: View {
                 }
             } footer: {
                 Text("Apple Music library data stays on this device and is managed by the Music app.")
+            }
+
+            Section {
+                HStack {
+                    Text("Library")
+                    Spacer()
+                    Text(syncStatusText)
+                        .foregroundStyle(syncStatusColor)
+                }
+
+                if syncNeedsRetry {
+                    Button("Retry Sync") {
+                        syncCoordinator.refreshProviders()
+                        Task {
+                            await syncCoordinator.sync(source: .appleMusic)
+                        }
+                    }
+                }
+            } footer: {
+                if let syncErrorMessage {
+                    Text(syncErrorMessage)
+                        .foregroundStyle(.red)
+                }
             }
 
             Section {
@@ -1066,6 +1108,51 @@ private struct AppleMusicSourceDetailView: View {
         } message: {
             Text("This removes Apple Music from Ensemble and clears its synced library data from this device.")
         }
+    }
+
+    private var syncStatusText: String {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return accountManager.isAppleMusicInitialSyncPending ? "Pending" : "Ready"
+        }
+
+        switch syncStatus {
+        case .idle:
+            return accountManager.isAppleMusicInitialSyncPending ? "Pending" : "Ready"
+        case .syncing(let progress):
+            return "Syncing \(Int(progress * 100))%"
+        case .error:
+            return "Failed"
+        case .lastSynced:
+            return "Up to Date"
+        }
+    }
+
+    private var syncStatusColor: Color {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return .secondary
+        }
+        switch syncStatus {
+        case .syncing:
+            return EnsembleDesign.Color.accent
+        case .error:
+            return EnsembleDesign.Color.destructive
+        case .idle, .lastSynced:
+            return .secondary
+        }
+    }
+
+    private var syncNeedsRetry: Bool {
+        if case .syncing = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus {
+            return false
+        }
+        return accountManager.isAppleMusicInitialSyncPending || syncErrorMessage != nil
+    }
+
+    private var syncErrorMessage: String? {
+        guard case .error(let message) = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return nil
+        }
+        return message
     }
 }
 #endif

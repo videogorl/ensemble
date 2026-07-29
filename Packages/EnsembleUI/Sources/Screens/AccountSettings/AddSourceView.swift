@@ -153,16 +153,10 @@ public struct AddSourceView: View {
             }
             accountManager.setAppleMusicEnabled(true)
             syncCoordinator.refreshProviders()
-            let outcome = await syncCoordinator.sync(source: .appleMusic)
-            guard !Task.isCancelled else { return }
-            switch outcome {
-            case .success:
-                dismiss()
-            case .failure(let message):
-                if appleMusicSyncErrorMessage == nil {
-                    errorMessage = message
-                }
+            Task {
+                await syncCoordinator.sync(source: .appleMusic)
             }
+            dismiss()
         } catch is CancellationError {
             return
         } catch {

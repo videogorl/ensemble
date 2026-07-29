@@ -71,6 +71,7 @@ public final class SearchViewModel: ObservableObject {
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
     private let playlistMergeDefaults: UserDefaults
+    private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
     private var searchGeneration: UInt64 = 0
@@ -91,7 +92,7 @@ public final class SearchViewModel: ObservableObject {
     private var unfilteredRecommendedItems: [HubItem] = []
     private var unfilteredMoods: [Mood] = []
 
-    public init(
+    public convenience init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
         hubRepository: HubRepositoryProtocol,
@@ -100,6 +101,28 @@ public final class SearchViewModel: ObservableObject {
         visibilityStore: LibraryVisibilityStore? = nil,
         playlistMergeDefaults: UserDefaults = .standard
     ) {
+        self.init(
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            hubRepository: hubRepository,
+            moodRepository: moodRepository,
+            accountManager: accountManager,
+            visibilityStore: visibilityStore,
+            playlistMergeDefaults: playlistMergeDefaults,
+            appleMusicCatalogSearch: .live
+        )
+    }
+
+    init(
+        libraryRepository: LibraryRepositoryProtocol,
+        playlistRepository: PlaylistRepositoryProtocol,
+        hubRepository: HubRepositoryProtocol,
+        moodRepository: MoodRepository,
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore? = nil,
+        playlistMergeDefaults: UserDefaults = .standard,
+        appleMusicCatalogSearch: AppleMusicCatalogSearchClient
+    ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.hubRepository = hubRepository
@@ -107,6 +130,7 @@ public final class SearchViewModel: ObservableObject {
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
         self.playlistMergeDefaults = playlistMergeDefaults
+        self.appleMusicCatalogSearch = appleMusicCatalogSearch
         self.isPlaylistMergeEnabled = SettingsManager.storedPlaylistMergeEnabled(in: playlistMergeDefaults)
         
         // Load recent searches
@@ -121,17 +145,17 @@ public final class SearchViewModel: ObservableObject {
 
         $scope
             .dropFirst()
-            .sink { [weak self] _ in
+            .sink { [weak self] requestedScope in
                 guard let self else { return }
                 self.prepareForSearchQueryChange(self.searchQuery)
-                self.performSearch(query: self.searchQuery)
+                self.performSearch(query: self.searchQuery, scope: requestedScope)
             }
             .store(in: &cancellables)
 
         // Debounced search
         $searchQuery
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .removeDuplicates()
+            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
             .sink { [weak self] query in
                 self?.performSearch(query: query)
             }
@@ -212,7 +236,7 @@ public final class SearchViewModel: ObservableObject {
         )
     }
     
-    private func performSearch(query: String) {
+    private func performSearch(query: String, scope requestedScope: SearchScope? = nil) {
         searchTask?.cancel()
 
         let trimmed = trimmedSearchQuery(query)
@@ -224,10 +248,12 @@ public final class SearchViewModel: ObservableObject {
             return
         }
 
+        isSearching = true
+        searchError = nil
         let startedAt = Date()
         searchGeneration &+= 1
         let generation = searchGeneration
-        let requestedScope = scope
+        let requestedScope = requestedScope ?? scope
         UserJourneyLogger.log(
             context: "search",
             event: "started",
@@ -253,6 +279,10 @@ public final class SearchViewModel: ObservableObject {
         )
     }
 
+    public func retrySearch() {
+        performSearch(query: searchQuery)
+    }
+
     private func search(
         query: String,
         scope requestedScope: SearchScope,
@@ -270,10 +300,17 @@ public final class SearchViewModel: ObservableObject {
         searchError = nil
 
         do {
-            #if os(iOS)
-            if requestedScope == .appleMusic, #available(iOS 18, *) {
-                let results = try await AppleMusicCatalogSearch.search(query)
+            if requestedScope == .appleMusic {
+                let results = try await appleMusicCatalogSearch.search(query)
                 guard isCurrentSearch(query, scope: requestedScope, generation: generation) else {
+                    UserJourneyLogger.log(
+                        context: "search",
+                        event: "discardedStale",
+                        details: [
+                            "queryLength": "\(query.count)",
+                            "scope": requestedScope.rawValue
+                        ]
+                    )
                     return
                 }
                 unfilteredTrackResults = results.tracks
@@ -282,9 +319,22 @@ public final class SearchViewModel: ObservableObject {
                 unfilteredPlaylistResults = results.playlists
                 applyVisibilityToSearchResults()
                 isSearching = false
+                let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
+                UserJourneyLogger.log(
+                    context: "search",
+                    event: "finished",
+                    details: [
+                        "queryLength": "\(query.count)",
+                        "scope": requestedScope.rawValue,
+                        "elapsedMs": "\(elapsedMs)",
+                        "tracks": "\(results.tracks.count)",
+                        "artists": "\(results.artists.count)",
+                        "albums": "\(results.albums.count)",
+                        "playlists": "\(results.playlists.count)"
+                    ]
+                )
                 return
             }
-            #endif
 
             async let localTracks = libraryRepository.searchTracks(query: query)
             async let localArtists = libraryRepository.searchArtists(query: query)
@@ -330,6 +380,8 @@ public final class SearchViewModel: ObservableObject {
                     event: "failed",
                     details: [
                         "queryLength": "\(query.count)",
+                        "scope": requestedScope.rawValue,
+                        "elapsedMs": "\(Int(Date().timeIntervalSince(startedAt) * 1_000))",
                         "error": String(describing: type(of: error))
                     ]
                 )

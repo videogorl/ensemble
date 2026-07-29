@@ -80,6 +80,11 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 @MainActor
 public final class SyncCoordinator: ObservableObject {
     public static let sourceCleanupDidComplete = Notification.Name("SyncCoordinatorSourceCleanupDidComplete")
+    private struct ActiveSourceSync {
+        let id: UUID
+        let task: Task<MusicSourceSyncOutcome, Never>
+    }
+
     private struct ActiveSourcePersistenceWork {
         let registration: ConfiguredSourceProvider
         let lease: SourcePersistenceLease
@@ -130,6 +135,7 @@ public final class SyncCoordinator: ObservableObject {
     private var providerRegistrationRevision: UInt64 = 0
     private var enforcesSourceConfigurationForProviders = true
     private let sourcePersistenceFence = SourcePersistenceFence()
+    private var activeSourceSyncs: [String: ActiveSourceSync] = [:]
     private var providerResolver: SyncProviderResolver {
         SyncProviderResolver(providers: syncProviders)
     }
@@ -464,6 +470,64 @@ public final class SyncCoordinator: ObservableObject {
     @discardableResult
     public func sync(source: MusicSourceIdentifier) async -> MusicSourceSyncOutcome {
         await syncExecutionController().sync(source: source, providers: syncProviders)
+    }
+
+    private func runSourceSyncSingleFlight(
+        source: MusicSourceIdentifier,
+        operation: @escaping @MainActor () async -> MusicSourceSyncOutcome
+    ) async -> MusicSourceSyncOutcome {
+        let sourceKey = source.compositeKey
+        if let activeSync = activeSourceSyncs[sourceKey] {
+            return await activeSync.task.value
+        }
+
+        let id = UUID()
+        let task = Task { @MainActor in
+            guard !Task.isCancelled else {
+                return MusicSourceSyncOutcome.failure(message: "Sync was cancelled.")
+            }
+            return await operation()
+        }
+        activeSourceSyncs[sourceKey] = ActiveSourceSync(id: id, task: task)
+
+        let outcome = await task.value
+        if activeSourceSyncs[sourceKey]?.id == id {
+            if case .failure(let message) = outcome,
+               let status = sourceStatuses[source],
+               case .syncing = status.syncStatus,
+               accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey) {
+                sourceStatuses[source] = MusicSourceStatus(
+                    syncStatus: .error(message),
+                    connectionState: effectiveConnectionState(for: status.connectionState)
+                )
+            }
+            activeSourceSyncs.removeValue(forKey: sourceKey)
+        }
+        return outcome
+    }
+
+    private func cancelSourceSync(_ source: MusicSourceIdentifier) async {
+        let sourceKey = source.compositeKey
+        guard let activeSync = activeSourceSyncs[sourceKey] else { return }
+        activeSync.task.cancel()
+        _ = await activeSync.task.value
+        if activeSourceSyncs[sourceKey]?.id == activeSync.id {
+            activeSourceSyncs.removeValue(forKey: sourceKey)
+        }
+    }
+
+    private func publishSourceSyncPreflightFailure(
+        source: MusicSourceIdentifier,
+        message: String
+    ) {
+        guard accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(source.compositeKey) else {
+            return
+        }
+        let connectionState = sourceStatuses[source]?.connectionState ?? .unknown
+        sourceStatuses[source] = MusicSourceStatus(
+            syncStatus: .error(message),
+            connectionState: effectiveConnectionState(for: connectionState)
+        )
     }
 
     /// Sync a scoped set of sources while publishing one global sync lifecycle.
@@ -1387,7 +1451,13 @@ public final class SyncCoordinator: ObservableObject {
                         lease: $2
                     )
                 },
-                finishSourcePersistenceWork: { self.finishSourcePersistenceWork($0) }
+                finishSourcePersistenceWork: { self.finishSourcePersistenceWork($0) },
+                runSourceSync: { source, operation in
+                    await self.runSourceSyncSingleFlight(source: source, operation: operation)
+                },
+                publishPreflightFailure: { source, message in
+                    self.publishSourceSyncPreflightFailure(source: source, message: message)
+                }
             )
         )
     }
@@ -1729,8 +1799,12 @@ public final class SyncCoordinator: ObservableObject {
             // can begin while cleanup drains an older operation.
             refreshProviders()
         }
+        await cancelSourceSync(sourceId)
         await sourcePersistenceFence.beginCleanup(sourceKey: sourceId.compositeKey)
         defer { sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey) }
+
+        libraryRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceId.compositeKey)
+        playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceId.compositeKey)
 
         if sourceId.type == .appleMusic {
             Playlist.clearAppleMusicPlaylistCapabilityCache()
@@ -1808,6 +1882,7 @@ public final class SyncCoordinator: ObservableObject {
                 EnsembleLogger.debug("⏹️ Skipping stale playlist cleanup for re-enabled server: \(serverSourceKey)")
                 return
             }
+            playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: serverSourceKey)
             try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"

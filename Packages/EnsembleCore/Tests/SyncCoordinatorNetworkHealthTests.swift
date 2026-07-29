@@ -78,15 +78,43 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 { 0 }
     }
 
+    private actor SyncInvocationProbe {
+        private var libraryCallCount = 0
+        private var cancellationCount = 0
+        private var isReleased = false
+
+        func beginAndWait() async throws {
+            libraryCallCount += 1
+            do {
+                while !isReleased {
+                    try await Task.sleep(nanoseconds: 5_000_000)
+                }
+            } catch {
+                cancellationCount += 1
+                throw error
+            }
+        }
+
+        func release() {
+            isReleased = true
+        }
+
+        func counts() -> (libraryCalls: Int, cancellations: Int) {
+            (libraryCallCount, cancellationCount)
+        }
+    }
+
     private struct MockSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
         let sourceIdentifier: MusicSourceIdentifier
         var libraryResult: Result<LibrarySyncResult, Error> = .success(LibrarySyncResult())
         var playlistResult: Result<PlaylistSyncResult, Error> = .success(PlaylistSyncResult())
+        var invocationProbe: SyncInvocationProbe?
 
         func syncLibrary(
             to repository: LibraryRepositoryProtocol,
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> LibrarySyncResult {
+            try await invocationProbe?.beginAndWait()
             progressHandler(1.0)
             return try libraryResult.get()
         }
@@ -445,6 +473,110 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertTrue(coordinator.lastContentChange?.affectsLibraryBrowse == true)
     }
 
+    func testConcurrentFullSyncEntrypointsShareOneSourceOperation() async throws {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let probe = SyncInvocationProbe()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source, invocationProbe: probe),
+            status: MusicSourceStatus(connectionState: .connected(url: "https://example.com"))
+        )
+
+        let allSourcesTask = Task { await coordinator.syncAll() }
+        try await waitForLibraryCall(in: probe)
+        let singleSourceTask = Task { await coordinator.sync(source: source) }
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        let concurrentCounts = await probe.counts()
+        XCTAssertEqual(concurrentCounts.libraryCalls, 1)
+
+        await probe.release()
+        await allSourcesTask.value
+        let outcome = await singleSourceTask.value
+        let finalCounts = await probe.counts()
+        XCTAssertEqual(outcome, .success)
+        XCTAssertEqual(finalCounts.libraryCalls, 1)
+    }
+
+    func testProviderRefreshDuringSourceSyncPublishesTerminalError() async throws {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let probe = SyncInvocationProbe()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source, invocationProbe: probe),
+            status: MusicSourceStatus(connectionState: .connected(url: "https://example.com"))
+        )
+
+        let syncTask = Task { await coordinator.sync(source: source) }
+        try await waitForLibraryCall(in: probe)
+        coordinator.refreshProviders()
+        await probe.release()
+
+        let expectedMessage = "The music source changed while syncing. Please try again."
+        let outcome = await syncTask.value
+        XCTAssertEqual(outcome, .failure(message: expectedMessage))
+        guard case .error(let message) = coordinator.sourceStatuses[source]?.syncStatus else {
+            return XCTFail("Expected stale source work to finish with an observable error")
+        }
+        XCTAssertEqual(message, expectedMessage)
+    }
+
+    func testSourceCleanupCancelsActiveSourceSyncBeforePurging() async throws {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let probe = SyncInvocationProbe()
+        coordinator.installSyncProviderForTesting(
+            MockSyncProvider(sourceIdentifier: source, invocationProbe: probe),
+            status: MusicSourceStatus(connectionState: .connected(url: "https://example.com"))
+        )
+
+        let syncTask = Task { await coordinator.sync(source: source) }
+        try await waitForLibraryCall(in: probe)
+        coordinator.accountManager.removeMusicSource(source)
+
+        let cleanupSucceeded = await coordinator.cleanupRemovedSource(source)
+        _ = await syncTask.value
+        let counts = await probe.counts()
+        XCTAssertTrue(cleanupSucceeded)
+        XCTAssertEqual(counts.libraryCalls, 1)
+        XCTAssertEqual(counts.cancellations, 1)
+        XCTAssertNil(coordinator.sourceStatuses[source])
+    }
+
+    func testUnavailableSourceSyncPublishesObservableError() async {
+        let (coordinator, _) = makeCoordinator()
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "1"
+        )
+        let expectedMessage = "The music source is unavailable. Please try again."
+
+        let outcome = await coordinator.sync(source: source)
+
+        XCTAssertEqual(outcome, .failure(message: expectedMessage))
+        guard case .error(let message) = coordinator.sourceStatuses[source]?.syncStatus else {
+            return XCTFail("Expected an observable source error")
+        }
+        XCTAssertEqual(message, expectedMessage)
+    }
+
     func testCancellationRestoresPreviousStatusInsteadOfPublishingError() async {
         let (coordinator, _) = makeCoordinator()
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "lib-1")
@@ -486,6 +618,16 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(coordinator.lastContentChange?.source, source)
         XCTAssertEqual(coordinator.lastContentChange?.libraryResult?.changedAlbums, 1)
         XCTAssertTrue(coordinator.lastContentChange?.affectsPlaylists == true)
+    }
+
+    private func waitForLibraryCall(in probe: SyncInvocationProbe) async throws {
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            guard await probe.counts().libraryCalls == 0 else { break }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        let counts = await probe.counts()
+        XCTAssertEqual(counts.libraryCalls, 1)
     }
 }
 

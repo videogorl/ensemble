@@ -511,6 +511,12 @@ final class ArtworkInvalidationBuffer: @unchecked Sendable {
         }
         pendingInfo.append(info)
     }
+
+    func discard(sourceCompositeKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        pendingInfo.removeAll { $0.sourceCompositeKey == sourceCompositeKey }
+    }
 }
 
 /// Summarizes how much persisted album/track genre metadata exists for a source.
@@ -682,6 +688,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     /// Returns and clears artwork invalidations accumulated during artist/album upserts.
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo]
+
+    /// Discards pending artwork invalidations owned by a removed source.
+    func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String)
 }
 
 public extension LibraryRepositoryProtocol {
@@ -871,6 +880,7 @@ public extension LibraryRepositoryProtocol {
         }
     }
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
+    func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {}
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -906,6 +916,10 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
 
     public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
         artworkInvalidations.drain()
+    }
+
+    public func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {
+        artworkInvalidations.discard(sourceCompositeKey: sourceCompositeKey)
     }
 
     func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {

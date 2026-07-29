@@ -49,6 +49,31 @@ final class LibraryRepositoryTests: XCTestCase {
         ])
     }
 
+    func testArtworkInvalidationBufferDiscardsOnlyRequestedSource() {
+        let buffer = ArtworkInvalidationBuffer()
+        let sourceA = "plex:account:server:library-a"
+        let sourceB = "plex:account:server:library-b"
+        for sourceKey in [sourceA, sourceB] {
+            buffer.record(ArtworkInvalidationInfo(
+                ratingKey: "shared",
+                type: .album,
+                reason: .pathChanged,
+                sourceCompositeKey: sourceKey
+            ))
+        }
+
+        buffer.discard(sourceCompositeKey: sourceA)
+
+        XCTAssertEqual(buffer.drain(), [
+            ArtworkInvalidationInfo(
+                ratingKey: "shared",
+                type: .album,
+                reason: .pathChanged,
+                sourceCompositeKey: sourceB
+            )
+        ])
+    }
+
     func testLibraryRepositoryUsesInMemoryStore() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = LibraryRepository(coreDataStack: stack)
@@ -874,6 +899,75 @@ final class LibraryRepositoryTests: XCTestCase {
             dateModifiedSeconds: 1_000
         )
         XCTAssertNil(otherSourcePath)
+    }
+
+    func testArtworkDownloadManagerSourceDeletionRemovesOnlyAttributedLegacyArtwork() throws {
+        let manager = ArtworkDownloadManager()
+        let sourceA = "plex:account-a:server:library-\(UUID().uuidString)"
+        let sourceB = "plex:account-b:server:library-\(UUID().uuidString)"
+        let matchingKey = "legacy-matching-\(UUID().uuidString)"
+        let otherSourceKey = "legacy-other-\(UUID().uuidString)"
+        let unownedKey = "legacy-unowned-\(UUID().uuidString)"
+        let identitylessKey = "legacy-identityless-\(UUID().uuidString)"
+        let matchingURL = ArtworkDownloadManager.artworkFileURL(ratingKey: matchingKey, type: .album)
+        let otherSourceURL = ArtworkDownloadManager.artworkFileURL(ratingKey: otherSourceKey, type: .artist)
+        let unownedURL = ArtworkDownloadManager.artworkFileURL(ratingKey: unownedKey, type: .playlist)
+        let identitylessURL = ArtworkDownloadManager.artworkFileURL(ratingKey: identitylessKey, type: .track)
+        defer {
+            manager.deleteArtwork(ratingKey: matchingKey, type: .album)
+            manager.deleteArtwork(ratingKey: otherSourceKey, type: .artist)
+            manager.deleteArtwork(ratingKey: unownedKey, type: .playlist)
+            manager.deleteArtwork(ratingKey: identitylessKey, type: .track)
+        }
+        try seedArtwork(
+            data: Data("matching".utf8),
+            at: matchingURL,
+            identity: ArtworkIdentity(
+                ratingKey: matchingKey,
+                type: .album,
+                sourcePath: "/matching",
+                dateModifiedSeconds: 1_000,
+                sourceCompositeKey: sourceA
+            )
+        )
+        try seedArtwork(
+            data: Data("other".utf8),
+            at: otherSourceURL,
+            identity: ArtworkIdentity(
+                ratingKey: otherSourceKey,
+                type: .artist,
+                sourcePath: "/other",
+                dateModifiedSeconds: 1_000,
+                sourceCompositeKey: sourceB
+            )
+        )
+        try seedArtwork(
+            data: Data("unowned".utf8),
+            at: unownedURL,
+            identity: ArtworkIdentity(
+                ratingKey: unownedKey,
+                type: .playlist,
+                sourcePath: "/unowned",
+                dateModifiedSeconds: 1_000
+            )
+        )
+        try Data("identityless".utf8).write(to: identitylessURL)
+
+        manager.deleteArtwork(forSourceCompositeKey: sourceA)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: matchingURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: ArtworkDownloadManager.identityURL(for: matchingURL).path
+        ))
+        for preservedURL in [otherSourceURL, unownedURL, identitylessURL] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: preservedURL.path))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ArtworkDownloadManager.identityURL(for: otherSourceURL).path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: ArtworkDownloadManager.identityURL(for: unownedURL).path
+        ))
     }
 
     func testArtworkDownloadManagerLeavesMismatchedLegacyArtworkUnclaimed() async throws {

@@ -30,6 +30,124 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertNil(viewModel.searchError)
     }
 
+    func testRapidlyRetypingSameQueryStartsFreshDebouncedSearch() async throws {
+        let harness = makeHarness()
+        try await seedAmbientElectric(in: harness.playlistRepository)
+
+        harness.viewModel.searchQuery = "Ambient Electric"
+        let firstDeadline = Date().addingTimeInterval(2)
+        while harness.viewModel.isSearching && Date() < firstDeadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertFalse(harness.viewModel.isSearching)
+        XCTAssertFalse(harness.viewModel.playlistResults.isEmpty)
+
+        for playlistID in ["10425", "26898", "p.1YeW3rpCkzaPXR"] {
+            try await harness.playlistRepository.deletePlaylist(ratingKey: playlistID)
+        }
+
+        harness.viewModel.searchQuery = ""
+        harness.viewModel.searchQuery = "Ambient Electric"
+
+        let secondDeadline = Date().addingTimeInterval(2)
+        while harness.viewModel.isSearching && Date() < secondDeadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertFalse(harness.viewModel.isSearching)
+        XCTAssertTrue(harness.viewModel.playlistResults.isEmpty)
+    }
+
+    func testSwitchingScopeWithActiveQuerySearchesTheEmittedScope() async throws {
+        let expectedTrack = Track(
+            id: "apple-espresso",
+            key: "apple-catalog",
+            title: "Espresso"
+        )
+        let catalogSearch = AppleMusicCatalogSearchClient { _ in
+            AppleMusicCatalogSearchResults(
+                tracks: [expectedTrack],
+                artists: [],
+                albums: [],
+                playlists: []
+            )
+        }
+        let harness = makeHarness(appleMusicCatalogSearch: catalogSearch)
+
+        harness.viewModel.searchQuery = "Espresso"
+        let libraryDeadline = Date().addingTimeInterval(2)
+        while harness.viewModel.isSearching && Date() < libraryDeadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertFalse(harness.viewModel.isSearching)
+
+        harness.viewModel.scope = .appleMusic
+        let catalogDeadline = Date().addingTimeInterval(1)
+        while harness.viewModel.isSearching && Date() < catalogDeadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        XCTAssertFalse(harness.viewModel.isSearching)
+        XCTAssertNil(harness.viewModel.searchError)
+        XCTAssertEqual(harness.viewModel.trackResults.map(\.id), ["apple-espresso"])
+    }
+
+    func testAppleCatalogTimeoutClearsSearchingAndSurfacesRetryableError() async throws {
+        let requestGate = AsyncGate()
+        let catalogSearch = AppleMusicCatalogSearchClient { _ in
+            try await AppleMusicCatalogRequestBoundary.run(
+                timeoutNanoseconds: 20_000_000
+            ) {
+                await requestGate.wait()
+                return AppleMusicCatalogSearchResults(
+                    tracks: [],
+                    artists: [],
+                    albums: [],
+                    playlists: []
+                )
+            }
+        }
+        let harness = makeHarness(appleMusicCatalogSearch: catalogSearch)
+        harness.viewModel.scope = .appleMusic
+
+        await harness.viewModel.search(query: "Espresso")
+
+        XCTAssertFalse(harness.viewModel.isSearching)
+        XCTAssertEqual(
+            harness.viewModel.searchError,
+            "Apple Music search timed out. Please try again."
+        )
+        await requestGate.open()
+    }
+
+    func testRetrySearchRunsATrackedRequestAndClearsThePreviousError() async throws {
+        let catalog = RetryingAppleMusicCatalogSearch()
+        let harness = makeHarness(
+            appleMusicCatalogSearch: AppleMusicCatalogSearchClient { term in
+                try await catalog.search(term)
+            }
+        )
+        harness.viewModel.scope = .appleMusic
+
+        harness.viewModel.searchQuery = "Espresso"
+        let firstDeadline = Date().addingTimeInterval(2)
+        while harness.viewModel.isSearching && Date() < firstDeadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTAssertNotNil(harness.viewModel.searchError)
+
+        harness.viewModel.retrySearch()
+
+        let retryDeadline = Date().addingTimeInterval(2)
+        while harness.viewModel.isSearching && Date() < retryDeadline {
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+
+        XCTAssertFalse(harness.viewModel.isSearching)
+        XCTAssertNil(harness.viewModel.searchError)
+        let attemptCount = await catalog.attemptCount
+        XCTAssertEqual(attemptCount, 2)
+    }
+
     func testCachedExploreUsesNormalizedHubSemanticsInsteadOfDisplayTitles() {
         let source = "appleMusic:device:system:library"
         let playedAlbum = Album(id: "played", key: "/played", title: "Played", sourceCompositeKey: source)
@@ -404,7 +522,8 @@ final class SearchViewModelResponseTests: XCTestCase {
 
     private func makeHarness(
         mergeEnabled: Bool = true,
-        accountManager: AccountManager? = nil
+        accountManager: AccountManager? = nil,
+        appleMusicCatalogSearch: AppleMusicCatalogSearchClient = .live
     ) -> SearchHarness {
         let accountManager = accountManager ?? AccountManager(keychain: TestKeychain())
         let defaults = isolatedUserDefaults()
@@ -422,7 +541,8 @@ final class SearchViewModelResponseTests: XCTestCase {
             moodRepository: moodRepository,
             accountManager: accountManager,
             visibilityStore: visibilityStore,
-            playlistMergeDefaults: defaults
+            playlistMergeDefaults: defaults,
+            appleMusicCatalogSearch: appleMusicCatalogSearch
         )
         return SearchHarness(
             viewModel: viewModel,
@@ -592,5 +712,22 @@ private actor AsyncGate {
         isOpen = true
         continuation?.resume()
         continuation = nil
+    }
+}
+
+private actor RetryingAppleMusicCatalogSearch {
+    private(set) var attemptCount = 0
+
+    func search(_ term: String) throws -> AppleMusicCatalogSearchResults {
+        attemptCount += 1
+        if attemptCount == 1 {
+            throw AppleMusicCatalogSearchRequestError.timedOut
+        }
+        return AppleMusicCatalogSearchResults(
+            tracks: [],
+            artists: [],
+            albums: [],
+            playlists: []
+        )
     }
 }

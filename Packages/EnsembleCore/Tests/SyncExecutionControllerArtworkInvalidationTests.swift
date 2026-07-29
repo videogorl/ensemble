@@ -274,12 +274,44 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
     func testSingleSourceSyncReturnsFailureWhenProviderIsUnavailable() async {
         let recorder = EventRecorder()
         let source = makeSourceIdentifier()
-        let controller = makeController(source: source, recorder: recorder)
+        var publishedFailure: (source: MusicSourceIdentifier, message: String)?
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            publishPreflightFailure: { publishedFailure = ($0, $1) }
+        )
 
         let outcome = await controller.sync(source: source, providers: [:])
         let events = await recorder.snapshot()
 
         XCTAssertEqual(outcome, .failure(message: "The music source is unavailable. Please try again."))
+        XCTAssertEqual(publishedFailure?.source, source)
+        XCTAssertEqual(publishedFailure?.message, "The music source is unavailable. Please try again.")
+        XCTAssertTrue(events.isEmpty)
+    }
+
+    func testSingleSourceSyncPublishesStalePreflightFailure() async {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let provider = RecordingProvider(sourceIdentifier: source, recorder: recorder)
+        var publishedFailure: (source: MusicSourceIdentifier, message: String)?
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            isProviderRevisionCurrent: { _ in false },
+            publishPreflightFailure: { publishedFailure = ($0, $1) }
+        )
+
+        let outcome = await controller.sync(
+            source: source,
+            providers: [source.compositeKey: provider]
+        )
+
+        let expectedMessage = "The music source changed while syncing. Please try again."
+        let events = await recorder.snapshot()
+        XCTAssertEqual(outcome, .failure(message: expectedMessage))
+        XCTAssertEqual(publishedFailure?.source, source)
+        XCTAssertEqual(publishedFailure?.message, expectedMessage)
         XCTAssertTrue(events.isEmpty)
     }
 
@@ -579,7 +611,8 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             LibrarySyncResult?,
             PlaylistSyncResult?,
             Date
-        ) -> Void = { _, _, _, _ in }
+        ) -> Void = { _, _, _, _ in },
+        publishPreflightFailure: @escaping (MusicSourceIdentifier, String) -> Void = { _, _ in }
     ) -> SyncExecutionController {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = providedLibraryRepository ?? LibraryRepository(coreDataStack: stack)
@@ -645,7 +678,9 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 isSourcePersistenceWorkCurrent: { _, revision, lease in
                     isProviderRevisionCurrent(revision) && sourcePersistenceFence.isCurrent(lease)
                 },
-                finishSourcePersistenceWork: { sourcePersistenceFence.finish($0) }
+                finishSourcePersistenceWork: { sourcePersistenceFence.finish($0) },
+                runSourceSync: { _, operation in await operation() },
+                publishPreflightFailure: publishPreflightFailure
             )
         )
     }
