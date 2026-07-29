@@ -47,6 +47,7 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var displayArtistResults: [DisplayArtist] = []
     @Published public private(set) var albumResults: [Album] = []
     @Published public private(set) var playlistResults: [Playlist] = []
+    @Published public private(set) var displayPlaylistResults: [DisplayPlaylist] = []
     @Published public private(set) var orderedSections: [SearchSection] = []
     @Published public private(set) var isSearching = false
     @Published public private(set) var searchError: String?
@@ -69,6 +70,7 @@ public final class SearchViewModel: ObservableObject {
     private let moodRepository: MoodRepository
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
+    private let playlistMergeDefaults: UserDefaults
     private var searchTask: Task<Void, Never>?
     private var exploreTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
@@ -80,6 +82,7 @@ public final class SearchViewModel: ObservableObject {
     private var unfilteredArtistResults: [Artist] = []
     private var unfilteredAlbumResults: [Album] = []
     private var unfilteredPlaylistResults: [Playlist] = []
+    private var isPlaylistMergeEnabled: Bool
     private var unfilteredRecentlyPlayedAlbums: [Album] = []
     private var unfilteredRecentlyPlayedArtists: [Artist] = []
     private var unfilteredRecentlyAddedAlbums: [Album] = []
@@ -92,7 +95,8 @@ public final class SearchViewModel: ObservableObject {
         hubRepository: HubRepositoryProtocol,
         moodRepository: MoodRepository,
         accountManager: AccountManager,
-        visibilityStore: LibraryVisibilityStore? = nil
+        visibilityStore: LibraryVisibilityStore? = nil,
+        playlistMergeDefaults: UserDefaults = .standard
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
@@ -100,6 +104,8 @@ public final class SearchViewModel: ObservableObject {
         self.moodRepository = moodRepository
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.playlistMergeDefaults = playlistMergeDefaults
+        self.isPlaylistMergeEnabled = SettingsManager.storedPlaylistMergeEnabled(in: playlistMergeDefaults)
         
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
@@ -167,6 +173,13 @@ public final class SearchViewModel: ObservableObject {
             .sink { [weak self] _, _ in
                 self?.applyVisibilityToSearchResults()
                 self?.applyVisibilityToExploreContent()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.refreshPlaylistMergePreference()
             }
             .store(in: &cancellables)
 
@@ -315,6 +328,7 @@ public final class SearchViewModel: ObservableObject {
         displayArtistResults = []
         albumResults = []
         playlistResults = []
+        displayPlaylistResults = []
         orderedSections = []
     }
 
@@ -351,7 +365,7 @@ public final class SearchViewModel: ObservableObject {
         guard !trimmed.isEmpty else { return }
         
         // Only save if there were actual results in the last search
-        guard !trackResults.isEmpty || !artistResults.isEmpty || !albumResults.isEmpty || !playlistResults.isEmpty else {
+        guard !trackResults.isEmpty || !artistResults.isEmpty || !albumResults.isEmpty || !displayPlaylistResults.isEmpty else {
             return
         }
         
@@ -419,7 +433,7 @@ public final class SearchViewModel: ObservableObject {
         let sectionCounts: [SearchSection: Int] = [
             .artists: displayArtistResults.count,
             .albums: albumResults.count,
-            .playlists: playlistResults.count,
+            .playlists: displayPlaylistResults.count,
             .songs: trackResults.count
         ]
         orderedSections = SearchSection.allCases
@@ -442,11 +456,38 @@ public final class SearchViewModel: ObservableObject {
             unfilteredAlbumResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
-        playlistResults = LibraryVisibilityFiltering.visibleItems(
+        let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
             unfilteredPlaylistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys
         )
+        playlistResults = visiblePlaylists
+        let nextDisplayPlaylists = Self.displayPlaylists(
+            visiblePlaylists,
+            scope: scope,
+            mergeEnabled: isPlaylistMergeEnabled
+        )
+        if displayPlaylistResults != nextDisplayPlaylists {
+            displayPlaylistResults = nextDisplayPlaylists
+        }
         determineSearchSectionOrder()
+    }
+
+    private func refreshPlaylistMergePreference() {
+        let nextValue = SettingsManager.storedPlaylistMergeEnabled(in: playlistMergeDefaults)
+        guard nextValue != isPlaylistMergeEnabled else { return }
+        isPlaylistMergeEnabled = nextValue
+        applyVisibilityToSearchResults()
+    }
+
+    internal nonisolated static func displayPlaylists(
+        _ playlists: [Playlist],
+        scope: SearchScope,
+        mergeEnabled: Bool
+    ) -> [DisplayPlaylist] {
+        DisplayPlaylist.group(
+            playlists,
+            merge: scope == .library && mergeEnabled
+        )
     }
 
     private func applyVisibilityToExploreContent() {
@@ -504,6 +545,7 @@ public final class SearchViewModel: ObservableObject {
         displayArtistResults = []
         albumResults = []
         playlistResults = []
+        displayPlaylistResults = []
         orderedSections = []
     }
     

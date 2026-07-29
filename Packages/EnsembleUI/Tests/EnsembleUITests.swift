@@ -1220,6 +1220,20 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .management), [.getInfo])
     }
 
+    func testMediaMenuCatalogSearchMergedPlaylistIsNonDestructive() {
+        let sections = MediaMenuCatalog.sections(
+            for: .mergedPlaylist(isSmart: false),
+            context: .search,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing])
+        XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .offline), [.downloadAll, .removeDownloads])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
+        XCTAssertNil(sections.first { $0.id == .management })
+    }
+
     func testMediaMenuCatalogLibraryPlaylistManagementExcludesSmartPlaylists() {
         let regular = MediaMenuCatalog.sections(
             for: .playlist(isSmart: false),

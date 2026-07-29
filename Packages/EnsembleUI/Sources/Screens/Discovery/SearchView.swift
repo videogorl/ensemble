@@ -235,6 +235,18 @@ public struct SearchView: View {
         }
     }
 
+    internal static func playlistDestination(
+        for displayPlaylist: DisplayPlaylist
+    ) -> NavigationCoordinator.Destination {
+        if displayPlaylist.isMerged {
+            return .mergedPlaylist(
+                title: displayPlaylist.title,
+                isSmart: displayPlaylist.isSmart
+            )
+        }
+        return .playlistDetail(displayPlaylist.primaryPlaylist)
+    }
+
     private func collapseSearchPresentation() {
         dismissSearch()
         if #available(iOS 18.0, macOS 15.0, *) {
@@ -785,27 +797,23 @@ public struct SearchView: View {
             }
 
         case .playlists:
-            if !viewModel.playlistResults.isEmpty {
+            if !viewModel.displayPlaylistResults.isEmpty {
                 compactSection(
                     section: .playlists,
                     title: "Playlists",
-                    count: viewModel.playlistResults.count,
-                    items: displayedResults(viewModel.playlistResults)
-                ) { playlist in
+                    count: viewModel.displayPlaylistResults.count,
+                    items: displayedResults(viewModel.displayPlaylistResults)
+                ) { displayPlaylist in
                     Button {
-                        routeSearchResult(to: .playlistDetail(playlist))
+                        routeSearchResult(
+                            to: Self.playlistDestination(for: displayPlaylist)
+                        )
                     } label: {
-                        CompactPlaylistRow(playlist: playlist)
+                        CompactPlaylistRow(displayPlaylist: displayPlaylist)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        PlaylistActionsContextMenu(
-                            playlist: playlist,
-                            nowPlayingVM: nowPlayingVM,
-                            onGetInfo: {
-                                libraryItemInfoRequest = .playlist(playlist)
-                            }
-                        )
+                        playlistContextMenu(for: displayPlaylist)
                     }
                 }
             }
@@ -909,6 +917,28 @@ public struct SearchView: View {
                 libraryItemInfoRequest = .album(album)
             }
         )
+    }
+
+    @ViewBuilder
+    private func playlistContextMenu(for displayPlaylist: DisplayPlaylist) -> some View {
+        if displayPlaylist.isMerged {
+            MergedPlaylistActionsContextMenu(
+                displayPlaylist: displayPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "search-merged-playlist-menu",
+                context: .search
+            )
+        } else {
+            let playlist = displayPlaylist.primaryPlaylist
+            PlaylistActionsContextMenu(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "search-playlist-menu",
+                onGetInfo: {
+                    libraryItemInfoRequest = .playlist(playlist)
+                }
+            )
+        }
     }
 
     private func compactSection<T: Identifiable, Content: View>(

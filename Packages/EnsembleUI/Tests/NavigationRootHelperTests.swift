@@ -281,6 +281,27 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .playlistDetail(Self.playlist())), .playlists)
     }
 
+    @MainActor
+    func testSearchPlaylistDestinationRoutesMergedAndSingleResults() {
+        let first = Self.playlist(id: "first", source: "plex:account:server")
+        let second = Self.playlist(id: "second", source: MusicSourceIdentifier.appleMusic.compositeKey)
+        let merged = DisplayPlaylist.merged(
+            title: "Ambient Electric",
+            isSmart: false,
+            playlists: [first, second]
+        )
+        let single = DisplayPlaylist.single(first)
+
+        XCTAssertEqual(
+            SearchView.playlistDestination(for: merged),
+            .mergedPlaylist(title: "Ambient Electric", isSmart: false)
+        )
+        XCTAssertEqual(
+            SearchView.playlistDestination(for: single),
+            .playlistDetail(first)
+        )
+    }
+
     func testLegacyNestedNavigationResolvesDestinationAtDepth() {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
@@ -332,11 +353,15 @@ final class NavigationRootHelperTests: XCTestCase {
     }
 
     private static func playlist() -> Playlist {
+        playlist(id: "playlist", source: "server/library")
+    }
+
+    private static func playlist(id: String, source: String) -> Playlist {
         Playlist(
-            id: "playlist",
-            key: "/playlists/playlist/items",
+            id: id,
+            key: "/playlists/\(id)/items",
             title: "Playlist",
-            sourceCompositeKey: "server/library"
+            sourceCompositeKey: source
         )
     }
 }
