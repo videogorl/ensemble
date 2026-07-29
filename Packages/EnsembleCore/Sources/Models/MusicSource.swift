@@ -43,10 +43,44 @@ public struct MusicSourceCapabilities: Sendable, Equatable {
     public let supportsTrackDeletion: Bool
     public let supportsFavoriteRemoval: Bool
     public let supportsCatalogLibraryAdds: Bool
+    /// Whether rating mutations can be persisted and replayed after connectivity returns.
+    public let supportsQueuedRatingMutations: Bool
+    /// Whether playlist mutations can be persisted and replayed after connectivity returns.
+    public let supportsQueuedPlaylistMutations: Bool
+    /// Fallback for regular cached playlists that predate item-level capability persistence.
+    public let supportsRegularPlaylistMutationsByDefault: Bool
+    public let playlistEditsRequireItemIdentifiers: Bool
+    public let playlistsAreServerScoped: Bool
     public let supportsOfflineDownloads: Bool
     /// Whether provider-owned Feed items remain actionable without a matching local library row.
     public let retainsHubItemsWithoutLocalCache: Bool
     public let smartMixCrossSourceNotice: String?
+
+    static let unavailable = MusicSourceCapabilities(
+        displayName: "Unknown Source",
+        defaultLibraryName: "Unknown Library",
+        requiresServerConnection: false,
+        supportsWaveform: false,
+        supportsLyrics: false,
+        lyricsUnavailableMessage: "Lyrics aren’t available because this track’s music source is unknown.",
+        lyricsStatusDescription: "Unavailable",
+        managedPlaybackQualityDescription: nil,
+        supportsAudioFileInfo: false,
+        supportsInstrumentalMode: false,
+        supportsAudioFileSharing: false,
+        supportsMetadataEditing: false,
+        supportsTrackDeletion: false,
+        supportsFavoriteRemoval: false,
+        supportsCatalogLibraryAdds: false,
+        supportsQueuedRatingMutations: false,
+        supportsQueuedPlaylistMutations: false,
+        supportsRegularPlaylistMutationsByDefault: false,
+        playlistEditsRequireItemIdentifiers: true,
+        playlistsAreServerScoped: false,
+        supportsOfflineDownloads: false,
+        retainsHubItemsWithoutLocalCache: false,
+        smartMixCrossSourceNotice: nil
+    )
 }
 
 public extension MusicSourceType {
@@ -69,6 +103,11 @@ public extension MusicSourceType {
                 supportsTrackDeletion: true,
                 supportsFavoriteRemoval: true,
                 supportsCatalogLibraryAdds: false,
+                supportsQueuedRatingMutations: true,
+                supportsQueuedPlaylistMutations: true,
+                supportsRegularPlaylistMutationsByDefault: true,
+                playlistEditsRequireItemIdentifiers: true,
+                playlistsAreServerScoped: true,
                 supportsOfflineDownloads: true,
                 retainsHubItemsWithoutLocalCache: false,
                 smartMixCrossSourceNotice: nil
@@ -90,6 +129,11 @@ public extension MusicSourceType {
                 supportsTrackDeletion: false,
                 supportsFavoriteRemoval: false,
                 supportsCatalogLibraryAdds: true,
+                supportsQueuedRatingMutations: false,
+                supportsQueuedPlaylistMutations: false,
+                supportsRegularPlaylistMutationsByDefault: false,
+                playlistEditsRequireItemIdentifiers: false,
+                playlistsAreServerScoped: false,
                 supportsOfflineDownloads: false,
                 retainsHubItemsWithoutLocalCache: true,
                 smartMixCrossSourceNotice: "SmartMix cannot transition between songs from Apple Music and other services"
@@ -217,13 +261,13 @@ public struct MusicSource: Identifiable, Sendable {
 
 public extension Track {
     var sourceType: MusicSourceType? {
-        MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType
+        MusicSourceIdentifier(compositeKey: sourceCompositeKey ?? "")?.type
     }
 
     var isAppleMusic: Bool { sourceType == .appleMusic }
 
     var sourceCapabilities: MusicSourceCapabilities {
-        (sourceType ?? .plex).capabilities
+        sourceType?.capabilities ?? .unavailable
     }
 
     /// Catalog results use a catalog key. Library-backed results use a distinct key,

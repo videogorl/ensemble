@@ -68,28 +68,15 @@ extension LibraryRepository {
     }
 
     public func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
-        try await withCheckedThrowingContinuation { continuation in
+        guard let sourceCompositeKey else { return nil }
+        return try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
                 do {
-                    let resolvedSourceKey: String
-                    if let sourceCompositeKey {
-                        resolvedSourceKey = sourceCompositeKey
-                    } else if let uniqueSourceKey = try RepositoryPredicates.uniqueSourceCompositeKey(
-                        forEntity: "CDAlbum",
-                        ratingKey: ratingKey,
-                        in: context
-                    ) {
-                        resolvedSourceKey = uniqueSourceKey
-                    } else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-
                     let request = CDAlbum.fetchRequest()
                     request.predicate = RepositoryPredicates.ratingKey(
                         ratingKey,
-                        sourceCompositeKey: resolvedSourceKey
+                        sourceCompositeKey: sourceCompositeKey
                     )
                     request.fetchLimit = 1
                     request.relationshipKeyPathsForPrefetching = ["artist"]

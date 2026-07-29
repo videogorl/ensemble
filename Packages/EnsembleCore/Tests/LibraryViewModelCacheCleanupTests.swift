@@ -336,6 +336,56 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertTrue(cachedTracks.isEmpty)
     }
 
+    func testProviderRefreshKeepsUnchangedSourceWorkCurrent() {
+        let harness = makeHarness()
+        let firstSourceKey = "plex:account-1:server-1:lib-1"
+        let secondSourceKey = "plex:account-1:server-1:lib-2"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [
+                ("lib-1", "Library One", true),
+                ("lib-2", "Library Two", true)
+            ])
+        )
+        harness.syncCoordinator.refreshProviders()
+        let initialRevisions = Dictionary(uniqueKeysWithValues:
+            harness.syncCoordinator.configuredSourceProviderRegistrations.map {
+                ($0.provider.sourceIdentifier.compositeKey, $0.revision)
+            }
+        )
+
+        XCTAssertTrue(harness.accountManager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "lib-2",
+            isEnabled: false
+        ))
+        harness.syncCoordinator.refreshProviders()
+        let disabledRevisions = Dictionary(uniqueKeysWithValues:
+            harness.syncCoordinator.configuredSourceProviderRegistrations.map {
+                ($0.provider.sourceIdentifier.compositeKey, $0.revision)
+            }
+        )
+
+        XCTAssertEqual(disabledRevisions[firstSourceKey], initialRevisions[firstSourceKey])
+        XCTAssertNil(disabledRevisions[secondSourceKey])
+
+        XCTAssertTrue(harness.accountManager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "lib-2",
+            isEnabled: true
+        ))
+        harness.syncCoordinator.refreshProviders()
+        let restoredRevisions = Dictionary(uniqueKeysWithValues:
+            harness.syncCoordinator.configuredSourceProviderRegistrations.map {
+                ($0.provider.sourceIdentifier.compositeKey, $0.revision)
+            }
+        )
+
+        XCTAssertEqual(restoredRevisions[firstSourceKey], initialRevisions[firstSourceKey])
+        XCTAssertNotEqual(restoredRevisions[secondSourceKey], initialRevisions[secondSourceKey])
+    }
+
     func testSourceCleanupResultReportsRemovedCounts() async throws {
         let harness = makeHarness(
             clearLyricsCache: { _ in 2 },
@@ -357,6 +407,151 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForDeferredOfflineCleanup(harness: harness)
     }
 
+    func testSourceCleanupDeletesOnlyExactPendingMutationsBeforeSameKeyReadd() async throws {
+        let harness = makeHarness()
+        let removedSourceKey = "plex:account-1:server-1:lib-1"
+        let retainedSourceKey = "plex:account-2:server-2:lib-2"
+        let removedSource = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryId: "lib-1"
+        )
+        let removedAccount = makeAccount(libraries: [("lib-1", "Library One", true)])
+        harness.accountManager.addPlexAccount(removedAccount)
+        harness.syncCoordinator.refreshProviders()
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "removed-pending",
+            type: .trackRating,
+            payload: Data(),
+            sourceCompositeKey: removedSourceKey
+        )
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "removed-failed",
+            type: .scrobble,
+            payload: Data(),
+            sourceCompositeKey: removedSourceKey
+        )
+        try await harness.pendingMutationRepository.markFailed(id: "removed-failed")
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "retained",
+            type: .trackRating,
+            payload: Data(),
+            sourceCompositeKey: retainedSourceKey
+        )
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "unscoped",
+            type: .scrobble,
+            payload: Data(),
+            sourceCompositeKey: nil
+        )
+
+        harness.accountManager.removePlexAccount(id: "account-1")
+        harness.syncCoordinator.refreshProviders()
+        let cleanupSucceeded = await harness.syncCoordinator.cleanupRemovedSource(removedSource)
+        harness.accountManager.addPlexAccount(removedAccount)
+        harness.syncCoordinator.refreshProviders()
+
+        XCTAssertTrue(cleanupSucceeded)
+        let remainingIDs = Set(try await harness.pendingMutationRepository.fetchAllMutations().map(\.id))
+        XCTAssertEqual(remainingIDs, ["retained"])
+    }
+
+    func testSourceCleanupDeletesServerPlaylistMutationReferencingRemovedLibrary() async throws {
+        let harness = makeHarness()
+        let serverSourceKey = "plex:account-1:server-1"
+        let removedSourceKey = "\(serverSourceKey):lib-1"
+        let retainedSourceKey = "\(serverSourceKey):lib-2"
+        let removedPayload = PlaylistMutationPayload(
+            playlistRatingKey: "playlist-1",
+            playlistSourceCompositeKey: serverSourceKey,
+            trackReferences: [
+                OfflineTrackReference(trackRatingKey: "removed", trackSourceCompositeKey: removedSourceKey),
+                OfflineTrackReference(trackRatingKey: "retained", trackSourceCompositeKey: retainedSourceKey)
+            ]
+        )
+        let retainedPayload = PlaylistMutationPayload(
+            playlistRatingKey: "playlist-2",
+            playlistSourceCompositeKey: serverSourceKey,
+            trackReferences: [
+                OfflineTrackReference(trackRatingKey: "retained", trackSourceCompositeKey: retainedSourceKey)
+            ]
+        )
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "references-removed-library",
+            type: .playlistAdd,
+            payload: try JSONEncoder().encode(removedPayload),
+            sourceCompositeKey: serverSourceKey
+        )
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "references-retained-library",
+            type: .playlistAdd,
+            payload: try JSONEncoder().encode(retainedPayload),
+            sourceCompositeKey: serverSourceKey
+        )
+
+        _ = try await harness.sourceCacheCleanupService.cleanupSource(removedSourceKey)
+
+        let remainingIDs = Set(try await harness.pendingMutationRepository.fetchAllMutationRecords().map(\.id))
+        XCTAssertEqual(remainingIDs, ["references-retained-library"])
+    }
+
+    func testServerPlaylistCleanupDeletesOnlyThatServersPendingMutations() async throws {
+        let harness = makeHarness()
+        let removedServerKey = "plex:account-1:server-1"
+        let retainedServerKey = "plex:account-2:server-2"
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "removed-playlist-mutation",
+            type: .playlistAdd,
+            payload: Data(),
+            sourceCompositeKey: removedServerKey
+        )
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "retained-playlist-mutation",
+            type: .playlistRemove,
+            payload: Data(),
+            sourceCompositeKey: retainedServerKey
+        )
+
+        await harness.syncCoordinator.cleanupServerPlaylists(
+            accountId: "account-1",
+            serverId: "server-1"
+        )
+
+        let remaining = try await harness.pendingMutationRepository.fetchAllMutations()
+        XCTAssertEqual(remaining.map(\.id), ["retained-playlist-mutation"])
+    }
+
+    func testAllLibraryCleanupDeletesPendingFailedAndUnscopedMutations() async throws {
+        let harness = makeHarness()
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "pending",
+            type: .trackRating,
+            payload: Data(),
+            sourceCompositeKey: "plex:account-1:server-1:lib-1"
+        )
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "failed",
+            type: .playlistDelete,
+            payload: Data(),
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        try await harness.pendingMutationRepository.markFailed(id: "failed")
+        try await harness.pendingMutationRepository.enqueueMutation(
+            id: "unscoped",
+            type: .scrobble,
+            payload: Data(),
+            sourceCompositeKey: nil
+        )
+
+        _ = try await harness.sourceCacheCleanupService.cleanupAllLibraryData(
+            cachedSourceKeys: ["plex:account-1:server-1:lib-1"]
+        )
+
+        let remaining = try await harness.pendingMutationRepository.fetchAllMutations()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
     func testAppleMusicCleanupClearsSharedArtworkCaches() async throws {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness(clearSharedArtworkCaches: {
@@ -372,7 +567,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         )
         let legacyArtworkURL = ArtworkDownloadManager.artworkDirectory.appendingPathComponent("legacy-apple_album.jpg")
         defer {
-            harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: plexSourceKey)
+            try? harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: plexSourceKey)
             try? FileManager.default.removeItem(at: legacyArtworkURL)
         }
         try Data("plex-artwork".utf8).write(to: plexArtworkURL)
@@ -425,6 +620,77 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertTrue(sourceCleanupCompleted)
         let remainingTracks = try await harness.libraryRepository.fetchTracks()
         XCTAssertTrue(remainingTracks.isEmpty)
+    }
+
+    func testRemovedLibraryCannotBorrowSiblingProviderPersistenceLease() throws {
+        let harness = makeHarness()
+        let removedSourceKey = "plex:account-1:server-1:lib-1"
+        let retainedSourceKey = "plex:account-1:server-1:lib-2"
+        let serverSourceKey = "plex:account-1:server-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [
+                ("lib-1", "Library One", true),
+                ("lib-2", "Library Two", true)
+            ])
+        )
+        harness.syncCoordinator.refreshProviders()
+        XCTAssertTrue(harness.accountManager.setLibraryEnabled(
+            accountId: "account-1",
+            serverId: "server-1",
+            libraryKey: "lib-1",
+            isEnabled: false
+        ))
+        harness.syncCoordinator.refreshProviders()
+
+        XCTAssertNil(harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: removedSourceKey))
+        XCTAssertNil(harness.syncCoordinator.beginCurrentSourcePersistenceWork(
+            sourceKeys: [serverSourceKey, removedSourceKey]
+        ))
+        let retainedHandle = try XCTUnwrap(
+            harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: retainedSourceKey)
+        )
+        harness.syncCoordinator.finishSourcePersistenceWork(retainedHandle)
+    }
+
+    func testSourceCleanupPreservesSameSourceRestoredWhileWaitingForPersistence() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        let account = makeAccount(libraries: [("lib-1", "Library One", true)])
+        harness.accountManager.addPlexAccount(account)
+        harness.syncCoordinator.refreshProviders()
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+
+        let sourceHandle = try XCTUnwrap(
+            harness.syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey)
+        )
+        harness.accountManager.removePlexAccount(id: "account-1")
+        harness.syncCoordinator.refreshProviders()
+
+        var cleanupCompleted = false
+        let cleanup = Task { @MainActor in
+            let result = await harness.syncCoordinator.cleanupRemovedSource(
+                MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: "account-1",
+                    serverId: "server-1",
+                    libraryId: "lib-1"
+                )
+            )
+            cleanupCompleted = true
+            return result
+        }
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(cleanupCompleted)
+
+        harness.accountManager.addPlexAccount(account)
+        harness.syncCoordinator.refreshProviders()
+        harness.syncCoordinator.finishSourcePersistenceWork(sourceHandle)
+
+        let cleanupSucceeded = await cleanup.value
+        XCTAssertTrue(cleanupSucceeded)
+        XCTAssertTrue(cleanupCompleted)
+        let remainingSources = try await harness.libraryRepository.fetchTracks().compactMap(\.sourceCompositeKey)
+        XCTAssertEqual(remainingSources, [sourceKey])
     }
 
     func testFailedSourceCleanupReturnsFailureAndDoesNotPublishCompletion() async {
@@ -557,8 +823,8 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let identityURLA = artworkURLA.deletingPathExtension().appendingPathExtension("identity.json")
         let identityURLB = artworkURLB.deletingPathExtension().appendingPathExtension("identity.json")
         defer {
-            harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceA)
-            harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceB)
+            try? harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceA)
+            try? harness.artworkDownloadManager.deleteArtwork(forSourceCompositeKey: sourceB)
         }
         try Data("a".utf8).write(to: artworkURLA)
         try Data("b".utf8).write(to: artworkURLB)
@@ -994,6 +1260,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let playlistRepository: PlaylistRepository
         let downloadManager: DownloadManager
         let targetRepository: OfflineDownloadTargetRepository
+        let pendingMutationRepository: PendingMutationRepository
         let artworkDownloadManager: ArtworkDownloadManager
         let sourceCacheCleanupService: SourceCacheCleaning
     }
@@ -1015,6 +1282,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         let playlistRepository = PlaylistRepository(coreDataStack: stack)
         let downloadManager = DownloadManager(coreDataStack: stack)
         let targetRepository = OfflineDownloadTargetRepository(coreDataStack: stack)
+        let pendingMutationRepository = PendingMutationRepository(coreDataStack: stack)
         let artworkDownloadManager = ArtworkDownloadManager()
         let networkMonitor = NetworkMonitor(
             debounceNanoseconds: 1_000,
@@ -1034,6 +1302,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             hubRepository: HubRepository(coreDataStack: stack),
             downloadManager: downloadManager,
             targetRepository: targetRepository,
+            pendingMutationRepository: pendingMutationRepository,
             artworkDownloadManager: artworkDownloadManager,
             fetchArtworkRatingKeys: { sourceKey in
                 try await libraryRepository.fetchArtworkRatingKeys(forSourceCompositeKey: sourceKey)
@@ -1066,6 +1335,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             playlistRepository: playlistRepository,
             downloadManager: downloadManager,
             targetRepository: targetRepository,
+            pendingMutationRepository: pendingMutationRepository,
             artworkDownloadManager: artworkDownloadManager,
             sourceCacheCleanupService: sourceCacheCleanupService
         )

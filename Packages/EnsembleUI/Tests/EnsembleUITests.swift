@@ -1711,7 +1711,8 @@ final class EnsembleUITests: XCTestCase {
             artistName: "Artist",
             albumName: "Album",
             albumRatingKey: "album-1",
-            artistRatingKey: "artist-1"
+            artistRatingKey: "artist-1",
+            sourceCompositeKey: "plex:account-1:server-1:library-1"
         )
         let resolved = TrackRowInteractionModel(
             onPlayNext: { _ in },

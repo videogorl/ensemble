@@ -28,7 +28,7 @@ final class MusicItemActionAvailabilityTests: XCTestCase {
         )
         XCTAssertEqual(
             playlist.actionAvailability(for: .delete),
-            .unavailable(reason: "Apple Music playlists cannot be deleted in Ensemble.")
+            .unavailable(reason: "This playlist cannot be deleted in Ensemble.")
         )
     }
 
@@ -180,10 +180,30 @@ final class MusicItemActionAvailabilityTests: XCTestCase {
         XCTAssertFalse(sourceLessPlaylist.supportsPlaylistTrackAdds)
         XCTAssertFalse(sourceLessPlaylist.supportsPlaylistEditing)
         XCTAssertFalse(sourceLessPlaylist.supportsPlaylistDeletion)
+        XCTAssertFalse(sourceLessTrack.sourceCapabilities.supportsWaveform)
+        XCTAssertFalse(sourceLessTrack.sourceCapabilities.supportsAudioFileSharing)
         XCTAssertEqual(
             sourceLessPlaylist.playlistEditingUnavailableReason,
             "This playlist’s music source is unknown."
         )
+    }
+
+    func testServerScopedOwnershipIsValidOnlyForPlaylists() {
+        let sourceKey = "plex:account:server"
+        let track = Track(id: "track", key: "/track", title: "Track", sourceCompositeKey: sourceKey)
+        let album = Album(id: "album", key: "/album", title: "Album", sourceCompositeKey: sourceKey)
+        let artist = Artist(id: "artist", key: "/artist", name: "Artist", sourceCompositeKey: sourceKey)
+        let playlist = Playlist(id: "playlist", key: "/playlist", title: "Playlist", sourceCompositeKey: sourceKey)
+        let unavailable = MusicItemActionAvailability.unavailable(
+            reason: "This item’s music source is unknown."
+        )
+
+        XCTAssertNil(track.sourceType)
+        XCTAssertEqual(track.actionAvailability(for: .favorite), unavailable)
+        XCTAssertEqual(album.actionAvailability(for: .download), unavailable)
+        XCTAssertEqual(artist.actionAvailability(for: .download), unavailable)
+        XCTAssertEqual(playlist.sourceType, .plex)
+        XCTAssertEqual(playlist.actionAvailability(for: .addItems), .available)
     }
 
     func testCombinedAvailabilityUsesAnyActionableSourceAndPreservesReasons() {

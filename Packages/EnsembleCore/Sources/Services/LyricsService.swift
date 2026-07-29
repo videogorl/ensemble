@@ -571,8 +571,13 @@ public final class LyricsService: ObservableObject {
         }
 
         // 2. Fetch normalized track metadata to discover lyrics assets.
-        guard let provider = syncCoordinator.lyricsProvider(for: track.sourceCompositeKey) else {
+        guard let sourceKey = track.sourceCompositeKey,
+              let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey) else {
             EnsembleLogger.debug("Lyrics: source has no lyrics provider \(track.sourceCompositeKey ?? "nil")")
+            return LyricsBundle(normalState: .notAvailable, normalSource: .noApiClient, chordState: .notAvailable, chordSource: .noApiClient)
+        }
+        defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
+        guard let provider = syncCoordinator.lyricsProvider(for: sourceKey) else {
             return LyricsBundle(normalState: .notAvailable, normalSource: .noApiClient, chordState: .notAvailable, chordSource: .noApiClient)
         }
 
@@ -742,16 +747,16 @@ public final class LyricsService: ObservableObject {
     /// Fetch and cache lyrics for a track that was just downloaded.
     /// Called fire-and-forget after audio download completion so lyrics
     /// are available immediately when the user plays the track offline.
-    public nonisolated func fetchAndCacheLyrics(
+    public func fetchAndCacheLyrics(
         trackRatingKey: String,
         sourceCompositeKey: String?
     ) async {
-        guard let sourceCompositeKey else { return }
-
-        let provider: MusicSourceLyricsProviding? = await MainActor.run {
-            syncCoordinator.lyricsProvider(for: sourceCompositeKey)
+        guard let sourceCompositeKey,
+              let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceCompositeKey) else {
+            return
         }
-        guard let provider else { return }
+        defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
+        guard let provider = syncCoordinator.lyricsProvider(for: sourceCompositeKey) else { return }
 
         do {
             guard let metadata = try await provider.getLyricsMetadata(trackID: trackRatingKey) else { return }

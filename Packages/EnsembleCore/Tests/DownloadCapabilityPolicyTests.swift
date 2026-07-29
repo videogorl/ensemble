@@ -22,14 +22,18 @@ final class DownloadCapabilityPolicyTests: XCTestCase {
         )
     }
 
-    func testPlexAndLegacySourcesRemainProviderEligible() {
+    func testOnlyValidPlexSourcesRemainProviderEligible() {
+        let manager = AccountManager(keychain: TestKeychain())
         XCTAssertTrue(MusicSourceType.plex.capabilities.supportsOfflineDownloads)
         XCTAssertTrue(
             DownloadCapabilityPolicy.providerSupportsOfflineDownloads(
                 for: "plex:account:server"
             )
         )
-        XCTAssertTrue(DownloadCapabilityPolicy.providerSupportsOfflineDownloads(for: "legacy-source"))
+        XCTAssertFalse(DownloadCapabilityPolicy.providerSupportsOfflineDownloads(for: "legacy-source"))
+        XCTAssertFalse(DownloadCapabilityPolicy.providerSupportsOfflineDownloads(for: nil))
+        XCTAssertFalse(DownloadCapabilityPolicy.canAttemptDownload(for: "legacy-source", accountManager: manager))
+        XCTAssertFalse(DownloadCapabilityPolicy.canAttemptDownload(for: nil, accountManager: manager))
     }
 
     func testPlexPassSubscriberWithAllowSyncCanDownload() {

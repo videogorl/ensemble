@@ -2807,10 +2807,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return track
         }
 
+        guard let sourceCompositeKey = track.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return nil }
         do {
             if let persistedPath = try await downloadManager.getLocalFilePath(
                 forTrackRatingKey: track.id,
-                sourceCompositeKey: track.sourceCompositeKey
+                sourceCompositeKey: sourceCompositeKey
             ),
                 FileManager.default.fileExists(atPath: persistedPath)
             {
@@ -4788,9 +4790,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             // Mark the CDDownload as failed so the Downloads view shows it correctly
             do {
+                guard let sourceCompositeKey = track.sourceCompositeKey,
+                      MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return }
                 if let download = try await downloadManager.fetchDownload(
                     forTrackRatingKey: track.id,
-                    sourceCompositeKey: track.sourceCompositeKey
+                    sourceCompositeKey: sourceCompositeKey
                 ) {
                     try await downloadManager.failDownload(
                         download.objectID,
@@ -5799,9 +5803,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             currentQueueIndex: currentQueueIndex,
             fallbackStreamingQuality: AudioQualityPreference.storedStreamingQuality(),
             localFilePathForTrack: { [downloadManager] track in
-                try? await downloadManager.getLocalFilePath(
+                guard let sourceCompositeKey = track.sourceCompositeKey,
+                      MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return nil }
+                return try? await downloadManager.getLocalFilePath(
                     forTrackRatingKey: track.id,
-                    sourceCompositeKey: track.sourceCompositeKey
+                    sourceCompositeKey: sourceCompositeKey
                 )
             }
         )
@@ -6425,10 +6431,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return track
         }
 
+        guard let sourceCompositeKey = track.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return track }
         do {
             if let persistedPath = try await downloadManager.getLocalFilePath(
                 forTrackRatingKey: track.id,
-                sourceCompositeKey: track.sourceCompositeKey
+                sourceCompositeKey: sourceCompositeKey
             ) {
                 if fileManager.fileExists(atPath: persistedPath) {
                     guard persistedPath != track.localFilePath else {

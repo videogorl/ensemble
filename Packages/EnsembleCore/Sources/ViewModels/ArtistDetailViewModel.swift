@@ -106,18 +106,23 @@ public final class ArtistDetailViewModel: ObservableObject {
         isLoading = true
         error = nil
 
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            albums = []
+            isLoading = false
+            return
+        }
+
         do {
-            let cachedAlbums: [CDAlbum]
-            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            } else {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artist.id)
-            }
+            let cachedAlbums = try await libraryRepository.fetchAlbums(
+                forArtist: artist.id,
+                sourceCompositeKey: sourceKey
+            )
             if !cachedAlbums.isEmpty {
                 albums = ArtistDetailAlbumCollections.sorted(cachedAlbums.map { Album(from: $0) })
             }
 
-            if let sourceKey = artist.sourceCompositeKey, !syncCoordinator.isOffline {
+            if !syncCoordinator.isOffline {
                 EnsembleLogger.debug("ArtistDetailViewModel: Refreshing artist albums from API for source: \(sourceKey)")
                 do {
                     let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
@@ -141,16 +146,20 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     public func loadTracks() async {
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            tracks = []
+            return
+        }
+
         do {
-            let cachedTracks: [CDTrack]
-            if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            } else {
-                cachedTracks = try await libraryRepository.fetchTracks(forArtist: artist.id)
-            }
+            let cachedTracks = try await libraryRepository.fetchTracks(
+                forArtist: artist.id,
+                sourceCompositeKey: sourceKey
+            )
             if !cachedTracks.isEmpty {
                 tracks = cachedTracks.map { Track(from: $0) }
-            } else if let sourceKey = artist.sourceCompositeKey {
+            } else {
                 EnsembleLogger.debug("ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
                 tracks = apiTracks

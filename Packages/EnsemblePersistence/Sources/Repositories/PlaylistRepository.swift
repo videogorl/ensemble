@@ -822,28 +822,15 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     }
 
     public func fetchPlaylist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
-        try await withCheckedThrowingContinuation { continuation in
+        guard let sourceCompositeKey else { return nil }
+        return try await withCheckedThrowingContinuation { continuation in
             let context = self.coreDataStack.viewContext
             context.perform {
                 do {
-                    let resolvedSourceKey: String
-                    if let sourceCompositeKey {
-                        resolvedSourceKey = sourceCompositeKey
-                    } else if let uniqueSourceKey = try RepositoryPredicates.uniqueSourceCompositeKey(
-                        forEntity: "CDPlaylist",
-                        ratingKey: ratingKey,
-                        in: context
-                    ) {
-                        resolvedSourceKey = uniqueSourceKey
-                    } else {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-
                     let request = CDPlaylist.fetchRequest()
                     request.predicate = RepositoryPredicates.ratingKey(
                         ratingKey,
-                        sourceCompositeKey: resolvedSourceKey
+                        sourceCompositeKey: sourceCompositeKey
                     )
                     request.fetchLimit = 1
                     request.relationshipKeyPathsForPrefetching = ["playlistTracks", "playlistTracks.track"]
@@ -857,30 +844,10 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
     }
 
     public func fetchPlaylistHeader(ratingKey: String, sourceCompositeKey: String?) async throws -> CDPlaylist? {
-        let resolvedSourceKey: String?
-        if let sourceCompositeKey {
-            resolvedSourceKey = sourceCompositeKey
-        } else {
-            resolvedSourceKey = try await withCheckedThrowingContinuation { continuation in
-                let context = self.coreDataStack.viewContext
-                context.perform {
-                    do {
-                        continuation.resume(returning: try RepositoryPredicates.uniqueSourceCompositeKey(
-                            forEntity: "CDPlaylist",
-                            ratingKey: ratingKey,
-                            in: context
-                        ))
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-        }
-
-        guard let resolvedSourceKey else { return nil }
+        guard let sourceCompositeKey else { return nil }
         let reference = SourceScopedArtworkReference(
             ratingKey: ratingKey,
-            sourceCompositeKey: resolvedSourceKey
+            sourceCompositeKey: sourceCompositeKey
         )
         return try await fetchPlaylistHeaders(forReferences: [reference])[reference.lookupKey]
     }

@@ -57,11 +57,13 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertTrue(harness.viewModel.playlistResults.isEmpty)
     }
 
+    #if os(iOS)
     func testSwitchingScopeWithActiveQuerySearchesTheEmittedScope() async throws {
         let expectedTrack = Track(
             id: "apple-espresso",
             key: "apple-catalog",
-            title: "Espresso"
+            title: "Espresso",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         )
         let catalogSearch = AppleMusicCatalogSearchClient { _ in
             AppleMusicCatalogSearchResults(
@@ -71,7 +73,14 @@ final class SearchViewModelResponseTests: XCTestCase {
                 playlists: []
             )
         }
-        let harness = makeHarness(appleMusicCatalogSearch: catalogSearch)
+        let accountManager = AccountManager(keychain: TestKeychain())
+        let wasAppleMusicEnabled = accountManager.isAppleMusicEnabled
+        accountManager.setAppleMusicEnabled(true)
+        defer { accountManager.setAppleMusicEnabled(wasAppleMusicEnabled) }
+        let harness = makeHarness(
+            accountManager: accountManager,
+            appleMusicCatalogSearch: catalogSearch
+        )
 
         harness.viewModel.searchQuery = "Espresso"
         let libraryDeadline = Date().addingTimeInterval(2)
@@ -90,6 +99,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertNil(harness.viewModel.searchError)
         XCTAssertEqual(harness.viewModel.trackResults.map(\.id), ["apple-espresso"])
     }
+    #endif
 
     func testAppleCatalogTimeoutClearsSearchingAndSurfacesRetryableError() async throws {
         let requestGate = AsyncGate()
@@ -442,6 +452,62 @@ final class SearchViewModelResponseTests: XCTestCase {
             hiddenSourceCompositeKeys: [],
             sourceConfiguration: sourceConfiguration
         ).first)
+        XCTAssertEqual(
+            SearchViewModel.moodSourceCompositeKeys(from: filteredMood.sourceCompositeKey),
+            [Self.plexSourceOne]
+        )
+    }
+
+    func testExploreFilteringAlwaysRejectsMalformedSourceOwnership() throws {
+        let items = [
+            HubItem(
+                id: "valid",
+                type: "album",
+                title: "Valid",
+                subtitle: nil,
+                thumbPath: nil,
+                year: nil,
+                sourceCompositeKey: Self.plexSourceOne
+            ),
+            HubItem(
+                id: "malformed",
+                type: "album",
+                title: "Malformed",
+                subtitle: nil,
+                thumbPath: nil,
+                year: nil,
+                sourceCompositeKey: "legacy-source"
+            ),
+        ]
+        let mood = Mood(
+            id: "mood:ambient",
+            key: "ambient",
+            title: "Ambient",
+            sourceCompositeKey: [
+                Mood.sourceReference(sourceCompositeKey: Self.plexSourceOne, moodKey: "1"),
+                Mood.sourceReference(sourceCompositeKey: "legacy-source", moodKey: "2"),
+            ].joined(separator: "|")
+        )
+        let malformedMood = Mood(
+            id: "mood:malformed",
+            key: "malformed",
+            title: "Malformed",
+            sourceCompositeKey: "legacy-source"
+        )
+
+        XCTAssertEqual(
+            SearchViewModel.filterHubItemsForVisibility(
+                items,
+                hiddenSourceCompositeKeys: []
+            ).map(\.id),
+            ["valid"]
+        )
+        let filteredMoods = SearchViewModel.filterMoodsForVisibility(
+            [mood, malformedMood],
+            hiddenSourceCompositeKeys: []
+        )
+        let filteredMood = try XCTUnwrap(filteredMoods.first)
+        XCTAssertEqual(filteredMoods.map(\.id), ["mood:ambient"])
         XCTAssertEqual(
             SearchViewModel.moodSourceCompositeKeys(from: filteredMood.sourceCompositeKey),
             [Self.plexSourceOne]

@@ -87,11 +87,10 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
         func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
-        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
+        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String : CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
-        func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { fatalError() }
-        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload { fatalError() }
+        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String, quality: String) async throws -> CDDownload { fatalError() }
         func batchCreateDownloads(references: [OfflineTrackReference], quality: String) async throws -> Int {
             batchCreateCalls.append((references, quality))
             return references.count
@@ -101,17 +100,15 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {
+        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws {
             deletedReferences.append(
                 OfflineTrackReference(
                     trackRatingKey: trackRatingKey,
-                    trackSourceCompositeKey: sourceCompositeKey ?? ""
+                    trackSourceCompositeKey: sourceCompositeKey
                 )
             )
         }
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
+        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
         func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}
@@ -152,12 +149,13 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         let downloadManager = DownloadManagerMock()
         let targetRepository = TargetRepositoryMock()
 
-        let duplicateA = makeTrack(ratingKey: "a", sourceCompositeKey: "source")
-        let duplicateB = makeTrack(ratingKey: "a", sourceCompositeKey: "source")
-        let unique = makeTrack(ratingKey: "b", sourceCompositeKey: "source")
-        libraryRepository.tracksBySource["source"] = [duplicateA, duplicateB, unique]
+        let sourceKey = "plex:account:server:library"
+        let duplicateA = makeTrack(ratingKey: "a", sourceCompositeKey: sourceKey)
+        let duplicateB = makeTrack(ratingKey: "a", sourceCompositeKey: sourceKey)
+        let unique = makeTrack(ratingKey: "b", sourceCompositeKey: sourceKey)
+        libraryRepository.tracksBySource[sourceKey] = [duplicateA, duplicateB, unique]
 
-        let removed = OfflineTrackReference(trackRatingKey: "old", trackSourceCompositeKey: "source")
+        let removed = OfflineTrackReference(trackRatingKey: "old", trackSourceCompositeKey: sourceKey)
         targetRepository.previousReferencesByTarget["target"] = [removed]
         targetRepository.membershipCounts[removed] = 0
         var clearedLyrics: [OfflineTrackReference] = []
@@ -174,15 +172,15 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         )
 
         let result = try await reconciler.reconcileTarget(
-            .init(key: "target", kind: .library, ratingKey: nil, sourceCompositeKey: "source")
+            .init(key: "target", kind: .library, ratingKey: nil, sourceCompositeKey: sourceKey)
         )
 
         XCTAssertEqual(result, .init(trackReferenceCount: 2, newPendingCount: 2, downloadQuality: "high"))
         XCTAssertEqual(
             targetRepository.replacedMemberships["target"],
             [
-                OfflineTrackReference(trackRatingKey: "a", trackSourceCompositeKey: "source"),
-                OfflineTrackReference(trackRatingKey: "b", trackSourceCompositeKey: "source")
+                OfflineTrackReference(trackRatingKey: "a", trackSourceCompositeKey: sourceKey),
+                OfflineTrackReference(trackRatingKey: "b", trackSourceCompositeKey: sourceKey)
             ]
         )
         XCTAssertEqual(downloadManager.deletedReferences, [removed])
@@ -195,9 +193,10 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         let downloadManager = DownloadManagerMock()
         let targetRepository = TargetRepositoryMock()
 
+        let sourceKey = "plex:account:server"
         let playlist = CDPlaylist(context: context)
-        let first = makeTrack(ratingKey: "1", sourceCompositeKey: "server")
-        let second = makeTrack(ratingKey: "2", sourceCompositeKey: "server")
+        let first = makeTrack(ratingKey: "1", sourceCompositeKey: sourceKey)
+        let second = makeTrack(ratingKey: "2", sourceCompositeKey: sourceKey)
         let playlistTrackOne = CDPlaylistTrack(context: context)
         playlistTrackOne.track = first
         playlistTrackOne.order = 0
@@ -205,7 +204,7 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         playlistTrackTwo.track = second
         playlistTrackTwo.order = 1
         playlist.playlistTracks = NSSet(array: [playlistTrackOne, playlistTrackTwo])
-        playlistRepository.playlists["server|playlist"] = playlist
+        playlistRepository.playlists["\(sourceKey)|playlist"] = playlist
 
         let reconciler = DownloadTargetReconciler(
             dependencies: .init(
@@ -219,15 +218,15 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         )
 
         let result = try await reconciler.reconcileTarget(
-            .init(key: "playlist-target", kind: .playlist, ratingKey: "playlist", sourceCompositeKey: "server")
+            .init(key: "playlist-target", kind: .playlist, ratingKey: "playlist", sourceCompositeKey: sourceKey)
         )
 
         XCTAssertEqual(result.trackReferenceCount, 2)
         XCTAssertEqual(
             targetRepository.replacedMemberships["playlist-target"],
             [
-                OfflineTrackReference(trackRatingKey: "1", trackSourceCompositeKey: "server"),
-                OfflineTrackReference(trackRatingKey: "2", trackSourceCompositeKey: "server")
+                OfflineTrackReference(trackRatingKey: "1", trackSourceCompositeKey: sourceKey),
+                OfflineTrackReference(trackRatingKey: "2", trackSourceCompositeKey: sourceKey)
             ]
         )
     }

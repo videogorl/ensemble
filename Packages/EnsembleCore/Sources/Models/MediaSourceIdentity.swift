@@ -66,6 +66,14 @@ public struct MediaSourceIdentity: Equatable, Hashable, Sendable {
         parse(sourceKey)?.serverSourceKey
     }
 
+    public static func playlistScopeKey(from sourceKey: String?) -> String? {
+        guard let identity = parse(sourceKey) else { return nil }
+        if identity.sourceType.capabilities.playlistsAreServerScoped {
+            return identity.serverSourceKey
+        }
+        return identity.librarySourceKey ?? identity.serverSourceKey
+    }
+
     /// Returns a provider only when the source key has a complete, valid identity.
     /// A missing or malformed key has unresolved ownership.
     public static func sourceType(from sourceKey: String?) -> MusicSourceType? {
@@ -91,7 +99,11 @@ public struct MediaSourceIdentity: Equatable, Hashable, Sendable {
     ) -> Bool {
         guard let sourceKey else { return false }
         if enabledSourceKeys.contains(sourceKey) { return true }
-        guard let identity = parse(sourceKey), identity.isServerScoped else { return false }
+        guard let identity = parse(sourceKey),
+              identity.isServerScoped,
+              identity.sourceType.capabilities.playlistsAreServerScoped else {
+            return false
+        }
         return enabledSourceKeys.contains {
             guard let enabledIdentity = parse($0) else { return false }
             return enabledIdentity.sourceType == identity.sourceType &&

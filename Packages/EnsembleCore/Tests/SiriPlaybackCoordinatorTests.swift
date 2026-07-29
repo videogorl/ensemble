@@ -287,6 +287,80 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.playbackService.lastQueuedStartIndex, 0)
     }
 
+    func testSourceLessRequestsResolveByNameWithinEnabledSources() async throws {
+        let fixture = try await makeFixture()
+
+        try await fixture.coordinator.executePlayTrack(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-track-id",
+                displayName: "Track One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastPlayedTrack?.id, "track-1")
+
+        try await fixture.coordinator.executePlayAlbum(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-album-id",
+                displayName: "Album One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
+
+        try await fixture.coordinator.executePlayArtist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-artist-id",
+                displayName: "Artist One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-1", "track-2"])
+
+        try await fixture.coordinator.executePlayPlaylist(
+            request: SiriPlaybackRequest(
+                entityID: "unknown-playlist-id",
+                displayName: "Playlist One"
+            )
+        )
+        XCTAssertEqual(fixture.playbackService.lastQueuedTracks.map(\.id), ["track-2", "track-1"])
+    }
+
+    func testSourceLessRequestDoesNotResolveByDirectIDAlone() async throws {
+        let fixture = try await makeFixture()
+
+        do {
+            try await fixture.coordinator.executePlayTrack(
+                request: SiriPlaybackRequest(entityID: "track-1")
+            )
+            XCTFail("Expected source-less direct ID lookup to fail closed")
+        } catch let error as SiriPlaybackCoordinatorError {
+            XCTAssertEqual(error, .mediaNotFound(.track))
+        }
+    }
+
+    func testExplicitUnknownOrMalformedSourceDoesNotFallbackByName() async throws {
+        let fixture = try await makeFixture()
+
+        for sourceKey in [
+            "plex:other-account:other-server:other-library",
+            "appleMusic:device:system",
+            "malformed-source"
+        ] {
+            do {
+                try await fixture.coordinator.executePlayTrack(
+                    request: SiriPlaybackRequest(
+                        entityID: "unknown-track-id",
+                        sourceCompositeKey: sourceKey,
+                        displayName: "Track One"
+                    )
+                )
+                XCTFail("Expected explicit source \(sourceKey) to fail closed")
+            } catch let error as SiriPlaybackCoordinatorError {
+                XCTAssertEqual(error, .mediaNotFound(.track))
+            }
+        }
+
+        XCTAssertNil(fixture.playbackService.lastPlayedTrack)
+    }
+
     private func makeFixture() async throws -> Fixture {
         let accountID = "account-1"
         let serverID = "server-1"

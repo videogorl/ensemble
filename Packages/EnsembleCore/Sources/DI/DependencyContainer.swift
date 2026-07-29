@@ -276,6 +276,7 @@ public final class DependencyContainer: @unchecked Sendable {
             hubRepository: hubRepository,
             downloadManager: downloadManager,
             targetRepository: offlineDownloadTargetRepository,
+            pendingMutationRepository: core.pendingMutationRepository,
             artworkDownloadManager: artworkDownloadManager,
             fetchArtworkRatingKeys: { [libraryRepository = core.libraryRepository] sourceKey in
                 guard let repository = libraryRepository as? LibraryRepository else { return [] }
@@ -380,6 +381,10 @@ public final class DependencyContainer: @unchecked Sendable {
         let keychain = KeychainService.shared
         let coreDataStack = CoreDataStack.shared
         let pinManager = MainActor.assumeIsolated { PinManager() }
+        let artworkDownloadManager = ArtworkDownloadManager()
+        Task.detached(priority: .utility) {
+            artworkDownloadManager.preparePersistentCache()
+        }
 
         return CoreBootstrap(
             keychain: keychain,
@@ -392,7 +397,7 @@ public final class DependencyContainer: @unchecked Sendable {
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
             offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
-            artworkDownloadManager: ArtworkDownloadManager(),
+            artworkDownloadManager: artworkDownloadManager,
             pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
             settingsManager: MainActor.assumeIsolated { SettingsManager() },
             navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },

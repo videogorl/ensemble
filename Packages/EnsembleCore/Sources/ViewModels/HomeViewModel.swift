@@ -590,11 +590,10 @@ public final class HomeViewModel: ObservableObject {
                 !configuration.isAuthoritative ||
                 !preservesAuthoritativeEmptySourceSnapshot ? configuration : nil
         }
-        guard !hiddenSourceCompositeKeys.isEmpty || sourceConfiguration != nil else { return hubs }
-
         return hubs.compactMap { hub in
             let visibleItems = hub.items.filter { item in
-                (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
+                MediaSourceIdentity.parse(item.sourceCompositeKey) != nil &&
+                    (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
                     !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
             }
 

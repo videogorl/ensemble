@@ -24,44 +24,29 @@ final class PlaylistRepositoryTests: XCTestCase {
         XCTAssertTrue(playlists.isEmpty)
     }
 
-    func testUnscopedPlaylistLookupRequiresUniqueSourceOwner() async throws {
-        let stack = CoreDataStack.inMemory()
-        let repository = PlaylistRepository(coreDataStack: stack)
+    func testUnscopedPlaylistLookupFailsClosedEvenWithUniqueOwner() async throws {
+        let repository = PlaylistRepository(coreDataStack: .inMemory())
         let sourceA = "plex/account/server-a"
-        let sourceB = "plex/account/server-b"
         let ratingKey = "shared"
 
-        for sourceKey in [sourceA, sourceB] {
-            _ = try await upsertPlaylist(
-                in: repository,
-                ratingKey: ratingKey,
-                compositePath: nil,
-                dateModified: nil,
-                sourceCompositeKey: sourceKey
-            )
-        }
+        _ = try await upsertPlaylist(
+            in: repository,
+            ratingKey: ratingKey,
+            compositePath: nil,
+            dateModified: nil,
+            sourceCompositeKey: sourceA
+        )
 
-        let ambiguousPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey)
+        let unscopedPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey)
         let scopedPlaylist = try await repository.fetchPlaylist(
             ratingKey: ratingKey,
-            sourceCompositeKey: sourceB
+            sourceCompositeKey: sourceA
         )
-        XCTAssertNil(ambiguousPlaylist)
-        XCTAssertEqual(scopedPlaylist?.sourceCompositeKey, sourceB)
-
-        try await stack.performBackgroundContext { context in
-            let request = CDPlaylist.fetchRequest()
-            request.predicate = RepositoryPredicates.ratingKey(ratingKey, sourceCompositeKey: sourceB)
-            try context.fetch(request).forEach { $0.sourceCompositeKey = nil }
-            try context.save()
-        }
-        stack.viewContext.performAndWait { stack.viewContext.reset() }
-
-        let repairedPlaylist = try await repository.fetchPlaylist(ratingKey: ratingKey)
-        XCTAssertEqual(repairedPlaylist?.sourceCompositeKey, sourceA)
+        XCTAssertNil(unscopedPlaylist)
+        XCTAssertEqual(scopedPlaylist?.sourceCompositeKey, sourceA)
     }
 
-    func testSinglePlaylistHeaderLookupRequiresUniqueOwnerWithoutLoadingBody() async throws {
+    func testSinglePlaylistHeaderLookupRequiresExplicitSourceWithoutLoadingBody() async throws {
         let stack = CoreDataStack.inMemory()
         let repository = PlaylistRepository(coreDataStack: stack)
         let sourceA = "plex/account/server-a"
@@ -105,18 +90,16 @@ final class PlaylistRepositoryTests: XCTestCase {
             ratingKey: "shared",
             sourceCompositeKey: sourceB
         )
-        let repairedHeaderResult = try await repository.fetchPlaylistHeader(
+        let unscopedUniqueHeader = try await repository.fetchPlaylistHeader(
             ratingKey: "unique",
             sourceCompositeKey: nil
         )
         let scopedHeader = try XCTUnwrap(scopedHeaderResult)
-        let repairedHeader = try XCTUnwrap(repairedHeaderResult)
 
         XCTAssertNil(ambiguousHeader)
+        XCTAssertNil(unscopedUniqueHeader)
         XCTAssertEqual(scopedHeader.sourceCompositeKey, sourceB)
-        XCTAssertEqual(repairedHeader.sourceCompositeKey, sourceA)
         XCTAssertTrue(scopedHeader.hasFault(forRelationshipNamed: "playlistTracks"))
-        XCTAssertTrue(repairedHeader.hasFault(forRelationshipNamed: "playlistTracks"))
     }
 
     func testPlaylistCountsUseDirectSourceScope() async throws {

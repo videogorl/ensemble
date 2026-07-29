@@ -77,6 +77,8 @@ final class DownloadTransferExecutor {
         let enqueueSidecarAnalysis: (URL, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
         let isStillReferenced: (DownloadTransferContext) async -> Bool
+        let beginSourcePersistenceWork: (String) -> SourcePersistenceWorkHandle?
+        let finishSourcePersistenceWork: (SourcePersistenceWorkHandle) -> Void
     }
 
     private let dependencies: Dependencies
@@ -342,6 +344,11 @@ final class DownloadTransferExecutor {
 
     /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
     private func cacheArtworkForDownloadedTrack(ctx: DownloadTransferContext) async {
+        guard let persistenceWork = dependencies.beginSourcePersistenceWork(ctx.sourceCompositeKey) else {
+            return
+        }
+        defer { dependencies.finishSourcePersistenceWork(persistenceWork) }
+
         var candidates: [(ratingKey: String, path: String)] = []
         if let path = ctx.trackThumbPath, !path.isEmpty {
             candidates.append((ctx.trackRatingKey, path))

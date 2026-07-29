@@ -14,18 +14,19 @@ public final class TrackRatingLocalStore: TrackRatingLocalStoring, @unchecked Se
     }
 
     public func storeTrackRating(track: Track, rating: Int) async throws {
+        guard let sourceCompositeKey = track.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else {
+            throw MusicSourceRoutingError.invalidSourceKey(track.sourceCompositeKey)
+        }
+
         let context = coreDataStack.newBackgroundContext()
         try await context.perform {
             let request = CDTrack.fetchRequest()
-            if let sourceCompositeKey = track.sourceCompositeKey {
-                request.predicate = NSPredicate(
-                    format: "ratingKey == %@ AND sourceCompositeKey == %@",
-                    track.id,
-                    sourceCompositeKey
-                )
-            } else {
-                request.predicate = NSPredicate(format: "ratingKey == %@", track.id)
-            }
+            request.predicate = NSPredicate(
+                format: "ratingKey == %@ AND sourceCompositeKey == %@",
+                track.id,
+                sourceCompositeKey
+            )
 
             if let cdTrack = try context.fetch(request).first {
                 cdTrack.rating = Int16(rating)

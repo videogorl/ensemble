@@ -242,24 +242,12 @@ extension LibraryRepository {
     }
 
     public func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
-        try await coreDataStack.performViewContext { context in
-            let resolvedSourceKey: String
-            if let sourceCompositeKey {
-                resolvedSourceKey = sourceCompositeKey
-            } else if let uniqueSourceKey = try RepositoryPredicates.uniqueSourceCompositeKey(
-                forEntity: "CDTrack",
-                ratingKey: ratingKey,
-                in: context
-            ) {
-                resolvedSourceKey = uniqueSourceKey
-            } else {
-                return nil
-            }
-
+        guard let sourceCompositeKey else { return nil }
+        return try await coreDataStack.performViewContext { context in
             let request = CDTrack.fetchRequest()
             request.predicate = RepositoryPredicates.ratingKey(
                 ratingKey,
-                sourceCompositeKey: resolvedSourceKey
+                sourceCompositeKey: sourceCompositeKey
             )
             request.fetchLimit = 1
             return try context.fetch(request).first

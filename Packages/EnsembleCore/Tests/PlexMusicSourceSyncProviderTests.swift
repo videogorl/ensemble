@@ -319,6 +319,127 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
     }
 
+    func testPlexProviderExposesPlaylistMutationCapability() {
+        func requirePlaylistMutator<T: MusicSourcePlaylistMutating>(_: T.Type) {}
+
+        requirePlaylistMutator(PlexMusicSourceSyncProvider.self)
+    }
+
+    func testPlaylistSeedSectionKeysKeepPrimaryFirstAndDeduplicateEnabledSections() {
+        XCTAssertEqual(
+            PlexMusicSourceSyncProvider.playlistSeedSectionKeys(
+                primary: "7",
+                enabled: ["2", "", "7", "5", "2"]
+            ),
+            ["7", "2", "5"]
+        )
+    }
+
+    func testDelayedSeededPlaylistIsClearedWhenItBecomesVisible() async throws {
+        let state = DelayedPlaylistVisibilityState(
+            playlist: try JSONDecoder().decode(PlexPlaylist.self, from: Data(#"""
+            {
+                "ratingKey": "playlist-1",
+                "key": "/playlists/playlist-1",
+                "title": "Delayed Empty Playlist"
+            }
+            """#.utf8))
+        )
+
+        let playlist = try await PlexMusicSourceSyncProvider.pollForCreatedPlaylist(
+            title: "Delayed Empty Playlist",
+            seededEmptyPlaylist: true,
+            retryDelays: [0, 1, 1],
+            fetchPlaylists: { await state.fetchPlaylists() },
+            clearPlaylistItems: { await state.clearPlaylistItems($0) },
+            sleep: { _ in }
+        )
+
+        let fetchCount = await state.fetchCount
+        let clearedPlaylistIDs = await state.clearedPlaylistIDs
+        XCTAssertEqual(playlist?.ratingKey, "playlist-1")
+        XCTAssertEqual(fetchCount, 3)
+        XCTAssertEqual(clearedPlaylistIDs, ["playlist-1"])
+    }
+
+    func testPlaylistDeleteTreatsOnlyNotFoundAsConverged() {
+        XCTAssertTrue(
+            PlexMusicSourceSyncProvider.isConvergedPlaylistDeleteError(
+                PlexAPIError.httpError(statusCode: 404)
+            )
+        )
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.isConvergedPlaylistDeleteError(
+                PlexAPIError.httpError(statusCode: 500)
+            )
+        )
+        XCTAssertFalse(
+            PlexMusicSourceSyncProvider.isConvergedPlaylistDeleteError(
+                PlexAPIError.invalidResponse
+            )
+        )
+    }
+
+    func testPlaylistEditOperationsRemoveMissingItemsBeforeStableMoves() throws {
+        let original = [
+            makePlaylistItem("a"),
+            makePlaylistItem("b"),
+            makePlaylistItem("c"),
+            makePlaylistItem("d")
+        ]
+        let edited = [
+            makePlaylistItem("c"),
+            makePlaylistItem("a"),
+            makePlaylistItem("d")
+        ]
+
+        XCTAssertEqual(
+            try PlexMusicSourceSyncProvider.playlistEditOperations(
+                originalItems: original,
+                editedItems: edited
+            ),
+            [
+                .remove(itemID: "b"),
+                .move(itemID: "c", afterItemID: nil)
+            ]
+        )
+    }
+
+    func testPlaylistEditOperationsRejectIncompleteOrForeignMemberships() {
+        XCTAssertThrowsError(
+            try PlexMusicSourceSyncProvider.playlistEditOperations(
+                originalItems: [makePlaylistItem("a", playlistItemID: nil)],
+                editedItems: []
+            )
+        ) { error in
+            XCTAssertEqual(error as? PlaylistMutationError, .incompletePlaylistContents)
+        }
+
+        XCTAssertThrowsError(
+            try PlexMusicSourceSyncProvider.playlistEditOperations(
+                originalItems: [makePlaylistItem("a")],
+                editedItems: [makePlaylistItem("foreign")]
+            )
+        ) { error in
+            XCTAssertEqual(error as? PlaylistMutationError, .incompletePlaylistContents)
+        }
+    }
+
+    func testDefaultPlaylistEditReplacesContentsInEditedOrder() async throws {
+        let provider = DefaultEditingPlaylistProvider()
+        let editedItems = [makePlaylistItem("c"), makePlaylistItem("a")]
+
+        try await provider.editPlaylistItems(
+            "playlist",
+            originalItems: [makePlaylistItem("a"), makePlaylistItem("b"), makePlaylistItem("c")],
+            editedItems: editedItems
+        )
+
+        let replacement = await provider.replacement
+        XCTAssertEqual(replacement?.playlistID, "playlist")
+        XCTAssertEqual(replacement?.trackIDs, ["c", "a"])
+    }
+
     private func makeArtistInput(
         ratingKey: String,
         name: String,
@@ -334,5 +455,48 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
             dateAdded: nil,
             dateModified: dateModified
         )
+    }
+
+    private func makePlaylistItem(_ id: String) -> PlaylistItem {
+        makePlaylistItem(id, playlistItemID: id)
+    }
+
+    private func makePlaylistItem(_ id: String, playlistItemID: String?) -> PlaylistItem {
+        PlaylistItem(
+            id: id,
+            playlistItemID: playlistItemID,
+            track: Track(id: id, key: "/library/metadata/\(id)", title: id)
+        )
+    }
+}
+
+private actor DelayedPlaylistVisibilityState {
+    let playlist: PlexPlaylist
+    private(set) var fetchCount = 0
+    private(set) var clearedPlaylistIDs: [String] = []
+
+    init(playlist: PlexPlaylist) {
+        self.playlist = playlist
+    }
+
+    func fetchPlaylists() -> [PlexPlaylist] {
+        fetchCount += 1
+        return fetchCount >= 3 ? [playlist] : []
+    }
+
+    func clearPlaylistItems(_ playlistID: String) {
+        clearedPlaylistIDs.append(playlistID)
+    }
+}
+
+private actor DefaultEditingPlaylistProvider: MusicSourcePlaylistMutating {
+    private(set) var replacement: (playlistID: String, trackIDs: [String])?
+    func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? { nil }
+    func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int { tracks.count }
+    func renamePlaylist(_ playlistID: String, title: String) async throws {}
+    func deletePlaylist(_ playlistID: String) async throws {}
+
+    func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws {
+        replacement = (playlistID, tracks.map(\.id))
     }
 }

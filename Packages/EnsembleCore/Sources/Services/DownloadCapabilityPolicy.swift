@@ -37,29 +37,29 @@ public enum DownloadCapabilityPolicy {
         }
     }
 
-    /// Unknown is intentionally permissive for compatibility with older persisted source configs.
+    /// A known provider with unknown server permission may still attempt the request.
     @MainActor
     public static func canAttemptDownload(
         for sourceCompositeKey: String?,
         accountManager: AccountManager
     ) -> Bool {
+        guard providerSupportsOfflineDownloads(for: sourceCompositeKey) else { return false }
         let capability = status(for: sourceCompositeKey, accountManager: accountManager)
         if capability == .unknown {
             let diagnosticKey = sourceCompositeKey ?? "nil"
             if !diagnosedUnknownSources.contains(diagnosticKey) {
                 diagnosedUnknownSources.insert(diagnosticKey)
                 EnsembleLogger.debug(
-                    "Download capability unknown for source \(diagnosticKey); allowing download attempt for compatibility"
+                    "Download capability unknown for source \(diagnosticKey); allowing the provider request"
                 )
             }
         }
         return capability != .unavailable
     }
 
-    /// Unknown legacy source keys remain eligible until their provider can be identified.
     static func providerSupportsOfflineDownloads(for sourceCompositeKey: String?) -> Bool {
         guard let sourceType = MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType else {
-            return true
+            return false
         }
         return sourceType.capabilities.supportsOfflineDownloads
     }

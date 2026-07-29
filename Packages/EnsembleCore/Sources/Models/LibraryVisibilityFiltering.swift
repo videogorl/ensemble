@@ -17,11 +17,14 @@ enum LibraryVisibilityFiltering {
         sourceConfiguration: SourceConfigurationSnapshot? = nil
     ) -> [Item] {
         return items.filter { item in
-            if let sourceConfiguration,
-               !sourceConfiguration.shouldPreserveSourceKey(item.sourceCompositeKey) {
+            guard let sourceKey = item.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else {
                 return false
             }
-            guard let sourceKey = item.sourceCompositeKey else { return true }
+            if let sourceConfiguration,
+               !sourceConfiguration.shouldPreserveSourceKey(sourceKey) {
+                return false
+            }
             return !hiddenSourceCompositeKeys.contains(sourceKey)
         }
     }

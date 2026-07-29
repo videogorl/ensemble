@@ -1456,32 +1456,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func resolveDefaultPlaylistServerSourceKey(for tracks: [Track]) async -> String? {
-        if let inferred = defaultPlaylistServerSourceKey(for: tracks) {
-            return inferred
-        }
-
-        for track in tracks {
-            if let cachedTrack = try? await libraryRepository.fetchTrack(
-                ratingKey: track.id,
-                sourceCompositeKey: track.sourceCompositeKey
-            ),
-                let source = serverSourceKey(from: cachedTrack.sourceCompositeKey)
-            {
-                return source
-            }
-        }
-
-        if let currentTrack,
-           let cachedTrack = try? await libraryRepository.fetchTrack(
-               ratingKey: currentTrack.id,
-               sourceCompositeKey: currentTrack.sourceCompositeKey
-           ),
-           let source = serverSourceKey(from: cachedTrack.sourceCompositeKey)
-        {
-            return source
-        }
-
-        return nil
+        defaultPlaylistServerSourceKey(for: tracks)
     }
 
     public func loadPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
@@ -1934,10 +1909,6 @@ public final class NowPlayingViewModel: ObservableObject {
         }
 
         return try await trackRatingMutationWorkflow.mutate(track, rating: rating)
-    }
-
-    private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
 }

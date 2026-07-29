@@ -72,14 +72,20 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         isLoading = true
         error = nil
 
+        guard let sourceKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            tracks = []
+            hasLoadedTracks = true
+            isLoading = false
+            return
+        }
+
         do {
             // First try to fetch from local repository
-            let cachedTracks: [CDTrack]
-            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id, sourceCompositeKey: sourceKey)
-            } else {
-                cachedTracks = try await libraryRepository.fetchTracks(forAlbum: album.id)
-            }
+            let cachedTracks = try await libraryRepository.fetchTracks(
+                forAlbum: album.id,
+                sourceCompositeKey: sourceKey
+            )
 
             if !cachedTracks.isEmpty {
                 let mapped = cachedTracks.map { Track(from: $0) }
@@ -89,7 +95,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
                     EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
                 }
                 tracks = mapped
-            } else if let sourceKey = album.sourceCompositeKey {
+            } else {
                 // If not found and we have a source key, try to fetch from API
                 EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
@@ -122,20 +128,23 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     /// Loads albums by the same artist, excluding the current album.
     /// First tries CoreData, falls back to API if empty (same pattern as ArtistDetailViewModel.loadAlbums).
     public func loadRelatedAlbums() async {
-        guard let artistId = album.artistRatingKey else { return }
+        guard let artistId = album.artistRatingKey,
+              let sourceKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            relatedAlbums = []
+            return
+        }
 
         do {
-            let cachedAlbums: [CDAlbum]
-            if let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId, sourceCompositeKey: sourceKey)
-            } else {
-                cachedAlbums = try await libraryRepository.fetchAlbums(forArtist: artistId)
-            }
+            let cachedAlbums = try await libraryRepository.fetchAlbums(
+                forArtist: artistId,
+                sourceCompositeKey: sourceKey
+            )
             if !cachedAlbums.isEmpty {
                 relatedAlbums = cachedAlbums
                     .map { Album(from: $0) }
                     .filter { $0.sourceScopedID != album.sourceScopedID }
-            } else if let sourceKey = album.sourceCompositeKey {
+            } else {
                 // Fallback to API if not found locally
                 EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")
                 let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artistId, sourceKey: sourceKey)

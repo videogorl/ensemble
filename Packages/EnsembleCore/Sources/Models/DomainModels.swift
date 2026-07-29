@@ -889,7 +889,7 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
     private static let legacyAppleMusicEditablePlaylistIDsKey = "appleMusicEditablePlaylistIDs"
 
     var resolvedActionCapabilities: PlaylistActionCapabilities {
-        guard let sourceType else {
+        guard sourceType != nil else {
             return PlaylistActionCapabilities(
                 canAddItems: false,
                 canRename: false,
@@ -910,23 +910,13 @@ public struct Playlist: Identifiable, Hashable, Sendable, Codable {
                 unavailableReason: "Smart playlists are read-only."
             )
         }
-        if sourceType == .appleMusic {
-            let createdByEnsemble = Self.appleMusicPlaylistWasCreatedByEnsemble(id)
-            return PlaylistActionCapabilities(
-                canAddItems: createdByEnsemble,
-                canRename: createdByEnsemble,
-                canReorder: createdByEnsemble,
-                canDelete: false,
-                unavailableReason: createdByEnsemble
-                    ? "Apple Music playlists cannot be deleted in Ensemble."
-                    : "This Apple Music playlist is read-only until its permissions refresh."
-            )
-        }
+        let supportsMutations = sourceType?.capabilities.supportsRegularPlaylistMutationsByDefault == true
         return PlaylistActionCapabilities(
-            canAddItems: true,
-            canRename: true,
-            canReorder: true,
-            canDelete: true
+            canAddItems: supportsMutations,
+            canRename: supportsMutations,
+            canReorder: supportsMutations,
+            canDelete: supportsMutations,
+            unavailableReason: supportsMutations ? nil : "This playlist’s permissions are unavailable."
         )
     }
 

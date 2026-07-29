@@ -187,6 +187,31 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         fence.finish(readdedLease)
     }
 
+    func testServerCleanupFenceDrainsAndBlocksLibraryWork() async throws {
+        let fence = SourcePersistenceFence()
+        let serverKey = "plex:account:server"
+        let libraryKey = "\(serverKey):library"
+        let activeLease = try XCTUnwrap(fence.begin(sourceKey: libraryKey))
+        var cleanupEntered = false
+
+        let cleanupTask = Task { @MainActor in
+            await fence.beginCleanup(sourceKey: serverKey)
+            cleanupEntered = true
+        }
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertFalse(cleanupEntered)
+        XCTAssertNil(fence.begin(sourceKey: libraryKey))
+
+        fence.finish(activeLease)
+        await cleanupTask.value
+        XCTAssertTrue(cleanupEntered)
+        XCTAssertNil(fence.begin(sourceKey: libraryKey))
+
+        fence.finishCleanup(sourceKey: serverKey)
+        let restoredLease = try XCTUnwrap(fence.begin(sourceKey: libraryKey))
+        fence.finish(restoredLease)
+    }
+
     func testDelayedOldProviderCompletionIsDiscardedAfterSameKeyRemoveAndReadd() async {
         let sources = [
             MusicSourceIdentifier.appleMusic,

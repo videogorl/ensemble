@@ -92,24 +92,67 @@ public protocol MusicSourceTwoPhasePlaybackResolving: MusicSourcePlaybackResolvi
     ) async throws -> URL
 }
 
-/// Applies the provider's normalized favorite/rating mutation.
-public protocol MusicSourceRatingMutating: Sendable {
-    func rateTrack(ratingKey: String, rating: Int?) async throws
+/// Describes shared cache reconciliation requested by a successful provider rating mutation.
+public struct MusicSourceRatingMutationEffects: Sendable, Equatable {
+    public let shouldRefreshPlaylists: Bool
+    public let shouldReconcileFavoriteDownloads: Bool
+
+    public init(
+        shouldRefreshPlaylists: Bool,
+        shouldReconcileFavoriteDownloads: Bool
+    ) {
+        self.shouldRefreshPlaylists = shouldRefreshPlaylists
+        self.shouldReconcileFavoriteDownloads = shouldReconcileFavoriteDownloads
+    }
+
+    public static let none = MusicSourceRatingMutationEffects(
+        shouldRefreshPlaylists: false,
+        shouldReconcileFavoriteDownloads: false
+    )
+
+    public static let refreshPlaylistsAndFavoriteDownloads = MusicSourceRatingMutationEffects(
+        shouldRefreshPlaylists: true,
+        shouldReconcileFavoriteDownloads: true
+    )
 }
 
-/// Applies online-only playlist mutations for providers that own their playlist UI state.
+/// Applies the provider's normalized favorite/rating mutation.
+public protocol MusicSourceRatingMutating: Sendable {
+    func rateTrack(_ track: Track, rating: Int?) async throws -> MusicSourceRatingMutationEffects
+}
+
+/// Applies provider-owned playlist mutations after shared source and permission validation.
 public protocol MusicSourcePlaylistMutating: Sendable {
-    func createPlaylist(title: String, tracks: [Track]) async throws
+    func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist?
     func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int
     func renamePlaylist(_ playlistID: String, title: String) async throws
     func deletePlaylist(_ playlistID: String) async throws
     func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws
+    func editPlaylistItems(
+        _ playlistID: String,
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) async throws
+}
+
+/// Reconciles a provider whose playlist reads may lag behind accepted mutations.
+public protocol MusicSourcePlaylistReconciling: MusicSourcePlaylistMutating {
     func reconcilePlaylist(
         id: String,
         minimumTrackCount: Int,
         requiredTracks: [Track],
         to repository: PlaylistRepositoryProtocol
     ) async throws -> Int?
+}
+
+extension MusicSourcePlaylistMutating {
+    public func editPlaylistItems(
+        _ playlistID: String,
+        originalItems _: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) async throws {
+        try await replacePlaylistContents(playlistID, tracks: editedItems.map(\.track))
+    }
 }
 
 /// Reports playback state through the exact provider that supplied a track.

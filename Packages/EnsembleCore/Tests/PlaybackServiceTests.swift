@@ -803,10 +803,10 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
-    func testSourceLessTrackIsPreservedOnlyWhileSourceConfigurationIsUnresolved() {
+    func testSourceLessTrackIsRejectedEvenWhileSourceConfigurationIsUnresolved() {
         let track = Track(id: "legacy", key: "/library/metadata/1", title: "Legacy")
 
-        XCTAssertTrue(PlaybackService.isTrackSourceAvailable(
+        XCTAssertFalse(PlaybackService.isTrackSourceAvailable(
             track,
             configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
         ))
@@ -864,7 +864,7 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(pruned.hasUserQueueEdits)
     }
 
-    func testRestoredSnapshotPreservesEverythingWhileSourceConfigurationIsUnresolved() {
+    func testRestoredSnapshotDropsSourceLessItemsWhileSourceConfigurationIsUnresolved() {
         let unknown = QueueItem(
             id: "unknown",
             track: Track(id: "legacy", key: "/library/metadata/1", title: "Unknown"),
@@ -877,12 +877,13 @@ final class PlaybackServiceTests: XCTestCase {
             currentTime: 42
         )
 
-        let preserved = PlaybackService.pruningRestoredSnapshot(
+        let pruned = PlaybackService.pruningRestoredSnapshot(
             snapshot,
             configuration: sourceConfiguration(enabledSourceKeys: [], isAuthoritative: false)
         )
 
-        XCTAssertEqual(preserved, snapshot)
+        XCTAssertTrue(pruned.queue.isEmpty)
+        XCTAssertTrue(pruned.history.isEmpty)
     }
 
     func testAppleRemovalPrunesFutureAppleItemWithoutResettingCurrentPlexPlayhead() {

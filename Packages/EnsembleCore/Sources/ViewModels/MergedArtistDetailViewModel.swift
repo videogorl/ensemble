@@ -195,41 +195,37 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     }
 
     private func albums(for artist: Artist) async throws -> [Album] {
-        if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-            let cached = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            let localAlbums = ArtistDetailAlbumCollections.sorted(cached.map { Album(from: $0) })
-            if !cached.isEmpty {
-                if MusicSourceIdentifier(compositeKey: sourceKey)?.type == .appleMusic {
-                    return localAlbums
-                }
-                if syncCoordinator.isOffline {
-                    return localAlbums
-                }
-
-                do {
-                    let remoteAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
-                    return ArtistDetailAlbumCollections.merged(local: localAlbums, remote: remoteAlbums)
-                } catch {
-                    EnsembleLogger.debug("MergedArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
-                    return localAlbums
-                }
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        let cached = try await libraryRepository.fetchAlbums(forArtist: artist.id, sourceCompositeKey: sourceKey)
+        let localAlbums = ArtistDetailAlbumCollections.sorted(cached.map { Album(from: $0) })
+        if !cached.isEmpty {
+            if MusicSourceIdentifier(compositeKey: sourceKey)?.type == .appleMusic {
+                return localAlbums
             }
-            return ArtistDetailAlbumCollections.sorted(try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey))
-        }
+            if syncCoordinator.isOffline {
+                return localAlbums
+            }
 
-        return ArtistDetailAlbumCollections.sorted(try await libraryRepository.fetchAlbums(forArtist: artist.id).map { Album(from: $0) })
+            do {
+                let remoteAlbums = try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey)
+                return ArtistDetailAlbumCollections.merged(local: localAlbums, remote: remoteAlbums)
+            } catch {
+                EnsembleLogger.debug("MergedArtistDetailViewModel: Artist album supplement failed for \(artist.sourceScopedID): \(error.localizedDescription)")
+                return localAlbums
+            }
+        }
+        return ArtistDetailAlbumCollections.sorted(try await syncCoordinator.getArtistAlbums(artistId: artist.id, sourceKey: sourceKey))
     }
 
     private func tracks(for artist: Artist) async throws -> [Track] {
-        if let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty {
-            let cached = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
-            if !cached.isEmpty {
-                return cached.map { Track(from: $0) }
-            }
-            return try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
+        guard let sourceKey = artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        let cached = try await libraryRepository.fetchTracks(forArtist: artist.id, sourceCompositeKey: sourceKey)
+        if !cached.isEmpty {
+            return cached.map { Track(from: $0) }
         }
-
-        return try await libraryRepository.fetchTracks(forArtist: artist.id).map { Track(from: $0) }
+        return try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
     }
 
     private func sourceDisplay(for artist: Artist) -> (title: String, subtitle: String) {

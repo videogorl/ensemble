@@ -649,7 +649,8 @@ public final class SearchViewModel: ObservableObject {
         sourceConfiguration: SourceConfigurationSnapshot? = nil
     ) -> [HubItem] {
         items.filter { item in
-            (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
+            MediaSourceIdentity.parse(item.sourceCompositeKey) != nil &&
+                (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
                 !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
         }
     }
@@ -661,11 +662,10 @@ public final class SearchViewModel: ObservableObject {
     ) -> [Mood] {
         moods.compactMap { mood in
             let references = moodSourceReferences(from: mood.sourceCompositeKey)
-            guard !references.isEmpty else {
-                return sourceConfiguration?.isAuthoritative == true ? nil : mood
-            }
+            guard !references.isEmpty else { return nil }
             let visibleReferences = references.filter { reference in
-                (sourceConfiguration?.shouldPreserveSourceKey(reference.sourceCompositeKey) ?? true) &&
+                MediaSourceIdentity.parse(reference.sourceCompositeKey) != nil &&
+                    (sourceConfiguration?.shouldPreserveSourceKey(reference.sourceCompositeKey) ?? true) &&
                     !hiddenSourceCompositeKeys.contains(reference.sourceCompositeKey)
             }
             guard !visibleReferences.isEmpty else { return nil }

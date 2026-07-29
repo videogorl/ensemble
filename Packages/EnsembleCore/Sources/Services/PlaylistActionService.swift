@@ -6,15 +6,13 @@ public struct PlaylistActionService {
 
     public func defaultServerSourceKey(for tracks: [Track], currentTrack: Track?) -> String? {
         for track in tracks {
-            if track.isAppleMusic { return MusicSourceIdentifier.appleMusic.compositeKey }
-            if let source = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) {
+            if let source = MediaSourceIdentity.playlistScopeKey(from: track.sourceCompositeKey) {
                 return source
             }
         }
 
         if let currentTrack {
-            if currentTrack.isAppleMusic { return MusicSourceIdentifier.appleMusic.compositeKey }
-            return MediaSourceIdentity.serverSourceKey(from: currentTrack.sourceCompositeKey)
+            return MediaSourceIdentity.playlistScopeKey(from: currentTrack.sourceCompositeKey)
         }
 
         return nil
@@ -25,37 +23,19 @@ public struct PlaylistActionService {
     }
 
     public func compatibleTrackCount(_ tracks: [Track], forServerSourceKey serverSourceKey: String?) -> Int {
-        if MusicSourceIdentifier(compositeKey: serverSourceKey ?? "")?.type == .appleMusic {
-            return tracks.filter(\.isAppleMusic).count
-        }
-        guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: serverSourceKey) else { return 0 }
+        guard let playlistScopeKey = MediaSourceIdentity.playlistScopeKey(from: serverSourceKey) else { return 0 }
         return tracks.reduce(0) { count, track in
-            guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) else {
-                return count
-            }
-            return count + (trackServerSourceKey == serverSourceKey ? 1 : 0)
+            count + (MediaSourceIdentity.playlistScopeKey(from: track.sourceCompositeKey) == playlistScopeKey ? 1 : 0)
         }
     }
 
     public func tracks(_ tracks: [Track], compatibleWithServerSourceKey serverSourceKey: String?) -> [Track] {
-        if MusicSourceIdentifier(compositeKey: serverSourceKey ?? "")?.type == .appleMusic {
-            var filtered: [Track] = []
-            for track in tracks where track.isAppleMusic && !filtered.contains(where: { tracksMatch($0, track) }) {
-                filtered.append(track)
-            }
-            return filtered
-        }
-        guard let serverSourceKey = MediaSourceIdentity.serverSourceKey(from: serverSourceKey) else { return [] }
-        var seen = Set<String>()
+        guard let playlistScopeKey = MediaSourceIdentity.playlistScopeKey(from: serverSourceKey) else { return [] }
         var filtered: [Track] = []
 
         for track in tracks {
-            guard let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey),
-                  trackServerSourceKey == serverSourceKey else { continue }
-
-            let identity = track.sourceScopedID
-            guard !seen.contains(identity) else { continue }
-            seen.insert(identity)
+            guard MediaSourceIdentity.playlistScopeKey(from: track.sourceCompositeKey) == playlistScopeKey,
+                  !filtered.contains(where: { tracksMatch($0, track) }) else { continue }
             filtered.append(track)
         }
 
@@ -73,9 +53,8 @@ public struct PlaylistActionService {
         if first.sourceScopedID == second.sourceScopedID { return true }
         guard first.isAppleMusic, second.isAppleMusic else { return false }
         if let firstID = first.appleMusicCatalogID,
-           let secondID = second.appleMusicCatalogID,
-           firstID == secondID {
-            return true
+           let secondID = second.appleMusicCatalogID {
+            return firstID == secondID
         }
 
         // ponytail: MusicKit can expose a library ID without its catalog ID for playlist-only songs;

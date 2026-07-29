@@ -355,6 +355,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
     private final class MockLibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
         private let coreDataStack = CoreDataStack.inMemory()
         var fetchedTrack: CDTrack?
+        private(set) var fetchTrackRequests: [(ratingKey: String, sourceCompositeKey: String?)] = []
 
         func setFetchedTrack(id: String, sourceCompositeKey: String, thumbPath: String) {
             let track = CDTrack(context: coreDataStack.viewContext)
@@ -428,6 +429,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         }
 
         func fetchTrack(ratingKey: String, sourceCompositeKey: String?) async throws -> CDTrack? {
+            fetchTrackRequests.append((ratingKey, sourceCompositeKey))
             guard let fetchedTrack, fetchedTrack.ratingKey == ratingKey else { return nil }
             if let sourceCompositeKey {
                 return fetchedTrack.sourceCompositeKey == sourceCompositeKey ? fetchedTrack : nil
@@ -623,7 +625,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func fetchDownload(forTrackRatingKey _: String, sourceCompositeKey _: String?) async throws -> CDDownload? {
+        func fetchDownload(forTrackRatingKey _: String, sourceCompositeKey _: String) async throws -> CDDownload? {
             nil
         }
 
@@ -635,11 +637,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             []
         }
 
-        func createDownload(forTrackRatingKey _: String) async throws -> CDDownload {
-            fatalError()
-        }
-
-        func createDownload(forTrackRatingKey _: String, sourceCompositeKey _: String?, quality _: String) async throws -> CDDownload {
+        func createDownload(forTrackRatingKey _: String, sourceCompositeKey _: String, quality _: String) async throws -> CDDownload {
             fatalError()
         }
 
@@ -652,13 +650,8 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         func updateDownloads(withStatuses _: [CDDownload.Status], to _: CDDownload.Status) async throws {}
         func completeDownload(_: NSManagedObjectID, filePath _: String, fileSize _: Int64, quality _: String?) async throws {}
         func failDownload(_: NSManagedObjectID, error _: String) async throws {}
-        func deleteDownload(forTrackRatingKey _: String) async throws {}
-        func deleteDownload(forTrackRatingKey _: String, sourceCompositeKey _: String?) async throws {}
-        func getLocalFilePath(forTrackRatingKey _: String) async throws -> String? {
-            nil
-        }
-
-        func getLocalFilePath(forTrackRatingKey _: String, sourceCompositeKey _: String?) async throws -> String? {
+        func deleteDownload(forTrackRatingKey _: String, sourceCompositeKey _: String) async throws {}
+        func getLocalFilePath(forTrackRatingKey _: String, sourceCompositeKey _: String) async throws -> String? {
             nil
         }
 
@@ -798,6 +791,29 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         XCTAssertEqual(viewModelTuple.viewModel.currentTrack?.thumbPath, artworkPath)
         XCTAssertEqual(viewModelTuple.viewModel.artworkProjection.currentTrack?.thumbPath, artworkPath)
+    }
+
+    func testDefaultPlaylistServerDoesNotRepairSourceLessTrackFromCache() async {
+        let sourceKey = "plex:account:server:1"
+        let viewModelTuple = makeViewModel { repository in
+            repository.setFetchedTrack(
+                id: "14",
+                sourceCompositeKey: sourceKey,
+                thumbPath: "/library/metadata/14/thumb"
+            )
+        }
+        let sourceLessTrack = Track(
+            id: "14",
+            key: "/library/metadata/14",
+            title: "2085"
+        )
+
+        let resolvedSource = await viewModelTuple.viewModel.resolveDefaultPlaylistServerSourceKey(
+            for: [sourceLessTrack]
+        )
+
+        XCTAssertNil(resolvedSource)
+        XCTAssertTrue(viewModelTuple.libraryRepository.fetchTrackRequests.isEmpty)
     }
 
     func testSetTrackFavoriteUsesLovedRating() async {

@@ -16,12 +16,12 @@ struct StageFlowTrackLoader {
     func loadTracks(for contentType: StageFlowContentType) async throws -> [Track] {
         switch contentType {
         case .album(let id, let sourceCompositeKey):
-            let tracks: [CDTrack]
-            if let sourceCompositeKey {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: id, sourceCompositeKey: sourceCompositeKey)
-            } else {
-                tracks = try await libraryRepository.fetchTracks(forAlbum: id)
-            }
+            guard let sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return [] }
+            let tracks = try await libraryRepository.fetchTracks(
+                forAlbum: id,
+                sourceCompositeKey: sourceCompositeKey
+            )
 
             return tracks
                 .map { Track(from: $0) }

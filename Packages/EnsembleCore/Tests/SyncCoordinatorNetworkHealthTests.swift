@@ -503,7 +503,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(finalCounts.libraryCalls, 1)
     }
 
-    func testProviderRefreshDuringSourceSyncPublishesTerminalError() async throws {
+    func testUnchangedProviderRefreshDoesNotInvalidateSourceSync() async throws {
         let (coordinator, _) = makeCoordinator()
         let source = MusicSourceIdentifier(
             type: .plex,
@@ -522,13 +522,11 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         coordinator.refreshProviders()
         await probe.release()
 
-        let expectedMessage = "The music source changed while syncing. Please try again."
         let outcome = await syncTask.value
-        XCTAssertEqual(outcome, .failure(message: expectedMessage))
-        guard case .error(let message) = coordinator.sourceStatuses[source]?.syncStatus else {
-            return XCTFail("Expected stale source work to finish with an observable error")
+        XCTAssertEqual(outcome, .success)
+        guard case .lastSynced = coordinator.sourceStatuses[source]?.syncStatus else {
+            return XCTFail("Expected unchanged source work to complete")
         }
-        XCTAssertEqual(message, expectedMessage)
     }
 
     func testSourceCleanupCancelsActiveSourceSyncBeforePurging() async throws {

@@ -358,14 +358,24 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
     func testMergedMutationsSkipSmartAndAppleDeletionUnsupportedConstituents() async {
         let stub = StubMutator()
         let workflow = PlaylistMutationWorkflow(mutator: stub)
-        Playlist.markAppleMusicPlaylistCreated(id: "apple-user")
+        let appleUserCapabilities = PlaylistActionCapabilities(
+            canAddItems: true,
+            canRename: true,
+            canReorder: true,
+            canDelete: false
+        )
         let displayPlaylist = DisplayPlaylist(
             id: "mixed",
             title: "Ambient Electric",
             isSmart: true,
             playlists: [
                 makePlaylist(id: "apple-editorial", title: "Ambient Electric", isSmart: true, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
-                makePlaylist(id: "apple-user", title: "Ambient Electric", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+                makePlaylist(
+                    id: "apple-user",
+                    title: "Ambient Electric",
+                    sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+                    actionCapabilities: appleUserCapabilities
+                ),
                 makePlaylist(id: "plex", title: "Ambient Electric")
             ]
         )
@@ -383,14 +393,16 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         id: String = "playlist-1",
         title: String = "Playlist",
         isSmart: Bool = false,
-        sourceCompositeKey: String = "plex:account-1:server-1"
+        sourceCompositeKey: String = "plex:account-1:server-1",
+        actionCapabilities: PlaylistActionCapabilities? = nil
     ) -> Playlist {
         Playlist(
             id: id,
             key: "/playlists/\(id)",
             title: title,
             isSmart: isSmart,
-            sourceCompositeKey: sourceCompositeKey
+            sourceCompositeKey: sourceCompositeKey,
+            actionCapabilities: actionCapabilities
         )
     }
 

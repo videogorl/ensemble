@@ -317,10 +317,12 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDTrack? {
-        if let direct = try await libraryRepository.fetchTrack(
-            ratingKey: request.entityID,
-            sourceCompositeKey: request.sourceCompositeKey
-        ) {
+        if let sourceCompositeKey = request.sourceCompositeKey,
+           let direct = try await libraryRepository.fetchTrack(
+               ratingKey: request.entityID,
+               sourceCompositeKey: sourceCompositeKey
+           )
+        {
             return direct
         }
 
@@ -386,10 +388,12 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDAlbum? {
-        if let direct = try await libraryRepository.fetchAlbum(
-            ratingKey: request.entityID,
-            sourceCompositeKey: request.sourceCompositeKey
-        ) {
+        if let sourceCompositeKey = request.sourceCompositeKey,
+           let direct = try await libraryRepository.fetchAlbum(
+               ratingKey: request.entityID,
+               sourceCompositeKey: sourceCompositeKey
+           )
+        {
             return direct
         }
 
@@ -437,10 +441,12 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> CDArtist? {
-        if let direct = try await libraryRepository.fetchArtist(
-            ratingKey: request.entityID,
-            sourceCompositeKey: request.sourceCompositeKey
-        ) {
+        if let sourceCompositeKey = request.sourceCompositeKey,
+           let direct = try await libraryRepository.fetchArtist(
+               ratingKey: request.entityID,
+               sourceCompositeKey: sourceCompositeKey
+           )
+        {
             return direct
         }
 
@@ -495,10 +501,12 @@ public final class SiriPlaybackCoordinator {
             return favorites
         }
 
-        if let direct = try await playlistRepository.fetchPlaylist(
-            ratingKey: request.entityID,
-            sourceCompositeKey: request.sourceCompositeKey
-        ) {
+        if let sourceCompositeKey = request.sourceCompositeKey,
+           let direct = try await playlistRepository.fetchPlaylist(
+               ratingKey: request.entityID,
+               sourceCompositeKey: sourceCompositeKey
+           )
+        {
             return direct
         }
 
@@ -579,9 +587,13 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> [Track] {
-        return try await libraryRepository.fetchTracks(forAlbum: album.ratingKey)
+        guard let sourceKey = request.sourceCompositeKey ?? album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        return try await libraryRepository.fetchTracks(
+            forAlbum: album.ratingKey,
+            sourceCompositeKey: sourceKey
+        )
             .map(Track.init(from:))
-            .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? album.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
     }
 
@@ -590,9 +602,13 @@ public final class SiriPlaybackCoordinator {
         request: SiriPlaybackRequest,
         enabledSourceKeys: Set<String>
     ) async throws -> [Track] {
-        return try await libraryRepository.fetchTracks(forArtist: artist.ratingKey)
+        guard let sourceKey = request.sourceCompositeKey ?? artist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        return try await libraryRepository.fetchTracks(
+            forArtist: artist.ratingKey,
+            sourceCompositeKey: sourceKey
+        )
             .map(Track.init(from:))
-            .filter { sourceMatches(requestSource: request.sourceCompositeKey ?? artist.sourceCompositeKey, candidateSource: $0.sourceCompositeKey) }
             .filter { isPlayable(track: $0, enabledSourceKeys: enabledSourceKeys) }
     }
 
@@ -633,7 +649,8 @@ public final class SiriPlaybackCoordinator {
     }
 
     private func isServerSourceKey(_ sourceCompositeKey: String) -> Bool {
-        MediaSourceIdentity.parse(sourceCompositeKey)?.isServerScoped == true
+        guard let identity = MediaSourceIdentity.parse(sourceCompositeKey) else { return false }
+        return identity.isServerScoped && identity.sourceType.capabilities.playlistsAreServerScoped
     }
 
     private func choosePreferredCandidate<T>(
@@ -648,7 +665,7 @@ public final class SiriPlaybackCoordinator {
         let scopedCandidates = candidates.filter {
             sourceMatches(requestSource: requestSource, candidateSource: source($0))
         }
-        let pool = scopedCandidates.isEmpty ? candidates : scopedCandidates
+        let pool = requestSource == nil ? candidates : scopedCandidates
         guard !pool.isEmpty else { return nil }
 
         let normalizedDisplayNameVariants = normalizedQueryVariants(for: requestDisplayName)

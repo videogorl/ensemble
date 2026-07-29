@@ -261,7 +261,7 @@ public extension Playlist {
         if isSmart {
             return .readOnly(reason: reason)
         }
-        if action == .delete, sourceType == .appleMusic {
+        if action == .delete {
             return .unavailable(reason: reason)
         }
         return .readOnly(reason: reason)
@@ -271,8 +271,8 @@ public extension Playlist {
         if isSmart {
             return "Smart playlists are read-only."
         }
-        if action == .delete, sourceType == .appleMusic {
-            return "Apple Music playlists cannot be deleted in Ensemble."
+        if action == .delete {
+            return "This playlist cannot be deleted in Ensemble."
         }
         if let unavailableReason = resolvedActionCapabilities.unavailableReason,
            !unavailableReason.isEmpty {
@@ -295,13 +295,13 @@ public extension Playlist {
 
 private extension Album {
     var sourceCapabilities: MusicSourceCapabilities? {
-        capabilities(for: sourceCompositeKey)
+        libraryCapabilities(for: sourceCompositeKey)
     }
 }
 
 private extension Artist {
     var sourceCapabilities: MusicSourceCapabilities? {
-        capabilities(for: sourceCompositeKey)
+        libraryCapabilities(for: sourceCompositeKey)
     }
 }
 
@@ -317,6 +317,11 @@ private var unknownSourceAvailability: MusicItemActionAvailability {
 
 private func capabilities(for sourceCompositeKey: String?) -> MusicSourceCapabilities? {
     MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType.capabilities
+}
+
+private func libraryCapabilities(for sourceCompositeKey: String?) -> MusicSourceCapabilities? {
+    guard let sourceCompositeKey else { return nil }
+    return MusicSourceIdentifier(compositeKey: sourceCompositeKey)?.type.capabilities
 }
 
 private func sourceActionAvailability(

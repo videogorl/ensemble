@@ -277,8 +277,6 @@ public final class MetadataMutationService {
                 )
             )
             clearLyricsCache(track.id, sourceCompositeKey)
-        } else {
-            try? await downloadManager.deleteDownload(forTrackRatingKey: track.id)
         }
 
         artworkDownloadManager.deleteArtwork(

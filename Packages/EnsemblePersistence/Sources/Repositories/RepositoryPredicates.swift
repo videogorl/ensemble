@@ -44,23 +44,4 @@ enum RepositoryPredicates {
         )
     }
 
-    static func uniqueSourceCompositeKey(in sourceCompositeKeys: [String?]) -> String? {
-        let uniqueKeys: Set<String> = Set(sourceCompositeKeys.compactMap { key in
-            guard let key, !key.isEmpty else { return nil }
-            return key
-        })
-        return uniqueKeys.count == 1 ? uniqueKeys.first : nil
-    }
-
-    static func uniqueSourceCompositeKey(
-        forEntity entityName: String,
-        ratingKey: String,
-        in context: NSManagedObjectContext
-    ) throws -> String? {
-        let request = NSFetchRequest<NSDictionary>(entityName: entityName)
-        request.resultType = .dictionaryResultType
-        request.predicate = self.ratingKey(ratingKey, sourceCompositeKey: nil)
-        request.propertiesToFetch = ["sourceCompositeKey"]
-        return uniqueSourceCompositeKey(in: try context.fetch(request).map { $0["sourceCompositeKey"] as? String })
-    }
 }

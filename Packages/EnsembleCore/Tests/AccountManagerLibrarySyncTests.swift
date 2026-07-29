@@ -689,7 +689,8 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertFalse(unresolvedPlex.isAuthoritative(for: plexSource.compositeKey))
         XCTAssertTrue(unresolvedPlex.shouldPreserveSourceKey(plexSource.compositeKey))
         XCTAssertFalse(unresolvedPlex.isAuthoritative(for: nil))
-        XCTAssertTrue(unresolvedPlex.shouldPreserveSourceKey(nil))
+        XCTAssertFalse(unresolvedPlex.shouldPreserveSourceKey(nil))
+        XCTAssertFalse(unresolvedPlex.shouldPreserveSourceKey("malformed"))
 
         let enabledApple = SourceConfigurationSnapshot(
             configuredSources: [appleSource],

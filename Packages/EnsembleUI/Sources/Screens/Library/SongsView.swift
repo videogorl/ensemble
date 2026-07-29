@@ -465,12 +465,12 @@ public struct SongsView: View {
     }
 
     private func resolveStageFlowTracks(for album: SongsStageFlowAlbum) async -> [Track] {
-        let cachedTracks: [CDTrack]
-        if let sourceCompositeKey = album.sourceCompositeKey {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.albumID, sourceCompositeKey: sourceCompositeKey)) ?? []
-        } else {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.albumID)) ?? []
-        }
+        guard let sourceCompositeKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return [] }
+        let cachedTracks = (try? await deps.libraryRepository.fetchTracks(
+            forAlbum: album.albumID,
+            sourceCompositeKey: sourceCompositeKey
+        )) ?? []
 
         return cachedTracks.map { Track(from: $0) }
     }

@@ -146,6 +146,29 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             return type == .album ? stalePath : nil
         }
 
+        func localArtworkExists(
+            ratingKey: String,
+            type: ArtworkType,
+            sourceCompositeKey: String?,
+            sourcePath: String?,
+            dateModifiedSeconds: Int?,
+            minimumPixelDimension: Int?
+        ) async -> Bool {
+            guard let path = try? await getLocalArtworkPath(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey,
+                sourcePath: sourcePath,
+                dateModifiedSeconds: dateModifiedSeconds
+            ) else {
+                return false
+            }
+            return ArtworkFileInspector.fileExists(
+                atPath: path,
+                minimumPixelDimension: minimumPixelDimension
+            )
+        }
+
         func downloadAndCacheArtwork(from _: URL, ratingKey _: String, type _: ArtworkType) async throws {}
         func downloadAndCacheArtwork(from _: URL, identity: ArtworkIdentity) async throws {
             withLock {
@@ -574,8 +597,8 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             )
         )
         defer {
-            artworkManager.deleteArtwork(forSourceCompositeKey: sourceA)
-            artworkManager.deleteArtwork(forSourceCompositeKey: sourceB)
+            try? artworkManager.deleteArtwork(forSourceCompositeKey: sourceA)
+            try? artworkManager.deleteArtwork(forSourceCompositeKey: sourceB)
         }
         try Data("source-a".utf8).write(to: urlA)
         try Data("source-b".utf8).write(to: urlB)

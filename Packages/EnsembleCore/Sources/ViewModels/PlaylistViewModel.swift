@@ -1073,9 +1073,10 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     }
 
     public var canEditPlaylistItems: Bool {
-        playlist.supportsPlaylistEditing && !playlistItems.isEmpty && (
-            playlist.sourceType == .appleMusic || playlistItems.allSatisfy { $0.playlistItemID != nil }
-        )
+        guard playlist.supportsPlaylistEditing, !playlistItems.isEmpty,
+              let sourceType = playlist.sourceType else { return false }
+        return !sourceType.capabilities.playlistEditsRequireItemIdentifiers
+            || playlistItems.allSatisfy { $0.playlistItemID != nil }
     }
 
     @discardableResult

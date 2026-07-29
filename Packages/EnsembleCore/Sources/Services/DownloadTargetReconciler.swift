@@ -67,36 +67,32 @@ final class DownloadTargetReconciler {
             return normalizedTrackReferences(from: tracks, for: target)
 
         case .album:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await dependencies.libraryRepository.fetchTracks(
-                    forAlbum: ratingKey,
-                    sourceCompositeKey: sourceKey
-                )
-            } else {
-                tracks = try await dependencies.libraryRepository.fetchTracks(forAlbum: ratingKey)
-            }
+            guard let ratingKey = target.ratingKey,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+            let tracks = try await dependencies.libraryRepository.fetchTracks(
+                forAlbum: ratingKey,
+                sourceCompositeKey: sourceKey
+            )
             return normalizedTrackReferences(from: tracks, for: target)
 
         case .artist:
-            guard let ratingKey = target.ratingKey else { return [] }
-            let tracks: [CDTrack]
-            if let sourceKey = target.sourceCompositeKey {
-                tracks = try await dependencies.libraryRepository.fetchTracks(
-                    forArtist: ratingKey,
-                    sourceCompositeKey: sourceKey
-                )
-            } else {
-                tracks = try await dependencies.libraryRepository.fetchTracks(forArtist: ratingKey)
-            }
+            guard let ratingKey = target.ratingKey,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+            let tracks = try await dependencies.libraryRepository.fetchTracks(
+                forArtist: ratingKey,
+                sourceCompositeKey: sourceKey
+            )
             return normalizedTrackReferences(from: tracks, for: target)
 
         case .playlist:
-            guard let ratingKey = target.ratingKey else { return [] }
+            guard let ratingKey = target.ratingKey,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
             guard let playlist = try await dependencies.playlistRepository.fetchPlaylist(
                 ratingKey: ratingKey,
-                sourceCompositeKey: target.sourceCompositeKey
+                sourceCompositeKey: sourceKey
             ) else {
                 return []
             }

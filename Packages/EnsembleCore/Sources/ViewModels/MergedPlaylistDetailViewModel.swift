@@ -334,10 +334,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func mutationSourceKey(_ sourceKey: String?) -> String? {
-        if MusicSourceIdentifier(compositeKey: sourceKey ?? "")?.type == .appleMusic {
-            return MusicSourceIdentifier.appleMusic.compositeKey
-        }
-        return MediaSourceIdentity.serverSourceKey(from: sourceKey)
+        MediaSourceIdentity.playlistScopeKey(from: sourceKey)
     }
 
     private func trackPassesCurrentFilters(_ track: Track) -> Bool {

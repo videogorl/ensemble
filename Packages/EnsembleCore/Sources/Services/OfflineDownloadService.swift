@@ -286,6 +286,12 @@ public final class OfflineDownloadService: ObservableObject {
                     trackSourceCompositeKey: ctx.sourceCompositeKey
                 )
                 return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
+            },
+            beginSourcePersistenceWork: { [syncCoordinator] sourceKey in
+                syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey)
+            },
+            finishSourcePersistenceWork: { [syncCoordinator] work in
+                syncCoordinator.finishSourcePersistenceWork(work)
             }
         )
     )
@@ -684,6 +690,11 @@ public final class OfflineDownloadService: ObservableObject {
 
     /// Requeue a failed/offline download for a specific track and wake the queue immediately.
     public func retryDownload(trackRatingKey: String, sourceCompositeKey: String?) async {
+        guard let sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else {
+            EnsembleLogger.debug("❌ Retry download failed: invalid music source")
+            return
+        }
         do {
             let existing = try await downloadManager.fetchDownload(
                 forTrackRatingKey: trackRatingKey,
@@ -702,7 +713,7 @@ public final class OfflineDownloadService: ObservableObject {
             )
 
             EnsembleLogger.debug(
-                "🔁 Retrying download: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") quality=\(quality)"
+                "🔁 Retrying download: track=\(trackRatingKey) source=\(sourceCompositeKey) quality=\(quality)"
             )
 
             await refreshAllTargetProgresses()
@@ -712,7 +723,7 @@ public final class OfflineDownloadService: ObservableObject {
             backgroundExecutionCoordinator.requestContinuedProcessingIfAvailable(pendingTrackCount: pendingCount)
         } catch {
             EnsembleLogger.debug(
-                "❌ Retry download failed: track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") reason=\(error.localizedDescription)"
+                "❌ Retry download failed: track=\(trackRatingKey) source=\(sourceCompositeKey) reason=\(error.localizedDescription)"
             )
         }
     }
@@ -1250,6 +1261,10 @@ public final class OfflineDownloadService: ObservableObject {
         type: ArtworkType
     ) async {
         guard let thumbPath, !thumbPath.isEmpty else { return }
+        guard let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(
+            sourceKey: sourceKey
+        ) else { return }
+        defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
 
         // Skip if already cached
         if let cachedPath = try? await artworkDownloadManager.getLocalArtworkPath(

@@ -98,6 +98,19 @@ final class PlaylistActionServiceTests: XCTestCase {
         )
     }
 
+    func testAppleMusicTracksWithDifferentCatalogIDsAreNotDeduplicatedByMetadata() {
+        let first = makeAppleTrack(id: "catalog-1", key: "apple-catalog")
+        let second = makeAppleTrack(id: "catalog-2", key: "apple-catalog")
+
+        XCTAssertEqual(
+            service.tracks(
+                [first, second],
+                compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey
+            ).map(\.id),
+            ["catalog-1", "catalog-2"]
+        )
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,

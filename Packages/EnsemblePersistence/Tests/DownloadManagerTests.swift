@@ -476,7 +476,10 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path + ".freq"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path))
-        let fetchedTrack = try await libraryRepository.fetchTrack(ratingKey: "300")
+        let fetchedTrack = try await libraryRepository.fetchTrack(
+            ratingKey: "300",
+            sourceCompositeKey: sourceA
+        )
         let track = try XCTUnwrap(fetchedTrack)
         XCTAssertNil(track.localFilePath)
     }

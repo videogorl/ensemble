@@ -9,7 +9,7 @@ public actor AppleMusicSourceProvider:
     MusicSourceSyncProvider,
     MusicSourcePlaybackResolving,
     MusicSourceRatingMutating,
-    MusicSourcePlaylistMutating,
+    MusicSourcePlaylistReconciling,
     MusicSourcePlaybackReporting,
     MusicSourceDetailProviding
 {
@@ -569,9 +569,19 @@ public actor AppleMusicSourceProvider:
         return components.url
     }
 
-    public func rateTrack(ratingKey: String, rating: Int?) async throws {
+    public func rateTrack(
+        _ track: Track,
+        rating: Int?
+    ) async throws -> MusicSourceRatingMutationEffects {
         guard let rating, rating > 0 else { throw AppleMusicSourceError.favoriteRemovalUnsupported }
-        try await favorite(catalogID: catalogIDsByLibraryID[ratingKey] ?? ratingKey)
+        guard let catalogID = track.appleMusicCatalogID ?? catalogIDsByLibraryID[track.id] else {
+            throw MusicSourceRoutingError.capabilityUnavailable(
+                sourceKey: track.sourceCompositeKey ?? sourceIdentifier.compositeKey,
+                capability: "favorites for this library-only song"
+            )
+        }
+        try await favorite(catalogID: catalogID)
+        return .none
     }
 
     public func favorite(catalogID: String) async throws {
@@ -606,11 +616,25 @@ public actor AppleMusicSourceProvider:
         try await MusicLibrary.shared.add(song)
     }
 
-    public func createPlaylist(title: String, tracks: [Track]) async throws {
+    public func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? {
         let songs = try await catalogSongs(for: tracks)
         guard !songs.isEmpty || tracks.isEmpty else { throw PlaylistMutationError.emptySelection }
         let playlist = try await MusicLibrary.shared.createPlaylist(name: title, items: songs)
-        Playlist.markAppleMusicPlaylistCreated(id: String(describing: playlist.id))
+        let playlistID = String(describing: playlist.id)
+        Playlist.markAppleMusicPlaylistCreated(id: playlistID)
+        return Playlist(
+            id: playlistID,
+            key: playlistID,
+            title: title,
+            trackCount: tracks.count,
+            duration: tracks.reduce(0) { $0 + $1.duration },
+            sourceCompositeKey: sourceIdentifier.compositeKey,
+            actionCapabilities: Self.playlistActionCapabilities(
+                id: playlistID,
+                isSmart: false,
+                canEdit: true
+            )
+        )
     }
 
     public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {

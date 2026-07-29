@@ -162,7 +162,7 @@ public final class PendingMutationsViewModel: ObservableObject {
             ratingKey: payload.playlistRatingKey,
             sourceCompositeKey: payload.playlistSourceCompositeKey
         )
-        let count = payload.trackRatingKeys.count
+        let count = payload.trackReferences.count
         let noun = count == 1 ? "track" : "tracks"
         return "Add \(count) \(noun) to \(playlistTitle)"
     }

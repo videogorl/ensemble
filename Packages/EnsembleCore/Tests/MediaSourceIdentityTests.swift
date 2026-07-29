@@ -91,4 +91,15 @@ final class MediaSourceIdentityTests: XCTestCase {
         XCTAssertNil(MusicSourceIdentifier(compositeKey: "plex::server:library"))
         XCTAssertNil(MusicSourceIdentifier(compositeKey: "future:account:server:library"))
     }
+
+    func testOnlyProvidersWithServerOwnedItemsEnableServerScopedKeys() {
+        XCTAssertTrue(MediaSourceIdentity.isEnabledSourceKey(
+            "plex:account:server",
+            within: ["plex:account:server:library"]
+        ))
+        XCTAssertFalse(MediaSourceIdentity.isEnabledSourceKey(
+            "appleMusic:device:system",
+            within: [MusicSourceIdentifier.appleMusic.compositeKey]
+        ))
+    }
 }

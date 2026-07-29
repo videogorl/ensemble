@@ -1482,7 +1482,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             sourceConfiguration: emptyConfiguration
         )
 
-        XCTAssertEqual(visible.flatMap(\.items).map(\.id), ["apple", "plex", "legacy"])
+        XCTAssertEqual(visible.flatMap(\.items).map(\.id), ["apple", "plex"])
     }
 
     func testFinalSourceRemovalHidesFeedImmediatelyAndCleanupClearsLateState() async {
@@ -1566,7 +1566,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertTrue(didClear)
     }
 
-    func testHomeVisibilityFiltersSettledAppleWhilePreservingUnresolvedPlexAndLegacy() {
+    func testHomeVisibilityFiltersSettledAppleAndInvalidItemsWhilePreservingUnresolvedPlex() {
         let hubs = [
             Hub(
                 id: "mixed-provider",
@@ -1593,7 +1593,7 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
             sourceConfiguration: unresolvedPlex
         )
 
-        XCTAssertEqual(visible.flatMap(\.items).map(\.id), ["plex", "legacy"])
+        XCTAssertEqual(visible.flatMap(\.items).map(\.id), ["plex"])
     }
 
     func testUnresolvedSourceConfigurationWaitsToScheduleFeedRefresh() async {

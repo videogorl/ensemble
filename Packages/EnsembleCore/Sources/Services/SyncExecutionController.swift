@@ -31,40 +31,73 @@ final class SourcePersistenceFence {
     private var idleWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
     func begin(sourceKey: String) -> SourcePersistenceLease? {
-        guard cleanupDepth[sourceKey] == nil else { return nil }
+        let scopeKeys = persistenceScopeKeys(for: sourceKey)
+        guard scopeKeys.allSatisfy({ cleanupDepth[$0] == nil }) else { return nil }
         let lease = SourcePersistenceLease(sourceKey: sourceKey, id: UUID())
-        activeLeaseIDs[sourceKey, default: []].insert(lease.id)
+        for scopeKey in scopeKeys {
+            activeLeaseIDs[scopeKey, default: []].insert(lease.id)
+        }
         return lease
     }
 
     func isCurrent(_ lease: SourcePersistenceLease) -> Bool {
-        cleanupDepth[lease.sourceKey] == nil
-            && activeLeaseIDs[lease.sourceKey]?.contains(lease.id) == true
+        persistenceScopeKeys(for: lease.sourceKey).allSatisfy {
+            cleanupDepth[$0] == nil && activeLeaseIDs[$0]?.contains(lease.id) == true
+        }
     }
 
     func finish(_ lease: SourcePersistenceLease) {
-        activeLeaseIDs[lease.sourceKey]?.remove(lease.id)
-        guard activeLeaseIDs[lease.sourceKey]?.isEmpty != false else { return }
-        activeLeaseIDs.removeValue(forKey: lease.sourceKey)
-        let waiters = idleWaiters.removeValue(forKey: lease.sourceKey) ?? []
-        waiters.forEach { $0.resume() }
+        for scopeKey in persistenceScopeKeys(for: lease.sourceKey) {
+            activeLeaseIDs[scopeKey]?.remove(lease.id)
+            guard activeLeaseIDs[scopeKey]?.isEmpty != false else { continue }
+            activeLeaseIDs.removeValue(forKey: scopeKey)
+            let waiters = idleWaiters.removeValue(forKey: scopeKey) ?? []
+            waiters.forEach { $0.resume() }
+        }
     }
 
     func beginCleanup(sourceKey: String) async {
-        cleanupDepth[sourceKey, default: 0] += 1
-        guard activeLeaseIDs[sourceKey]?.isEmpty == false else { return }
-        await withCheckedContinuation { continuation in
-            idleWaiters[sourceKey, default: []].append(continuation)
+        await beginCleanup(sourceKeys: [sourceKey])
+    }
+
+    func beginCleanup(sourceKeys: Set<String>) async {
+        let orderedKeys = sourceKeys.sorted()
+        for sourceKey in orderedKeys {
+            cleanupDepth[sourceKey, default: 0] += 1
+        }
+        for sourceKey in orderedKeys where activeLeaseIDs[sourceKey]?.isEmpty == false {
+            await withCheckedContinuation { continuation in
+                idleWaiters[sourceKey, default: []].append(continuation)
+            }
         }
     }
 
     func finishCleanup(sourceKey: String) {
+        finishCleanup(sourceKeys: [sourceKey])
+    }
+
+    func finishCleanup(sourceKeys: Set<String>) {
+        for sourceKey in sourceKeys {
+            finishSingleCleanup(sourceKey: sourceKey)
+        }
+    }
+
+    private func finishSingleCleanup(sourceKey: String) {
         guard let depth = cleanupDepth[sourceKey] else { return }
         if depth > 1 {
             cleanupDepth[sourceKey] = depth - 1
         } else {
             cleanupDepth.removeValue(forKey: sourceKey)
         }
+    }
+
+    private func persistenceScopeKeys(for sourceKey: String) -> Set<String> {
+        guard let identity = MediaSourceIdentity.parse(sourceKey),
+              !identity.isServerScoped,
+              identity.sourceType.capabilities.playlistsAreServerScoped else {
+            return [sourceKey]
+        }
+        return [sourceKey, identity.serverSourceKey]
     }
 }
 

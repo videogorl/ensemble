@@ -24,18 +24,23 @@ final class TrackRatingLocalStoreTests: XCTestCase {
         XCTAssertEqual(ratings["plex:free:server:music"], 10)
     }
 
-    func testStoreTrackRatingFallsBackToRatingKeyWhenSourceIsMissing() async throws {
+    func testStoreTrackRatingRejectsMissingSourceInsteadOfGuessingOwner() async throws {
         let coreDataStack = CoreDataStack.inMemory()
         try await seedTrack(ratingKey: "42", sourceCompositeKey: nil, rating: 0, in: coreDataStack)
         let store = TrackRatingLocalStore(coreDataStack: coreDataStack)
 
-        try await store.storeTrackRating(
-            track: Track(id: "42", key: "/library/metadata/42", title: "Track"),
-            rating: 10
-        )
+        do {
+            try await store.storeTrackRating(
+                track: Track(id: "42", key: "/library/metadata/42", title: "Track"),
+                rating: 10
+            )
+            XCTFail("Expected source-less rating persistence to throw")
+        } catch let error as MusicSourceRoutingError {
+            XCTAssertEqual(error, .invalidSourceKey(nil))
+        }
 
         let ratings = try await fetchRatings(ratingKey: "42", in: coreDataStack)
-        XCTAssertEqual(ratings[""], 10)
+        XCTAssertEqual(ratings[""], 0)
     }
 
     func testStoreTrackRatingUpdatesExplicitFavoriteState() async throws {
@@ -64,20 +69,6 @@ final class TrackRatingLocalStoreTests: XCTestCase {
         try await store.storeTrackRating(track: track, rating: 0)
         favoriteState = try await fetchFavoriteState(ratingKey: "explicit", in: coreDataStack)
         XCTAssertEqual(favoriteState, false)
-    }
-
-    func testStoreTrackRatingLeavesLegacyFavoriteStateUnset() async throws {
-        let coreDataStack = CoreDataStack.inMemory()
-        try await seedTrack(ratingKey: "legacy", sourceCompositeKey: nil, rating: 0, in: coreDataStack)
-        let store = TrackRatingLocalStore(coreDataStack: coreDataStack)
-
-        try await store.storeTrackRating(
-            track: Track(id: "legacy", key: "/legacy", title: "Legacy"),
-            rating: 10
-        )
-
-        let favoriteState = try await fetchFavoriteState(ratingKey: "legacy", in: coreDataStack)
-        XCTAssertNil(favoriteState)
     }
 
     private func seedTrack(

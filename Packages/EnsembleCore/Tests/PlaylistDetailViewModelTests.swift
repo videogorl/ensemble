@@ -175,11 +175,169 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func countPendingMutations() async throws -> Int { pending.count }
     }
 
+    private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating {
+        enum Event: Equatable {
+            case create(title: String, trackIDs: [String])
+            case add(playlistID: String, trackIDs: [String])
+            case rename(playlistID: String, title: String)
+            case delete(playlistID: String)
+            case replace(playlistID: String, trackIDs: [String])
+            case edit(playlistID: String, originalItemIDs: [String?], editedItemIDs: [String?])
+        }
+
+        nonisolated let sourceIdentifier: MusicSourceIdentifier
+        private var events: [Event] = []
+
+        init(accountID: String, serverID: String, libraryID: String) {
+            sourceIdentifier = MusicSourceIdentifier(
+                type: .plex,
+                accountId: accountID,
+                serverId: serverID,
+                libraryId: libraryID
+            )
+        }
+
+        func eventsSnapshot() -> [Event] { events }
+
+        func syncLibrary(
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            LibrarySyncResult()
+        }
+
+        func syncLibraryIncremental(
+            since timestamp: TimeInterval,
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            LibrarySyncResult()
+        }
+
+        func syncPlaylists(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            PlaylistSyncResult()
+        }
+
+        func syncPlaylistsIncremental(
+            to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            PlaylistSyncResult()
+        }
+
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+
+        func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? {
+            events.append(.create(title: title, trackIDs: tracks.map(\.id)))
+            return nil
+        }
+
+        func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
+            events.append(.add(playlistID: playlistID, trackIDs: tracks.map(\.id)))
+            return tracks.count
+        }
+
+        func renamePlaylist(_ playlistID: String, title: String) async throws {
+            events.append(.rename(playlistID: playlistID, title: title))
+        }
+
+        func deletePlaylist(_ playlistID: String) async throws {
+            events.append(.delete(playlistID: playlistID))
+        }
+
+        func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws {
+            events.append(.replace(playlistID: playlistID, trackIDs: tracks.map(\.id)))
+        }
+
+        func editPlaylistItems(
+            _ playlistID: String,
+            originalItems: [PlaylistItem],
+            editedItems: [PlaylistItem]
+        ) async throws {
+            guard originalItems.allSatisfy({ $0.playlistItemID != nil }),
+                  editedItems.allSatisfy({ $0.playlistItemID != nil }) else {
+                throw PlaylistMutationError.incompletePlaylistContents
+            }
+            events.append(.edit(
+                playlistID: playlistID,
+                originalItemIDs: originalItems.map(\.playlistItemID),
+                editedItemIDs: editedItems.map(\.playlistItemID)
+            ))
+        }
+    }
+
+    private actor RecordingRatingProvider: MusicSourceSyncProvider, MusicSourceRatingMutating {
+        struct Invocation: Sendable {
+            let track: Track
+            let rating: Int?
+        }
+
+        nonisolated let sourceIdentifier: MusicSourceIdentifier
+        private let effects: MusicSourceRatingMutationEffects
+        private var invocation: Invocation?
+
+        init(
+            sourceIdentifier: MusicSourceIdentifier,
+            effects: MusicSourceRatingMutationEffects
+        ) {
+            self.sourceIdentifier = sourceIdentifier
+            self.effects = effects
+        }
+
+        func invocationSnapshot() -> Invocation? { invocation }
+
+        func syncLibrary(
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            LibrarySyncResult()
+        }
+
+        func syncLibraryIncremental(
+            since timestamp: TimeInterval,
+            to repository: LibraryRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> LibrarySyncResult {
+            LibrarySyncResult()
+        }
+
+        func syncPlaylists(
+            to repository: PlaylistRepositoryProtocol,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            PlaylistSyncResult()
+        }
+
+        func syncPlaylistsIncremental(
+            to repository: PlaylistRepositoryProtocol,
+            forceOrphanCheck: Bool,
+            progressHandler: @Sendable (Double) -> Void
+        ) async throws -> PlaylistSyncResult {
+            PlaylistSyncResult()
+        }
+
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+
+        func rateTrack(
+            _ track: Track,
+            rating: Int?
+        ) async throws -> MusicSourceRatingMutationEffects {
+            invocation = Invocation(track: track, rating: rating)
+            return effects
+        }
+    }
+
     private enum MockError: Error {
         case unimplemented
     }
 
-    private func makeSyncCoordinator() -> SyncCoordinator {
+    private func makeSyncCoordinator(
+        providers: [MusicSourceSyncProvider]? = nil
+    ) -> SyncCoordinator {
         let accountManager = AccountManager(keychain: TestKeychain())
         accountManager.addPlexAccount(
             PlexAccountConfig(
@@ -193,7 +351,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                         url: "https://example.com",
                         token: "token",
                         libraries: [
-                            PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
+                            PlexLibraryConfig(id: "lib-1", key: "lib-1", title: "Music", isEnabled: true)
                         ]
                     )
                 ]
@@ -211,7 +369,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                         url: "https://example-two.com",
                         token: "token-2",
                         libraries: [
-                            PlexLibraryConfig(id: "lib-2", key: "2", title: "Music", isEnabled: true)
+                            PlexLibraryConfig(id: "lib-2", key: "lib-2", title: "Music", isEnabled: true)
                         ]
                     )
                 ]
@@ -228,8 +386,28 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             networkMonitor: networkMonitorRef,
             serverHealthChecker: ServerHealthChecker(accountManager: accountManager, networkMonitor: networkMonitorRef)
         )
-        coordinator.refreshProviders()
+        if let providers {
+            coordinator.setSyncProvidersForTesting(
+                Dictionary(uniqueKeysWithValues: providers.map {
+                    ($0.sourceIdentifier.compositeKey, $0)
+                })
+            )
+        } else {
+            coordinator.refreshProviders()
+        }
         return coordinator
+    }
+
+    private func makeRecordingPlaylistProvider(
+        accountID: String = "account-1",
+        serverID: String = "server-1",
+        libraryID: String = "1"
+    ) -> RecordingPlaylistProvider {
+        RecordingPlaylistProvider(
+            accountID: accountID,
+            serverID: serverID,
+            libraryID: libraryID
+        )
     }
 
     private func makeMutationCoordinator(syncCoordinator: SyncCoordinator) -> MutationCoordinator {
@@ -245,7 +423,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         id: String = "playlist-1",
         title: String? = nil,
         isSmart: Bool = false,
-        sourceCompositeKey: String = "plex:account-1:server-1"
+        sourceCompositeKey: String = "plex:account-1:server-1",
+        actionCapabilities: PlaylistActionCapabilities? = nil
     ) -> Playlist {
         Playlist(
             id: id,
@@ -259,7 +438,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             dateAdded: nil,
             dateModified: nil,
             lastPlayed: nil,
-            sourceCompositeKey: sourceCompositeKey
+            sourceCompositeKey: sourceCompositeKey,
+            actionCapabilities: actionCapabilities
         )
     }
 
@@ -320,7 +500,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         title: String,
         context: NSManagedObjectContext
     ) -> CDTrack {
-        let cdTrack = CDTrack(context: context)
+        let cdTrack = NSEntityDescription.insertNewObject(
+            forEntityName: "CDTrack",
+            into: context
+        ) as! CDTrack
         cdTrack.ratingKey = id
         cdTrack.key = "/library/metadata/\(id)"
         cdTrack.title = title
@@ -339,7 +522,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         serverTrackCount: Int? = nil,
         context: NSManagedObjectContext
     ) -> CDPlaylist {
-        let cdPlaylist = CDPlaylist(context: context)
+        let cdPlaylist = NSEntityDescription.insertNewObject(
+            forEntityName: "CDPlaylist",
+            into: context
+        ) as! CDPlaylist
         cdPlaylist.ratingKey = playlist.id
         cdPlaylist.key = playlist.key
         cdPlaylist.title = playlist.title
@@ -354,7 +540,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         cdPlaylist.sourceCompositeKey = playlist.sourceCompositeKey
 
         let playlistTracks = tracks.enumerated().map { index, track in
-            let cdTrack = CDTrack(context: context)
+            let cdTrack = NSEntityDescription.insertNewObject(
+                forEntityName: "CDTrack",
+                into: context
+            ) as! CDTrack
             cdTrack.ratingKey = track.id
             cdTrack.key = track.key
             cdTrack.title = track.title
@@ -367,7 +556,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             cdTrack.playCount = Int32(track.playCount)
             cdTrack.sourceCompositeKey = track.sourceCompositeKey
 
-            let playlistTrack = CDPlaylistTrack(context: context)
+            let playlistTrack = NSEntityDescription.insertNewObject(
+                forEntityName: "CDPlaylistTrack",
+                into: context
+            ) as! CDPlaylistTrack
             playlistTrack.order = Int32(index)
             playlistTrack.playlist = cdPlaylist
             playlistTrack.track = cdTrack
@@ -407,8 +599,12 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             PlaylistMutationPayload(
                 playlistRatingKey: playlistRatingKey,
                 playlistSourceCompositeKey: playlistSourceCompositeKey,
-                trackRatingKeys: ["track-1"],
-                trackSourceCompositeKey: "\(playlistSourceCompositeKey):lib-1"
+                trackReferences: [
+                    OfflineTrackReference(
+                        trackRatingKey: "track-1",
+                        trackSourceCompositeKey: "\(playlistSourceCompositeKey):lib-1"
+                    )
+                ]
             )
         )
         mutation.sourceCompositeKey = playlistSourceCompositeKey
@@ -416,8 +612,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     func testDeletePlaylistSuccessReturnsTrue() async {
-        let syncCoordinator = makeSyncCoordinator()
-        syncCoordinator.playlistDeleteHandlerForTesting = { _, _ in }
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
 
         let playlist = makePlaylist()
@@ -432,6 +628,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let didDelete = await viewModel.deletePlaylist()
         XCTAssertTrue(didDelete)
         XCTAssertNil(viewModel.error)
+        let events = await provider.eventsSnapshot()
+        XCTAssertEqual(events, [.delete(playlistID: "playlist-1")])
     }
 
     func testDeletePlaylistFailureSetsErrorAndReturnsFalse() async {
@@ -760,8 +958,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
     func testPlaylistViewModelKeepsCompletedDeleteHiddenWhenCacheReloadIsStale() async {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
-        let syncCoordinator = makeSyncCoordinator()
-        syncCoordinator.playlistDeleteHandlerForTesting = { _, _ in }
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
         let playlistRepository = MockPlaylistRepository()
         let context = CoreDataStack.inMemory().viewContext
@@ -795,6 +993,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-b"])
         XCTAssertEqual(viewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-b"])
+        let events = await provider.eventsSnapshot()
+        XCTAssertEqual(events, [.delete(playlistID: "playlist-a")])
     }
 
     func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async throws {
@@ -1061,14 +1261,9 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     func testRemoveTrackFromPlaylistDeletesMembershipWithoutReplacingContents() async {
-        let syncCoordinator = makeSyncCoordinator()
-        var removedPlaylistID: String?
-        var removedItemID: String?
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
         var refreshedSourceKey: String?
-        syncCoordinator.playlistRemoveItemHandlerForTesting = { _, playlistID, itemID in
-            removedPlaylistID = playlistID
-            removedItemID = itemID
-        }
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { sourceKey in
             refreshedSourceKey = sourceKey
         }
@@ -1089,57 +1284,58 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let didRemove = await viewModel.removeTrackFromPlaylist(tracks[0], displayIndex: 0)
 
         XCTAssertTrue(didRemove)
-        XCTAssertEqual(removedPlaylistID, "playlist-1")
-        XCTAssertEqual(removedItemID, "item-1")
+        let events = await provider.eventsSnapshot()
+        XCTAssertEqual(events, [
+            .edit(
+                playlistID: "playlist-1",
+                originalItemIDs: ["item-1", "item-2"],
+                editedItemIDs: ["item-2"]
+            )
+        ])
         XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-2"])
         XCTAssertEqual(viewModel.playlist.trackCount, 1)
     }
 
     func testRemoveTrackFromPlaylistRejectsIncompleteCachedContents() async {
-        let syncCoordinator = makeSyncCoordinator()
-        var didReplace = false
-        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, _, _ in
-            didReplace = true
-        }
-
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
         let playlist = makePlaylist(id: "playlist-a", title: "Mixed Libraries")
-        let playlistRepository = MockPlaylistRepository()
-        let context = CoreDataStack.inMemory().viewContext
-        let key = playlistRepository.playlistKey(
-            ratingKey: playlist.id,
-            sourceCompositeKey: playlist.sourceCompositeKey
+        let incompleteTrack = Track(
+            id: "enabled-track",
+            key: "/library/metadata/enabled-track",
+            title: "enabled-track",
+            sourceCompositeKey: "plex:account-1:server-1:lib-1",
+            unavailableReason: "Library not synced"
         )
-        playlistRepository.playlists[key] = makeCachedPlaylist(
-            playlist,
-            tracks: [makeTrack(id: "enabled-track")],
-            serverTrackCount: 2,
-            context: context
-        )
-
         let viewModel = PlaylistDetailViewModel(
             playlist: playlist,
-            playlistRepository: playlistRepository,
+            playlistRepository: MockPlaylistRepository(),
             syncCoordinator: syncCoordinator,
-            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            initialItems: [
+                PlaylistItem(
+                    id: "0:enabled-track",
+                    playlistItemID: nil,
+                    track: incompleteTrack
+                )
+            ],
+            observesExternalChanges: false
         )
-        await viewModel.loadTracks()
 
-        let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "enabled-track"))
+        let didRemove = await viewModel.removeTrackFromPlaylist(incompleteTrack)
 
         XCTAssertTrue(viewModel.hasUnavailableTracks)
         XCTAssertFalse(didRemove)
-        XCTAssertFalse(didReplace)
+        let events = await provider.eventsSnapshot()
+        XCTAssertTrue(events.isEmpty)
         XCTAssertEqual(viewModel.error, PlaylistMutationError.incompletePlaylistContents.localizedDescription)
         XCTAssertEqual(viewModel.tracks.map(\.id), ["enabled-track"])
     }
 
     func testRemoveTrackFromPlaylistWithoutDisplayIndexUsesSourceScopedIdentity() async {
-        let syncCoordinator = makeSyncCoordinator()
-        var removedItemIDs: [String] = []
-        syncCoordinator.playlistRemoveItemHandlerForTesting = { _, _, itemID in
-            removedItemIDs.append(itemID)
-        }
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { _ in }
 
         let sharedLibraryTrack = makeTrack(
@@ -1165,15 +1361,19 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         XCTAssertTrue(didRemove)
         XCTAssertEqual(viewModel.tracks.map(\.sourceScopedID), [sharedLibraryTrack.sourceScopedID])
-        XCTAssertEqual(removedItemIDs, ["item-test"])
+        let events = await provider.eventsSnapshot()
+        XCTAssertEqual(events, [
+            .edit(
+                playlistID: "playlist-1",
+                originalItemIDs: ["item-shared", "item-test"],
+                editedItemIDs: ["item-shared"]
+            )
+        ])
     }
 
     func testRemoveTrackFromSmartPlaylistFailsWithoutReplacingContents() async {
-        let syncCoordinator = makeSyncCoordinator()
-        var didReplace = false
-        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, _, _ in
-            didReplace = true
-        }
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
 
         let viewModel = PlaylistDetailViewModel(
             playlist: makePlaylist(isSmart: true),
@@ -1186,22 +1386,21 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let didRemove = await viewModel.removeTrackFromPlaylist(makeTrack(id: "track-1"), displayIndex: 0)
 
         XCTAssertFalse(didRemove)
-        XCTAssertFalse(didReplace)
+        let events = await provider.eventsSnapshot()
+        XCTAssertTrue(events.isEmpty)
         XCTAssertEqual(viewModel.error, PlaylistMutationError.smartPlaylistReadOnly.localizedDescription)
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1"])
     }
 
     func testRemoveTrackFromMergedPlaylistReplacesOnlyMatchingServerPlaylist() async {
-        let syncCoordinator = makeSyncCoordinator()
-        var replacedPlaylistID: String?
-        var replacedTrackIDs: [String] = []
-        var replacedServerID: String?
+        let firstProvider = makeRecordingPlaylistProvider()
+        let secondProvider = makeRecordingPlaylistProvider(
+            accountID: "account-2",
+            serverID: "server-2",
+            libraryID: "lib-2"
+        )
+        let syncCoordinator = makeSyncCoordinator(providers: [firstProvider, secondProvider])
         var refreshedSourceKey: String?
-        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, playlistID, trackIDs, serverID in
-            replacedPlaylistID = playlistID
-            replacedTrackIDs = trackIDs
-            replacedServerID = serverID
-        }
         syncCoordinator.refreshServerPlaylistsHandlerForTesting = { sourceKey in
             refreshedSourceKey = sourceKey
         }
@@ -1274,9 +1473,15 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let didRemove = await viewModel.removeTrackFromPlaylist(secondTracks[0], displayIndex: 1)
 
         XCTAssertTrue(didRemove)
-        XCTAssertEqual(replacedPlaylistID, "playlist-b")
-        XCTAssertEqual(replacedTrackIDs, ["server-2-track-2"])
-        XCTAssertEqual(replacedServerID, "server-2")
+        let firstEvents = await firstProvider.eventsSnapshot()
+        let secondEvents = await secondProvider.eventsSnapshot()
+        XCTAssertTrue(firstEvents.isEmpty)
+        XCTAssertEqual(secondEvents, [
+            .replace(
+                playlistID: "playlist-b",
+                trackIDs: ["server-2-track-2"]
+            )
+        ])
         XCTAssertEqual(refreshedSourceKey, "plex:account-2:server-2")
         XCTAssertEqual(
             viewModel.tracks.map(\.id),
@@ -1285,11 +1490,13 @@ final class PlaylistDetailViewModelTests: XCTestCase {
     }
 
     func testRemoveTrackFromMergedPlaylistRejectsUnknownSourceAcrossMultiplePlaylists() async {
-        let syncCoordinator = makeSyncCoordinator()
-        var didReplace = false
-        syncCoordinator.playlistReplaceContentsHandlerForTesting = { _, _, _, _ in
-            didReplace = true
-        }
+        let firstProvider = makeRecordingPlaylistProvider()
+        let secondProvider = makeRecordingPlaylistProvider(
+            accountID: "account-2",
+            serverID: "server-2",
+            libraryID: "lib-2"
+        )
+        let syncCoordinator = makeSyncCoordinator(providers: [firstProvider, secondProvider])
 
         let viewModel = MergedPlaylistDetailViewModel(
             displayPlaylist: .merged(
@@ -1311,7 +1518,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
 
         XCTAssertFalse(didRemove)
-        XCTAssertFalse(didReplace)
+        let firstEvents = await firstProvider.eventsSnapshot()
+        let secondEvents = await secondProvider.eventsSnapshot()
+        XCTAssertTrue(firstEvents.isEmpty)
+        XCTAssertTrue(secondEvents.isEmpty)
         XCTAssertEqual(viewModel.error, "Could not determine which server playlist owns this track.")
     }
 
@@ -1342,11 +1552,196 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(syncCoordinator.lastPlaylistTarget?.title, playlist.title)
     }
 
-    func testPlaylistMutationPayloadDecodesLegacyPayloadWithoutTitle() throws {
-        let data = Data(#"{"playlistRatingKey":"playlist","playlistSourceCompositeKey":"source","trackRatingKeys":["track"],"trackSourceCompositeKey":"track-source"}"#.utf8)
+    func testOfflinePlaylistMutationsQueueOnlyForSupportingSources() async throws {
+        let syncCoordinator = makeSyncCoordinator()
+        syncCoordinator.networkMonitor.injectNetworkStateForTesting(.offline, debounced: false)
+        await syncCoordinator.handleAppWillEnterForeground()
+        XCTAssertTrue(syncCoordinator.isOffline)
 
-        let payload = try JSONDecoder().decode(PlaylistMutationPayload.self, from: data)
+        let repository = RecordingPendingMutationRepository(pending: [])
+        let mutationCoordinator = MutationCoordinator(
+            repository: repository,
+            networkMonitor: syncCoordinator.networkMonitor,
+            syncCoordinator: syncCoordinator
+        )
+        let plexPlaylist = makePlaylist(id: "plex-playlist")
+        let plexTrack = makeTrack(id: "plex-track")
 
-        XCTAssertNil(payload.playlistTitle)
+        let (_, addOutcome) = try await mutationCoordinator.addTracksToPlaylist(
+            [plexTrack],
+            playlist: plexPlaylist
+        )
+        let renameOutcome = try await mutationCoordinator.renamePlaylist(plexPlaylist, to: "Renamed")
+
+        XCTAssertEqual(addOutcome, .queued)
+        XCTAssertEqual(renameOutcome, .queued)
+        XCTAssertEqual(repository.enqueued.map(\.type), [.playlistAdd, .playlistRename])
+
+        let applePlaylist = makePlaylist(
+            id: "apple-playlist",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            actionCapabilities: PlaylistActionCapabilities(
+                canAddItems: true,
+                canRename: true,
+                canReorder: true,
+                canDelete: false
+            )
+        )
+        let appleTrack = makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        do {
+            _ = try await mutationCoordinator.addTracksToPlaylist([appleTrack], playlist: applePlaylist)
+            XCTFail("Apple Music playlist additions must not enter the offline queue")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Add to playlist is not available while offline.")
+        }
+
+        do {
+            _ = try await mutationCoordinator.renamePlaylist(applePlaylist, to: "Renamed")
+            XCTFail("Apple Music playlist renames must not enter the offline queue")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Rename playlist is not available while offline.")
+        }
+
+        do {
+            _ = try await mutationCoordinator.enqueuePlaylistAddOptimistically(
+                [appleTrack],
+                playlist: applePlaylist
+            )
+            XCTFail("Optimistic Apple Music additions must not enter the offline queue")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "Add to playlist is not available while offline.")
+        }
+
+        do {
+            _ = try await mutationCoordinator.addTracksToPlaylist([appleTrack], playlist: plexPlaylist)
+            XCTFail("Cross-source tracks must not enter the offline queue")
+        } catch let error as PlaylistMutationError {
+            XCTAssertEqual(error, .emptySelection)
+        }
+
+        let sourceLessTrack = Track(id: "source-less", key: "/library/metadata/source-less", title: "")
+        do {
+            _ = try await mutationCoordinator.addTracksToPlaylist([sourceLessTrack], playlist: plexPlaylist)
+            XCTFail("Source-less tracks must fail instead of entering the offline queue")
+        } catch let error as MusicSourceRoutingError {
+            XCTAssertEqual(error, .invalidSourceKey(nil))
+        }
+
+        let unknownPlaylist = makePlaylist(
+            id: "unknown-playlist",
+            sourceCompositeKey: "legacy-source"
+        )
+        do {
+            _ = try await mutationCoordinator.addTracksToPlaylist([plexTrack], playlist: unknownPlaylist)
+            XCTFail("Unknown sources must not inherit Plex offline queuing")
+        } catch {
+            XCTAssertEqual(error.localizedDescription, "The music source is invalid.")
+        }
+
+        XCTAssertEqual(repository.enqueued.map(\.type), [.playlistAdd, .playlistRename])
     }
+
+    func testQueuedPlaylistMutationCapabilityIsProviderSpecific() {
+        XCTAssertTrue(MusicSourceType.plex.capabilities.supportsQueuedPlaylistMutations)
+        XCTAssertFalse(MusicSourceType.appleMusic.capabilities.supportsQueuedPlaylistMutations)
+    }
+
+    func testOfflineRatingMutationsUseSourceQueueCapability() async throws {
+        let syncCoordinator = makeSyncCoordinator()
+        syncCoordinator.networkMonitor.injectNetworkStateForTesting(.offline, debounced: false)
+        await syncCoordinator.handleAppWillEnterForeground()
+        XCTAssertTrue(syncCoordinator.isOffline)
+
+        let repository = RecordingPendingMutationRepository(pending: [])
+        let mutationCoordinator = MutationCoordinator(
+            repository: repository,
+            networkMonitor: syncCoordinator.networkMonitor,
+            syncCoordinator: syncCoordinator
+        )
+
+        let plexOutcome = try await mutationCoordinator.rateTrack(makeTrack(id: "plex-track"), rating: 10)
+        XCTAssertEqual(plexOutcome, .queued)
+
+        let appleTrack = makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        do {
+            _ = try await mutationCoordinator.rateTrack(appleTrack, rating: 10)
+            XCTFail("Apple Music favorites must not enter the offline queue")
+        } catch let error as URLError {
+            XCTAssertEqual(error.code, .notConnectedToInternet)
+        }
+
+        XCTAssertEqual(repository.enqueued.map(\.type), [.trackRating])
+    }
+
+    func testRatingProviderReceivesNormalizedTrackIdentity() async throws {
+        let provider = RecordingRatingProvider(
+            sourceIdentifier: .appleMusic,
+            effects: .none
+        )
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
+        let track = Track(
+            id: "library-song",
+            key: "apple-library-catalog:catalog-song",
+            title: "Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        try await syncCoordinator.rateTrack(track: track, rating: 10)
+
+        let invocation = await provider.invocationSnapshot()
+        XCTAssertEqual(invocation?.track.id, "library-song")
+        XCTAssertEqual(invocation?.track.appleMusicCatalogID, "catalog-song")
+        XCTAssertEqual(invocation?.rating, 10)
+    }
+
+    func testQueuedRatingMutationCapabilityIsProviderSpecific() {
+        XCTAssertTrue(MusicSourceType.plex.capabilities.supportsQueuedRatingMutations)
+        XCTAssertFalse(MusicSourceType.appleMusic.capabilities.supportsQueuedRatingMutations)
+    }
+
+    func testRatingMutationRejectsSourceLessTrack() async {
+        let mutationCoordinator = makeMutationCoordinator(syncCoordinator: makeSyncCoordinator())
+
+        do {
+            _ = try await mutationCoordinator.rateTrack(
+                Track(id: "legacy", key: "/library/metadata/legacy", title: "Legacy"),
+                rating: 10
+            )
+            XCTFail("Expected source-less rating mutation to throw")
+        } catch let error as MusicSourceRoutingError {
+            XCTAssertEqual(error, .invalidSourceKey(nil))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    func testTrackStreamingRejectsServerScopedSource() async {
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
+        let sourceKey = "plex:account-1:server-1"
+
+        do {
+            _ = try await syncCoordinator.getStreamURL(
+                for: Track(
+                    id: "track-1",
+                    key: "/library/metadata/track-1",
+                    title: "Track",
+                    sourceCompositeKey: sourceKey
+                )
+            )
+            XCTFail("Server-scoped track ownership must fail closed")
+        } catch let error as MusicSourceRoutingError {
+            XCTAssertEqual(error, .invalidSourceKey(sourceKey))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
 }

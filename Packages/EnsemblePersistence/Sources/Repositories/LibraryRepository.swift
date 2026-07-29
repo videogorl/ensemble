@@ -703,7 +703,10 @@ public extension LibraryRepositoryProtocol {
     }
 
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist? {
-        try await fetchArtist(ratingKey: ratingKey)
+        guard let sourceCompositeKey,
+              let artist = try await fetchArtist(ratingKey: ratingKey),
+              artist.sourceCompositeKey == sourceCompositeKey else { return nil }
+        return artist
     }
 
     func fetchArtists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDArtist] {
@@ -737,7 +740,10 @@ public extension LibraryRepositoryProtocol {
     }
 
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
-        try await fetchAlbum(ratingKey: ratingKey)
+        guard let sourceCompositeKey,
+              let album = try await fetchAlbum(ratingKey: ratingKey),
+              album.sourceCompositeKey == sourceCompositeKey else { return nil }
+        return album
     }
 
     func fetchAlbums(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDAlbum] {
@@ -771,7 +777,9 @@ public extension LibraryRepositoryProtocol {
     }
 
     func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum] {
-        try await fetchAlbums(forArtist: artistRatingKey)
+        try await fetchAlbums(forArtist: artistRatingKey).filter {
+            $0.sourceCompositeKey == sourceCompositeKey
+        }
     }
 }
 

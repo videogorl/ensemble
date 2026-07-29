@@ -16,7 +16,7 @@ public struct SourceConfigurationSnapshot: Equatable, Sendable {
     public let enabledSourceKeys: Set<String>
     public let authoritativeSourceTypes: [MusicSourceType]
     public let hasAnySources: Bool
-    /// Full configuration authority used when a media item has no valid provider identity.
+    /// Whether every supported provider's configuration has settled.
     public let isAuthoritative: Bool
 
     public init(
@@ -43,8 +43,9 @@ public struct SourceConfigurationSnapshot: Equatable, Sendable {
         return authoritativeSourceTypes.contains(sourceType)
     }
 
-    /// Keeps enabled items and provisionally keeps items whose provider is unresolved.
+    /// Keeps valid enabled items and provisionally keeps valid items whose provider is unresolved.
     public func shouldPreserveSourceKey(_ sourceKey: String?) -> Bool {
+        guard MediaSourceIdentity.parse(sourceKey) != nil else { return false }
         guard isAuthoritative(for: sourceKey) else { return true }
         return MediaSourceIdentity.isEnabledSourceKey(sourceKey, within: enabledSourceKeys)
     }

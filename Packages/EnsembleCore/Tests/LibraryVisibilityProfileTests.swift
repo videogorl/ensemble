@@ -106,7 +106,22 @@ final class LibraryVisibilityProfileTests: XCTestCase {
             sourceConfiguration: configuration
         )
 
-        XCTAssertEqual(visible.map(\.id), ["plex", "legacy"])
+        XCTAssertEqual(visible.map(\.id), ["plex"])
+    }
+
+    func testVisibilityAlwaysRejectsMissingAndMalformedSourceOwnership() {
+        let tracks = [
+            Track(id: "valid", key: "valid", title: "Valid", sourceCompositeKey: "plex:a:s:l"),
+            Track(id: "malformed", key: "malformed", title: "Malformed", sourceCompositeKey: "legacy-source"),
+            Track(id: "missing", key: "missing", title: "Missing"),
+        ]
+
+        let visible = LibraryVisibilityFiltering.visibleItems(
+            tracks,
+            hiddenSourceCompositeKeys: []
+        )
+
+        XCTAssertEqual(visible.map(\.id), ["valid"])
     }
 
     func testMergedMoodVisibilityStaysVisibleWhenAnySourceIsVisible() {

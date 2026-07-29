@@ -14,17 +14,32 @@ final class SyncProviderResolverTests: XCTestCase {
         func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
     }
 
+    private protocol TestCapability {
+        var marker: String { get }
+    }
+
+    private struct CapableProvider: MusicSourceSyncProvider, TestCapability, @unchecked Sendable {
+        let sourceIdentifier: MusicSourceIdentifier
+        let marker: String
+
+        func syncLibrary(to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+        func syncLibraryIncremental(since timestamp: TimeInterval, to repository: LibraryRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> LibrarySyncResult { LibrarySyncResult() }
+        func syncPlaylists(to repository: PlaylistRepositoryProtocol, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
+        func syncPlaylistsIncremental(to repository: PlaylistRepositoryProtocol, forceOrphanCheck: Bool, progressHandler: @Sendable (Double) -> Void) async throws -> PlaylistSyncResult { PlaylistSyncResult() }
+        func getArtworkURL(path: String?, size: Int) async throws -> URL? { nil }
+    }
+
     func testResolveUsesExactSourceKeyWhenAvailable() {
         let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
         let resolver = SyncProviderResolver(providers: [
             source.compositeKey: MockProvider(sourceIdentifier: source)
         ])
 
-        let resolution = resolver.resolve(sourceKey: source.compositeKey, allowFallback: true)
+        let resolution = resolver.resolve(sourceKey: source.compositeKey, allowServerScope: true)
 
         XCTAssertEqual(resolution?.sourceKey, source.compositeKey)
         XCTAssertEqual(resolution?.provider.sourceIdentifier, source)
-        XCTAssertEqual(resolution?.usedFallback, false)
+        XCTAssertEqual(resolution?.usedServerScope, false)
     }
 
     func testResolveNeverUsesArbitraryProviderFallback() {
@@ -33,9 +48,9 @@ final class SyncProviderResolverTests: XCTestCase {
             source.compositeKey: MockProvider(sourceIdentifier: source)
         ])
 
-        XCTAssertNil(resolver.resolve(sourceKey: "missing", allowFallback: false))
-        XCTAssertNil(resolver.resolve(sourceKey: "missing", allowFallback: true))
-        XCTAssertNil(resolver.resolve(sourceKey: nil, allowFallback: true))
+        XCTAssertNil(resolver.resolve(sourceKey: "missing", allowServerScope: false))
+        XCTAssertNil(resolver.resolve(sourceKey: "missing", allowServerScope: true))
+        XCTAssertNil(resolver.resolve(sourceKey: nil, allowServerScope: true))
     }
 
     func testResolveUsesProviderFromRequestedServerForServerScopedKey() {
@@ -47,16 +62,16 @@ final class SyncProviderResolverTests: XCTestCase {
         ])
         let serverSourceKey = "plex:account-1:server-1"
 
-        XCTAssertNil(resolver.resolve(sourceKey: serverSourceKey, allowFallback: false))
+        XCTAssertNil(resolver.resolve(sourceKey: serverSourceKey, allowServerScope: false))
 
         let resolution = resolver.resolve(
             sourceKey: serverSourceKey,
-            allowFallback: true
+            allowServerScope: true
         )
 
         XCTAssertEqual(resolution?.sourceKey, requested.compositeKey)
         XCTAssertEqual(resolution?.provider.sourceIdentifier, requested)
-        XCTAssertEqual(resolution?.usedFallback, true)
+        XCTAssertEqual(resolution?.usedServerScope, true)
     }
 
     func testResolveDoesNotCrossProviderBoundary() {
@@ -68,9 +83,31 @@ final class SyncProviderResolverTests: XCTestCase {
         XCTAssertNil(
             resolver.resolve(
                 sourceKey: MusicSourceIdentifier.appleMusic.compositeKey,
-                allowFallback: true
+                allowServerScope: true
             )
         )
+    }
+
+    func testSyntheticAppleServerScopeCannotResolveAppleLibraryProvider() {
+        let source = MusicSourceIdentifier.appleMusic
+        let resolver = SyncProviderResolver(providers: [
+            source.compositeKey: CapableProvider(sourceIdentifier: source, marker: "apple")
+        ])
+        let serverKey = "appleMusic:device:system"
+
+        XCTAssertNil(resolver.resolve(sourceKey: serverKey, allowServerScope: true))
+        XCTAssertThrowsError(
+            try resolver.requireCapabilityMatchingSourceScope(
+                sourceKey: serverKey,
+                name: "test",
+                as: TestCapability.self
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MusicSourceRoutingError,
+                .providerUnavailable(sourceKey: serverKey)
+            )
+        }
     }
 
     func testRequireProviderUsesCoreRoutingErrors() {
@@ -111,43 +148,61 @@ final class SyncProviderResolverTests: XCTestCase {
         }
     }
 
-    func testMissingSourceRequiresAuthoritativeCachedOwnership() {
-        let providerKey = "plex:account:server:library"
+    func testScopedCapabilityUsesExactLibraryProvider() throws {
+        let first = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
+        let second = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "2")
+        let resolver = SyncProviderResolver(providers: [
+            first.compositeKey: CapableProvider(sourceIdentifier: first, marker: "first"),
+            second.compositeKey: CapableProvider(sourceIdentifier: second, marker: "second")
+        ])
 
-        XCTAssertEqual(
-            SyncCoordinator.resolveTrackSourceKey(
-                explicitSourceKey: "unknown:explicit:key:value",
-                cachedSourceKey: nil
-            ),
-            "unknown:explicit:key:value"
+        let resolution = try resolver.requireCapabilityMatchingSourceScope(
+            sourceKey: second.compositeKey,
+            name: "test",
+            as: TestCapability.self
         )
-        XCTAssertEqual(
-            SyncCoordinator.resolveTrackSourceKey(
-                explicitSourceKey: nil,
-                cachedSourceKey: "plex:cached:server:library"
-            ),
-            "plex:cached:server:library"
-        )
-        XCTAssertNil(
-            SyncCoordinator.resolveTrackSourceKey(
-                explicitSourceKey: nil,
-                cachedSourceKey: nil
-            )
-        )
+
+        XCTAssertEqual(resolution.provider.sourceIdentifier, second)
+        XCTAssertEqual(resolution.capability.marker, "second")
     }
 
-    func testLegacyTrackSourceRepairRequiresOneUniqueCachedSource() {
-        XCTAssertEqual(
-            SyncCoordinator.uniqueSourceKey([
-                "plex:account:server:library",
-                "plex:account:server:library"
-            ]),
-            "plex:account:server:library"
+    func testScopedCapabilityUsesDeterministicProviderForExactServerScope() throws {
+        let first = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
+        let second = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "2")
+        let other = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "other", libraryId: "1")
+        let resolver = SyncProviderResolver(providers: [
+            second.compositeKey: CapableProvider(sourceIdentifier: second, marker: "second"),
+            other.compositeKey: CapableProvider(sourceIdentifier: other, marker: "other"),
+            first.compositeKey: CapableProvider(sourceIdentifier: first, marker: "first")
+        ])
+
+        let resolution = try resolver.requireCapabilityMatchingSourceScope(
+            sourceKey: "plex:account:server",
+            name: "test",
+            as: TestCapability.self
         )
-        XCTAssertNil(SyncCoordinator.uniqueSourceKey([
-            "plex:account:server:library",
-            MusicSourceIdentifier.appleMusic.compositeKey
-        ]))
-        XCTAssertNil(SyncCoordinator.uniqueSourceKey([]))
+
+        XCTAssertEqual(resolution.provider.sourceIdentifier, first)
+        XCTAssertEqual(resolution.capability.marker, "first")
+    }
+
+    func testScopedCapabilityDoesNotUseSiblingForMissingLibrary() {
+        let configured = MusicSourceIdentifier(type: .plex, accountId: "account", serverId: "server", libraryId: "1")
+        let resolver = SyncProviderResolver(providers: [
+            configured.compositeKey: CapableProvider(sourceIdentifier: configured, marker: "configured")
+        ])
+
+        XCTAssertThrowsError(
+            try resolver.requireCapabilityMatchingSourceScope(
+                sourceKey: "plex:account:server:missing",
+                name: "test",
+                as: TestCapability.self
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MusicSourceRoutingError,
+                .providerUnavailable(sourceKey: "plex:account:server:missing")
+            )
+        }
     }
 }
