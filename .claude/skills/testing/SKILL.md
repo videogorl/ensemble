@@ -108,7 +108,10 @@ Use `@testable import` for internal package behavior. Prefer protocol mocks for 
 - Feed last-good cache preservation.
 - Provider-neutral identity, capability, action, and mutation routing across colliding IDs and same-named media.
 - Cross-provider playlist grouping and source-specific mutability.
+- Metadata-only refresh publication when stable IDs gain artwork, dates, favorites, play counts, or other sortable fields; unknown optional values sort last with deterministic tie-breakers.
+- Merged artist and playlist ordering based on the aggregate values displayed by the merged row, in both sort directions.
 - Playback-engine queue affinity, removed-item disclosure, background continuity, and provider-matched autoplay.
+- Provider artwork lifecycle: catalog-search thumbnails remain transient and bounded, library artwork remains reusable at browse/detail sizes, and source removal clears only that source's durable assets.
 - Source removal cleanup for database rows, transient/durable artwork, provider state, and restored queue references.
 
 Check existing tests before adding new files so coverage stays focused instead of duplicated.

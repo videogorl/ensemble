@@ -15,7 +15,16 @@ Artifact root:
 - iPhone simulator:
 - iPad simulator:
 - macOS:
+- Physical device and OS:
+- Source commit and installed app version:
+- Enabled providers:
 - App account/data state:
+
+## Provider Evidence
+
+| Journey | Provider | Library/catalog scope | Playback engine | Audio proof | Remote result | Local result | Cache before/after |
+|---|---|---|---|---|---|---|---|
+| | | | | heard/system progress/log only | | | |
 
 ## Build Results
 
@@ -77,6 +86,7 @@ Artifact root:
 - [ ] Lyrics scroll/blur behavior where available
 - [ ] Aurora/accent propagation and restoration
 - [ ] StageFlow/landscape where available
+- [ ] Provider-aware source, browse/sort, search/cache, mutation, playback, and system-integration journeys where available
 
 ## iPad Checklist
 

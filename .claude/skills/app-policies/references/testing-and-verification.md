@@ -9,6 +9,7 @@ Load this reference when choosing verification for policy-changing work or chang
 - Performance-sensitive SwiftUI, playback, download, Feed launch/refresh, root chrome, and observation changes require targeted tests plus runtime or performance evidence.
 - Plex streaming or playback transport changes require live PMS endpoint checks with `.env` credentials before code changes and targeted playback verification afterward.
 - CoreData model changes require recompiling the SwiftPM model bundle and running persistence plus dependent package tests.
+- Multi-provider changes require provider-specific and merged-path proof. Verify metadata-only refreshes with stable IDs, sorting of unknown and merged aggregate values, provider-scoped artwork lifecycle, and remote-to-local mutation convergence; use a physical device for DRM playback or system-service contracts.
 - Skill or agent workflow changes require skill validation and static discoverability checks.
 - Automation launch surfaces and debug deep links must follow the same platform navigation path as user taps, including routing hidden iPhone tabs through More.
 - If verification is skipped, blocked, or narrowed, document the exact blocker and residual risk in the final handoff.
