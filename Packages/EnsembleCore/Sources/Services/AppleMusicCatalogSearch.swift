@@ -147,6 +147,12 @@ enum AppleMusicCatalogSearch {
             try await configuredRequest.response()
         }
         let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let artistIDsByName = Dictionary(
+            response.artists.map {
+                (DisplayPlaylist.normalizedTitle($0.name), String(describing: $0.id))
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         let tracks: [Track] = response.songs.map { song in
                 let albumArtwork = response.albums.first {
@@ -160,7 +166,8 @@ enum AppleMusicCatalogSearch {
                     artistName: song.artistName,
                     albumArtistName: song.artistName,
                     albumName: song.albumTitle,
-                    artistRatingKey: song.artistURL?.lastPathComponent,
+                    artistRatingKey: song.artistURL?.lastPathComponent
+                        ?? artistIDsByName[DisplayPlaylist.normalizedTitle(song.artistName)],
                     trackNumber: song.trackNumber ?? 0,
                     discNumber: song.discNumber ?? 1,
                     duration: song.duration ?? 0,
@@ -186,7 +193,8 @@ enum AppleMusicCatalogSearch {
                     title: album.title,
                     artistName: album.artistName,
                     albumArtist: album.artistName,
-                    artistRatingKey: album.artistURL?.lastPathComponent,
+                    artistRatingKey: album.artistURL?.lastPathComponent
+                        ?? artistIDsByName[DisplayPlaylist.normalizedTitle(album.artistName)],
                     year: album.releaseDate.map { Calendar.current.component(.year, from: $0) },
                     trackCount: album.trackCount,
                     thumbPath: album.artwork?.ensembleResolvableURL(),

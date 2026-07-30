@@ -699,7 +699,7 @@ public actor AppleMusicSourceProvider:
         while albums.hasNextBatch, let next = try await albums.nextBatch(limit: 100) {
             albums += next
         }
-        return albums.map(Self.domainAlbum)
+        return albums.map { Self.domainAlbum($0, artistID: artistKey) }
     }
 
     public func getArtistTracks(artistKey: String) async throws -> [Track] {
@@ -975,14 +975,14 @@ public actor AppleMusicSourceProvider:
         song.libraryAddedDate == nil ? catalogTrackKey(song) : libraryTrackKey(song)
     }
 
-    private static func domainAlbum(_ album: MusicKit.Album) -> Album {
+    private static func domainAlbum(_ album: MusicKit.Album, artistID: String? = nil) -> Album {
         Album(
             id: String(describing: album.id),
             key: "apple-catalog",
             title: album.title,
             artistName: album.artistName,
             albumArtist: album.artistName,
-            artistRatingKey: album.artistURL?.lastPathComponent,
+            artistRatingKey: artistID ?? album.artistURL?.lastPathComponent,
             year: album.releaseDate.map { Calendar.current.component(.year, from: $0) },
             trackCount: album.trackCount,
             thumbPath: album.artwork?.ensembleResolvableURL(),
