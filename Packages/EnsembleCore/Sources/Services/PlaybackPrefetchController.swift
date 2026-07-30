@@ -61,6 +61,10 @@ final class PlaybackPrefetchController {
         return max(0, duration - currentTime) <= leadTime
     }
 
+    static func shouldClearScheduleForAppleMusicBoundary(isSmartMixTransitionActive: Bool) -> Bool {
+        !isSmartMixTransitionActive
+    }
+
     static func shouldUseSmartMix(
         outgoingTrack: Track,
         incomingTrack: Track,

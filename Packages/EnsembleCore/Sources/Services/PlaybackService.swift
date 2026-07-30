@@ -4980,7 +4980,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         guard let track = prefetchSnapshot.track else { return }
         guard !track.isAppleMusic else {
-            engine.clearScheduledFiles()
+            if PlaybackPrefetchController.shouldClearScheduleForAppleMusicBoundary(
+                isSmartMixTransitionActive: engine.isSmartMixTransitionActive
+            ) {
+                engine.clearScheduledFiles()
+            }
             return
         }
         let trackIdentity = track.playbackIdentity

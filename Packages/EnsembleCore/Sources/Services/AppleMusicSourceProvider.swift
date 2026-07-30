@@ -59,14 +59,12 @@ public actor AppleMusicSourceProvider:
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
         try await syncLibraryAuthoritatively(
-            observedDeviceRevision: Self.currentDeviceLibraryRevision(),
             to: repository,
             progressHandler: progressHandler
         )
     }
 
     private func syncLibraryAuthoritatively(
-        observedDeviceRevision: Date?,
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
@@ -150,7 +148,7 @@ public actor AppleMusicSourceProvider:
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
         Self.recordAuthoritativeLibraryInventory(
-            observedDeviceRevision: observedDeviceRevision,
+            observedDeviceRevision: Self.currentDeviceLibraryRevision(),
             completedAt: Date()
         )
         progressHandler(1)
@@ -257,7 +255,6 @@ public actor AppleMusicSourceProvider:
                 "🎵 Apple Music authoritative library inventory required reason=\(reason.rawValue)"
             )
             return try await syncLibraryAuthoritatively(
-                observedDeviceRevision: observedDeviceRevision,
                 to: repository,
                 progressHandler: progressHandler
             )

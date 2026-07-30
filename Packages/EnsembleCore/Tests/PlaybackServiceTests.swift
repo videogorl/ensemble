@@ -1165,6 +1165,24 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testAppleMusicPlaybackEndPolicyStartsCrossProviderHandoffBeforeSuspension() {
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
+            playbackTime: 298.3,
+            duration: 298.9,
+            isFinalEntry: true
+        ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportEnd(
+            playbackTime: 298.4,
+            duration: 298.9,
+            isFinalEntry: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
+            playbackTime: 298.9,
+            duration: 298.9,
+            isFinalEntry: false
+        ))
+    }
+
     func testAppleMusicUnresolvedPruningPreservesDuplicateOutsideSubmittedSegment() {
         let first = QueueItem(id: "first", track: makeAppleTrack(id: "first"))
         let unresolved = QueueItem(id: "unresolved", track: makeAppleTrack(id: "duplicate"))

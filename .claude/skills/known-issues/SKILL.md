@@ -69,6 +69,12 @@ No unresolved critical issues are currently documented.
 - **Status:** iOS 26 continued-processing requests can be rejected, cancelled, or expired by the OS.
 - **Rule:** Treat background execution as an accelerator. Persistent queue state remains source of truth and must resume under normal foreground/background opportunities.
 
+### Apple Music To Ensemble-Engine Background Handoffs
+
+- **Area:** `AppleMusicPlaybackController`, `PlaybackService`, `PlaybackAudioSessionCoordinator`
+- **Status:** Contiguous Apple Music tracks continue in the background through `ApplicationMusicPlayer`. At an Apple Music-to-Plex boundary, Ensemble can advance and retain the queue, but iOS rejects activation of Ensemble's nonmixable audio session while the app is backgrounded with `AVAudioSession.ErrorCode.cannotInterruptOthers`; foreground handoff and resume work.
+- **Rule:** Keep Apple and Ensemble-engine audio isolated. Do not enable mixing, decode Apple Music audio, or loop retries indefinitely to disguise the platform restriction. Preserve the queued Plex item so the user can resume it after foregrounding.
+
 ### Offline Transcode Availability Varies By Server
 
 - **Area:** Offline downloads and Plex universal transcode endpoints.

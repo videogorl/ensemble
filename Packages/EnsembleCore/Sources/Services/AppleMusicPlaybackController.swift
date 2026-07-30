@@ -32,6 +32,16 @@ enum AppleMusicPlaybackResolutionPolicy {
     }
 }
 
+enum AppleMusicPlaybackEndPolicy {
+    static func shouldReportEnd(
+        playbackTime: TimeInterval,
+        duration: TimeInterval,
+        isFinalEntry: Bool
+    ) -> Bool {
+        isFinalEntry && duration > 0 && playbackTime >= duration - 0.5
+    }
+}
+
 enum AppleMusicStationStartSequence {
     static func startAfterSeed(
         on player: AppleMusicStationPlaybackStarting,
@@ -240,11 +250,13 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 self.onTimeChanged?(playbackTime, queueGeneration)
                 guard !self.hasReportedEnd,
                       let currentEntry = self.player.queue.currentEntry,
-                      currentEntry.id == self.player.queue.entries.last?.id,
                       case let .song(song)? = currentEntry.item,
                       let duration = song.duration,
-                      duration > 0,
-                      playbackTime >= duration - 0.05
+                      AppleMusicPlaybackEndPolicy.shouldReportEnd(
+                          playbackTime: playbackTime,
+                          duration: duration,
+                          isFinalEntry: currentEntry.id == self.player.queue.entries.last?.id
+                      )
                 else { return }
                 self.reportEnded()
             }
