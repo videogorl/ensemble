@@ -29,6 +29,7 @@ struct WatchRootView: View {
         .environmentObject(experience.playback)
         .environmentObject(remoteSession)
         .environment(\.watchOpenNowPlaying) {
+            selectNowPlayingSource()
             showsNowPlaying = true
         }
         .onAppear {
@@ -50,6 +51,15 @@ struct WatchRootView: View {
         .onReceive(remoteSession.$snapshot) { _ in
             presentRemoteNowPlayingIfNeeded()
         }
+        .onReceive(experience.$playbackTarget) { target in
+            if target == .local {
+                remoteSession.setSystemNowPlayingProxyEnabled(false)
+                experience.playback.setSystemRemoteCommandsEnabled(true)
+            } else {
+                experience.playback.setSystemRemoteCommandsEnabled(false)
+                remoteSession.setSystemNowPlayingProxyEnabled(true)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)) { _ in
             experience.cloudPreferencesDidChange()
         }
@@ -68,7 +78,17 @@ struct WatchRootView: View {
               remoteSession.snapshot?.playbackState == .playing else { return }
 
         hasHandledRemotePresentationForActivePhase = true
+        experience.playbackTarget = .remote
+        remoteSession.setSystemNowPlayingProxyEnabled(true)
         showsNowPlaying = true
+    }
+
+    private func selectNowPlayingSource() {
+        if !experience.playback.isPlaying,
+           remoteSession.snapshot?.currentTrack != nil {
+            experience.playbackTarget = .remote
+            remoteSession.setSystemNowPlayingProxyEnabled(true)
+        }
     }
 
     private var rootContent: some View {

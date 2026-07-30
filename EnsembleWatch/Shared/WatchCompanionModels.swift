@@ -24,6 +24,7 @@ struct WatchCompanionTrackSnapshot: Codable, Equatable {
     let title: String
     let artistName: String?
     let albumTitle: String?
+    let artworkData: Data?
 }
 
 struct WatchCompanionSessionSnapshot: Codable, Equatable {

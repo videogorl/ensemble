@@ -342,9 +342,7 @@ public final class WatchPlaybackController: ObservableObject {
         MainActor.assumeIsolated {
             tearDownPlaybackObservers()
             #if os(watchOS)
-            for (command, target) in remoteCommandTargets {
-                command.removeTarget(target)
-            }
+            removeRemoteCommands()
             #endif
         }
     }
@@ -453,6 +451,17 @@ public final class WatchPlaybackController: ObservableObject {
         errorMessage = nil
         status = .idle
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
+    /// Enables system transport handlers while Watch-local playback owns Now Playing.
+    public func setSystemRemoteCommandsEnabled(_ isEnabled: Bool) {
+        #if os(watchOS)
+        if isEnabled {
+            configureRemoteCommands()
+        } else {
+            removeRemoteCommands()
+        }
+        #endif
     }
 
     func updateQueue(index: Int?, count: Int) {
@@ -644,6 +653,7 @@ public final class WatchPlaybackController: ObservableObject {
 
     #if os(watchOS)
     private func configureRemoteCommands() {
+        guard remoteCommandTargets.isEmpty else { return }
         let commandCenter = MPRemoteCommandCenter.shared()
         commandCenter.stopCommand.isEnabled = false
 
@@ -653,6 +663,13 @@ public final class WatchPlaybackController: ObservableObject {
         addTarget(to: commandCenter.nextTrackCommand) { [weak self] in self?.playNextHandler?() }
         addTarget(to: commandCenter.previousTrackCommand) { [weak self] in self?.playPreviousHandler?() }
         updateRemoteCommandAvailability()
+    }
+
+    private func removeRemoteCommands() {
+        for (command, target) in remoteCommandTargets {
+            command.removeTarget(target)
+        }
+        remoteCommandTargets.removeAll()
     }
 
     private func updateRemoteCommandAvailability() {

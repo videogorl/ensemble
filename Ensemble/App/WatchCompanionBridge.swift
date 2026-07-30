@@ -2,6 +2,8 @@
 import Combine
 import EnsembleCore
 import Foundation
+import MediaPlayer
+import UIKit
 import WatchConnectivity
 
 @MainActor
@@ -14,6 +16,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var lastPublishedSnapshot: WatchCompanionSessionSnapshot?
     private var hasActivatedSession = false
+    private var cachedArtwork: (trackID: String, source: MPMediaItemArtwork, data: Data)?
 
     private override init() {
         super.init()
@@ -99,7 +102,8 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 id: $0.id,
                 title: $0.title,
                 artistName: $0.artistName,
-                albumTitle: $0.albumName
+                albumTitle: $0.albumName,
+                artworkData: currentArtworkData(for: $0.id, title: $0.title)
             )
         }
 
@@ -138,6 +142,24 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             repeatMode: WatchCompanionRepeatMode(rawValue: playbackService.repeatMode.rawValue) ?? .off,
             updatedAt: Date()
         )
+    }
+
+    private func currentArtworkData(for trackID: String, title: String) -> Data? {
+        guard let info = MPNowPlayingInfoCenter.default().nowPlayingInfo,
+              info[MPMediaItemPropertyTitle] as? String == title,
+              let artwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
+            return nil
+        }
+        if let cachedArtwork,
+           cachedArtwork.trackID == trackID,
+           cachedArtwork.source === artwork {
+            return cachedArtwork.data
+        }
+
+        let size = CGSize(width: 200, height: 200)
+        guard let data = artwork.image(at: size)?.jpegData(compressionQuality: 0.7) else { return nil }
+        cachedArtwork = (trackID, artwork, data)
+        return data
     }
 
     private func handle(_ command: WatchCompanionCommand) async -> WatchCompanionCommandResponse {

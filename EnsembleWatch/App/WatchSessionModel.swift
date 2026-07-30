@@ -1,5 +1,7 @@
 import Combine
 import Foundation
+import MediaPlayer
+import UIKit
 import WatchConnectivity
 
 @MainActor
@@ -11,6 +13,11 @@ final class WatchSessionModel: NSObject, ObservableObject {
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
+    #if targetEnvironment(simulator)
+    private var isSystemNowPlayingProxyEnabled = false
+    private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
+    private var systemArtwork: (data: Data, artwork: MPMediaItemArtwork)?
+    #endif
 
     override init() {
         super.init()
@@ -98,6 +105,23 @@ final class WatchSessionModel: NSObject, ObservableObject {
         }
     }
 
+    func setSystemNowPlayingProxyEnabled(_ isEnabled: Bool) {
+        #if targetEnvironment(simulator)
+        guard isEnabled != isSystemNowPlayingProxyEnabled else {
+            updateSystemNowPlayingProxy()
+            return
+        }
+
+        isSystemNowPlayingProxyEnabled = isEnabled
+        if isEnabled {
+            configureSystemRemoteCommands()
+            updateSystemNowPlayingProxy()
+        } else {
+            removeSystemRemoteCommands()
+        }
+        #endif
+    }
+
     private func handleReply(_ reply: [String: Any]) {
         isSendingCommand = false
         guard let responseData = reply[WatchCompanionPayloadKey.response] as? Data else { return }
@@ -106,6 +130,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
             let response = try decoder.decode(WatchCompanionCommandResponse.self, from: responseData)
             if let snapshot = response.snapshot {
                 self.snapshot = snapshot
+                updateSystemNowPlayingProxy()
             }
             if let errorMessage = response.errorMessage, !response.accepted {
                 statusMessage = errorMessage
@@ -120,6 +145,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
 
         do {
             snapshot = try decoder.decode(WatchCompanionSessionSnapshot.self, from: snapshotData)
+            updateSystemNowPlayingProxy()
             statusMessage = "Connected to iPhone"
         } catch {
             statusMessage = error.localizedDescription
@@ -130,6 +156,88 @@ final class WatchSessionModel: NSObject, ObservableObject {
         let totalSeconds = max(0, Int(time))
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
+
+    #if targetEnvironment(simulator)
+    private func configureSystemRemoteCommands() {
+        guard remoteCommandTargets.isEmpty else { return }
+        let commandCenter = MPRemoteCommandCenter.shared()
+        addSystemRemoteTarget(to: commandCenter.playCommand, kind: .togglePlayPause)
+        addSystemRemoteTarget(to: commandCenter.pauseCommand, kind: .togglePlayPause)
+        addSystemRemoteTarget(to: commandCenter.togglePlayPauseCommand, kind: .togglePlayPause)
+        addSystemRemoteTarget(to: commandCenter.nextTrackCommand, kind: .next)
+        addSystemRemoteTarget(to: commandCenter.previousTrackCommand, kind: .previous)
+    }
+
+    private func addSystemRemoteTarget(
+        to command: MPRemoteCommand,
+        kind: WatchCompanionCommandKind
+    ) {
+        let target = command.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard self?.isSystemNowPlayingProxyEnabled == true else { return }
+                self?.send(kind)
+            }
+            return .success
+        }
+        remoteCommandTargets.append((command, target))
+    }
+
+    private func removeSystemRemoteCommands() {
+        for (command, target) in remoteCommandTargets {
+            command.removeTarget(target)
+        }
+        remoteCommandTargets.removeAll()
+    }
+
+    private func updateSystemNowPlayingProxy() {
+        guard isSystemNowPlayingProxyEnabled else { return }
+        guard let snapshot, let track = snapshot.currentTrack else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            MPNowPlayingInfoCenter.default().playbackState = .stopped
+            return
+        }
+
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: track.title,
+            MPMediaItemPropertyPlaybackDuration: snapshot.duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: snapshot.currentTime,
+            MPNowPlayingInfoPropertyPlaybackRate: snapshot.playbackState == .playing ? 1.0 : 0.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+            MPNowPlayingInfoPropertyExternalContentIdentifier: track.id,
+            MPNowPlayingInfoPropertyPlaybackQueueIndex: snapshot.currentQueueIndex,
+            MPNowPlayingInfoPropertyPlaybackQueueCount: snapshot.queueCount
+        ]
+        if let artistName = track.artistName { info[MPMediaItemPropertyArtist] = artistName }
+        if let albumTitle = track.albumTitle { info[MPMediaItemPropertyAlbumTitle] = albumTitle }
+        if let artwork = systemArtwork(for: track.artworkData) {
+            info[MPMediaItemPropertyArtwork] = artwork
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        MPNowPlayingInfoCenter.default().playbackState = snapshot.playbackState == .playing ? .playing : .paused
+
+        let commandCenter = MPRemoteCommandCenter.shared()
+        commandCenter.playCommand.isEnabled = snapshot.playbackState != .playing
+        commandCenter.pauseCommand.isEnabled = snapshot.playbackState == .playing
+        commandCenter.togglePlayPauseCommand.isEnabled = true
+        commandCenter.nextTrackCommand.isEnabled = snapshot.currentQueueIndex < snapshot.queueCount - 1
+        commandCenter.previousTrackCommand.isEnabled = true
+    }
+
+    private func systemArtwork(for data: Data?) -> MPMediaItemArtwork? {
+        guard let data else {
+            systemArtwork = nil
+            return nil
+        }
+        if systemArtwork?.data == data { return systemArtwork?.artwork }
+        guard let image = UIImage(data: data) else { return nil }
+        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        systemArtwork = (data, artwork)
+        return artwork
+    }
+    #else
+    private func updateSystemNowPlayingProxy() {}
+    #endif
 }
 
 extension WatchSessionModel: WCSessionDelegate {
