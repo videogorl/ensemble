@@ -101,19 +101,6 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         )
     }
 
-    func testAppleMusicBoundaryDoesNotCancelActiveSmartMixTransition() {
-        XCTAssertFalse(
-            PlaybackPrefetchController.shouldClearScheduleForAppleMusicBoundary(
-                isSmartMixTransitionActive: true
-            )
-        )
-        XCTAssertTrue(
-            PlaybackPrefetchController.shouldClearScheduleForAppleMusicBoundary(
-                isSmartMixTransitionActive: false
-            )
-        )
-    }
-
     func testSmartMixSkipsConsecutiveTracksFromSameSourceAlbumWhenEnabled() {
         let outgoing = Track(id: "1", key: "/library/metadata/1", title: "One", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
         let incoming = Track(id: "2", key: "/library/metadata/2", title: "Two", albumRatingKey: "album-1", sourceCompositeKey: "source-a")

@@ -38,7 +38,7 @@ enum AppleMusicPlaybackEndPolicy {
         duration: TimeInterval,
         isFinalEntry: Bool
     ) -> Bool {
-        isFinalEntry && duration > 0 && playbackTime >= duration - 0.5
+        isFinalEntry && duration > 0 && playbackTime >= duration - 0.05
     }
 }
 

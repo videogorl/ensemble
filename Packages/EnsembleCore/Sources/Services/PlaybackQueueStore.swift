@@ -8,19 +8,23 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
     /// Whether the queue has been manually edited since it was last replaced.
     /// Older snapshots did not store this value, so they decode as unprotected.
     let hasUserQueueEdits: Bool
+    /// Tracks removed because they used a different playback engine than the active queue.
+    let incompatibleQueueItemCount: Int
 
     init(
         queue: [QueueItem],
         history: [QueueItem],
         currentIndex: Int,
         currentTime: TimeInterval,
-        hasUserQueueEdits: Bool = false
+        hasUserQueueEdits: Bool = false,
+        incompatibleQueueItemCount: Int = 0
     ) {
         self.queue = queue
         self.history = history
         self.currentIndex = currentIndex
         self.currentTime = currentTime
         self.hasUserQueueEdits = hasUserQueueEdits
+        self.incompatibleQueueItemCount = max(0, incompatibleQueueItemCount)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -29,6 +33,7 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         case currentIndex
         case currentTime
         case hasUserQueueEdits
+        case incompatibleQueueItemCount
     }
 
     init(from decoder: Decoder) throws {
@@ -38,6 +43,10 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         currentIndex = try container.decode(Int.self, forKey: .currentIndex)
         currentTime = try container.decode(TimeInterval.self, forKey: .currentTime)
         hasUserQueueEdits = try container.decodeIfPresent(Bool.self, forKey: .hasUserQueueEdits) ?? false
+        incompatibleQueueItemCount = max(
+            0,
+            try container.decodeIfPresent(Int.self, forKey: .incompatibleQueueItemCount) ?? 0
+        )
     }
 }
 
@@ -78,14 +87,16 @@ final class PlaybackQueueStore {
         history: [QueueItem],
         currentIndex: Int,
         currentTime: TimeInterval,
-        hasUserQueueEdits: Bool = false
+        hasUserQueueEdits: Bool = false,
+        incompatibleQueueItemCount: Int = 0
     ) {
         let snapshot = PlaybackQueueSnapshot(
             queue: queue,
             history: history,
             currentIndex: currentIndex,
             currentTime: currentTime,
-            hasUserQueueEdits: hasUserQueueEdits
+            hasUserQueueEdits: hasUserQueueEdits,
+            incompatibleQueueItemCount: incompatibleQueueItemCount
         )
         persistenceQueue.async {
             guard !snapshot.queue.isEmpty || !snapshot.history.isEmpty else {
@@ -215,7 +226,8 @@ private extension PlaybackQueueSnapshot {
             history: history,
             currentIndex: currentIndex,
             currentTime: currentTime,
-            hasUserQueueEdits: hasUserQueueEdits
+            hasUserQueueEdits: hasUserQueueEdits,
+            incompatibleQueueItemCount: incompatibleQueueItemCount
         )
     }
 }

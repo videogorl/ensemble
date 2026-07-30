@@ -938,6 +938,7 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(pruned.queue.map(\.id), ["plex"])
         XCTAssertEqual(pruned.currentIndex, 0)
         XCTAssertEqual(pruned.currentTime, 42)
+        XCTAssertEqual(pruned.incompatibleQueueItemCount, 0)
     }
 
     func testAppleRemovalPromotesFuturePlexItemAndResetsRemovedApplePlayhead() {
@@ -1165,14 +1166,14 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
-    func testAppleMusicPlaybackEndPolicyStartsCrossProviderHandoffBeforeSuspension() {
+    func testAppleMusicPlaybackEndPolicyReportsTheFinalEntryAtItsEnd() {
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
-            playbackTime: 298.3,
+            playbackTime: 298.84,
             duration: 298.9,
             isFinalEntry: true
         ))
         XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportEnd(
-            playbackTime: 298.4,
+            playbackTime: 298.86,
             duration: 298.9,
             isFinalEntry: true
         ))
@@ -1181,6 +1182,75 @@ final class PlaybackServiceTests: XCTestCase {
             duration: 298.9,
             isFinalEntry: false
         ))
+    }
+
+    func testQueueEngineAffinityKeepsTheSelectedAppleMusicEngine() {
+        let plexBefore = QueueItem(
+            id: "plex-before",
+            track: makePlexTrack(id: "plex-before")
+        )
+        let apple = QueueItem(id: "apple", track: makeAppleTrack(id: "apple"))
+        let plexAfter = QueueItem(
+            id: "plex-after",
+            track: makePlexTrack(id: "plex-after")
+        )
+        let appleAfter = QueueItem(id: "apple-after", track: makeAppleTrack(id: "apple-after"))
+
+        let result = PlaybackService.enforceQueueEngineAffinity(
+            queue: [plexBefore, apple, plexAfter, appleAfter],
+            currentIndex: 1
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["apple", "apple-after"])
+        XCTAssertEqual(result.currentIndex, 0)
+        XCTAssertEqual(result.removedItemCount, 2)
+        XCTAssertEqual(result.engine, .appleMusic)
+    }
+
+    func testQueueEngineAffinityKeepsTheSelectedEnsembleEngineAndIndex() {
+        let plexBefore = QueueItem(
+            id: "plex-before",
+            track: makePlexTrack(id: "plex-before")
+        )
+        let apple = QueueItem(id: "apple", track: makeAppleTrack(id: "apple"))
+        let plexSelected = QueueItem(
+            id: "plex-selected",
+            track: makePlexTrack(id: "plex-selected")
+        )
+
+        let result = PlaybackService.enforceQueueEngineAffinity(
+            queue: [plexBefore, apple, plexSelected],
+            currentIndex: 2
+        )
+
+        XCTAssertEqual(result.queue.map(\.id), ["plex-before", "plex-selected"])
+        XCTAssertEqual(result.currentIndex, 1)
+        XCTAssertEqual(result.removedItemCount, 1)
+        XCTAssertEqual(result.engine, .ensemble)
+    }
+
+    func testQueueActionAvailabilityRejectsOnlyFullyIncompatibleSelections() {
+        let plex = makePlexTrack(id: "plex")
+        let apple = makeAppleTrack(id: "apple")
+
+        XCTAssertFalse(
+            PlaybackService.queueActionAvailability(
+                for: [apple],
+                activeEngine: .ensemble
+            ).isAvailable
+        )
+        XCTAssertTrue(
+            PlaybackService.queueActionAvailability(
+                for: [apple, plex],
+                activeEngine: .ensemble
+            ).isAvailable
+        )
+        XCTAssertTrue(
+            PlaybackService.queueActionAvailability(
+                for: [apple],
+                activeEngine: nil
+            ).isAvailable
+        )
     }
 
     func testAppleMusicUnresolvedPruningPreservesDuplicateOutsideSubmittedSegment() {
@@ -1293,6 +1363,15 @@ final class PlaybackServiceTests: XCTestCase {
             key: "apple-catalog",
             title: id,
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+    }
+
+    private func makePlexTrack(id: String) -> Track {
+        Track(
+            id: id,
+            key: "/library/metadata/\(id)",
+            title: id,
+            sourceCompositeKey: "plex:account:server:library"
         )
     }
 

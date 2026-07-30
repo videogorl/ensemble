@@ -18,9 +18,9 @@ enum TrackActionPresentation {
     ) -> Bool {
         switch action {
         case .playNext:
-            return resolvedActions.onPlayNext != nil
+            return resolvedActions.onPlayNext != nil && resolvedActions.playNextAvailability.isAvailable
         case .playLast:
-            return resolvedActions.onPlayLast != nil
+            return resolvedActions.onPlayLast != nil && resolvedActions.playLastAvailability.isAvailable
         case .addToPlaylist:
             return resolvedActions.onAddToPlaylist != nil
         case .favoriteToggle:
@@ -159,6 +159,8 @@ private func nativeMediaTableMenuAvailability(
         canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
         canRemoveFromQueue: onRemoveFromQueue != nil,
         itemActions: [
+            .playNext: resolvedActions.playNextAvailability,
+            .playLast: resolvedActions.playLastAvailability,
             .favorite: resolvedActions.favoriteAvailability,
             .editMetadata: resolvedActions.editMetadataAvailability,
             .deleteTrack: resolvedActions.deleteAvailability

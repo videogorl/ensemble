@@ -1664,6 +1664,22 @@ final class EnsembleUITests: XCTestCase {
         )
     }
 
+    func testTrackActionPresentationDisablesQueueActionsForAnotherPlaybackEngine() {
+        let reason = "This item uses a different playback engine than the current queue."
+        let track = Track(id: "apple-song", key: "apple-song", title: "Song")
+        let resolved = TrackRowInteractionModel(
+            onPlayNext: { _ in },
+            onPlayLast: { _ in },
+            queueActionAvailability: { _ in .unavailable(reason: reason) }
+        )
+        .resolve(for: track)
+
+        XCTAssertFalse(TrackActionPresentation.isSupported(.playNext, resolvedActions: resolved))
+        XCTAssertFalse(TrackActionPresentation.isSupported(.playLast, resolvedActions: resolved))
+        XCTAssertEqual(resolved.playNextAvailability.reason, reason)
+        XCTAssertEqual(resolved.playLastAvailability.reason, reason)
+    }
+
     func testTrackActionPresentationDedupeKeysUseSourceScopedTrackIdentity() {
         let track = Track(
             id: "7551",

@@ -382,6 +382,13 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        playbackService.incompatibleQueueItemCountPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in
+                self?.queueProjection.updateIncompatibleQueueItemCount(count)
+            }
+            .store(in: &cancellables)
+
         playbackService.instrumentalModeActivePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isActive in
@@ -1422,6 +1429,14 @@ public final class NowPlayingViewModel: ObservableObject {
 
     public func playLast(_ tracks: [Track]) {
         playbackService.playLast(tracks)
+    }
+
+    public func queueActionAvailability(for track: Track) -> MusicItemActionAvailability {
+        playbackService.queueActionAvailability(for: [track])
+    }
+
+    public func queueActionAvailability(for tracks: [Track]) -> MusicItemActionAvailability {
+        playbackService.queueActionAvailability(for: tracks)
     }
 
     public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {

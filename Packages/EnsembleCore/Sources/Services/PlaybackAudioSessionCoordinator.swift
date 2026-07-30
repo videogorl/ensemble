@@ -130,12 +130,21 @@ final class PlaybackAudioSessionCoordinator {
         #if !os(macOS)
         let session = sessionProvider()
         if shouldStartPlayback {
-            return await Self.activateWithRetry(
-                activate: { try session.setActive(true) },
-                releaseSession: {
-                    try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            do {
+                try session.setActive(true)
+                return true
+            } catch {
+                EnsembleLogger.debug("⚠️ Audio session setActive failed; retrying once: \(error)")
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return false }
+                do {
+                    try session.setActive(true)
+                    return true
+                } catch {
+                    EnsembleLogger.debug("⚠️ Audio session setActive failed after retry: \(error)")
+                    return false
                 }
-            )
+            }
         } else {
             do {
                 try session.setActive(true)
@@ -148,40 +157,6 @@ final class PlaybackAudioSessionCoordinator {
         #else
         return true
         #endif
-    }
-
-    static func activateWithRetry(
-        attempts: Int = 8,
-        delayNanoseconds: UInt64 = 500_000_000,
-        activate: () throws -> Void,
-        releaseSession: () -> Void = {}
-    ) async -> Bool {
-        for attempt in 1 ... max(attempts, 1) {
-            do {
-                try activate()
-                return true
-            } catch {
-                let retryLimit = Self.isCannotInterruptOthers(error) ? attempts : min(attempts, 2)
-                guard attempt < retryLimit else {
-                    EnsembleLogger.debug("⚠️ Audio session setActive failed after \(attempt) attempts: \(error)")
-                    return false
-                }
-                if Self.isCannotInterruptOthers(error) {
-                    releaseSession()
-                }
-                EnsembleLogger.debug(
-                    "⚠️ Audio session setActive failed; retrying \(attempt)/\(retryLimit): \(error)"
-                )
-                try? await Task.sleep(nanoseconds: delayNanoseconds)
-                guard !Task.isCancelled else { return false }
-            }
-        }
-        return false
-    }
-
-    private static func isCannotInterruptOthers(_ error: Error) -> Bool {
-        let error = error as NSError
-        return error.domain == NSOSStatusErrorDomain && error.code == 560_557_684 // '!int'
     }
 
     func currentRouteDescription() -> String {

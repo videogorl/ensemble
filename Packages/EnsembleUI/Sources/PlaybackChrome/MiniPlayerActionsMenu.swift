@@ -90,6 +90,8 @@ struct MiniPlayerActionsMenuButton: View {
                 canEditPlaylist: false,
                 canRemoveFromQueue: false,
                 itemActions: [
+                    .playNext: viewModel.queueActionAvailability(for: track),
+                    .playLast: viewModel.queueActionAvailability(for: track),
                     .favorite: track.actionAvailability(
                         for: .favorite,
                         isFavorited: ratingProjection.isTrackFavorited(track)
