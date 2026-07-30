@@ -84,7 +84,7 @@ struct WatchRootView: View {
     }
 
     private func selectNowPlayingSource() {
-        if !experience.playback.isPlaying,
+        if experience.playback.currentTrack == nil,
            remoteSession.snapshot?.currentTrack != nil {
             experience.playbackTarget = .remote
             remoteSession.setSystemNowPlayingProxyEnabled(true)
