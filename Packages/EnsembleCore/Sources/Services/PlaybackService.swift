@@ -3995,7 +3995,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // MARK: - Autoplay Queue Management
 
     @discardableResult
-    private func removeDuplicateFutureAutoplayItemsIfNeeded(shouldInvalidateGaplessSchedule: Bool) -> Int {
+    private func removeDuplicateFutureAutoplayItemsIfNeeded(
+        shouldInvalidateGaplessSchedule: Bool
+    ) -> Set<String> {
         let queuePruneResult = PlaybackQueueController.pruneDuplicateFutureAutoplayItems(
             queue: queue,
             currentQueueIndex: currentQueueIndex
@@ -4006,7 +4008,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
 
         guard queuePruneResult.removedItemCount > 0 || originalQueuePruneResult.removedItemCount > 0 else {
-            return 0
+            return []
         }
 
         if queuePruneResult.removedItemCount > 0 {
@@ -4029,7 +4031,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             invalidateGaplessSchedule()
         }
 
-        return queuePruneResult.removedItemCount
+        return queuePruneResult.removedTrackIds
     }
 
     /// Checks if queue is running low and refreshes if needed
@@ -4942,9 +4944,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let prefetchSnapshot: (track: Track?, shouldClearSchedule: Bool, shouldDefer: Bool) = await MainActor.run { [weak self] in
             guard let self else { return (track: nil, shouldClearSchedule: false, shouldDefer: false) }
-            let removedDuplicates = self.removeDuplicateFutureAutoplayItemsIfNeeded(
+            let removedDuplicates = !self.removeDuplicateFutureAutoplayItemsIfNeeded(
                 shouldInvalidateGaplessSchedule: false
-            ) > 0
+            ).isEmpty
             let shouldInvalidateScheduledTracks = removedDuplicates && self.prefetchController.shouldInvalidateScheduledTracks(
                 scheduledTrackIDs: engine.scheduledTrackIdsInOrder,
                 queue: self.queue,
@@ -5724,7 +5726,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let futureStart = currentQueueIndex + 1
             if futureStart < queue.count { queue.removeSubrange(futureStart...) }
             queue.append(contentsOf: tracks.map { makeQueueItem(track: $0, source: .autoplay) })
-            autoplayTracks = tracks
+            let removedTrackIDs = removeDuplicateFutureAutoplayItemsIfNeeded(
+                shouldInvalidateGaplessSchedule: false
+            )
+            for trackID in removedTrackIDs {
+                guard let catalogID = tracks.first(where: {
+                    $0.playbackIdentity == trackID
+                })?.appleMusicCatalogID else { continue }
+                _ = appleMusicPlaybackController?.removeFirstUpcomingEntry(catalogID: catalogID)
+            }
+            autoplayTracks = queue.dropFirst(currentQueueIndex + 1).compactMap {
+                $0.source == .autoplay ? $0.track : nil
+            }
             savePlaybackState()
         }
 
