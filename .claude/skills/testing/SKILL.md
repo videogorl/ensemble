@@ -57,9 +57,10 @@ scripts/check_core_warning_budget.sh
 
 # Full app tests
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -sdk iphonesimulator \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
+
+Do not pass `-sdk iphonesimulator` when building the full app scheme. The scheme embeds a watchOS target, and a global SDK override can make Xcode link iOS Simulator Swift-package objects into the Watch app. The iPhone destination selects iOS while preserving `watchsimulator` for the embedded target.
 
 ## Simulator Verification
 

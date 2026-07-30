@@ -1,6 +1,106 @@
 import EnsemblePersistence
 import Foundation
 
+struct SourceProviderRevision: Equatable, Sendable {
+    let sourceConfiguration: UInt64
+    let providerRegistration: UInt64
+}
+
+struct ConfiguredSourceProvider: Sendable {
+    let provider: MusicSourceSyncProvider
+    let revision: SourceProviderRevision
+}
+
+struct SourcePersistenceLease: Hashable, Sendable {
+    let sourceKey: String
+    fileprivate let id: UUID
+}
+
+/// Opaque access to the shared source fence for persistence work that lives
+/// outside sync execution, such as detached durable artwork writes.
+struct SourcePersistenceWorkHandle: Sendable {
+    let leases: [SourcePersistenceLease]
+}
+
+/// Keeps source cleanup ordered after every provider write that was already in flight.
+/// A cleanup fence also rejects new work until its final purge completes.
+@MainActor
+final class SourcePersistenceFence {
+    private var activeLeaseIDs: [String: Set<UUID>] = [:]
+    private var cleanupDepth: [String: Int] = [:]
+    private var idleWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+    func begin(sourceKey: String) -> SourcePersistenceLease? {
+        let scopeKeys = persistenceScopeKeys(for: sourceKey)
+        guard scopeKeys.allSatisfy({ cleanupDepth[$0] == nil }) else { return nil }
+        let lease = SourcePersistenceLease(sourceKey: sourceKey, id: UUID())
+        for scopeKey in scopeKeys {
+            activeLeaseIDs[scopeKey, default: []].insert(lease.id)
+        }
+        return lease
+    }
+
+    func isCurrent(_ lease: SourcePersistenceLease) -> Bool {
+        persistenceScopeKeys(for: lease.sourceKey).allSatisfy {
+            cleanupDepth[$0] == nil && activeLeaseIDs[$0]?.contains(lease.id) == true
+        }
+    }
+
+    func finish(_ lease: SourcePersistenceLease) {
+        for scopeKey in persistenceScopeKeys(for: lease.sourceKey) {
+            activeLeaseIDs[scopeKey]?.remove(lease.id)
+            guard activeLeaseIDs[scopeKey]?.isEmpty != false else { continue }
+            activeLeaseIDs.removeValue(forKey: scopeKey)
+            let waiters = idleWaiters.removeValue(forKey: scopeKey) ?? []
+            waiters.forEach { $0.resume() }
+        }
+    }
+
+    func beginCleanup(sourceKey: String) async {
+        await beginCleanup(sourceKeys: [sourceKey])
+    }
+
+    func beginCleanup(sourceKeys: Set<String>) async {
+        let orderedKeys = sourceKeys.sorted()
+        for sourceKey in orderedKeys {
+            cleanupDepth[sourceKey, default: 0] += 1
+        }
+        for sourceKey in orderedKeys where activeLeaseIDs[sourceKey]?.isEmpty == false {
+            await withCheckedContinuation { continuation in
+                idleWaiters[sourceKey, default: []].append(continuation)
+            }
+        }
+    }
+
+    func finishCleanup(sourceKey: String) {
+        finishCleanup(sourceKeys: [sourceKey])
+    }
+
+    func finishCleanup(sourceKeys: Set<String>) {
+        for sourceKey in sourceKeys {
+            finishSingleCleanup(sourceKey: sourceKey)
+        }
+    }
+
+    private func finishSingleCleanup(sourceKey: String) {
+        guard let depth = cleanupDepth[sourceKey] else { return }
+        if depth > 1 {
+            cleanupDepth[sourceKey] = depth - 1
+        } else {
+            cleanupDepth.removeValue(forKey: sourceKey)
+        }
+    }
+
+    private func persistenceScopeKeys(for sourceKey: String) -> Set<String> {
+        guard let identity = MediaSourceIdentity.parse(sourceKey),
+              !identity.isServerScoped,
+              identity.sourceType.capabilities.playlistsAreServerScoped else {
+            return [sourceKey]
+        }
+        return [sourceKey, identity.serverSourceKey]
+    }
+}
+
 /// Owns full/incremental/startup sync execution while the facade keeps
 /// published state, health-check coordination, and transport-facing helpers.
 @MainActor
@@ -24,6 +124,7 @@ final class SyncExecutionController {
         let cachePlaylistArtwork: (MusicSourceIdentifier, MusicSourceSyncProvider) async -> Void
         let notifyPlaylistRefreshCompleted: (String) -> Void
         let connectionStateAfterSuccessfulSync: (MusicSourceIdentifier, ServerConnectionState) async -> ServerConnectionState
+        let markSourceSyncCompleted: (MusicSourceIdentifier) -> Void
         let publishContentChange: (MusicSourceIdentifier, LibrarySyncResult?, PlaylistSyncResult?, Date) -> Void
         let restoreStatusAfterCancellation: (MusicSourceIdentifier, MusicSourceStatus?, ServerConnectionState) -> Void
         let syncErrorMessage: (Error) -> String
@@ -36,6 +137,15 @@ final class SyncExecutionController {
         let lastHealthCheckCompletion: () -> Date?
         let updateSourceConnectionStates: () -> Void
         let setLastStartupSyncCompletion: (Date) -> Void
+        let providerRevision: (MusicSourceIdentifier) -> SourceProviderRevision?
+        let beginSourcePersistenceWork: (MusicSourceIdentifier, SourceProviderRevision) -> SourcePersistenceLease?
+        let isSourcePersistenceWorkCurrent: (MusicSourceIdentifier, SourceProviderRevision, SourcePersistenceLease) -> Bool
+        let finishSourcePersistenceWork: (SourcePersistenceLease) -> Void
+        let runSourceSync: (
+            MusicSourceIdentifier,
+            @escaping @MainActor () async -> MusicSourceSyncOutcome
+        ) async -> MusicSourceSyncOutcome
+        let publishPreflightFailure: (MusicSourceIdentifier, String) -> Void
     }
 
     private let dependencies: Dependencies
@@ -56,21 +166,27 @@ final class SyncExecutionController {
         var syncedServerKeys = Set<String>()
         for (_, provider) in providers {
             let source = provider.sourceIdentifier
-            let shouldSyncPlaylists = syncedServerKeys.insert("\(source.accountId):\(source.serverId)").inserted
-            await syncFullSource(
-                provider,
-                source: source,
-                shouldSyncPlaylists: shouldSyncPlaylists,
-                publishGlobalSyncState: false,
-                libraryProgressWeight: 0.7,
-                playlistProgressBase: 0.8,
-                playlistProgressWeight: 0.2,
-                cacheArtworkAfterLibrarySync: true
-            )
+            let shouldSyncPlaylists = syncedServerKeys.insert(serverSourceKey(for: source)).inserted
+            _ = await dependencies.runSourceSync(source) {
+                await self.syncFullSource(
+                    provider,
+                    source: source,
+                    shouldSyncPlaylists: shouldSyncPlaylists,
+                    publishGlobalSyncState: false,
+                    libraryProgressWeight: 0.7,
+                    playlistProgressBase: 0.8,
+                    playlistProgressWeight: 0.2,
+                    cacheArtworkAfterLibrarySync: true
+                )
+            }
         }
     }
 
-    func sync(source: MusicSourceIdentifier, providers: [String: MusicSourceSyncProvider]) async {
+    @discardableResult
+    func sync(
+        source: MusicSourceIdentifier,
+        providers: [String: MusicSourceSyncProvider]
+    ) async -> MusicSourceSyncOutcome {
         await syncSingleSource(source, providers: providers, publishGlobalSyncState: true)
     }
 
@@ -96,7 +212,7 @@ final class SyncExecutionController {
         }
 
         for source in uniqueSources {
-            await syncSingleSource(source, providers: providers, publishGlobalSyncState: false)
+            _ = await syncSingleSource(source, providers: providers, publishGlobalSyncState: false)
         }
     }
 
@@ -112,32 +228,36 @@ final class SyncExecutionController {
         var syncedServerKeys = Set<String>()
         for (_, provider) in providers {
             let source = provider.sourceIdentifier
+            let shouldSyncPlaylists = syncedServerKeys.insert(serverSourceKey(for: source)).inserted
             guard let lastSyncDate = await dependencies.loadLastSyncDate(source) else {
                 EnsembleLogger.debug("⚠️ No previous sync found for \(source.compositeKey), performing full sync")
-                await syncFullSource(
-                    provider,
-                    source: source,
-                    shouldSyncPlaylists: false,
-                    publishGlobalSyncState: false,
-                    libraryProgressWeight: 0.9,
-                    playlistProgressBase: 0.9,
-                    playlistProgressWeight: 0.1,
-                    cacheArtworkAfterLibrarySync: false
-                )
+                _ = await dependencies.runSourceSync(source) {
+                    await self.syncFullSource(
+                        provider,
+                        source: source,
+                        shouldSyncPlaylists: shouldSyncPlaylists,
+                        publishGlobalSyncState: false,
+                        libraryProgressWeight: 0.9,
+                        playlistProgressBase: 0.9,
+                        playlistProgressWeight: 0.1,
+                        cacheArtworkAfterLibrarySync: false
+                    )
+                }
                 continue
             }
 
-            let shouldSyncPlaylists = syncedServerKeys.insert("\(source.accountId):\(source.serverId)").inserted
-            await syncIncrementalSource(
-                provider,
-                source: source,
-                lastSyncDate: lastSyncDate,
-                shouldSyncPlaylists: shouldSyncPlaylists,
-                publishGlobalSyncState: false,
-                logTimings: false,
-                cacheArtworkAfterSync: false,
-                notifyPlaylistRefreshAfterSync: true
-            )
+            _ = await dependencies.runSourceSync(source) {
+                await self.syncIncrementalSource(
+                    provider,
+                    source: source,
+                    lastSyncDate: lastSyncDate,
+                    shouldSyncPlaylists: shouldSyncPlaylists,
+                    publishGlobalSyncState: false,
+                    logTimings: false,
+                    cacheArtworkAfterSync: false,
+                    notifyPlaylistRefreshAfterSync: true
+                )
+            }
         }
     }
 
@@ -152,16 +272,18 @@ final class SyncExecutionController {
             return
         }
 
-        await syncIncrementalSource(
-            provider,
-            source: source,
-            lastSyncDate: lastSyncDate,
-            shouldSyncPlaylists: true,
-            publishGlobalSyncState: false,
-            logTimings: true,
-            cacheArtworkAfterSync: true,
-            notifyPlaylistRefreshAfterSync: true
-        )
+        _ = await dependencies.runSourceSync(source) {
+            await self.syncIncrementalSource(
+                provider,
+                source: source,
+                lastSyncDate: lastSyncDate,
+                shouldSyncPlaylists: true,
+                publishGlobalSyncState: false,
+                logTimings: true,
+                cacheArtworkAfterSync: true,
+                notifyPlaylistRefreshAfterSync: true
+            )
+        }
     }
 
     func performStartupSync(providers: [String: MusicSourceSyncProvider]) async {
@@ -259,20 +381,28 @@ final class SyncExecutionController {
         _ source: MusicSourceIdentifier,
         providers: [String: MusicSourceSyncProvider],
         publishGlobalSyncState: Bool
-    ) async {
-        guard let provider = providers[source.compositeKey] else { return }
-        await syncFullSource(
-            provider,
-            source: source,
-            shouldSyncPlaylists: true,
-            publishGlobalSyncState: publishGlobalSyncState,
-            libraryProgressWeight: 0.8,
-            playlistProgressBase: 0.8,
-            playlistProgressWeight: 0.2,
-            cacheArtworkAfterLibrarySync: false
-        )
+    ) async -> MusicSourceSyncOutcome {
+        return await dependencies.runSourceSync(source) {
+            guard let provider = providers[source.compositeKey] else {
+                let message = "The music source is unavailable. Please try again."
+                EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
+                self.dependencies.publishPreflightFailure(source, message)
+                return .failure(message: message)
+            }
+            return await self.syncFullSource(
+                provider,
+                source: source,
+                shouldSyncPlaylists: true,
+                publishGlobalSyncState: publishGlobalSyncState,
+                libraryProgressWeight: 0.8,
+                playlistProgressBase: 0.8,
+                playlistProgressWeight: 0.2,
+                cacheArtworkAfterLibrarySync: false
+            )
+        }
     }
 
+    @discardableResult
     private func syncFullSource(
         _ provider: MusicSourceSyncProvider,
         source: MusicSourceIdentifier,
@@ -282,7 +412,12 @@ final class SyncExecutionController {
         playlistProgressBase: Double,
         playlistProgressWeight: Double,
         cacheArtworkAfterLibrarySync: Bool
-    ) async {
+    ) async -> MusicSourceSyncOutcome {
+        guard let sourceWork = beginSourcePersistenceWork(for: source) else {
+            return staleSourceOutcome(for: source, publishFailure: true)
+        }
+        defer { dependencies.finishSourcePersistenceWork(sourceWork.lease) }
+
         let shouldPublishGlobalSyncState = publishGlobalSyncState && !dependencies.isSyncing()
         if shouldPublishGlobalSyncState {
             dependencies.setIsSyncing(true)
@@ -295,26 +430,44 @@ final class SyncExecutionController {
 
         let currentConnectionState = dependencies.statusForSource(source)?.connectionState ?? .unknown
         let previousStatus = dependencies.statusForSource(source)
+        var libraryResult: LibrarySyncResult?
         dependencies.setStatus(
             source,
             MusicSourceStatus(syncStatus: .syncing(progress: 0), connectionState: currentConnectionState)
         )
 
         do {
-            let libraryResult = try await provider.syncLibrary(
+            libraryResult = try await provider.syncLibrary(
                 to: dependencies.libraryRepository,
                 progressHandler: { [dependencies] progress in
                     Task { @MainActor in
+                        guard dependencies.isSourcePersistenceWorkCurrent(
+                            source,
+                            sourceWork.revision,
+                            sourceWork.lease
+                        ) else { return }
                         dependencies.publishProgress(source, progress * libraryProgressWeight)
                     }
                 }
             )
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             await dependencies.processReparentedTracks()
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
             await dependencies.processArtworkInvalidations()
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             if cacheArtworkAfterLibrarySync {
                 await dependencies.cacheArtworkForSource(source, provider)
+                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                    return staleSourceOutcome(for: source)
+                }
             }
 
             let playlistResult = try await syncPlaylistsIfNeeded(
@@ -323,12 +476,22 @@ final class SyncExecutionController {
                 enabled: shouldSyncPlaylists,
                 incremental: false,
                 progressBase: playlistProgressBase,
-                progressWeight: playlistProgressWeight
+                progressWeight: playlistProgressWeight,
+                sourceWork: sourceWork
             )
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
             await dependencies.processArtworkInvalidations()
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             if cacheArtworkAfterLibrarySync, playlistResult != nil {
                 await dependencies.cachePlaylistArtwork(source, provider)
+                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                    return staleSourceOutcome(for: source)
+                }
             }
 
             let syncedAt = Date()
@@ -336,23 +499,49 @@ final class SyncExecutionController {
                 source,
                 currentConnectionState
             )
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
+            dependencies.markSourceSyncCompleted(source)
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
             )
             dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
             dependencies.postSiriRebuildRequest()
+            return .success
         } catch is CancellationError {
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
             dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
+            return .failure(message: "Sync was cancelled.")
         } catch {
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
+            let message = dependencies.syncErrorMessage(error)
+            EnsembleLogger.error("Sync failed for \(source.compositeKey): \(message)")
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(
-                    syncStatus: .error(dependencies.syncErrorMessage(error)),
+                    syncStatus: .error(message),
                     connectionState: dependencies.effectiveConnectionState(currentConnectionState)
                 )
             )
+            return .failure(message: message)
         }
+    }
+
+    private func publishCommittedLibraryChangesIfNeeded(
+        _ libraryResult: LibrarySyncResult?,
+        source: MusicSourceIdentifier
+    ) {
+        guard libraryResult?.hasMaterialChanges == true else { return }
+        dependencies.publishContentChange(source, libraryResult, nil, Date())
+        dependencies.postSiriRebuildRequest()
     }
 
     private func syncIncrementalSource(
@@ -364,7 +553,12 @@ final class SyncExecutionController {
         logTimings: Bool,
         cacheArtworkAfterSync: Bool,
         notifyPlaylistRefreshAfterSync: Bool
-    ) async {
+    ) async -> MusicSourceSyncOutcome {
+        guard let sourceWork = beginSourcePersistenceWork(for: source) else {
+            return staleSourceOutcome(for: source, publishFailure: true)
+        }
+        defer { dependencies.finishSourcePersistenceWork(sourceWork.lease) }
+
         let shouldPublishGlobalSyncState = publishGlobalSyncState && !dependencies.isSyncing()
         if shouldPublishGlobalSyncState {
             dependencies.setIsSyncing(true)
@@ -378,6 +572,7 @@ final class SyncExecutionController {
         let overallStart = CFAbsoluteTimeGetCurrent()
         let currentConnectionState = dependencies.statusForSource(source)?.connectionState ?? .unknown
         let previousStatus = dependencies.statusForSource(source)
+        var libraryResult: LibrarySyncResult?
         dependencies.setStatus(
             source,
             MusicSourceStatus(syncStatus: .syncing(progress: 0), connectionState: currentConnectionState)
@@ -385,18 +580,32 @@ final class SyncExecutionController {
 
         do {
             let timestamp = lastSyncDate.timeIntervalSince1970 - 5
-            let libraryResult = try await provider.syncLibraryIncremental(
+            libraryResult = try await provider.syncLibraryIncremental(
                 since: timestamp,
                 to: dependencies.libraryRepository,
                 progressHandler: { [dependencies] progress in
                     Task { @MainActor in
+                        guard dependencies.isSourcePersistenceWorkCurrent(
+                            source,
+                            sourceWork.revision,
+                            sourceWork.lease
+                        ) else { return }
                         dependencies.publishProgress(source, progress * 0.9)
                     }
                 }
             )
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             await dependencies.processReparentedTracks()
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
             await dependencies.processArtworkInvalidations()
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             let playlistPhaseStart = CFAbsoluteTimeGetCurrent()
             let playlistResult = try await syncPlaylistsIfNeeded(
@@ -405,8 +614,12 @@ final class SyncExecutionController {
                 enabled: shouldSyncPlaylists,
                 incremental: true,
                 progressBase: 0.9,
-                progressWeight: 0.1
+                progressWeight: 0.1,
+                sourceWork: sourceWork
             )
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             if logTimings, playlistResult != nil {
                 EnsembleLogger.debug(
@@ -415,11 +628,23 @@ final class SyncExecutionController {
             }
 
             await dependencies.processArtworkInvalidations()
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
 
             if cacheArtworkAfterSync {
                 await dependencies.cacheAlbumArtwork(source, provider)
+                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                    return staleSourceOutcome(for: source)
+                }
                 await dependencies.cacheArtistArtwork(source, provider)
+                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                    return staleSourceOutcome(for: source)
+                }
                 await dependencies.cachePlaylistArtwork(source, provider)
+                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                    return staleSourceOutcome(for: source)
+                }
             }
 
             if notifyPlaylistRefreshAfterSync, playlistResult != nil {
@@ -437,22 +662,38 @@ final class SyncExecutionController {
                 source,
                 currentConnectionState
             )
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
+            dependencies.markSourceSyncCompleted(source)
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
             )
             dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
             dependencies.postSiriRebuildRequest()
+            return .success
         } catch is CancellationError {
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
             dependencies.restoreStatusAfterCancellation(source, previousStatus, currentConnectionState)
+            return .failure(message: "Sync was cancelled.")
         } catch {
+            guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
+                return staleSourceOutcome(for: source)
+            }
+            publishCommittedLibraryChangesIfNeeded(libraryResult, source: source)
+            let message = dependencies.syncErrorMessage(error)
             dependencies.setStatus(
                 source,
                 MusicSourceStatus(
-                    syncStatus: .error(dependencies.syncErrorMessage(error)),
+                    syncStatus: .error(message),
                     connectionState: dependencies.effectiveConnectionState(currentConnectionState)
                 )
             )
+            return .failure(message: message)
         }
     }
 
@@ -462,7 +703,8 @@ final class SyncExecutionController {
         enabled: Bool,
         incremental: Bool,
         progressBase: Double,
-        progressWeight: Double
+        progressWeight: Double,
+        sourceWork: (revision: SourceProviderRevision, lease: SourcePersistenceLease)
     ) async throws -> PlaylistSyncResult? {
         guard enabled else { return nil }
 
@@ -472,6 +714,11 @@ final class SyncExecutionController {
                 forceOrphanCheck: false,
                 progressHandler: { [dependencies] progress in
                     Task { @MainActor in
+                        guard dependencies.isSourcePersistenceWorkCurrent(
+                            source,
+                            sourceWork.revision,
+                            sourceWork.lease
+                        ) else { return }
                         dependencies.publishProgress(source, progressBase + (progress * progressWeight))
                     }
                 }
@@ -482,10 +729,44 @@ final class SyncExecutionController {
             to: dependencies.playlistRepository,
             progressHandler: { [dependencies] progress in
                 Task { @MainActor in
+                    guard dependencies.isSourcePersistenceWorkCurrent(
+                        source,
+                        sourceWork.revision,
+                        sourceWork.lease
+                    ) else { return }
                     dependencies.publishProgress(source, progressBase + (progress * progressWeight))
                 }
             }
         )
+    }
+
+    private func beginSourcePersistenceWork(
+        for source: MusicSourceIdentifier
+    ) -> (revision: SourceProviderRevision, lease: SourcePersistenceLease)? {
+        guard let revision = dependencies.providerRevision(source),
+              let lease = dependencies.beginSourcePersistenceWork(source, revision) else {
+            return nil
+        }
+        return (revision, lease)
+    }
+
+    private func isSourcePersistenceWorkCurrent(
+        _ work: (revision: SourceProviderRevision, lease: SourcePersistenceLease),
+        for source: MusicSourceIdentifier
+    ) -> Bool {
+        dependencies.isSourcePersistenceWorkCurrent(source, work.revision, work.lease)
+    }
+
+    private func staleSourceOutcome(
+        for source: MusicSourceIdentifier,
+        publishFailure: Bool = false
+    ) -> MusicSourceSyncOutcome {
+        let message = "The music source changed while syncing. Please try again."
+        EnsembleLogger.debug("⏹️ Ignoring stale sync work for \(source.compositeKey)")
+        if publishFailure {
+            dependencies.publishPreflightFailure(source, message)
+        }
+        return .failure(message: message)
     }
 
     private func serverSourceKey(for source: MusicSourceIdentifier) -> String {

@@ -143,6 +143,7 @@ public final class NowPlayingQueueProjection: ObservableObject {
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var isSmartMixEnabled = false
     @Published public private(set) var recommendationsExhausted = false
+    @Published public private(set) var incompatibleQueueItemCount = 0
 
     public var currentQueueItem: QueueItem? {
         guard currentQueueIndex >= 0, currentQueueIndex < queue.count else { return nil }
@@ -187,6 +188,12 @@ public final class NowPlayingQueueProjection: ObservableObject {
     func updateRecommendationsExhausted(_ isExhausted: Bool) {
         guard recommendationsExhausted != isExhausted else { return }
         recommendationsExhausted = isExhausted
+    }
+
+    func updateIncompatibleQueueItemCount(_ count: Int) {
+        let count = max(0, count)
+        guard incompatibleQueueItemCount != count else { return }
+        incompatibleQueueItemCount = count
     }
 }
 
@@ -324,7 +331,10 @@ public final class NowPlayingRatingProjection: ObservableObject {
     private var displayRatingsByTrackIdentity: [String: Int] = [:]
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        (displayRatingsByTrackIdentity[track.sourceScopedID] ?? track.rating) >= 8
+        if let displayRating = displayRatingsByTrackIdentity[track.playbackIdentity] {
+            return displayRating >= 8
+        }
+        return track.isFavorite
     }
 
     func updateCurrentTrack(_ track: Track?, displayRating: Int?) {

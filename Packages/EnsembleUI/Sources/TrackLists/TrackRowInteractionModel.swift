@@ -20,6 +20,11 @@ public struct TrackRowInteractionModel {
         public let onDeleteTrack: (() -> Void)?
         public let isFavorited: Bool
         public let recentPlaylistTitle: String?
+        public let favoriteAvailability: MusicItemActionAvailability
+        public let playNextAvailability: MusicItemActionAvailability
+        public let playLastAvailability: MusicItemActionAvailability
+        public let editMetadataAvailability: MusicItemActionAvailability
+        public let deleteAvailability: MusicItemActionAvailability
 
         public var hasContextMenu: Bool {
             onPlayNext != nil ||
@@ -55,6 +60,7 @@ public struct TrackRowInteractionModel {
     public let onDeleteTrack: ((Track) -> Void)?
     public let isTrackFavorited: ((Track) -> Bool)?
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
+    public let queueActionAvailability: ((Track) -> MusicItemActionAvailability)?
     public let recentPlaylistTitle: String?
 
     public init(
@@ -74,6 +80,7 @@ public struct TrackRowInteractionModel {
         onDeleteTrack: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
+        queueActionAvailability: ((Track) -> MusicItemActionAvailability)? = nil,
         recentPlaylistTitle: String? = nil
     ) {
         self.onPlayNext = onPlayNext
@@ -92,11 +99,12 @@ public struct TrackRowInteractionModel {
         self.onDeleteTrack = onDeleteTrack
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
+        self.queueActionAvailability = queueActionAvailability
         self.recentPlaylistTitle = recentPlaylistTitle
     }
 
     public func isFavorited(_ track: Track) -> Bool {
-        isTrackFavorited?(track) ?? (track.rating >= 8)
+        isTrackFavorited?(track) ?? track.isFavorite
     }
 
     public func hasContextMenu(for track: Track) -> Bool {
@@ -137,11 +145,17 @@ public struct TrackRowInteractionModel {
                 onShareFile: nil,
                 onDeleteTrack: nil,
                 isFavorited: false,
-                recentPlaylistTitle: nil
+                recentPlaylistTitle: nil,
+                favoriteAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
+                playNextAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
+                playLastAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
+                editMetadataAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
+                deleteAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable.")
             )
         }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
-        let canToggleFavorite = track.sourceCapabilities.supportsFavoriteRemoval || !isFavorited(track)
+        let isFavorited = isFavorited(track)
+        let queueAvailability = queueActionAvailability?(track) ?? .available
 
         return ResolvedActions(
             onPlayNext: onPlayNext.map { callback in { callback(track) } },
@@ -149,17 +163,22 @@ public struct TrackRowInteractionModel {
             onAddToLibrary: track.canAddToSourceLibrary ? onAddToLibrary.map { callback in { callback(track) } } : nil,
             onAddToPlaylist: onAddToPlaylist.map { callback in { callback(track) } },
             onAddToRecentPlaylist: allowRecentPlaylist ? onAddToRecentPlaylist.map { callback in { callback(track) } } : nil,
-            onToggleFavorite: canToggleFavorite ? onToggleFavorite.map { callback in { callback(track) } } : nil,
+            onToggleFavorite: onToggleFavorite.map { callback in { callback(track) } },
             onGoToAlbum: onGoToAlbum.map { callback in { callback(track) } },
             onGoToArtist: onGoToArtist.map { callback in { callback(track) } },
             onGetInfo: onGetInfo.map { callback in { callback(track) } },
-            onEditMetadata: track.sourceCapabilities.supportsMetadataEditing ? onEditMetadata.map { callback in { callback(track) } } : nil,
+            onEditMetadata: onEditMetadata.map { callback in { callback(track) } },
             onShareEnsembleLink: onShareEnsembleLink.map { callback in { callback(track) } },
             onShareLink: onShareLink.map { callback in { callback(track) } },
             onShareFile: track.sourceCapabilities.supportsAudioFileSharing ? onShareFile.map { callback in { callback(track) } } : nil,
-            onDeleteTrack: track.sourceCapabilities.supportsTrackDeletion ? onDeleteTrack.map { callback in { callback(track) } } : nil,
-            isFavorited: isFavorited(track),
-            recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil
+            onDeleteTrack: onDeleteTrack.map { callback in { callback(track) } },
+            isFavorited: isFavorited,
+            recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil,
+            favoriteAvailability: track.actionAvailability(for: .favorite, isFavorited: isFavorited),
+            playNextAvailability: queueAvailability,
+            playLastAvailability: queueAvailability,
+            editMetadataAvailability: track.actionAvailability(for: .editMetadata),
+            deleteAvailability: track.actionAvailability(for: .delete)
         )
     }
 }
@@ -239,6 +258,9 @@ extension TrackRowInteractionModel {
             },
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM) != nil
+            },
+            queueActionAvailability: { track in
+                nowPlayingVM.queueActionAvailability(for: track)
             },
             recentPlaylistTitle: recentPlaylistTitle
         )

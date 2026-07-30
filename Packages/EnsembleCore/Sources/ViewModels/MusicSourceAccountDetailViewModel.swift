@@ -208,23 +208,24 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
             return
         }
 
-        if !nextEnabledState {
-            // Disabling a library purges only that library's cached data.
-            EnsembleLogger.info(
-                "[SourceReconciliation] Cleanup requested source=\(row.sourceIdentifier.compositeKey) reason=local-library-disabled"
-            )
-            await syncCoordinator.cleanupRemovedSource(row.sourceIdentifier)
+        syncCoordinator.refreshProviders()
 
-            // If this was the final enabled library for the server, purge server-level playlists.
-            if !hasEnabledLibraries(accountId: row.sourceIdentifier.accountId, serverId: row.sourceIdentifier.serverId) {
-                await syncCoordinator.cleanupServerPlaylists(
-                    accountId: row.sourceIdentifier.accountId,
-                    serverId: row.sourceIdentifier.serverId
-                )
-            }
+        // Disabling a library purges only that library's cached data.
+        EnsembleLogger.info(
+            "[SourceReconciliation] Cleanup requested source=\(row.sourceIdentifier.compositeKey) reason=local-library-disabled"
+        )
+        let cleanupSucceeded = await syncCoordinator.cleanupRemovedSource(row.sourceIdentifier)
+        if !cleanupSucceeded {
+            error = "The library was disabled, but its local data could not be fully cleared. Try enabling and disabling it again."
         }
 
-        syncCoordinator.refreshProviders()
+        // If this was the final enabled library for the server, purge server-level playlists.
+        if !hasEnabledLibraries(accountId: row.sourceIdentifier.accountId, serverId: row.sourceIdentifier.serverId) {
+            await syncCoordinator.cleanupServerPlaylists(
+                accountId: row.sourceIdentifier.accountId,
+                serverId: row.sourceIdentifier.serverId
+            )
+        }
     }
 
     /// Forces a full sync for all currently enabled libraries in this account.
@@ -279,22 +280,29 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         let serverIDs = account.servers.map(\.id)
 
         accountManager.removePlexAccount(id: account.id)
+        syncCoordinator.refreshProviders()
 
+        var cleanupSucceeded = true
         for source in accountSources {
             EnsembleLogger.info(
                 "[SourceReconciliation] Cleanup requested source=\(source.compositeKey) reason=account-removed"
             )
-            await syncCoordinator.cleanupRemovedSource(source)
+            let sourceCleanupSucceeded = await syncCoordinator.cleanupRemovedSource(source)
+            if !sourceCleanupSucceeded {
+                cleanupSucceeded = false
+            }
         }
 
         for serverID in serverIDs {
             await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverID)
         }
 
-        syncCoordinator.refreshProviders()
         isAccountMissing = true
         sections = []
-        return true
+        if !cleanupSucceeded {
+            error = "The account was removed, but some local data could not be fully cleared. Try removing cached library data from Storage."
+        }
+        return cleanupSucceeded
     }
 
     private func refreshAccountInventory() async {
@@ -464,7 +472,10 @@ public final class MusicSourceAccountDetailViewModel: ObservableObject {
         syncCoordinator.refreshProviders()
 
         for source in removedSources {
-            await syncCoordinator.cleanupRemovedSource(source)
+            let cleanupSucceeded = await syncCoordinator.cleanupRemovedSource(source)
+            if !cleanupSucceeded {
+                error = "A removed library could not be fully cleared from this device."
+            }
         }
 
         for server in serversNeedingPlaylistCleanup {

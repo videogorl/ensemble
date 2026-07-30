@@ -16,21 +16,18 @@ final class OfflineDownloadTargetProgressControllerTests: XCTestCase {
         func fetchPendingDownloads() async throws -> [CDDownload] { pendingDownloads }
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
         func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
-        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
+        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
-        func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { throw MockError.unimplemented }
-        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload { throw MockError.unimplemented }
+        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String, quality: String) async throws -> CDDownload { throw MockError.unimplemented }
         func batchCreateDownloads(references: [OfflineTrackReference], quality: String) async throws -> Int { 0 }
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {}
         func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws {}
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {}
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
+        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws {}
+        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
         func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}

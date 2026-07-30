@@ -159,7 +159,7 @@ try await deps.hubRepository.deleteAllHubs()
 
 Rules:
 - Feed refresh should use `HomeHubLoader` or `BackgroundRefreshCoordinator`, not a transient `HomeViewModel`.
-- Add provider Feed support by implementing `MusicSourceSyncProvider.getHomeHubs(limit:)`; return normalized ordering fields and let `HomeHubLoader` merge/persist them.
+- Add provider Feed support by implementing `MusicSourceSyncProvider.getHomeHubs(limit:)`; set `Hub.semanticKind` and `Hub.sourceScope` at the provider mapping boundary, return normalized ordering fields, and let `HomeHubLoader` merge/persist them.
 - Search consumes the combined cached snapshot and must not fetch or save provider hubs.
 - Do not save empty network hub results over the last-good snapshot.
 - Use `saveHubs(_:)`/`fetchHubs()` only for legacy compatibility; new Feed freshness work should use `HomeFeedCachedSnapshot`.
@@ -180,7 +180,11 @@ When adding support for new music sources (Apple Music, Spotify, etc.):
 2. Add source type to `MusicSourceType` enum
 3. Register provider in `SyncCoordinator.refreshProviders()`
 4. Add account configuration model similar to `PlexAccountConfig`
-5. Update `AccountManager` to handle new account type
+5. Update `AccountManager` to handle the new account type, include it in `enabledSources()` and `sourceConfigurationPublisher`, and observe that provider-neutral publisher from shared ViewModels instead of adding provider-specific subscriptions
+6. Opt into only the focused `MusicSource*` capability protocols the provider actually supports (playback, reporting, ratings, playlist mutation, details/file info, lyrics, or radio)
+7. Set the source-wide `MusicSourceCapabilities`, including whether delayed playlist mutations are safe through `supportsQueuedPlaylistMutations`
+8. Map provider API models into Ensemble domain values at the provider boundary; do not expose a provider client to shared ViewModels or UI
+9. Require source-scoped durable artwork identities. Do not read, write, or migrate unscoped artwork; `ArtworkDownloadManager` purges pre-v2 entries once when upgrading its cache.
 
 ## Updating Plex Source Selection (Account-Centric Flow)
 
@@ -263,7 +267,7 @@ Use `MediaFormatters` instead of local `ByteCountFormatter`, minute/second, or c
 
 ## Working with Playlist Mutations
 
-All playlist mutations go through `SyncCoordinator`, which handles the server call and then refreshes the local CoreData cache automatically.
+All playlist mutations enter through `SyncCoordinator`. It resolves the exact `MusicSourcePlaylistMutating` provider (or a same-provider/account/server match for a valid server-scoped playlist), then `PlaylistMutationController` applies shared validation and local reconciliation while the provider owns its remote API behavior.
 
 ## Adding Media Drag And Drop
 
@@ -292,12 +296,13 @@ try await syncCoordinator.renamePlaylist(playlistKey: "12345", newTitle: "New Na
 
 **Rules:**
 - Smart playlists are read-only. All mutations on smart playlists throw `PlaylistMutationError.smartPlaylistReadOnly`. Guard for this before showing mutation UI.
+- `MutationCoordinator` queues playlist work only when the source opts into `MusicSourceCapabilities.supportsQueuedPlaylistMutations`. Plex opts in; Apple Music remains online-only.
 - After a successful mutation, `SyncCoordinator` automatically refreshes the affected playlist from the server and updates CoreData.
 - Use `PlaylistActionSheets.swift` for standard add-to-playlist / create-playlist UI — it wires up these calls consistently across the app.
 - Use `PlaylistActionPresentationHost` plus `.playlistActionPresentation(request:nowPlayingVM:)` for view-owned "Add to Playlist…" sheets and recent-playlist quick actions. Do not add local `PlaylistPickerPayload` structs, duplicate `PlaylistPickerSheet` modifiers, or direct recent-playlist add logic in root/detail views.
 - Use `PlaylistMutationWorkflow` for playlist rename/delete UI, including merged playlist Rename All/Delete All. It returns pending/result toast payloads and mutation outcomes; views should only handle confirmations, local optimistic state, navigation dismissal, and pin/sidebar updates. Treat merged "all" operations strictly: partial rename is a warning and partial delete is an error.
 - Use `MetadataMutationWorkflow` for track, album, and artist metadata edit/delete UI. It builds mutation requests, calls the mutation service, and returns standardized toast payloads; views should only own local `ContextMenuMetadataEditorRequest` sheet state, confirmation dialogs, and post-delete navigation. Do not route context-menu metadata editors through root presenters or hide local navigation/search chrome around them.
-- Use `PlaylistActionService` or the `NowPlayingViewModel` compatibility wrappers before add-to-playlist mutations. They normalize library-scoped keys to server keys, reject known cross-server tracks, dedupe repeated tracks, and stamp unknown-source tracks with the selected server key for the mutation path.
+- Use `PlaylistActionService` or the `NowPlayingViewModel` compatibility wrappers before add-to-playlist mutations. They normalize library-scoped keys to server keys, reject cross-server or unknown-source tracks, and dedupe repeated tracks. A missing or malformed source key is rejected; never infer its owner from cache or configured sources.
 - Use `PlaylistDropResolver` for drag/drop playlist copy-add flows. It returns the resolved target playlist and compatible tracks; the view should only call `addTracksOptimistically(_:to:)` and map resolver errors to user feedback.
 
 ## Adding Offline Download Targets (Library / Album / Artist / Playlist)
@@ -368,7 +373,7 @@ Use this flow for Siri phrases like "play track/album/artist/playlist ... on Ens
    - `executePlayAlbum(request:)`
    - `executePlayArtist(request:)`
    - `executePlayPlaylist(request:)`
-6. Use repository precision-search APIs for Siri matching (`LibraryRepository`/`PlaylistRepository`), scoped to enabled source keys.
+6. Use repository precision-search APIs for Siri matching (`LibraryRepository`/`PlaylistRepository`), scoped to enabled source keys. Direct-ID lookup requires `sourceCompositeKey`; when it is absent, skip direct lookup and use enabled-source name/fuzzy matching without inferring an owner.
 7. Keep index fresh by posting `SiriMediaIndexNotifications.postRebuildRequest(...)` after sync/account configuration changes.
 8. Add App Intents fallback for album/playlist in app target (`EnsembleAppShortcutsProvider`) so phrase routing still reaches Ensemble when SiriKit media-domain handoff misses.
 9. After index availability checks/rebuilds at launch, call `EnsembleAppShortcutsProvider.updateAppShortcutParameters()` (iOS 16+) to refresh Siri shortcut parameter vocabulary.

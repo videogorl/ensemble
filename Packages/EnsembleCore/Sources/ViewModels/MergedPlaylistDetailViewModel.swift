@@ -3,7 +3,7 @@ import EnsemblePersistence
 import Foundation
 
 /// ViewModel for displaying a merged playlist — multiple same-named playlists from
-/// different servers shown as a single unified view with round-robin interleaved tracks.
+/// different sources shown as a single unified view with round-robin interleaved tracks.
 @MainActor
 public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
     @Published public private(set) var displayPlaylist: DisplayPlaylist
@@ -21,8 +21,8 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         didSet { updateDerivedTrackState() }
     }
 
-    /// Resolved server names for each constituent playlist source
-    @Published public private(set) var sourceServerNames: [(sourceKey: String, name: String)] = []
+    /// Resolved display names for each constituent playlist source.
+    @Published public private(set) var sourceNames: [(sourceKey: String, name: String)] = []
 
     private let playlistRepository: PlaylistRepositoryProtocol
     private let accountManager: AccountManager
@@ -30,6 +30,8 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
     private var shouldSkipNextLoadAfterLocalEdit = false
+    private var unavailablePlaylistIDs = Set<String>()
+    private var loadedTrackCountsByPlaylistID: [String: Int] = [:]
 
     public init(
         displayPlaylist: DisplayPlaylist,
@@ -47,7 +49,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         updateDerivedTrackState()
 
         setupFilterPersistence()
-        resolveServerNames()
+        resolveSourceNames()
         observeReloadTriggers()
         observePlaylistRefresh()
     }
@@ -59,11 +61,11 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         FilterPersistence.observe($filterOptions, key: "MergedPlaylistDetail-\(title)", storingIn: &cancellables)
     }
 
-    /// Resolves human-readable server names from each constituent playlist's sourceCompositeKey
-    private func resolveServerNames() {
-        sourceServerNames = displayPlaylist.playlists.compactMap { playlist in
+    /// Resolves each provider's human-readable source name.
+    private func resolveSourceNames() {
+        sourceNames = displayPlaylist.playlists.compactMap { playlist in
             guard let sourceKey = playlist.sourceCompositeKey else { return nil }
-            let name = accountManager.serverName(for: sourceKey) ?? "Unknown Server"
+            let name = accountManager.serverName(for: sourceKey) ?? "Unknown Source"
             return (sourceKey: sourceKey, name: name)
         }
     }
@@ -112,8 +114,9 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             return try await loadConstituentTrackSetsOneByOne()
         }
 
-        let playlistsByKey = try await playlistRepository.fetchPlaylists(forReferences: references)
+        let playlistsByKey = try await playlistRepository.fetchPlaylistBodies(forReferences: references)
         var unavailablePlaylistIDs = Set<String>()
+        var loadedTrackCountsByPlaylistID: [String: Int] = [:]
         let trackSets: [[Track]] = displayPlaylist.playlists.map { playlist -> [Track] in
             guard let sourceCompositeKey = playlist.sourceCompositeKey else { return [] }
             let key = SourceScopedArtworkReference(
@@ -128,11 +131,14 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             }
 
             let tracks = cachedPlaylist.tracksArray.map { Track(from: $0) }
+            loadedTrackCountsByPlaylistID[playlist.sourceScopedID] = tracks.count
             if cachedPlaylist.hasUnavailableTracks {
                 unavailablePlaylistIDs.insert(playlist.sourceScopedID)
             }
             return tracks
         }
+        self.unavailablePlaylistIDs = unavailablePlaylistIDs
+        self.loadedTrackCountsByPlaylistID = loadedTrackCountsByPlaylistID
         hasUnavailableTracks = !unavailablePlaylistIDs.isEmpty
         return trackSets
     }
@@ -140,6 +146,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private func loadConstituentTrackSetsOneByOne() async throws -> [[Track]] {
         var trackSets: [[Track]] = []
         var unavailablePlaylistIDs = Set<String>()
+        var loadedTrackCountsByPlaylistID: [String: Int] = [:]
         trackSets.reserveCapacity(displayPlaylist.playlists.count)
         for playlist in displayPlaylist.playlists {
             if let cached = try await playlistRepository.fetchPlaylist(
@@ -147,6 +154,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
                 sourceCompositeKey: playlist.sourceCompositeKey
             ) {
                 let tracks = cached.tracksArray.map { Track(from: $0) }
+                loadedTrackCountsByPlaylistID[playlist.sourceScopedID] = tracks.count
                 if cached.hasUnavailableTracks {
                     unavailablePlaylistIDs.insert(playlist.sourceScopedID)
                 }
@@ -158,8 +166,22 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
                 trackSets.append([])
             }
         }
+        self.unavailablePlaylistIDs = unavailablePlaylistIDs
+        self.loadedTrackCountsByPlaylistID = loadedTrackCountsByPlaylistID
         hasUnavailableTracks = !unavailablePlaylistIDs.isEmpty
         return trackSets
+    }
+
+    public func editAvailability(for playlist: Playlist) -> MusicItemActionAvailability {
+        let availability = playlist.actionAvailability(for: .reorder)
+        guard availability.isAvailable else { return availability }
+        guard !unavailablePlaylistIDs.contains(playlist.sourceScopedID) else {
+            return .unavailable(reason: "Playlist contents are not available to edit.")
+        }
+        guard loadedTrackCountsByPlaylistID[playlist.sourceScopedID, default: 0] > 0 else {
+            return .unavailable(reason: "Playlist has no songs to edit.")
+        }
+        return .available
     }
 
     /// Sync all constituent playlists then reload
@@ -197,7 +219,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
             error = PlaylistMutationError.smartPlaylistReadOnly.localizedDescription
             return false
         }
-        guard !hasUnavailableTracks else {
+        guard !unavailablePlaylistIDs.contains(targetPlaylist.sourceScopedID) else {
             error = PlaylistMutationError.incompletePlaylistContents.localizedDescription
             return false
         }
@@ -312,10 +334,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     }
 
     private func mutationSourceKey(_ sourceKey: String?) -> String? {
-        if MusicSourceIdentifier(compositeKey: sourceKey ?? "")?.type == .appleMusic {
-            return MusicSourceIdentifier.appleMusic.compositeKey
-        }
-        return MediaSourceIdentity.serverSourceKey(from: sourceKey)
+        MediaSourceIdentity.playlistScopeKey(from: sourceKey)
     }
 
     private func trackPassesCurrentFilters(_ track: Track) -> Bool {
@@ -325,6 +344,6 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)
     public func updateDisplayPlaylist(_ dp: DisplayPlaylist) {
         displayPlaylist = dp
-        resolveServerNames()
+        resolveSourceNames()
     }
 }

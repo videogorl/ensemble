@@ -1,5 +1,4 @@
 import Combine
-import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
@@ -396,12 +395,46 @@ public final class LyricsService: ObservableObject {
     }
 
     private struct LyricsStreamSignature: Codable, Equatable, Sendable {
-        let streamID: Int
+        let streamID: String
         let provider: String?
         let codec: String?
         let format: String?
         let file: String?
         let trackDateModified: TimeInterval?
+
+        private enum CodingKeys: String, CodingKey {
+            case streamID, provider, codec, format, file, trackDateModified
+        }
+
+        init(
+            streamID: String,
+            provider: String?,
+            codec: String?,
+            format: String?,
+            file: String?,
+            trackDateModified: TimeInterval?
+        ) {
+            self.streamID = streamID
+            self.provider = provider
+            self.codec = codec
+            self.format = format
+            self.file = file
+            self.trackDateModified = trackDateModified
+        }
+
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            if let stringID = try? values.decode(String.self, forKey: .streamID) {
+                streamID = stringID
+            } else {
+                streamID = String(try values.decode(Int.self, forKey: .streamID))
+            }
+            provider = try values.decodeIfPresent(String.self, forKey: .provider)
+            codec = try values.decodeIfPresent(String.self, forKey: .codec)
+            format = try values.decodeIfPresent(String.self, forKey: .format)
+            file = try values.decodeIfPresent(String.self, forKey: .file)
+            trackDateModified = try values.decodeIfPresent(TimeInterval.self, forKey: .trackDateModified)
+        }
     }
 
     private struct PersistentLyricsCacheEntry: Codable, Sendable {
@@ -537,33 +570,36 @@ public final class LyricsService: ObservableObject {
             )
         }
 
-        // 2. Fetch track metadata to discover lyrics streams
-        guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else {
-            EnsembleLogger.debug("Lyrics: no API client for source \(track.sourceCompositeKey ?? "nil")")
+        // 2. Fetch normalized track metadata to discover lyrics assets.
+        guard let sourceKey = track.sourceCompositeKey,
+              let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey) else {
+            EnsembleLogger.debug("Lyrics: source has no lyrics provider \(track.sourceCompositeKey ?? "nil")")
+            return LyricsBundle(normalState: .notAvailable, normalSource: .noApiClient, chordState: .notAvailable, chordSource: .noApiClient)
+        }
+        defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
+        guard let provider = syncCoordinator.lyricsProvider(for: sourceKey) else {
             return LyricsBundle(normalState: .notAvailable, normalSource: .noApiClient, chordState: .notAvailable, chordSource: .noApiClient)
         }
 
         do {
-            // Fetch full track metadata (includes Stream objects)
-            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else {
-                EnsembleLogger.debug("Lyrics: getTrack returned nil for \(track.id)")
+            guard let metadata = try await provider.getLyricsMetadata(trackID: track.id) else {
+                EnsembleLogger.debug("Lyrics: metadata fetch returned nil for \(track.id)")
                 return LyricsBundle(normalState: .notAvailable, normalSource: .trackMetadataFailed, chordState: .notAvailable, chordSource: .trackMetadataFailed)
             }
 
-            let streamCount = plexTrack.media?.first?.part?.first?.stream?.count ?? 0
-            let lyricsStreams = plexTrack.media?.first?.part?.first?.stream?.filter { $0.streamType == 4 } ?? []
-            EnsembleLogger.debug("Lyrics: track has \(streamCount) streams, \(lyricsStreams.count) lyrics streams")
-            for ls in lyricsStreams {
-                EnsembleLogger.debug("Lyrics:   stream id=\(ls.id) codec=\(ls.codec ?? "nil") timed=\(ls.timed.map(String.init) ?? "nil") key=\(ls.key ?? "nil") provider=\(ls.provider ?? "nil") file=\(ls.file ?? "nil")")
+            let allAssets = metadata.normalAssets + metadata.chordCandidateAssets
+            EnsembleLogger.debug("Lyrics: source returned \(allAssets.count) lyrics assets")
+            for asset in allAssets {
+                EnsembleLogger.debug("Lyrics:   asset id=\(asset.id) codec=\(asset.codec ?? "nil") timed=\(asset.isTimed) provider=\(asset.provider ?? "nil") file=\(asset.file ?? "nil")")
             }
 
-            guard !plexTrack.lyricsStreams.isEmpty else {
-                EnsembleLogger.debug("Lyrics: no lyrics stream found on track metadata")
+            guard !allAssets.isEmpty else {
+                EnsembleLogger.debug("Lyrics: no lyrics asset found in track metadata")
                 return LyricsBundle(normalState: .notAvailable, normalSource: .noLyricsStream, chordState: .notAvailable, chordSource: .noLyricsStream)
             }
 
-            let normal = await fetchNormalLyrics(track: track, streams: plexTrack.normalLyricsStreams, apiClient: apiClient)
-            let chords = await fetchChordLyrics(track: track, streams: plexTrack.chordCandidateStreams, apiClient: apiClient)
+            let normal = await fetchNormalLyrics(track: track, assets: metadata.normalAssets, provider: provider)
+            let chords = await fetchChordLyrics(track: track, assets: metadata.chordCandidateAssets, provider: provider)
             return LyricsBundle(normalState: normal.0, normalSource: normal.1, chordState: chords.0, chordSource: chords.1)
         } catch {
             if Task.isCancelled {
@@ -576,25 +612,23 @@ public final class LyricsService: ObservableObject {
 
     private func fetchNormalLyrics(
         track: Track,
-        streams: [PlexStream],
-        apiClient: PlexAPIClient
+        assets: [MusicSourceLyricsAsset],
+        provider: MusicSourceLyricsProviding
     ) async -> (LyricsState, LyricsSource) {
-        guard !streams.isEmpty else {
+        guard !assets.isEmpty else {
             return (.notAvailable, .noLyricsStream)
         }
 
         var lastUnavailableSource: LyricsSource = .noLyricsStream
 
-        for stream in streams {
-            guard let streamKey = stream.key else { continue }
-
-            let signature = Self.streamSignature(for: track, stream: stream)
-            let key = Self.cacheKey(for: track, stream: stream, mode: .lyrics)
+        for asset in assets {
+            let signature = Self.streamSignature(for: track, asset: asset)
+            let key = Self.cacheKey(for: track, asset: asset, mode: .lyrics)
             if let cached = loadCachedState(key: key) {
                 return (cached, .memoryCache)
             }
             if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .lyrics),
-               let parsed = Self.parseContent(cachedContent, codec: stream.codec) {
+               let parsed = Self.parseContent(cachedContent, codec: asset.codec) {
                 let state = LyricsState.available(parsed)
                 setCached(state, forKey: key)
                 EnsembleLogger.debug("Lyrics: loaded normal lyrics from persistent cache (\(parsed.lines.count) lines)")
@@ -602,20 +636,18 @@ public final class LyricsService: ObservableObject {
             }
 
             do {
-                let content = stream.isLocalMediaLyricsStream
-                    ? try await apiClient.getRawLyricsContent(streamKey: streamKey)
-                    : try await apiClient.getLyricsContent(streamKey: streamKey)
+                let content = try await provider.getLyricsContent(asset: asset, raw: asset.isLocalMedia)
                 guard let content else {
                     lastUnavailableSource = .contentFetchFailed
                     continue
                 }
                 guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
-                if stream.isLocalMediaLyricsStream,
+                if asset.isLocalMedia,
                    Self.parseChordContent(content)?.containsChords == true {
                     lastUnavailableSource = .parseFailed
                     continue
                 }
-                guard let parsed = Self.parseContent(content, codec: stream.codec), !parsed.lines.isEmpty else {
+                guard let parsed = Self.parseContent(content, codec: asset.codec), !parsed.lines.isEmpty else {
                     lastUnavailableSource = .parseFailed
                     continue
                 }
@@ -635,20 +667,19 @@ public final class LyricsService: ObservableObject {
 
     private func fetchChordLyrics(
         track: Track,
-        streams: [PlexStream],
-        apiClient: PlexAPIClient
+        assets: [MusicSourceLyricsAsset],
+        provider: MusicSourceLyricsProviding
     ) async -> (LyricsState, LyricsSource) {
-        guard !streams.isEmpty else {
+        guard !assets.isEmpty else {
             return (.notAvailable, .noLyricsStream)
         }
 
-        for stream in streams {
-            guard let streamKey = stream.key else { continue }
-            let signature = Self.streamSignature(for: track, stream: stream)
-            let key = Self.cacheKey(for: track, stream: stream, mode: .chords)
+        for asset in assets {
+            let signature = Self.streamSignature(for: track, asset: asset)
+            let key = Self.cacheKey(for: track, asset: asset, mode: .chords)
 
             do {
-                guard let content = try await apiClient.getRawLyricsContent(streamKey: streamKey) else {
+                guard let content = try await provider.getLyricsContent(asset: asset, raw: true) else {
                     if let cached = cachedChordState(forKey: key, signature: signature) {
                         return cached
                     }
@@ -656,7 +687,7 @@ public final class LyricsService: ObservableObject {
                 }
                 guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
                 guard let parsed = Self.parseChordContent(content), parsed.containsChords else {
-                    EnsembleLogger.debug("Lyrics: fetched chord stream \(stream.id) but content did not parse as chords")
+                    EnsembleLogger.debug("Lyrics: fetched chord asset \(asset.id) but content did not parse as chords")
                     continue
                 }
                 let state = LyricsState.available(parsed)
@@ -716,47 +747,43 @@ public final class LyricsService: ObservableObject {
     /// Fetch and cache lyrics for a track that was just downloaded.
     /// Called fire-and-forget after audio download completion so lyrics
     /// are available immediately when the user plays the track offline.
-    public nonisolated func fetchAndCacheLyrics(
+    public func fetchAndCacheLyrics(
         trackRatingKey: String,
         sourceCompositeKey: String?
     ) async {
-        guard let sourceCompositeKey else { return }
-
-        // Get the API client for this source
-        let apiClient: PlexAPIClient? = await MainActor.run {
-            syncCoordinator.apiClient(for: sourceCompositeKey)
+        guard let sourceCompositeKey,
+              let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceCompositeKey) else {
+            return
         }
-        guard let apiClient else { return }
+        defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
+        guard let provider = syncCoordinator.lyricsProvider(for: sourceCompositeKey) else { return }
 
         do {
-            // Fetch track metadata to find lyrics stream
-            guard let plexTrack = try await apiClient.getTrack(trackKey: trackRatingKey) else { return }
+            guard let metadata = try await provider.getLyricsMetadata(trackID: trackRatingKey) else { return }
             let track = Track(
                 id: trackRatingKey,
                 key: "/library/metadata/\(trackRatingKey)",
-                title: plexTrack.title,
-                dateModified: plexTrack.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                title: metadata.title,
+                dateModified: metadata.dateModified,
                 sourceCompositeKey: sourceCompositeKey
             )
 
-            if let lyricsStream = plexTrack.lyricsStream,
-               let streamKey = lyricsStream.key,
-               let content = try await apiClient.getLyricsContent(streamKey: streamKey),
-               Self.parseContent(content, codec: lyricsStream.codec) != nil {
-                let signature = Self.streamSignature(for: track, stream: lyricsStream)
-                let key = Self.cacheKey(for: track, stream: lyricsStream, mode: .lyrics)
+            if let asset = metadata.normalAssets.first,
+               let content = try await provider.getLyricsContent(asset: asset, raw: asset.isLocalMedia),
+               Self.parseContent(content, codec: asset.codec) != nil {
+                let signature = Self.streamSignature(for: track, asset: asset)
+                let key = Self.cacheKey(for: track, asset: asset, mode: .lyrics)
                 saveToPersistentCache(content, key: key, signature: signature)
             }
 
-            for chordStream in plexTrack.chordCandidateStreams {
-                guard let streamKey = chordStream.key,
-                      let content = try await apiClient.getRawLyricsContent(streamKey: streamKey),
+            for asset in metadata.chordCandidateAssets {
+                guard let content = try await provider.getLyricsContent(asset: asset, raw: true),
                       let parsed = Self.parseChordContent(content),
                       parsed.containsChords else {
                     continue
                 }
-                let signature = Self.streamSignature(for: track, stream: chordStream)
-                let key = Self.cacheKey(for: track, stream: chordStream, mode: .chords)
+                let signature = Self.streamSignature(for: track, asset: asset)
+                let key = Self.cacheKey(for: track, asset: asset, mode: .chords)
                 saveToPersistentCache(content, key: key, signature: signature)
                 break
             }
@@ -909,25 +936,32 @@ public final class LyricsService: ObservableObject {
 
     // MARK: - In-Memory Cache Management
 
-    private nonisolated static func cacheKey(for track: Track, stream: PlexStream, mode: LyricsMode) -> String {
+    private nonisolated static func cacheKey(
+        for track: Track,
+        asset: MusicSourceLyricsAsset,
+        mode: LyricsMode
+    ) -> String {
         [
             track.id,
             track.sourceCompositeKey ?? "local",
             mode.rawValue,
-            String(stream.id),
-            stream.provider ?? "unknown",
-            stream.codec ?? "unknown",
-            stream.format ?? "unknown"
+            asset.id,
+            asset.provider ?? "unknown",
+            asset.codec ?? "unknown",
+            asset.format ?? "unknown"
         ].joined(separator: ":")
     }
 
-    private nonisolated static func streamSignature(for track: Track, stream: PlexStream) -> LyricsStreamSignature {
+    private nonisolated static func streamSignature(
+        for track: Track,
+        asset: MusicSourceLyricsAsset
+    ) -> LyricsStreamSignature {
         LyricsStreamSignature(
-            streamID: stream.id,
-            provider: stream.provider,
-            codec: stream.codec,
-            format: stream.format,
-            file: stream.file,
+            streamID: asset.id,
+            provider: asset.provider,
+            codec: asset.codec,
+            format: asset.format,
+            file: asset.file,
             trackDateModified: track.dateModified?.timeIntervalSince1970
         )
     }

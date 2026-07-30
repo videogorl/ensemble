@@ -28,7 +28,8 @@ final class WebSocketSyncController {
 
         return providers.compactMap { compositeKey, provider in
             let sourceId = provider.sourceIdentifier
-            guard sourceId.serverId == serverId,
+            guard sourceId.type == .plex,
+                  sourceId.serverId == serverId,
                   sourceId.libraryId == sectionKey,
                   knownSources.contains(sourceId) else { return nil }
             return SectionResolution(sourceId: sourceId, compositeKey: compositeKey)

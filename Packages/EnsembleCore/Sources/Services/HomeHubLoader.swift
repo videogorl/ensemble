@@ -66,6 +66,15 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         let sourceName: String
     }
 
+    private struct ProviderHubResult: Sendable {
+        let sourceKey: String
+        let hubs: [Hub]
+        let failedAll: Bool
+        let failedSemanticKinds: Set<HubSemanticKind>
+
+        var hasFailure: Bool { failedAll || !failedSemanticKinds.isEmpty }
+    }
+
     private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
     private let hubRepository: HubRepositoryProtocol
@@ -88,8 +97,6 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     @MainActor
     public func loadCachedSnapshot() async throws -> HomeHubSnapshot {
-        let sourceContext = currentSourceContext()
-        let enabledSourceKeys = enabledSourceCompositeKeys()
         let cachedSnapshot = try await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil)
         let cached: [Hub]
         if let cachedSnapshot {
@@ -97,8 +104,10 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         } else {
             cached = try await hubRepository.fetchHubs()
         }
-        let filtered = accountManager.isSourceConfigurationAuthoritative && accountManager.hasAnySources
-            ? Self.filterHubsToEnabledSources(cached, enabledSourceCompositeKeys: enabledSourceKeys)
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let sourceContext = currentSourceContext()
+        let filtered = sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
+            ? Self.filterHubsToEnabledSources(cached, sourceConfiguration: sourceConfiguration)
             : cached
         let merged = Self.mergeAndGroupHubs(filtered)
 
@@ -139,42 +148,81 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         }
 
         let sourceContext = currentSourceContext()
-        let providers = syncCoordinator.configuredSourceProviders
+        let providerWork: [(registration: ConfiguredSourceProvider, lease: SourcePersistenceLease)] =
+            syncCoordinator.configuredSourceProviderRegistrations.compactMap { registration in
+            let sourceKey = registration.provider.sourceIdentifier.compositeKey
+            guard let lease = syncCoordinator.beginSourcePersistenceWork(
+                sourceKey: sourceKey,
+                revision: registration.revision
+            ) else { return nil }
+            return (registration: registration, lease: lease)
+            }
+        defer {
+            providerWork.forEach { syncCoordinator.finishSourcePersistenceWork($0.lease) }
+        }
 
-        guard !providers.isEmpty else {
+        guard !providerWork.isEmpty else {
             EnsembleLogger.debug("🏠 Hub loader skipped network fetch (no enabled sources)")
             return nil
         }
 
-        EnsembleLogger.debug("🏠 Hub loader network fetch tasks=\(providers.count) count=\(hubCount)")
+        EnsembleLogger.debug("🏠 Hub loader network fetch tasks=\(providerWork.count) count=\(hubCount)")
 
         var collectedHubs: [Hub] = []
         var updatedFailedHubKeys = Set<String>()
+        var failedResults: [ProviderHubResult] = []
 
-        await withTaskGroup(of: (index: Int, hubs: [Hub], failedKeys: Set<String>).self) { group in
-            for (index, provider) in providers.enumerated() {
+        await withTaskGroup(of: (index: Int, result: ProviderHubResult).self) { group in
+            for (index, work) in providerWork.enumerated() {
                 group.addTask {
-                    let result = await Self.fetchHubs(provider: provider, limit: Int(hubCount) ?? 12)
-                    return (index, result.hubs, result.failedKeys)
+                    let result = await Self.fetchHubs(
+                        provider: work.registration.provider,
+                        limit: Int(hubCount) ?? 12
+                    )
+                    return (index, result)
                 }
             }
 
-            var results = Array<(hubs: [Hub], failedKeys: Set<String>)?>(
+            var results = Array<ProviderHubResult?>(
                 repeating: nil,
-                count: providers.count
+                count: providerWork.count
             )
             for await result in group {
-                results[result.index] = (result.hubs, result.failedKeys)
+                results[result.index] = result.result
             }
 
-            for result in results.compactMap({ $0 }) {
+            for (index, result) in results.enumerated() {
+                guard let result else { continue }
+                let work = providerWork[index]
+                let sourceKey = work.registration.provider.sourceIdentifier.compositeKey
+                guard syncCoordinator.isSourcePersistenceWorkCurrent(
+                    sourceKey: sourceKey,
+                    revision: work.registration.revision,
+                    lease: work.lease
+                ) else {
+                    EnsembleLogger.debug("🏠 Hub loader discarded stale provider result source=\(sourceKey)")
+                    continue
+                }
                 collectedHubs.append(contentsOf: result.hubs)
-                if !result.failedKeys.isEmpty {
-                    updatedFailedHubKeys.formUnion(result.failedKeys)
+                if result.hasFailure {
+                    updatedFailedHubKeys.insert(result.sourceKey)
+                    failedResults.append(result)
                 }
             }
         }
 
+        if !updatedFailedHubKeys.isEmpty,
+           let cachedSnapshot = try? await hubRepository.fetchLatestHomeFeedSnapshot(sourceScopeKey: nil) {
+            collectedHubs.append(contentsOf: Self.hubs(
+                cachedSnapshot.hubs,
+                retaining: failedResults
+            ))
+        }
+
+        var validSourceKeys = currentSourceKeys(for: providerWork)
+        collectedHubs = Self.filterHubs(collectedHubs, toSourceKeys: validSourceKeys)
+        updatedFailedHubKeys.formIntersection(validSourceKeys)
+        failedResults.removeAll { !validSourceKeys.contains($0.sourceKey) }
         persistFailedHubKeys(updatedFailedHubKeys)
 
         let mergedHubs = Self.mergeAndGroupHubs(collectedHubs)
@@ -182,22 +230,28 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             "🏠 Hub loader merged result count=\(mergedHubs.count)"
         )
 
-        let orderedHubs = orderedSnapshot(
+        var orderedHubs = orderedSnapshot(
             from: mergedHubs,
             sourceContext: sourceContext,
             applySavedOrder: applySavedOrder,
             persistDefaultOrder: true
         )
 
+        validSourceKeys = currentSourceKeys(for: providerWork)
+        orderedHubs = Self.filterHubs(orderedHubs, toSourceKeys: validSourceKeys)
+        updatedFailedHubKeys.formIntersection(validSourceKeys)
+        persistFailedHubKeys(updatedFailedHubKeys)
+
         if orderedHubs.isEmpty {
             EnsembleLogger.debug("🏠 Hub loader skipped empty cache save to preserve last usable Feed cache")
         } else {
+            let freshnessState: HomeFeedSnapshotFreshnessState = updatedFailedHubKeys.isEmpty ? .fresh : .stale
             let cacheSnapshot = HomeFeedCachedSnapshot(
                 sourceScopeKey: nil,
                 sourceName: sourceContext.sourceName,
                 fetchedAt: Date(),
-                refreshReason: "network",
-                freshnessState: .fresh,
+                refreshReason: updatedFailedHubKeys.isEmpty ? "network" : "partial-network",
+                freshnessState: freshnessState,
                 isLastGood: true,
                 hubs: orderedHubs
             )
@@ -209,27 +263,57 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             }
         }
 
+        validSourceKeys = currentSourceKeys(for: providerWork)
+        orderedHubs = Self.filterHubs(orderedHubs, toSourceKeys: validSourceKeys)
+        updatedFailedHubKeys.formIntersection(validSourceKeys)
+        persistFailedHubKeys(updatedFailedHubKeys)
+
         return HomeHubSnapshot(
             orderedHubs: orderedHubs,
             failedHubKeys: updatedFailedHubKeys,
             metadata: HomeHubSnapshotMetadata(
                 currentSourceKey: sourceContext.sourceKey,
                 currentSourceName: sourceContext.sourceName,
-                fetchTaskCount: providers.count,
+                fetchTaskCount: providerWork.count,
                 usedGlobalFallback: false,
                 networkFetchCompletedAt: Date(),
                 cacheCreatedAt: nil,
                 cacheFetchedAt: nil,
-                freshnessState: .fresh,
-                refreshReason: "network"
+                freshnessState: updatedFailedHubKeys.isEmpty ? .fresh : .stale,
+                refreshReason: updatedFailedHubKeys.isEmpty ? "network" : "partial-network"
             )
         )
+    }
+
+    @MainActor
+    private func currentSourceKeys(
+        for providerWork: [(registration: ConfiguredSourceProvider, lease: SourcePersistenceLease)]
+    ) -> Set<String> {
+        Set(providerWork.compactMap { work in
+            let sourceKey = work.registration.provider.sourceIdentifier.compositeKey
+            return syncCoordinator.isSourcePersistenceWorkCurrent(
+                sourceKey: sourceKey,
+                revision: work.registration.revision,
+                lease: work.lease
+            ) ? sourceKey : nil
+        })
     }
 
     @MainActor
     public func clearFailedHubKeys() {
         UserDefaults.standard.removeObject(forKey: Self.failedHubKeysKey)
         EnsembleLogger.debug("🏠 Hub loader cleared failed hub keys")
+    }
+
+    static func removeFailedHubKey(forSourceCompositeKey sourceCompositeKey: String) {
+        let defaults = UserDefaults.standard
+        var keys = Set(defaults.stringArray(forKey: failedHubKeysKey) ?? [])
+        guard keys.remove(sourceCompositeKey) != nil else { return }
+        if keys.isEmpty {
+            defaults.removeObject(forKey: failedHubKeysKey)
+        } else {
+            defaults.set(Array(keys), forKey: failedHubKeysKey)
+        }
     }
 
     private var failedHubKeys: Set<String> {
@@ -267,22 +351,29 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         return SourceContext(sourceKey: nil, sourceName: "Editing Music")
     }
 
-    @MainActor
-    private func enabledSourceCompositeKeys() -> Set<String> {
-        Set(accountManager.enabledSources().map(\.compositeKey))
-    }
-
     private static func fetchHubs(
         provider: MusicSourceSyncProvider,
         limit: Int
-    ) async -> (hubs: [Hub], failedKeys: Set<String>) {
+    ) async -> ProviderHubResult {
+        let sourceKey = provider.sourceIdentifier.compositeKey
         do {
-            return (try await provider.getHomeHubs(limit: limit), [])
+            let result = try await provider.getHomeHubResult(limit: limit)
+            return ProviderHubResult(
+                sourceKey: sourceKey,
+                hubs: result.hubs,
+                failedAll: false,
+                failedSemanticKinds: result.failedSemanticKinds
+            )
         } catch {
             EnsembleLogger.debug(
-                "🏠 Hub loader provider fetch failed source=\(provider.sourceIdentifier.compositeKey): \(error.localizedDescription)"
+                "🏠 Hub loader provider fetch failed source=\(sourceKey): \(error.localizedDescription)"
             )
-            return ([], [provider.sourceIdentifier.compositeKey])
+            return ProviderHubResult(
+                sourceKey: sourceKey,
+                hubs: [],
+                failedAll: true,
+                failedSemanticKinds: []
+            )
         }
     }
 
@@ -312,45 +403,60 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
 
     private static func filterHubsToEnabledSources(
         _ hubs: [Hub],
-        enabledSourceCompositeKeys: Set<String>
+        sourceConfiguration: SourceConfigurationSnapshot
     ) -> [Hub] {
-        guard !enabledSourceCompositeKeys.isEmpty else { return [] }
         return hubs.compactMap { hub in
-            let enabledItems = hub.items.filter { enabledSourceCompositeKeys.contains($0.sourceCompositeKey) }
-            guard !enabledItems.isEmpty else { return nil }
-            return Hub(id: hub.id, title: hub.title, type: hub.type, items: enabledItems, context: hub.context)
-        }
-    }
-
-    private static func normalizeHubTitle(_ title: String) -> String {
-        let stripPrefixes = ["Recently Added", "Recently Played", "Most Played"]
-        for prefix in stripPrefixes {
-            if title.hasPrefix(prefix), let range = title.range(of: " in ", options: .backwards) {
-                return String(title[..<range.lowerBound])
+            let enabledItems = hub.items.filter {
+                sourceConfiguration.shouldPreserveSourceKey($0.sourceCompositeKey)
             }
+            guard !enabledItems.isEmpty else { return nil }
+            return Hub(
+                id: hub.id,
+                title: hub.title,
+                type: hub.type,
+                items: enabledItems,
+                context: hub.context,
+                semanticKind: hub.semanticKind,
+                sourceScope: hub.sourceScope
+            )
         }
-        return title
     }
 
-    private static func hubTypeIdentifier(from hubId: String) -> String {
-        PlexHubIdentity.normalizedSourceScopedIdentifier(hubId)
-    }
-
-    private static func mergesAcrossServers(_ hubType: String) -> Bool {
-        hubType == PlexHubIdentity.recentlyAddedMusic
-            || hubType == "music.recent.played"
-            || hubType == "music.popular"
-    }
-
-    private static func rawHubType(from hubId: String) -> String {
-        let components = hubId.split(separator: ":")
-        guard components.count >= 5 else { return hubId }
-
-        if components[3] == "merged" {
-            return String(components[4])
+    private static func filterHubs(_ hubs: [Hub], toSourceKeys sourceKeys: Set<String>) -> [Hub] {
+        hubs.compactMap { hub in
+            let currentItems = hub.items.filter { sourceKeys.contains($0.sourceCompositeKey) }
+            guard !currentItems.isEmpty else { return nil }
+            return Hub(
+                id: hub.id,
+                title: hub.title,
+                type: hub.type,
+                items: currentItems,
+                context: hub.context,
+                semanticKind: hub.semanticKind,
+                sourceScope: hub.sourceScope
+            )
         }
+    }
 
-        return hubTypeIdentifier(from: hubId)
+    private static func hubs(_ hubs: [Hub], retaining failedResults: [ProviderHubResult]) -> [Hub] {
+        hubs.compactMap { hub in
+            let items = hub.items.filter { item in
+                failedResults.contains { failure in
+                    failure.sourceKey == item.sourceCompositeKey
+                        && (failure.failedAll || failure.failedSemanticKinds.contains(hub.semanticKind))
+                }
+            }
+            guard !items.isEmpty else { return nil }
+            return Hub(
+                id: hub.id,
+                title: hub.title,
+                type: hub.type,
+                items: items,
+                context: hub.context,
+                semanticKind: hub.semanticKind,
+                sourceScope: hub.sourceScope
+            )
+        }
     }
 
     private func migrateHubOrderIfNeeded(for sourceKey: String, currentHubs: [Hub]) {
@@ -360,30 +466,15 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         let hasStaleIds = savedOrder.contains { !currentIdSet.contains($0) }
         guard hasStaleIds else { return }
 
-        var typeAndTitleLookup: [String: String] = [:]
         var typeOnlyLookup: [String: [String]] = [:]
         for hub in currentHubs {
-            let rawType = Self.rawHubType(from: hub.id)
-            let title = Self.normalizeHubTitle(hub.title)
-            typeAndTitleLookup["\(rawType)|\(title)"] = hub.id
-            typeOnlyLookup[rawType, default: []].append(hub.id)
+            typeOnlyLookup[Self.migrationKey(for: hub.semanticKind), default: []].append(hub.id)
         }
 
         var remapping: [String: String] = [:]
         for savedId in savedOrder where !currentIdSet.contains(savedId) {
-            let rawType = Self.rawHubType(from: savedId)
-
-            let components = savedId.split(separator: ":")
-            if components.count >= 6, components[3] == "merged" {
-                let titleFromId = components[5...].joined(separator: ":")
-                let key = "\(rawType)|\(titleFromId)"
-                if let currentId = typeAndTitleLookup[key] {
-                    remapping[savedId] = currentId
-                    continue
-                }
-            }
-
-            if let candidates = typeOnlyLookup[rawType], candidates.count == 1 {
+            let legacyKind = HubSemanticKind.legacy(hubID: savedId, title: "")
+            if let candidates = typeOnlyLookup[Self.migrationKey(for: legacyKind)], candidates.count == 1 {
                 remapping[savedId] = candidates[0]
             }
         }
@@ -392,17 +483,26 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         hubOrderManager.migrateOrder(remapping: remapping, for: sourceKey)
     }
 
-    static func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
-        func serverKey(_ hubId: String) -> String {
-            MediaSourceIdentity.serverSourceKey(from: hubId) ?? "global"
-        }
+    private static func migrationKey(for kind: HubSemanticKind) -> String {
+        String(kind.rawValue.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0])
+    }
 
+    static func mergeAndGroupHubs(_ hubs: [Hub]) -> [Hub] {
         var hubGroups: [String: [Hub]] = [:]
         var groupOrder: [String] = []
 
         for hub in hubs {
-            let hubType = Self.hubTypeIdentifier(from: hub.id)
-            let groupingKey = "\(Self.mergesAcrossServers(hubType) ? "global" : serverKey(hub.id))|\(hubType)|\(Self.normalizeHubTitle(hub.title))"
+            let scopeKey: String
+            if hub.semanticKind.mergesAcrossSources {
+                scopeKey = "global"
+            } else if let serverKey = hub.sourceScope.serverCompositeKey {
+                scopeKey = serverKey
+            } else if let sourceKey = hub.sourceScope.sourceCompositeKey {
+                scopeKey = sourceKey
+            } else {
+                scopeKey = "unscoped:\(hub.id)"
+            }
+            let groupingKey = "\(scopeKey)|\(hub.semanticKind.rawValue)"
             if hubGroups[groupingKey] == nil {
                 hubGroups[groupingKey] = []
                 groupOrder.append(groupingKey)
@@ -415,18 +515,29 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             guard let group = hubGroups[key] else { continue }
 
             let firstHub = group[0]
-            let normalizedTitle = Self.normalizeHubTitle(firstHub.title)
-            let hubType = Self.hubTypeIdentifier(from: firstHub.id)
-            let mergesAcrossServers = Self.mergesAcrossServers(hubType)
+            let semanticKind = firstHub.semanticKind
+            let normalizedTitle = semanticKind.displayTitle(fallback: firstHub.title)
+            let mergesAcrossSources = semanticKind.mergesAcrossSources
 
-            if group.count == 1, (!mergesAcrossServers || firstHub.id.contains(":merged:")) {
+            if group.count == 1, (!mergesAcrossSources || firstHub.id.contains(":merged:")) {
+                let sourceScope: HubSourceScope
+                if firstHub.id.contains(":merged:"), mergesAcrossSources {
+                    sourceScope = .global
+                } else if firstHub.id.contains(":merged:"),
+                          let serverKey = firstHub.sourceScope.serverCompositeKey {
+                    sourceScope = .server(serverKey)
+                } else {
+                    sourceScope = firstHub.sourceScope
+                }
                 mergedResults.append(
                     Hub(
                         id: firstHub.id,
                         title: normalizedTitle,
                         type: firstHub.type,
                         items: firstHub.items,
-                        context: firstHub.context
+                        context: firstHub.context,
+                        semanticKind: semanticKind,
+                        sourceScope: sourceScope
                     )
                 )
                 continue
@@ -438,7 +549,7 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
                 for item in hub.items {
                     let itemKey = Self.mergedHubItemKey(item)
                     if let existing = itemsByKey[itemKey],
-                       !Self.isHigherPriority(item, than: existing, hubType: hubType) {
+                       !Self.isHigherPriority(item, than: existing, semanticKind: semanticKind) {
                         continue
                     }
                     itemsByKey[itemKey] = item
@@ -446,14 +557,25 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
             }
 
             var allItems = Array(itemsByKey.values)
-            allItems.sort { Self.isHigherPriority($0, than: $1, hubType: hubType) }
+            allItems.sort { Self.isHigherPriority($0, than: $1, semanticKind: semanticKind) }
+
+            let mergedScope: HubSourceScope
+            if mergesAcrossSources {
+                mergedScope = .global
+            } else if let serverKey = firstHub.sourceScope.serverCompositeKey {
+                mergedScope = .server(serverKey)
+            } else {
+                mergedScope = firstHub.sourceScope
+            }
 
             let mergedHub = Hub(
-                id: "\(mergesAcrossServers ? Self.feedOrderKey : serverKey(firstHub.id)):merged:\(hubType):\(normalizedTitle)",
+                id: "\(mergesAcrossSources ? Self.feedOrderKey : mergedScope.serverCompositeKey ?? mergedScope.sourceCompositeKey ?? "unscoped"):merged:\(semanticKind.rawValue):\(normalizedTitle)",
                 title: normalizedTitle,
                 type: firstHub.type,
                 items: Array(allItems.prefix(40)),
-                context: firstHub.context
+                context: firstHub.context,
+                semanticKind: semanticKind,
+                sourceScope: mergedScope
             )
             mergedResults.append(mergedHub)
         }
@@ -461,14 +583,18 @@ public final class HomeHubLoader: HomeHubLoaderProtocol, @unchecked Sendable {
         return mergedResults
     }
 
-    private static func isHigherPriority(_ lhs: HubItem, than rhs: HubItem, hubType: String) -> Bool {
+    private static func isHigherPriority(
+        _ lhs: HubItem,
+        than rhs: HubItem,
+        semanticKind: HubSemanticKind
+    ) -> Bool {
         let leftViewCount = lhs.viewCount ?? 0
         let rightViewCount = rhs.viewCount ?? 0
-        if hubType == "music.popular", leftViewCount != rightViewCount {
+        if semanticKind == .mostPlayed, leftViewCount != rightViewCount {
             return leftViewCount > rightViewCount
         }
 
-        let usesLastViewedAt = hubType == "music.recent.played" || hubType == "music.popular"
+        let usesLastViewedAt = semanticKind == .recentlyPlayed || semanticKind == .mostPlayed
         let leftDate = usesLastViewedAt ? lhs.lastViewedAt ?? .distantPast : lhs.dateAdded ?? .distantPast
         let rightDate = usesLastViewedAt ? rhs.lastViewedAt ?? .distantPast : rhs.dateAdded ?? .distantPast
         if leftDate != rightDate { return leftDate > rightDate }

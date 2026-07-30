@@ -132,9 +132,13 @@ public extension Track {
             lastPlayed: cd.lastPlayed,
             lastRatedAt: cd.lastRatedAt,
             rating: Int(cd.rating),
+            favoriteState: cd.isFavorite?.boolValue,
             playCount: Int(cd.playCount),
             genres: trackGenres,
-            sourceCompositeKey: cd.sourceCompositeKey
+            sourceCompositeKey: cd.sourceCompositeKey,
+            actionCapabilities: MusicItemActionCapabilities(
+                persistenceData: cd.actionCapabilitiesData
+            )
         )
     }
 }
@@ -210,11 +214,10 @@ public extension Album {
     }
 
     init(from cd: CDAlbum) {
-        // Prefer actual synced track count from the relationship over the Plex metadata field,
-        // which may be 0 if leafCount wasn't included in the API response
-        let syncedCount = (cd.tracks as? Set<CDTrack>)?.count ?? 0
-        let resolvedTrackCount = syncedCount > 0 ? syncedCount : Int(cd.trackCount)
+        self.init(from: cd, trackCount: Int(cd.trackCount))
+    }
 
+    init(from cd: CDAlbum, trackCount: Int) {
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -223,7 +226,7 @@ public extension Album {
             albumArtist: cd.albumArtist ?? cd.artistName ?? cd.artist?.name,
             artistRatingKey: cd.artist?.ratingKey,
             year: cd.year > 0 ? Int(cd.year) : nil,
-            trackCount: resolvedTrackCount,
+            trackCount: trackCount,
             thumbPath: cd.thumbPath,
             artPath: cd.artPath,
             dateAdded: cd.dateAdded,
@@ -231,7 +234,10 @@ public extension Album {
             rating: Int(cd.rating),
             genres: cd.genreNames?.components(separatedBy: ", ").filter { !$0.isEmpty } ?? [],
             sourceCompositeKey: cd.sourceCompositeKey,
-            releaseFormat: AlbumReleaseFormat(rawValue: cd.releaseFormat ?? "")
+            releaseFormat: AlbumReleaseFormat(rawValue: cd.releaseFormat ?? ""),
+            actionCapabilities: MusicItemActionCapabilities(
+                persistenceData: cd.actionCapabilitiesData
+            )
         )
     }
 }
@@ -264,7 +270,10 @@ public extension Artist {
             dateModified: cd.dateModified,
             sourceCompositeKey: cd.sourceCompositeKey,
             fallbackThumbPath: firstAlbum?.thumbPath,
-            fallbackRatingKey: firstAlbum?.ratingKey
+            fallbackRatingKey: firstAlbum?.ratingKey,
+            actionCapabilities: MusicItemActionCapabilities(
+                persistenceData: cd.actionCapabilitiesData
+            )
         )
     }
 }
@@ -333,7 +342,6 @@ public extension Playlist {
     }
 
     init(from cd: CDPlaylist) {
-        let fallbackArtwork = Self.fallbackArtwork(from: cd)
         self.init(
             id: cd.ratingKey,
             key: cd.key,
@@ -343,29 +351,15 @@ public extension Playlist {
             trackCount: Int(cd.trackCount),
             duration: TimeInterval(cd.duration) / 1000.0,
             compositePath: cd.compositePath,
-            fallbackArtworkPath: fallbackArtwork?.path,
-            fallbackArtworkRatingKey: fallbackArtwork?.albumRatingKey,
+            fallbackArtworkPath: cd.fallbackArtworkPath?.isEmpty == false ? cd.fallbackArtworkPath : nil,
+            fallbackArtworkRatingKey: cd.fallbackArtworkRatingKey,
+            fallbackArtworkSourceCompositeKey: cd.fallbackArtworkSourceCompositeKey,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
-            sourceCompositeKey: cd.sourceCompositeKey
+            sourceCompositeKey: cd.sourceCompositeKey,
+            actionCapabilities: cd.persistedActionCapabilities
         )
-    }
-
-    private static func fallbackArtwork(from playlist: CDPlaylist) -> (path: String, albumRatingKey: String?)? {
-        for membership in playlist.playlistItemsArray {
-            if let album = membership.track?.album,
-               let path = album.thumbPath,
-               !path.isEmpty {
-                return (path, album.ratingKey)
-            }
-
-            if let path = membership.track?.thumbPath ?? membership.trackThumbPath,
-               !path.isEmpty {
-                return (path, nil)
-            }
-        }
-        return nil
     }
 }
 
@@ -584,12 +578,22 @@ public extension HubItem {
 
 public extension Hub {
     init(from cd: CDHub) {
+        let hasNormalizedMetadata = cd.semanticKind != nil
+            || cd.sourceScopeSourceCompositeKey != nil
+            || cd.sourceScopeServerCompositeKey != nil
         self.init(
             id: cd.id,
             title: cd.title,
             type: cd.type,
             items: cd.itemsArray.map { HubItem(from: $0) },
-            context: cd.context
+            context: cd.context,
+            semanticKind: cd.semanticKind.map(HubSemanticKind.init(rawValue:)),
+            sourceScope: hasNormalizedMetadata
+                ? HubSourceScope(
+                    sourceCompositeKey: cd.sourceScopeSourceCompositeKey,
+                    serverCompositeKey: cd.sourceScopeServerCompositeKey
+                )
+                : nil
         )
     }
 }
@@ -597,9 +601,9 @@ public extension Hub {
 public extension HubItem {
     init(from cd: CDHubItem) {
         let type = cd.type
-        let itemKey = MusicSourceIdentifier(compositeKey: cd.sourceCompositeKey)?.type == .appleMusic
+        let itemKey = cd.key ?? (MusicSourceIdentifier(compositeKey: cd.sourceCompositeKey)?.type == .appleMusic
             ? "apple-catalog"
-            : cd.id
+            : cd.id)
         
         var album: Album? = nil
         var track: Track? = nil
@@ -612,7 +616,9 @@ public extension HubItem {
                 key: itemKey,
                 title: cd.title,
                 artistName: cd.subtitle,
+                year: cd.year?.intValue,
                 thumbPath: cd.thumbPath,
+                dateAdded: cd.addedAt,
                 sourceCompositeKey: cd.sourceCompositeKey
             )
         } else if type == "track" {
@@ -622,6 +628,9 @@ public extension HubItem {
                 title: cd.title,
                 artistName: cd.subtitle,
                 thumbPath: cd.thumbPath,
+                dateAdded: cd.addedAt,
+                lastPlayed: cd.lastViewedAt,
+                playCount: cd.viewCount?.intValue ?? 0,
                 sourceCompositeKey: cd.sourceCompositeKey
             )
         } else if type == "artist" {
@@ -630,6 +639,7 @@ public extension HubItem {
                 key: itemKey,
                 name: cd.title,
                 thumbPath: cd.thumbPath,
+                dateAdded: cd.addedAt,
                 sourceCompositeKey: cd.sourceCompositeKey
             )
         } else if type == "playlist" {
@@ -647,8 +657,11 @@ public extension HubItem {
             title: cd.title,
             subtitle: cd.subtitle,
             thumbPath: cd.thumbPath,
-            year: nil, // Year is not stored directly in HubItem, can be inferred from linked entities if we add them later
+            year: cd.year?.intValue,
             sourceCompositeKey: cd.sourceCompositeKey,
+            addedAt: cd.addedAt,
+            lastViewedAt: cd.lastViewedAt,
+            viewCount: cd.viewCount?.intValue,
             album: album,
             track: track,
             artist: artist,

@@ -81,14 +81,22 @@ struct MiniPlayerActionsMenuButton: View {
                 canGoToArtist: track.artistRatingKey != nil,
                 canShareLink: true,
                 canShareAudioFile: track.sourceCapabilities.supportsAudioFileSharing,
-                canFavorite: track.sourceCapabilities.supportsFavoriteRemoval || !ratingProjection.isTrackFavorited(track),
+                canFavorite: true,
                 canDownload: false,
                 canPin: false,
                 canEditMetadata: false,
                 canDelete: false,
                 canRename: false,
                 canEditPlaylist: false,
-                canRemoveFromQueue: false
+                canRemoveFromQueue: false,
+                itemActions: [
+                    .playNext: viewModel.queueActionAvailability(for: track),
+                    .playLast: viewModel.queueActionAvailability(for: track),
+                    .favorite: track.actionAvailability(
+                        for: .favorite,
+                        isFavorited: ratingProjection.isTrackFavorited(track)
+                    )
+                ]
             )
         )
     }
@@ -233,6 +241,8 @@ struct MiniPlayerActionsMenuButton: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
+                            .disabled(!descriptor.availability.isAvailable)
+                            .accessibilityHint(descriptor.availability.reason ?? "")
                         }
                     }
                 }

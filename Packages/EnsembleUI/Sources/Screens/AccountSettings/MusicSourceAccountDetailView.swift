@@ -53,6 +53,12 @@ public struct MusicSourceAccountDetailView: View {
             Section {
                 Text("This account is no longer available.")
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+                if let error = viewModel.error {
+                    Text(error)
+                        .font(EnsembleDesign.Typography.rowSecondary)
+                        .foregroundColor(EnsembleDesign.Color.destructive)
+                }
             }
         } else {
             if viewModel.isReauthenticationRequired {
@@ -106,6 +112,15 @@ public struct MusicSourceAccountDetailView: View {
                 EnsembleUtilityCardRow {
                     Text("This account is no longer available.")
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
+                }
+
+                if let error = viewModel.error {
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow {
+                        Text(error)
+                            .font(EnsembleDesign.Typography.rowSecondary)
+                            .foregroundColor(EnsembleDesign.Color.destructive)
+                    }
                 }
             }
         } else {

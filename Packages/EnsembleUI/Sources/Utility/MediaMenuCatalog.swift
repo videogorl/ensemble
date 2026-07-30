@@ -108,10 +108,16 @@ struct MediaMenuActionDescriptor: Equatable {
 
     let id: MediaMenuActionID
     let role: Role
+    let availability: MusicItemActionAvailability
 
-    init(_ id: MediaMenuActionID, role: Role = .normal) {
+    init(
+        _ id: MediaMenuActionID,
+        role: Role = .normal,
+        availability: MusicItemActionAvailability = .available
+    ) {
         self.id = id
         self.role = role
+        self.availability = availability
     }
 }
 
@@ -220,6 +226,7 @@ struct MediaMenuAvailability: Equatable {
     var canEditPlaylist = true
     var canRemoveFromPlaylist = true
     var canRemoveFromQueue = true
+    var itemActions: [MediaMenuActionID: MusicItemActionAvailability] = [:]
 
     static let full = MediaMenuAvailability(
         hasRecentPlaylist: true,
@@ -260,17 +267,30 @@ enum MediaMenuCatalog {
         context: MediaMenuContext,
         availability: MediaMenuAvailability = .full
     ) -> [MediaMenuSection] {
+        let sections: [MediaMenuSection]
         switch itemKind {
         case .track:
-            return trackSections(context: context, availability: availability)
+            sections = trackSections(context: context, availability: availability)
         case .album:
-            return albumSections(context: context, availability: availability)
+            sections = albumSections(context: context, availability: availability)
         case .artist:
-            return artistSections(context: context, availability: availability)
+            sections = artistSections(context: context, availability: availability)
         case .playlist(let isSmart):
-            return playlistSections(isSmart: isSmart, context: context, availability: availability)
+            sections = playlistSections(isSmart: isSmart, context: context, availability: availability)
         case .mergedPlaylist(let isSmart):
-            return mergedPlaylistSections(isSmart: isSmart, context: context, availability: availability)
+            sections = mergedPlaylistSections(isSmart: isSmart, context: context, availability: availability)
+        }
+        return sections.map { section in
+            MediaMenuSection(
+                id: section.id,
+                actions: section.actions.map { descriptor in
+                    MediaMenuActionDescriptor(
+                        descriptor.id,
+                        role: descriptor.role,
+                        availability: availability.itemActions[descriptor.id] ?? .available
+                    )
+                }
+            )
         }
     }
 
@@ -449,7 +469,7 @@ enum MediaMenuCatalog {
     }
 
     private static func playlistSections(
-        isSmart: Bool,
+        isSmart _: Bool,
         context: MediaMenuContext,
         availability: MediaMenuAvailability
     ) -> [MediaMenuSection] {
@@ -470,18 +490,18 @@ enum MediaMenuCatalog {
             sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
-        if availability.canGetInfo || (context.allowsPlaylistManagement && !isSmart) {
+        if availability.canGetInfo || context.allowsPlaylistManagement {
             var management: [MediaMenuActionID] = []
             if availability.canGetInfo {
                 management.append(.getInfo)
             }
-            if context.allowsPlaylistManagement, !isSmart, availability.canRename {
+            if context.allowsPlaylistManagement, availability.canRename {
                 management.append(.rename)
             }
-            if context.allowsPlaylistManagement, !isSmart, availability.canEditPlaylist {
+            if context.allowsPlaylistManagement, availability.canEditPlaylist {
                 management.append(.editPlaylist)
             }
-            if context.allowsPlaylistManagement, !isSmart, availability.canDelete {
+            if context.allowsPlaylistManagement, availability.canDelete {
                 management.append(.deletePlaylist)
             }
             sections.append(section(.management, management, destructive: [.deletePlaylist]))
@@ -491,7 +511,7 @@ enum MediaMenuCatalog {
     }
 
     private static func mergedPlaylistSections(
-        isSmart: Bool,
+        isSmart _: Bool,
         context: MediaMenuContext,
         availability: MediaMenuAvailability
     ) -> [MediaMenuSection] {
@@ -508,7 +528,7 @@ enum MediaMenuCatalog {
             sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
-        if context.allowsPlaylistManagement, !isSmart {
+        if context.allowsPlaylistManagement {
             var management: [MediaMenuActionID] = []
             if availability.canRename {
                 management.append(.renameAll)
@@ -688,6 +708,8 @@ struct SwiftUIMediaMenuRenderer: View {
                         } label: {
                             MediaActionLabel(kind: labelKind)
                         }
+                        .disabled(!descriptor.availability.isAvailable)
+                        .accessibilityHint(descriptor.availability.reason ?? "")
                     }
                 }
             }
@@ -713,10 +735,15 @@ enum UIKitMediaMenuRenderer {
                 children: section.actions.compactMap { descriptor in
                     guard let handler = handlers.handler(for: descriptor.id),
                           let label = descriptor.label(state: state) else { return nil }
+                    var attributes: UIMenuElement.Attributes = descriptor.role == .destructive ? .destructive : []
+                    if !descriptor.availability.isAvailable {
+                        attributes.insert(.disabled)
+                    }
                     return UIAction(
                         title: label.title,
+                        subtitle: descriptor.availability.reason,
                         image: UIImage(systemName: label.systemImage),
-                        attributes: descriptor.role == .destructive ? .destructive : []
+                        attributes: attributes
                     ) { _ in
                         handler()
                     }
@@ -745,6 +772,8 @@ enum AppKitMediaMenuRenderer {
                       let label = descriptor.label(state: state) else { continue }
                 let item = AppKitClosureMenuItem(title: label.title, action: handler)
                 item.image = NSImage(systemSymbolName: label.systemImage, accessibilityDescription: label.title)
+                item.isEnabled = descriptor.availability.isAvailable
+                item.toolTip = descriptor.availability.reason
                 menu.addItem(item)
             }
         }

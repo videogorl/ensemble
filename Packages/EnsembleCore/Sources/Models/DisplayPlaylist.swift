@@ -155,7 +155,9 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         try await Self.resolvedTracks(for: playlists, using: playlistRepository)
     }
 
-    /// Resolves cached tracks for playlists, batching source-scoped lookups before interleaving.
+    /// Resolves cached tracks for playlists with proven source ownership, batching
+    /// source-scoped lookups before interleaving. Legacy unscoped entries are skipped
+    /// because a provider-local playlist ID is not globally unique.
     public static func resolvedTracks(
         for playlists: [Playlist],
         using playlistRepository: PlaylistRepositoryProtocol
@@ -171,24 +173,17 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         }
         let playlistsByReference = references.isEmpty
             ? [:]
-            : try await playlistRepository.fetchPlaylists(forReferences: references)
+            : try await playlistRepository.fetchPlaylistBodies(forReferences: references)
 
         var trackSets: [[Track]] = []
         trackSets.reserveCapacity(playlists.count)
         for playlist in playlists {
-            let cachedPlaylist: CDPlaylist?
-            if let sourceCompositeKey = playlist.sourceCompositeKey {
-                let reference = SourceScopedArtworkReference(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: sourceCompositeKey
-                )
-                cachedPlaylist = playlistsByReference[reference.lookupKey]
-            } else {
-                cachedPlaylist = try await playlistRepository.fetchPlaylist(
-                    ratingKey: playlist.id,
-                    sourceCompositeKey: nil
-                )
-            }
+            guard let sourceCompositeKey = playlist.sourceCompositeKey else { continue }
+            let reference = SourceScopedArtworkReference(
+                ratingKey: playlist.id,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            let cachedPlaylist = playlistsByReference[reference.lookupKey]
 
             if let cachedPlaylist {
                 trackSets.append(cachedPlaylist.tracksArray.map { Track(from: $0) })

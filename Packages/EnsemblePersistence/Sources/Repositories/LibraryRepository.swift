@@ -13,8 +13,12 @@ public struct ArtistUpsertInput: Sendable {
     public let artPath: String?
     public let dateAdded: Date?
     public let dateModified: Date?
+    public let updatesDateAdded: Bool
+    /// Opaque provider capability payload. `nil` preserves persisted overrides;
+    /// an encoded empty capability set clears them.
+    public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?) {
+    public init(ratingKey: String, key: String, name: String, summary: String?, thumbPath: String?, artPath: String?, dateAdded: Date?, dateModified: Date?, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.name = name
@@ -23,6 +27,8 @@ public struct ArtistUpsertInput: Sendable {
         self.artPath = artPath
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.updatesDateAdded = updatesDateAdded
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 }
 
@@ -33,7 +39,9 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
     public let summary: String?
     public let thumbPath: String?
     public let artPath: String?
+    public let dateAdded: Date?
     public let dateModified: Date?
+    public let actionCapabilitiesData: Data?
 
     public init(
         key: String,
@@ -41,14 +49,18 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
         summary: String?,
         thumbPath: String?,
         artPath: String?,
-        dateModified: Date?
+        dateAdded: Date? = nil,
+        dateModified: Date?,
+        actionCapabilitiesData: Data? = nil
     ) {
         self.key = key
         self.name = name
         self.summary = summary
         self.thumbPath = thumbPath
         self.artPath = artPath
+        self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 
     public init(_ input: ArtistUpsertInput) {
@@ -58,8 +70,123 @@ public struct ArtistSyncMetadata: Sendable, Equatable {
             summary: input.summary,
             thumbPath: input.thumbPath,
             artPath: input.artPath,
-            dateModified: input.dateModified
+            dateAdded: input.dateAdded,
+            dateModified: input.dateModified,
+            actionCapabilitiesData: input.actionCapabilitiesData
         )
+    }
+
+    /// Compares an input using the repository's merge semantics.
+    public func matches(_ input: ArtistUpsertInput) -> Bool {
+        key == input.key &&
+            name == input.name &&
+            summary == input.summary &&
+            thumbPath == input.thumbPath &&
+            artPath == input.artPath &&
+            (input.updatesDateAdded
+                ? dateAdded == input.dateAdded
+                : !(dateAdded == nil && input.dateAdded != nil)) &&
+            dateModified == input.dateModified &&
+            (input.actionCapabilitiesData == nil || actionCapabilitiesData == input.actionCapabilitiesData)
+    }
+}
+
+/// Source-scoped album fields used to skip unchanged persistence work.
+public struct AlbumSyncMetadata: Sendable, Equatable {
+    public let key: String
+    public let title: String
+    public let artistName: String?
+    public let albumArtist: String?
+    public let artistRatingKey: String?
+    public let summary: String?
+    public let thumbPath: String?
+    public let artPath: String?
+    public let year: Int?
+    public let trackCount: Int
+    public let dateAdded: Date?
+    public let dateModified: Date?
+    public let rating: Int
+    public let genreNames: String?
+    public let releaseFormat: String?
+    public let actionCapabilitiesData: Data?
+
+    public init(
+        key: String,
+        title: String,
+        artistName: String?,
+        albumArtist: String?,
+        artistRatingKey: String?,
+        summary: String?,
+        thumbPath: String?,
+        artPath: String?,
+        year: Int?,
+        trackCount: Int,
+        dateAdded: Date?,
+        dateModified: Date?,
+        rating: Int,
+        genreNames: String?,
+        releaseFormat: String?,
+        actionCapabilitiesData: Data? = nil
+    ) {
+        self.key = key
+        self.title = title
+        self.artistName = artistName
+        self.albumArtist = albumArtist
+        self.artistRatingKey = artistRatingKey
+        self.summary = summary
+        self.thumbPath = thumbPath
+        self.artPath = artPath
+        self.year = year
+        self.trackCount = trackCount
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.rating = rating
+        self.genreNames = genreNames
+        self.releaseFormat = releaseFormat
+        self.actionCapabilitiesData = actionCapabilitiesData
+    }
+
+    public init(_ input: AlbumUpsertInput) {
+        self.init(
+            key: input.key,
+            title: input.title,
+            artistName: input.artistName,
+            albumArtist: input.albumArtist,
+            artistRatingKey: input.artistRatingKey,
+            summary: input.summary,
+            thumbPath: input.thumbPath,
+            artPath: input.artPath,
+            year: input.year,
+            trackCount: input.trackCount ?? 0,
+            dateAdded: input.dateAdded,
+            dateModified: input.dateModified,
+            rating: input.rating ?? 0,
+            genreNames: input.genreNames,
+            releaseFormat: input.updatesReleaseFormat ? input.releaseFormat : nil,
+            actionCapabilitiesData: input.actionCapabilitiesData
+        )
+    }
+
+    /// Compares an input using the repository's merge semantics.
+    public func matches(_ input: AlbumUpsertInput) -> Bool {
+        key == input.key &&
+            title == input.title &&
+            artistName == input.artistName &&
+            albumArtist == input.albumArtist &&
+            artistRatingKey == input.artistRatingKey &&
+            summary == input.summary &&
+            thumbPath == input.thumbPath &&
+            artPath == input.artPath &&
+            year == input.year &&
+            (input.trackCount == nil || trackCount == input.trackCount) &&
+            (input.updatesDateAdded
+                ? dateAdded == input.dateAdded
+                : !(dateAdded == nil && input.dateAdded != nil)) &&
+            dateModified == input.dateModified &&
+            rating == (input.rating ?? 0) &&
+            genreNames == input.genreNames &&
+            (!input.updatesReleaseFormat || releaseFormat == input.releaseFormat) &&
+            (input.actionCapabilitiesData == nil || actionCapabilitiesData == input.actionCapabilitiesData)
     }
 }
 
@@ -82,8 +209,12 @@ public struct AlbumUpsertInput: Sendable {
     public let genreNames: String?
     public let releaseFormat: String?
     public let updatesReleaseFormat: Bool
+    public let updatesDateAdded: Bool
+    /// Opaque provider capability payload. `nil` preserves persisted overrides;
+    /// an encoded empty capability set clears them.
+    public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumArtist: String?, artistRatingKey: String?, summary: String?, thumbPath: String?, artPath: String?, year: Int?, trackCount: Int?, dateAdded: Date?, dateModified: Date?, rating: Int?, genreNames: String? = nil, releaseFormat: String? = nil, updatesReleaseFormat: Bool = false, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -101,6 +232,8 @@ public struct AlbumUpsertInput: Sendable {
         self.genreNames = genreNames
         self.releaseFormat = releaseFormat
         self.updatesReleaseFormat = updatesReleaseFormat
+        self.updatesDateAdded = updatesDateAdded
+        self.actionCapabilitiesData = actionCapabilitiesData
     }
 }
 
@@ -123,10 +256,15 @@ public struct TrackUpsertInput: Sendable {
     public let lastPlayed: Date?
     public let lastRatedAt: Date?
     public let rating: Int?
+    public let isFavorite: Bool?
     public let playCount: Int?
     public let genreNames: String?
+    public let updatesDateAdded: Bool
+    /// Opaque provider capability payload. `nil` preserves persisted overrides;
+    /// an encoded empty capability set clears them.
+    public let actionCapabilitiesData: Data?
 
-    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, playCount: Int?, genreNames: String? = nil) {
+    public init(ratingKey: String, key: String, title: String, artistName: String?, albumName: String?, albumRatingKey: String?, trackNumber: Int?, discNumber: Int?, duration: Int?, thumbPath: String?, streamKey: String?, streamId: Int? = nil, dateAdded: Date?, dateModified: Date?, lastPlayed: Date?, lastRatedAt: Date? = nil, rating: Int?, isFavorite: Bool? = nil, playCount: Int?, genreNames: String? = nil, updatesDateAdded: Bool = false, actionCapabilitiesData: Data? = nil) {
         self.ratingKey = ratingKey
         self.key = key
         self.title = title
@@ -144,8 +282,143 @@ public struct TrackUpsertInput: Sendable {
         self.lastPlayed = lastPlayed
         self.lastRatedAt = lastRatedAt
         self.rating = rating
+        self.isFavorite = isFavorite
         self.playCount = playCount
         self.genreNames = genreNames
+        self.updatesDateAdded = updatesDateAdded
+        self.actionCapabilitiesData = actionCapabilitiesData
+    }
+}
+
+/// Source-scoped track fields used to skip unchanged persistence work.
+public struct TrackSyncMetadata: Sendable, Equatable {
+    public let key: String
+    public let title: String
+    public let artistName: String?
+    public let albumName: String?
+    public let albumRatingKey: String?
+    public let trackNumber: Int
+    public let discNumber: Int
+    public let duration: Int
+    public let thumbPath: String?
+    public let streamKey: String?
+    public let streamId: Int?
+    public let dateAdded: Date?
+    public let dateModified: Date?
+    public let lastPlayed: Date?
+    public let lastRatedAt: Date?
+    public let rating: Int
+    public let isFavorite: Bool?
+    public let playCount: Int
+    public let genreNames: String?
+    public let actionCapabilitiesData: Data?
+
+    public init(
+        key: String,
+        title: String,
+        artistName: String?,
+        albumName: String?,
+        albumRatingKey: String?,
+        trackNumber: Int,
+        discNumber: Int,
+        duration: Int,
+        thumbPath: String?,
+        streamKey: String?,
+        streamId: Int?,
+        dateAdded: Date?,
+        dateModified: Date?,
+        lastPlayed: Date?,
+        lastRatedAt: Date?,
+        rating: Int,
+        isFavorite: Bool?,
+        playCount: Int,
+        genreNames: String?,
+        actionCapabilitiesData: Data? = nil
+    ) {
+        self.key = key
+        self.title = title
+        self.artistName = artistName
+        self.albumName = albumName
+        self.albumRatingKey = albumRatingKey
+        self.trackNumber = trackNumber
+        self.discNumber = discNumber
+        self.duration = duration
+        self.thumbPath = thumbPath
+        self.streamKey = streamKey
+        self.streamId = streamId
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
+        self.lastPlayed = lastPlayed
+        self.lastRatedAt = lastRatedAt
+        self.rating = rating
+        self.isFavorite = isFavorite
+        self.playCount = playCount
+        self.genreNames = genreNames
+        self.actionCapabilitiesData = actionCapabilitiesData
+    }
+
+    public init(_ input: TrackUpsertInput) {
+        self.init(
+            key: input.key,
+            title: input.title,
+            artistName: input.artistName,
+            albumName: input.albumName,
+            albumRatingKey: input.albumRatingKey,
+            trackNumber: input.trackNumber ?? 0,
+            discNumber: input.discNumber ?? 1,
+            duration: input.duration ?? 0,
+            thumbPath: input.thumbPath,
+            streamKey: input.streamKey,
+            streamId: input.streamId.flatMap { $0 > 0 ? $0 : nil },
+            dateAdded: input.dateAdded,
+            dateModified: input.dateModified,
+            lastPlayed: input.lastPlayed,
+            lastRatedAt: input.lastRatedAt,
+            rating: input.rating ?? 0,
+            isFavorite: input.isFavorite,
+            playCount: input.playCount ?? 0,
+            genreNames: input.genreNames,
+            actionCapabilitiesData: input.actionCapabilitiesData
+        )
+    }
+
+    /// Compares an input using the repository's merge semantics.
+    public func matches(_ input: TrackUpsertInput) -> Bool {
+        key == input.key &&
+            title == input.title &&
+            artistName == input.artistName &&
+            albumName == input.albumName &&
+            albumRatingKey == input.albumRatingKey &&
+            trackNumber == (input.trackNumber ?? 0) &&
+            discNumber == (input.discNumber ?? 1) &&
+            duration == (input.duration ?? 0) &&
+            thumbPath == input.thumbPath &&
+            streamKey == input.streamKey &&
+            streamId == input.streamId.flatMap { $0 > 0 ? $0 : nil } &&
+            (input.updatesDateAdded
+                ? dateAdded == input.dateAdded
+                : !(dateAdded == nil && input.dateAdded != nil)) &&
+            dateModified == input.dateModified &&
+            lastPlayed == input.lastPlayed &&
+            lastRatedAt == input.lastRatedAt &&
+            rating == (input.rating ?? 0) &&
+            (input.isFavorite == nil || isFavorite == input.isFavorite) &&
+            playCount == (input.playCount ?? 0) &&
+            genreNames == input.genreNames &&
+            (input.actionCapabilitiesData == nil || actionCapabilitiesData == input.actionCapabilitiesData)
+    }
+}
+
+/// Lightweight genre input for one-context batch persistence.
+public struct GenreUpsertInput: Sendable, Equatable {
+    public let ratingKey: String?
+    public let key: String
+    public let title: String
+
+    public init(ratingKey: String?, key: String, title: String) {
+        self.ratingKey = ratingKey
+        self.key = key
+        self.title = title
     }
 }
 
@@ -170,17 +443,25 @@ public struct TrackReparentInfo: Sendable {
     public let trackRatingKey: String
     public let oldAlbumRatingKey: String
     public let newAlbumRatingKey: String?
+    public let sourceCompositeKey: String?
 
-    public init(trackRatingKey: String, oldAlbumRatingKey: String, newAlbumRatingKey: String?) {
+    public init(
+        trackRatingKey: String,
+        oldAlbumRatingKey: String,
+        newAlbumRatingKey: String?,
+        sourceCompositeKey: String? = nil
+    ) {
         self.trackRatingKey = trackRatingKey
         self.oldAlbumRatingKey = oldAlbumRatingKey
         self.newAlbumRatingKey = newAlbumRatingKey
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
 public enum ArtworkInvalidationReason: String, Sendable, Hashable {
     case pathChanged
     case metadataModified
+    case removed
 }
 
 /// Describes artwork that should be evicted after sync metadata changes.
@@ -188,11 +469,18 @@ public struct ArtworkInvalidationInfo: Sendable, Hashable {
     public let ratingKey: String
     public let type: ArtworkType
     public let reason: ArtworkInvalidationReason
+    public let sourceCompositeKey: String?
 
-    public init(ratingKey: String, type: ArtworkType, reason: ArtworkInvalidationReason) {
+    public init(
+        ratingKey: String,
+        type: ArtworkType,
+        reason: ArtworkInvalidationReason,
+        sourceCompositeKey: String? = nil
+    ) {
         self.ratingKey = ratingKey
         self.type = type
         self.reason = reason
+        self.sourceCompositeKey = sourceCompositeKey
     }
 }
 
@@ -211,12 +499,23 @@ final class ArtworkInvalidationBuffer: @unchecked Sendable {
     func record(_ info: ArtworkInvalidationInfo) {
         lock.lock()
         defer { lock.unlock() }
-        guard !pendingInfo.contains(where: {
-            $0.ratingKey == info.ratingKey && $0.type == info.type
-        }) else {
+        if let index = pendingInfo.firstIndex(where: {
+            $0.ratingKey == info.ratingKey
+                && $0.type == info.type
+                && $0.sourceCompositeKey == info.sourceCompositeKey
+        }) {
+            if info.reason == .removed {
+                pendingInfo[index] = info
+            }
             return
         }
         pendingInfo.append(info)
+    }
+
+    func discard(sourceCompositeKey: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        pendingInfo.removeAll { $0.sourceCompositeKey == sourceCompositeKey }
     }
 }
 
@@ -331,6 +630,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
     // Genres
     func fetchGenres() async throws -> [CDGenre]
     func upsertGenre(ratingKey: String?, key: String, title: String, sourceCompositeKey: String?) async throws -> CDGenre
+    func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws
 
     // Search
     func searchTracks(query: String) async throws -> [CDTrack]
@@ -368,6 +668,8 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     // Bulk timestamp lookups (for incremental sync change detection)
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata]
+    func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata]
+    func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata]
     func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
@@ -386,6 +688,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
 
     /// Returns and clears artwork invalidations accumulated during artist/album upserts.
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo]
+
+    /// Discards pending artwork invalidations owned by a removed source.
+    func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String)
 }
 
 public extension LibraryRepositoryProtocol {
@@ -398,7 +703,10 @@ public extension LibraryRepositoryProtocol {
     }
 
     func fetchArtist(ratingKey: String, sourceCompositeKey: String?) async throws -> CDArtist? {
-        try await fetchArtist(ratingKey: ratingKey)
+        guard let sourceCompositeKey,
+              let artist = try await fetchArtist(ratingKey: ratingKey),
+              artist.sourceCompositeKey == sourceCompositeKey else { return nil }
+        return artist
     }
 
     func fetchArtists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDArtist] {
@@ -432,7 +740,10 @@ public extension LibraryRepositoryProtocol {
     }
 
     func fetchAlbum(ratingKey: String, sourceCompositeKey: String?) async throws -> CDAlbum? {
-        try await fetchAlbum(ratingKey: ratingKey)
+        guard let sourceCompositeKey,
+              let album = try await fetchAlbum(ratingKey: ratingKey),
+              album.sourceCompositeKey == sourceCompositeKey else { return nil }
+        return album
     }
 
     func fetchAlbums(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDAlbum] {
@@ -466,7 +777,9 @@ public extension LibraryRepositoryProtocol {
     }
 
     func fetchAlbums(forArtist artistRatingKey: String, sourceCompositeKey: String) async throws -> [CDAlbum] {
-        try await fetchAlbums(forArtist: artistRatingKey)
+        try await fetchAlbums(forArtist: artistRatingKey).filter {
+            $0.sourceCompositeKey == sourceCompositeKey
+        }
     }
 }
 
@@ -562,7 +875,20 @@ public extension LibraryRepositoryProtocol {
     ) async throws -> CDTrack? { nil }
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] { [:] }
+    func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] { [:] }
+    func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata] { [:] }
+    func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws {
+        for input in inputs {
+            _ = try await upsertGenre(
+                ratingKey: input.ratingKey,
+                key: input.key,
+                title: input.title,
+                sourceCompositeKey: sourceCompositeKey
+            )
+        }
+    }
     func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] { [] }
+    func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {}
 }
 
 public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Sendable {
@@ -600,6 +926,10 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         artworkInvalidations.drain()
     }
 
+    public func discardArtworkInvalidations(forSourceCompositeKey sourceCompositeKey: String) {
+        artworkInvalidations.discard(sourceCompositeKey: sourceCompositeKey)
+    }
+
     func recordArtworkInvalidation(_ info: ArtworkInvalidationInfo) {
         artworkInvalidations.record(info)
     }
@@ -607,6 +937,7 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
     func recordArtworkInvalidationIfNeeded(
         ratingKey: String,
         type: ArtworkType,
+        sourceCompositeKey: String,
         oldThumbPath: String?,
         oldArtPath: String?,
         oldDateModified: Date?,
@@ -618,7 +949,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
             recordArtworkInvalidation(ArtworkInvalidationInfo(
                 ratingKey: ratingKey,
                 type: type,
-                reason: .pathChanged
+                reason: .pathChanged,
+                sourceCompositeKey: sourceCompositeKey
             ))
             return
         }
@@ -632,7 +964,8 @@ public final class LibraryRepository: LibraryRepositoryProtocol, @unchecked Send
         recordArtworkInvalidation(ArtworkInvalidationInfo(
             ratingKey: ratingKey,
             type: type,
-            reason: .metadataModified
+            reason: .metadataModified,
+            sourceCompositeKey: sourceCompositeKey
         ))
     }
 
@@ -672,7 +1005,23 @@ extension LibraryRepository {
         )
         for membership in try context.fetch(request) {
             guard let ratingKey = membership.trackRatingKey else { continue }
-            membership.track = tracksByRatingKey[ratingKey]
+            guard let track = tracksByRatingKey[ratingKey] else { continue }
+            membership.track = track
+            guard let playlist = membership.playlist,
+                  playlist.fallbackArtworkPath?.isEmpty != false else { continue }
+            if let album = track.album,
+               let path = album.thumbPath,
+               !path.isEmpty {
+                playlist.fallbackArtworkPath = path
+                playlist.fallbackArtworkRatingKey = album.ratingKey
+                playlist.fallbackArtworkSourceCompositeKey = album.sourceCompositeKey
+                    ?? track.sourceCompositeKey
+            } else if let path = track.thumbPath ?? membership.trackThumbPath,
+                      !path.isEmpty {
+                playlist.fallbackArtworkPath = path
+                playlist.fallbackArtworkRatingKey = nil
+                playlist.fallbackArtworkSourceCompositeKey = track.sourceCompositeKey
+            }
         }
     }
 

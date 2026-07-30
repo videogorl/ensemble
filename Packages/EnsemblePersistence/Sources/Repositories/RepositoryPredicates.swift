@@ -1,3 +1,4 @@
+import CoreData
 import Foundation
 
 enum RepositoryPredicates {
@@ -42,4 +43,5 @@ enum RepositoryPredicates {
             sourceCompositeKey
         )
     }
+
 }

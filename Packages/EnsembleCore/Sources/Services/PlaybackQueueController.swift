@@ -517,14 +517,16 @@ final class PlaybackQueueController {
         history: [QueueItem],
         currentIndex: Int,
         currentTime: TimeInterval,
-        hasUserQueueEdits: Bool = false
+        hasUserQueueEdits: Bool = false,
+        incompatibleQueueItemCount: Int = 0
     ) {
         queueStore.save(
             queue: queue,
             history: history,
             currentIndex: currentIndex,
             currentTime: currentTime,
-            hasUserQueueEdits: hasUserQueueEdits
+            hasUserQueueEdits: hasUserQueueEdits,
+            incompatibleQueueItemCount: incompatibleQueueItemCount
         )
     }
 

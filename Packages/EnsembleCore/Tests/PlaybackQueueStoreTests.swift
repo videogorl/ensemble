@@ -39,7 +39,8 @@ final class PlaybackQueueStoreTests: XCTestCase {
             history: history,
             currentIndex: 0,
             currentTime: 42,
-            hasUserQueueEdits: true
+            hasUserQueueEdits: true,
+            incompatibleQueueItemCount: 3
         )
         try await Task.sleep(nanoseconds: 200_000_000)
 
@@ -49,6 +50,7 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertEqual(snapshot.currentIndex, 0)
         XCTAssertEqual(snapshot.currentTime, 42, accuracy: 0.001)
         XCTAssertTrue(snapshot.hasUserQueueEdits)
+        XCTAssertEqual(snapshot.incompatibleQueueItemCount, 3)
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotURL.path))
         XCTAssertNil(defaults.data(forKey: "com.ensemble.playback.snapshot"))
     }
@@ -81,6 +83,7 @@ final class PlaybackQueueStoreTests: XCTestCase {
 
         let snapshot = try XCTUnwrap(store.load())
         XCTAssertFalse(snapshot.hasUserQueueEdits)
+        XCTAssertEqual(snapshot.incompatibleQueueItemCount, 0)
         XCTAssertTrue(FileManager.default.fileExists(atPath: snapshotURL.path))
         XCTAssertNil(defaults.data(forKey: "com.ensemble.playback.snapshot"))
         XCTAssertNil(defaults.data(forKey: "com.ensemble.playback.queue"))

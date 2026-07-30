@@ -236,15 +236,12 @@ public struct AlbumsView: View {
     }
 
     private func resolveStageFlowTracks(for album: Album) async -> [Track] {
-        let cachedTracks: [CDTrack]
-        if let sourceCompositeKey = album.sourceCompositeKey {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(
-                forAlbum: album.id,
-                sourceCompositeKey: sourceCompositeKey
-            )) ?? []
-        } else {
-            cachedTracks = (try? await deps.libraryRepository.fetchTracks(forAlbum: album.id)) ?? []
-        }
+        guard let sourceCompositeKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return [] }
+        let cachedTracks = (try? await deps.libraryRepository.fetchTracks(
+            forAlbum: album.id,
+            sourceCompositeKey: sourceCompositeKey
+        )) ?? []
 
         return cachedTracks.map { Track(from: $0) }
     }
@@ -315,6 +312,18 @@ public struct AlbumDetailView: View {
             mediaType: .album,
             selectedTrackId: selectedTrackId,
             albumMenuActions: AlbumDetailMenuActions(
+                downloadAvailability: resolvedDownloadMenuAvailability(
+                    isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled(album),
+                    sourceAvailability: album.actionAvailability(
+                        for: .download,
+                        downloadStatus: DownloadCapabilityPolicy.status(
+                            for: album.sourceCompositeKey,
+                            accountManager: deps.accountManager
+                        )
+                    )
+                ),
+                editMetadataAvailability: album.actionAvailability(for: .editMetadata),
+                deleteAvailability: album.actionAvailability(for: .delete),
                 onEditMetadata: {
                     metadataEditorRequest = ContextMenuMetadataEditorRequest(
                         kind: .album,

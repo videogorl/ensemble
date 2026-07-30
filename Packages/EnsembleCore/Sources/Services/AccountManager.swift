@@ -9,9 +9,56 @@ public enum AccountCredentialLoadState: Equatable, Sendable {
     case unavailable
 }
 
+/// Provider-neutral source identities that affect shared browse and playback state.
+public struct SourceConfigurationSnapshot: Equatable, Sendable {
+    public let configuredSources: [MusicSourceIdentifier]
+    public let enabledSources: [MusicSourceIdentifier]
+    public let enabledSourceKeys: Set<String>
+    public let authoritativeSourceTypes: [MusicSourceType]
+    public let hasAnySources: Bool
+    /// Whether every supported provider's configuration has settled.
+    public let isAuthoritative: Bool
+
+    public init(
+        configuredSources: [MusicSourceIdentifier],
+        enabledSources: [MusicSourceIdentifier],
+        authoritativeSourceTypes: [MusicSourceType],
+        hasAnySources: Bool,
+        isAuthoritative: Bool
+    ) {
+        self.configuredSources = configuredSources
+        self.enabledSources = enabledSources
+        self.enabledSourceKeys = Set(enabledSources.map(\.compositeKey))
+        self.authoritativeSourceTypes = authoritativeSourceTypes.sorted { $0.rawValue < $1.rawValue }
+        self.hasAnySources = hasAnySources
+        self.isAuthoritative = isAuthoritative
+    }
+
+    /// Whether this snapshot can enforce enablement for an item's provider.
+    /// Missing or malformed ownership waits for full configuration authority.
+    public func isAuthoritative(for sourceKey: String?) -> Bool {
+        guard let sourceType = MediaSourceIdentity.sourceType(from: sourceKey) else {
+            return isAuthoritative
+        }
+        return authoritativeSourceTypes.contains(sourceType)
+    }
+
+    /// Keeps valid enabled items and provisionally keeps valid items whose provider is unresolved.
+    public func shouldPreserveSourceKey(_ sourceKey: String?) -> Bool {
+        guard MediaSourceIdentity.parse(sourceKey) != nil else { return false }
+        guard isAuthoritative(for: sourceKey) else { return true }
+        return MediaSourceIdentity.isEnabledSourceKey(sourceKey, within: enabledSourceKeys)
+    }
+}
+
 /// Manages connected music source accounts (Plex, future Apple Music, etc.)
 @MainActor
 public final class AccountManager: ObservableObject {
+    struct AppleMusicSetupState: Equatable {
+        let isEnabled: Bool
+        let isInitialSyncPending: Bool
+    }
+
     private struct AccountLoadResult: Sendable {
         let json: String?
         let migrationWasApplied: Bool
@@ -65,11 +112,50 @@ public final class AccountManager: ObservableObject {
         }
     }
 
-    @Published public private(set) var plexAccounts: [PlexAccountConfig] = []
-    @Published public private(set) var isAppleMusicEnabled: Bool
+    @Published public private(set) var plexAccounts: [PlexAccountConfig] = [] {
+        didSet {
+            recordPlexSourceConfigurationChanges(from: oldValue, to: plexAccounts)
+        }
+    }
+    @Published public private(set) var isAppleMusicEnabled: Bool {
+        didSet {
+            guard isAppleMusicEnabled != oldValue else { return }
+            advanceSourceConfigurationRevision(forSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+        }
+    }
+    @Published public private(set) var isAppleMusicInitialSyncPending: Bool
     @Published public private(set) var isAwaitingCloudSources = false
     /// Distinguishes a valid empty Keychain from a Keychain access failure.
     @Published public private(set) var credentialLoadState: AccountCredentialLoadState = .loading
+
+    /// Emits once initially and when configured or enabled source identities change.
+    public var sourceConfigurationPublisher: AnyPublisher<SourceConfigurationSnapshot, Never> {
+        Publishers.CombineLatest4(
+            $plexAccounts,
+            $isAppleMusicEnabled,
+            $credentialLoadState,
+            $isAwaitingCloudSources
+        )
+            .map { accounts, appleMusicEnabled, credentialState, isAwaitingCloudSources in
+                Self.makeSourceConfigurationSnapshot(
+                    plexAccounts: accounts,
+                    isAppleMusicEnabled: appleMusicEnabled,
+                    credentialLoadState: credentialState,
+                    isAwaitingCloudSources: isAwaitingCloudSources
+                )
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    public var sourceConfigurationSnapshot: SourceConfigurationSnapshot {
+        Self.makeSourceConfigurationSnapshot(
+            plexAccounts: plexAccounts,
+            isAppleMusicEnabled: isAppleMusicEnabled,
+            credentialLoadState: credentialLoadState,
+            isAwaitingCloudSources: isAwaitingCloudSources
+        )
+    }
 
     /// Whether cached data may be filtered against the current configured sources.
     public var isSourceConfigurationAuthoritative: Bool {
@@ -84,12 +170,15 @@ public final class AccountManager: ObservableObject {
     private var libraryFlagModifiedAt: [String: TimeInterval]
     private var accountLoadTask: Task<AccountLoadResult, Never>?
     private var accountLoadGeneration = 0
+    private var nextSourceConfigurationRevision: UInt64 = 0
+    private var sourceConfigurationRevisions: [String: UInt64] = [:]
     private static let accountLoadPollNanoseconds: UInt64 = 25_000_000
     private static let accountLoadPollLimit = 40
     nonisolated private static let authMigrationVersionKey = "plex_auth_migration_version"
     nonisolated private static let authMigrationVersion = 2
     private static let libraryFlagModifiedAtKey = "sync.libraryFlagModifiedAt"
     private static let appleMusicEnabledKey = "sources.appleMusic.enabled"
+    private static let appleMusicInitialSyncPendingKey = "sources.appleMusic.initialSyncPending"
 
     public init(
         keychain: KeychainServiceProtocol,
@@ -101,9 +190,12 @@ public final class AccountManager: ObservableObject {
         self.isNetworkAvailable = isNetworkAvailable
         self.libraryFlagModifiedAt = Self.loadLibraryFlagModifiedAt()
         #if os(iOS)
-        self.isAppleMusicEnabled = UserDefaults.standard.bool(forKey: Self.appleMusicEnabledKey)
+        let appleMusicSetupState = Self.loadAppleMusicSetupState()
+        self.isAppleMusicEnabled = appleMusicSetupState.isEnabled
+        self.isAppleMusicInitialSyncPending = appleMusicSetupState.isInitialSyncPending
         #else
         self.isAppleMusicEnabled = false
+        self.isAppleMusicInitialSyncPending = false
         #endif
     }
 
@@ -643,15 +735,140 @@ public final class AccountManager: ObservableObject {
         return true
     }
 
+    /// Monotonic identity for one configured source. Removing and re-adding the
+    /// same composite key produces a new value so older provider work can be discarded.
+    public func sourceConfigurationRevision(forSourceKey sourceKey: String) -> UInt64 {
+        sourceConfigurationRevisions[sourceKey] ?? 0
+    }
+
+    private func recordPlexSourceConfigurationChanges(
+        from previousAccounts: [PlexAccountConfig],
+        to currentAccounts: [PlexAccountConfig]
+    ) {
+        let previousStates = Self.plexSourceEnablementByKey(in: previousAccounts)
+        let currentStates = Self.plexSourceEnablementByKey(in: currentAccounts)
+        let sourceKeys = Set(previousStates.keys).union(currentStates.keys)
+
+        for sourceKey in sourceKeys where previousStates[sourceKey] != currentStates[sourceKey] {
+            advanceSourceConfigurationRevision(forSourceKey: sourceKey)
+        }
+    }
+
+    private func advanceSourceConfigurationRevision(forSourceKey sourceKey: String) {
+        nextSourceConfigurationRevision &+= 1
+        sourceConfigurationRevisions[sourceKey] = nextSourceConfigurationRevision
+    }
+
+    private nonisolated static func plexSourceEnablementByKey(
+        in accounts: [PlexAccountConfig]
+    ) -> [String: Bool] {
+        var result: [String: Bool] = [:]
+        for account in accounts {
+            for server in account.servers {
+                for library in server.libraries {
+                    let source = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    )
+                    result[source.compositeKey] = library.isEnabled
+                }
+            }
+        }
+        return result
+    }
+
     // MARK: - Source Enumeration
+
+    private nonisolated static func makeSourceConfigurationSnapshot(
+        plexAccounts: [PlexAccountConfig],
+        isAppleMusicEnabled: Bool,
+        credentialLoadState: AccountCredentialLoadState,
+        isAwaitingCloudSources: Bool
+    ) -> SourceConfigurationSnapshot {
+        var configuredSources: [MusicSourceIdentifier] = []
+        var enabledSources: [MusicSourceIdentifier] = []
+        for account in plexAccounts {
+            for server in account.servers {
+                for library in server.libraries {
+                    let source = MusicSourceIdentifier(
+                        type: .plex,
+                        accountId: account.id,
+                        serverId: server.id,
+                        libraryId: library.key
+                    )
+                    configuredSources.append(source)
+                    if library.isEnabled {
+                        enabledSources.append(source)
+                    }
+                }
+            }
+        }
+
+        #if os(iOS)
+        if isAppleMusicEnabled {
+            configuredSources.append(.appleMusic)
+            enabledSources.append(.appleMusic)
+        }
+        #endif
+
+        configuredSources.sort { $0.compositeKey < $1.compositeKey }
+        enabledSources.sort { $0.compositeKey < $1.compositeKey }
+        let plexIsAuthoritative = credentialLoadState == .loaded && !isAwaitingCloudSources
+        var authoritativeSourceTypes: [MusicSourceType] = [.appleMusic]
+        if plexIsAuthoritative {
+            authoritativeSourceTypes.append(.plex)
+        }
+        return SourceConfigurationSnapshot(
+            configuredSources: configuredSources,
+            enabledSources: enabledSources,
+            authoritativeSourceTypes: authoritativeSourceTypes,
+            hasAnySources: !plexAccounts.isEmpty || isAppleMusicEnabled,
+            isAuthoritative: plexIsAuthoritative
+        )
+    }
 
     public func setAppleMusicEnabled(_ isEnabled: Bool) {
         #if os(iOS)
         guard isAppleMusicEnabled != isEnabled else { return }
+        Self.persistAppleMusicEnabled(isEnabled)
+        isAppleMusicInitialSyncPending = isEnabled
         isAppleMusicEnabled = isEnabled
-        UserDefaults.standard.set(isEnabled, forKey: Self.appleMusicEnabledKey)
         SiriMediaIndexNotifications.postRebuildRequest(reason: "account_configuration_changed")
         #endif
+    }
+
+    func markAppleMusicInitialSyncCompleted() {
+        #if os(iOS)
+        guard isAppleMusicInitialSyncPending else { return }
+        Self.persistAppleMusicInitialSyncCompleted()
+        isAppleMusicInitialSyncPending = false
+        #endif
+    }
+
+    static func loadAppleMusicSetupState(
+        from defaults: UserDefaults = .standard
+    ) -> AppleMusicSetupState {
+        let isEnabled = defaults.bool(forKey: appleMusicEnabledKey)
+        return AppleMusicSetupState(
+            isEnabled: isEnabled,
+            isInitialSyncPending: isEnabled && defaults.bool(forKey: appleMusicInitialSyncPendingKey)
+        )
+    }
+
+    static func persistAppleMusicEnabled(
+        _ isEnabled: Bool,
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(isEnabled, forKey: appleMusicInitialSyncPendingKey)
+        defaults.set(isEnabled, forKey: appleMusicEnabledKey)
+    }
+
+    static func persistAppleMusicInitialSyncCompleted(
+        to defaults: UserDefaults = .standard
+    ) {
+        defaults.set(false, forKey: appleMusicInitialSyncPendingKey)
     }
 
     /// Returns all enabled MusicSourceIdentifiers across all accounts

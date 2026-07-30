@@ -232,10 +232,11 @@ public final class ShareService: ObservableObject {
     }
 
     private func originalFileInfo(for track: Track) async -> AudioFileInfo? {
-        guard let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
         do {
-            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
-            return AudioFileInfo(from: plexTrack)
+            return try await syncCoordinator.getAudioFileInfo(
+                trackId: track.id,
+                sourceKey: track.sourceCompositeKey
+            )
         } catch {
             logger.debug("Couldn't load original file metadata for sharing: \(error.localizedDescription)")
             return nil

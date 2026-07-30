@@ -3,6 +3,12 @@ import EnsembleAPI
 import EnsemblePersistence
 import Foundation
 
+/// The user-visible result of syncing one configured music source.
+public enum MusicSourceSyncOutcome: Sendable, Equatable {
+    case success
+    case failure(message: String)
+}
+
 public struct PlaylistMutationResult: Sendable {
     public let addedCount: Int
     public let skippedCount: Int
@@ -55,7 +61,7 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .invalidSource:
-            return "Could not determine a valid Plex server for this action."
+            return "Could not determine a valid music source for this action."
         case .playlistNotFound:
             return "Playlist not found."
         case .smartPlaylistReadOnly:
@@ -63,7 +69,7 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
         case .emptySelection:
             return "No compatible tracks were selected."
         case .duplicateName:
-            return "A playlist with that name already exists on this server."
+            return "A playlist with that name already exists in this source."
         case .incompletePlaylistContents:
             return "This playlist contains tracks from disabled libraries. Re-enable them before editing the playlist."
         }
@@ -73,6 +79,27 @@ public enum PlaylistMutationError: LocalizedError, Equatable {
 /// Coordinates syncing across all configured music sources
 @MainActor
 public final class SyncCoordinator: ObservableObject {
+    public static let sourceCleanupDidComplete = Notification.Name("SyncCoordinatorSourceCleanupDidComplete")
+    private struct ActiveSourceSync {
+        let id: UUID
+        let task: Task<MusicSourceSyncOutcome, Never>
+    }
+
+    private struct ActiveSourcePersistenceWork {
+        let registration: ConfiguredSourceProvider
+        let lease: SourcePersistenceLease
+    }
+
+    private struct SourcePersistenceOperation {
+        let work: [ActiveSourcePersistenceWork]
+
+        var providers: [String: MusicSourceSyncProvider] {
+            Dictionary(uniqueKeysWithValues: work.map {
+                ($0.registration.provider.sourceIdentifier.compositeKey, $0.registration.provider)
+            })
+        }
+    }
+
     /// Posted after server playlists are refreshed (e.g. after a mutation).
     /// The notification's `userInfo` contains `["serverSourceKey": String]`.
     public static let playlistsDidRefresh = Notification.Name("SyncCoordinatorPlaylistsDidRefresh")
@@ -104,6 +131,11 @@ public final class SyncCoordinator: ObservableObject {
     private let playbackReportingController: SyncPlaybackReportingController
     private let networkLifecycleController: NetworkLifecycleController
     private var syncProviders: [String: MusicSourceSyncProvider] = [:]  // keyed by compositeKey
+    private var syncProviderRevisions: [String: SourceProviderRevision] = [:]
+    private var providerRegistrationRevision: UInt64 = 0
+    private var enforcesSourceConfigurationForProviders = true
+    private let sourcePersistenceFence = SourcePersistenceFence()
+    private var activeSourceSyncs: [String: ActiveSourceSync] = [:]
     private var providerResolver: SyncProviderResolver {
         SyncProviderResolver(providers: syncProviders)
     }
@@ -118,10 +150,6 @@ public final class SyncCoordinator: ObservableObject {
     private static let lastPlaylistSourceKey = "NowPlaying.LastPlaylist.SourceKey"
     private static let lastPlaylistTargetsByServerKey = "NowPlaying.LastPlaylist.ByServer"
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
-    internal var playlistDeleteHandlerForTesting: ((PlexAPIClient, String) async throws -> Void)?
-    internal var playlistReplaceContentsHandlerForTesting: ((PlexAPIClient, String, [String], String) async throws -> Void)?
-    internal var playlistRemoveItemHandlerForTesting: ((PlexAPIClient, String, String) async throws -> Void)?
-    internal var playlistMoveItemHandlerForTesting: ((PlexAPIClient, String, String, String?) async throws -> Void)?
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
@@ -156,13 +184,29 @@ public final class SyncCoordinator: ObservableObject {
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
 
-    internal func setSyncProvidersForTesting(_ providers: [String: MusicSourceSyncProvider]) {
+    internal func setSyncProvidersForTesting(
+        _ providers: [String: MusicSourceSyncProvider],
+        enforceSourceConfiguration: Bool = false
+    ) {
         syncProviders = providers
+        registerCurrentProviders(
+            enforceSourceConfiguration: enforceSourceConfiguration,
+            preserveUnchangedRevisions: false
+        )
     }
 
     internal var configuredSourceProviders: [MusicSourceSyncProvider] {
         syncProviders.values.sorted {
             $0.sourceIdentifier.compositeKey < $1.sourceIdentifier.compositeKey
+        }
+    }
+
+    internal var configuredSourceProviderRegistrations: [ConfiguredSourceProvider] {
+        configuredSourceProviders.compactMap { provider in
+            guard let revision = syncProviderRevisions[provider.sourceIdentifier.compositeKey] else {
+                return nil
+            }
+            return ConfiguredSourceProvider(provider: provider, revision: revision)
         }
     }
 
@@ -240,6 +284,7 @@ public final class SyncCoordinator: ObservableObject {
                         sourceIdentifier: sourceId,
                         apiClient: apiClient,
                         sectionKey: library.key,
+                        enabledSectionKeys: server.libraries.filter(\.isEnabled).map(\.key),
                         syncCursorRepository: syncCursorRepository
                     )
 
@@ -263,6 +308,191 @@ public final class SyncCoordinator: ObservableObject {
                 }
             }
         }
+        registerCurrentProviders(
+            enforceSourceConfiguration: true,
+            preserveUnchangedRevisions: true
+        )
+    }
+
+    private func registerCurrentProviders(
+        enforceSourceConfiguration: Bool,
+        preserveUnchangedRevisions: Bool
+    ) {
+        let previousRevisions = syncProviderRevisions
+        enforcesSourceConfigurationForProviders = enforceSourceConfiguration
+        syncProviderRevisions = Dictionary(uniqueKeysWithValues: syncProviders.keys.sorted().map { sourceKey in
+            let sourceConfigurationRevision = accountManager.sourceConfigurationRevision(forSourceKey: sourceKey)
+            if preserveUnchangedRevisions,
+               let previousRevision = previousRevisions[sourceKey],
+               previousRevision.sourceConfiguration == sourceConfigurationRevision {
+                return (sourceKey, previousRevision)
+            }
+            providerRegistrationRevision &+= 1
+            return (
+                sourceKey,
+                SourceProviderRevision(
+                    sourceConfiguration: sourceConfigurationRevision,
+                    providerRegistration: providerRegistrationRevision
+                )
+            )
+        })
+    }
+
+    private func isCurrentProviderRevision(
+        _ revision: SourceProviderRevision,
+        sourceKey: String
+    ) -> Bool {
+        guard syncProviderRevisions[sourceKey] == revision else { return false }
+        guard enforcesSourceConfigurationForProviders else { return true }
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        return sourceConfiguration.shouldPreserveSourceKey(sourceKey)
+            && accountManager.sourceConfigurationRevision(forSourceKey: sourceKey) == revision.sourceConfiguration
+    }
+
+    internal func beginSourcePersistenceWork(
+        sourceKey: String,
+        revision: SourceProviderRevision
+    ) -> SourcePersistenceLease? {
+        guard isCurrentProviderRevision(revision, sourceKey: sourceKey) else { return nil }
+        return sourcePersistenceFence.begin(sourceKey: sourceKey)
+    }
+
+    internal func isSourcePersistenceWorkCurrent(
+        sourceKey: String,
+        revision: SourceProviderRevision,
+        lease: SourcePersistenceLease
+    ) -> Bool {
+        isCurrentProviderRevision(revision, sourceKey: sourceKey)
+            && sourcePersistenceFence.isCurrent(lease)
+    }
+
+    internal func finishSourcePersistenceWork(_ lease: SourcePersistenceLease) {
+        sourcePersistenceFence.finish(lease)
+    }
+
+    /// Joins non-sync persistence work to the current provider registration so
+    /// explicit source cleanup waits for it before performing the final purge.
+    internal func beginCurrentSourcePersistenceWork(
+        sourceKey: String
+    ) -> SourcePersistenceWorkHandle? {
+        beginCurrentSourcePersistenceWork(sourceKeys: [sourceKey])
+    }
+
+    /// Joins one write to every source it references. Library keys require an
+    /// exact current provider; only genuinely server-scoped providers may span
+    /// their enabled libraries.
+    internal func beginCurrentSourcePersistenceWork(
+        sourceKeys: Set<String>
+    ) -> SourcePersistenceWorkHandle? {
+        guard !sourceKeys.isEmpty else { return nil }
+        let registrations = configuredSourceProviderRegistrations
+        var requiredRegistrations: [String: ConfiguredSourceProvider] = [:]
+        var serverSourceKeys = Set<String>()
+
+        for sourceKey in sourceKeys {
+            guard let identity = MediaSourceIdentity.parse(sourceKey) else { return nil }
+            if !identity.isServerScoped {
+                guard let exactRegistration = registrations.first(where: {
+                    $0.provider.sourceIdentifier.compositeKey == sourceKey
+                }) else {
+                    return nil
+                }
+                requiredRegistrations[sourceKey] = exactRegistration
+                continue
+            }
+
+            guard identity.sourceType.capabilities.playlistsAreServerScoped else { return nil }
+            let matchingRegistrations = registrations.filter {
+                MediaSourceIdentity.isSameServer(
+                    $0.provider.sourceIdentifier.compositeKey,
+                    sourceKey
+                )
+            }
+            guard !matchingRegistrations.isEmpty else { return nil }
+            for registration in matchingRegistrations {
+                requiredRegistrations[registration.provider.sourceIdentifier.compositeKey] = registration
+            }
+            serverSourceKeys.insert(sourceKey)
+        }
+
+        guard let operation = beginSourcePersistenceOperation(
+            registrations: Array(requiredRegistrations.values)
+        ) else {
+            return nil
+        }
+        var leases = operation.work.map(\.lease)
+
+        for sourceKey in serverSourceKeys.sorted() {
+            guard let serverLease = sourcePersistenceFence.begin(sourceKey: sourceKey) else {
+                leases.forEach(finishSourcePersistenceWork)
+                return nil
+            }
+            leases.append(serverLease)
+        }
+        return SourcePersistenceWorkHandle(leases: leases)
+    }
+
+    internal func finishSourcePersistenceWork(_ handle: SourcePersistenceWorkHandle) {
+        handle.leases.forEach(finishSourcePersistenceWork)
+    }
+
+    internal func isSourcePersistenceWorkCurrent(_ handle: SourcePersistenceWorkHandle) -> Bool {
+        handle.leases.allSatisfy(sourcePersistenceFence.isCurrent)
+    }
+
+    private func beginSourcePersistenceOperation(
+        sourceKey: String
+    ) -> SourcePersistenceOperation? {
+        let registrations = configuredSourceProviderRegistrations
+        let exactMatches = registrations.filter {
+            $0.provider.sourceIdentifier.compositeKey == sourceKey
+        }
+        let candidates: [ConfiguredSourceProvider]
+        if !exactMatches.isEmpty {
+            candidates = exactMatches
+        } else {
+            candidates = registrations.filter {
+                MediaSourceIdentity.isSameServer(
+                    $0.provider.sourceIdentifier.compositeKey,
+                    sourceKey
+                )
+            }
+        }
+        return beginSourcePersistenceOperation(registrations: candidates)
+    }
+
+    private func beginSourcePersistenceOperation(
+        registrations: [ConfiguredSourceProvider]
+    ) -> SourcePersistenceOperation? {
+        guard !registrations.isEmpty else { return nil }
+        var activeWork: [ActiveSourcePersistenceWork] = []
+        for registration in registrations {
+            let sourceKey = registration.provider.sourceIdentifier.compositeKey
+            guard let lease = beginSourcePersistenceWork(
+                sourceKey: sourceKey,
+                revision: registration.revision
+            ) else {
+                activeWork.forEach { finishSourcePersistenceWork($0.lease) }
+                return nil
+            }
+            activeWork.append(ActiveSourcePersistenceWork(registration: registration, lease: lease))
+        }
+        return SourcePersistenceOperation(work: activeWork)
+    }
+
+    private func isSourcePersistenceOperationCurrent(_ operation: SourcePersistenceOperation) -> Bool {
+        operation.work.allSatisfy { work in
+            let sourceKey = work.registration.provider.sourceIdentifier.compositeKey
+            return isSourcePersistenceWorkCurrent(
+                sourceKey: sourceKey,
+                revision: work.registration.revision,
+                lease: work.lease
+            )
+        }
+    }
+
+    private func finishSourcePersistenceOperation(_ operation: SourcePersistenceOperation) {
+        operation.work.forEach { finishSourcePersistenceWork($0.lease) }
     }
 
     /// Load the last sync date from CoreData
@@ -281,9 +511,68 @@ public final class SyncCoordinator: ObservableObject {
         await syncExecutionController().syncAll(providers: syncProviders)
     }
 
-    /// Sync a single source.
-    public func sync(source: MusicSourceIdentifier) async {
+    /// Sync a single source and report whether every required phase completed.
+    @discardableResult
+    public func sync(source: MusicSourceIdentifier) async -> MusicSourceSyncOutcome {
         await syncExecutionController().sync(source: source, providers: syncProviders)
+    }
+
+    private func runSourceSyncSingleFlight(
+        source: MusicSourceIdentifier,
+        operation: @escaping @MainActor () async -> MusicSourceSyncOutcome
+    ) async -> MusicSourceSyncOutcome {
+        let sourceKey = source.compositeKey
+        if let activeSync = activeSourceSyncs[sourceKey] {
+            return await activeSync.task.value
+        }
+
+        let id = UUID()
+        let task = Task { @MainActor in
+            guard !Task.isCancelled else {
+                return MusicSourceSyncOutcome.failure(message: "Sync was cancelled.")
+            }
+            return await operation()
+        }
+        activeSourceSyncs[sourceKey] = ActiveSourceSync(id: id, task: task)
+
+        let outcome = await task.value
+        if activeSourceSyncs[sourceKey]?.id == id {
+            if case .failure(let message) = outcome,
+               let status = sourceStatuses[source],
+               case .syncing = status.syncStatus,
+               accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceKey) {
+                sourceStatuses[source] = MusicSourceStatus(
+                    syncStatus: .error(message),
+                    connectionState: effectiveConnectionState(for: status.connectionState)
+                )
+            }
+            activeSourceSyncs.removeValue(forKey: sourceKey)
+        }
+        return outcome
+    }
+
+    private func cancelSourceSync(_ source: MusicSourceIdentifier) async {
+        let sourceKey = source.compositeKey
+        guard let activeSync = activeSourceSyncs[sourceKey] else { return }
+        activeSync.task.cancel()
+        _ = await activeSync.task.value
+        if activeSourceSyncs[sourceKey]?.id == activeSync.id {
+            activeSourceSyncs.removeValue(forKey: sourceKey)
+        }
+    }
+
+    private func publishSourceSyncPreflightFailure(
+        source: MusicSourceIdentifier,
+        message: String
+    ) {
+        guard accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(source.compositeKey) else {
+            return
+        }
+        let connectionState = sourceStatuses[source]?.connectionState ?? .unknown
+        sourceStatuses[source] = MusicSourceStatus(
+            syncStatus: .error(message),
+            connectionState: effectiveConnectionState(for: connectionState)
+        )
     }
 
     /// Sync a scoped set of sources while publishing one global sync lifecycle.
@@ -362,18 +651,25 @@ public final class SyncCoordinator: ObservableObject {
     /// Sync only playlists incrementally (fast, no library sync)
     public func syncPlaylistsOnly() async {
         guard !isSyncing else { return }
+        guard let persistenceOperation = beginSourcePersistenceOperation(
+            registrations: configuredSourceProviderRegistrations
+        ) else { return }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
         isSyncing = true
         defer { isSyncing = false }
 
         let results = await playlistRefreshController.refreshAllServers(
-            providers: syncProviders,
+            providers: persistenceOperation.providers,
             playlistRepository: playlistRepository,
             trigger: .playlistOnly,
             allowFullFallback: false
         )
 
         for result in results {
+            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
+            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,
@@ -391,87 +687,50 @@ public final class SyncCoordinator: ObservableObject {
         return playlists.map { Playlist(from: $0) }
     }
 
-    private func playlistMutationController() -> PlaylistMutationController {
+    private func playlistMutationController(
+        persistenceOperation: SourcePersistenceOperation,
+        baseProvider: MusicSourceSyncProvider
+    ) -> PlaylistMutationController {
         PlaylistMutationController(
             dependencies: .init(
-                validateServerSourceKey: { serverSourceKey in
-                    MediaSourceIdentity.parse(serverSourceKey) != nil
-                },
                 fetchPlaylists: { [weak self] sourceKey in
                     guard let self else { return [] }
                     return try await self.fetchPlaylists(forServerSourceKey: sourceKey)
                 },
-                filteredTrackIDsForServer: { [weak self] tracks, serverSourceKey in
-                    guard let self else { return [] }
-                    return await self.filteredTrackIDsForServer(
-                        tracks: tracks,
-                        serverSourceKey: serverSourceKey
-                    )
+                persistCreatedPlaylist: { [weak self] playlist, tracks in
+                    guard let self else { return }
+                    try await self.persistCreatedPlaylist(playlist, tracks: tracks)
                 },
-                createRemotePlaylist: { [weak self] title, trackIDs, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.createRemotePlaylist(
-                        title: title,
-                        trackIDs: trackIDs,
-                        serverSourceKey: serverSourceKey
-                    )
+                persistOptimisticAdd: { [weak self] tracks, playlist in
+                    guard let self else { return playlist.trackCount + tracks.count }
+                    return try await self.persistOptimisticPlaylistAdd(tracks, playlist: playlist)
                 },
-                reconcileCreatedPlaylist: { [weak self] title, trackIDs, serverSourceKey, isEmptyCreate in
-                    guard let self else { return nil }
-                    return await self.reconcileCreatedPlaylist(
-                        title: title,
-                        filteredTrackIds: trackIDs,
-                        serverSourceKey: serverSourceKey,
-                        isEmptyCreate: isEmptyCreate
-                    )
-                },
-                addTracksToRemotePlaylist: { [weak self] playlistID, trackIDs, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.addTracksToRemotePlaylist(
-                        playlistId: playlistID,
-                        trackIDs: trackIDs,
-                        serverSourceKey: serverSourceKey
-                    )
-                },
-                renameRemotePlaylist: { [weak self] playlistID, newTitle, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.renameRemotePlaylist(
-                        playlistId: playlistID,
-                        newTitle: newTitle,
-                        serverSourceKey: serverSourceKey
-                    )
-                },
-                deleteRemotePlaylist: { [weak self] playlistID, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.deleteRemotePlaylist(
-                        playlistId: playlistID,
-                        serverSourceKey: serverSourceKey
-                    )
-                },
-                replaceRemotePlaylistContents: { [weak self] playlistID, trackIDs, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.replaceRemotePlaylistContents(
-                        playlistId: playlistID,
-                        trackIDs: trackIDs,
-                        serverSourceKey: serverSourceKey
-                    )
-                },
-                removeRemotePlaylistItem: { [weak self] playlistID, itemID, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.removeRemotePlaylistItem(
-                        playlistId: playlistID,
-                        itemID: itemID,
-                        serverSourceKey: serverSourceKey
-                    )
-                },
-                moveRemotePlaylistItem: { [weak self] playlistID, itemID, afterItemID, serverSourceKey in
-                    guard let self else { throw PlaylistMutationError.invalidSource }
-                    try await self.moveRemotePlaylistItem(
-                        playlistId: playlistID,
-                        itemID: itemID,
-                        afterItemID: afterItemID,
-                        serverSourceKey: serverSourceKey
-                    )
+                reconcileAcceptedAdd: { [weak self] mutator, playlist, tracks, minimumTrackCount in
+                    guard let self, let sourceKey = playlist.sourceCompositeKey else { return }
+                    guard let registration = persistenceOperation.work.first(where: {
+                        $0.registration.provider.sourceIdentifier == baseProvider.sourceIdentifier
+                    })?.registration else { return }
+
+                    if let reconciler = mutator as? MusicSourcePlaylistReconciling {
+                        Task { [weak self] in
+                            await self?.reconcileProviderPlaylist(
+                                reconciler,
+                                providerSourceKey: baseProvider.sourceIdentifier.compositeKey,
+                                sourceKey: sourceKey,
+                                playlistID: playlist.id,
+                                minimumTrackCount: minimumTrackCount,
+                                requiredTracks: tracks,
+                                expectedRevision: registration.revision
+                            )
+                        }
+                    } else {
+                        Task { [weak self] in
+                            await self?.refreshPlaylistsAfterMutation(
+                                sourceKey: sourceKey,
+                                requiredTracks: tracks
+                            )
+                        }
+                    }
                 },
                 persistLastPlaylistTarget: { [weak self] playlist in
                     self?.persistLastPlaylistTarget(from: playlist)
@@ -479,100 +738,140 @@ public final class SyncCoordinator: ObservableObject {
                 clearLastPlaylistTargetIfNeeded: { [weak self] playlist in
                     self?.clearLastPlaylistTargetIfNeeded(deletedPlaylist: playlist)
                 },
-                deletePlaylistArtwork: { [weak self] ratingKey in
-                    self?.artworkDownloadManager.deleteArtwork(ratingKey: ratingKey, type: .playlist)
+                deletePlaylistArtwork: { [weak self] ratingKey, sourceCompositeKey in
+                    self?.artworkDownloadManager.deleteArtwork(
+                        ratingKey: ratingKey,
+                        type: .playlist,
+                        sourceCompositeKey: sourceCompositeKey
+                    )
                 },
-                refreshRemotePlaylist: { [weak self] playlistID, serverSourceKey in
-                    await self?.refreshRemotePlaylist(playlistID: playlistID, serverSourceKey: serverSourceKey)
-                },
-                refreshServerPlaylists: { [weak self] serverSourceKey in
+                refreshPlaylists: { [weak self] sourceKey in
                     guard let self else { return }
                     if let refreshServerPlaylistsHandlerForTesting {
-                        await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
+                        await refreshServerPlaylistsHandlerForTesting(sourceKey)
                     } else {
-                        await self.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+                        await self.refreshProviderPlaylists(
+                            baseProvider,
+                            sourceKey: sourceKey,
+                            persistenceOperation: persistenceOperation
+                        )
+                    }
+                },
+                refreshPlaylistsAfterMutation: { [weak self] sourceKey, requiredTracks in
+                    guard let self else { return }
+                    if let refreshServerPlaylistsHandlerForTesting {
+                        await refreshServerPlaylistsHandlerForTesting(sourceKey)
+                    } else {
+                        await self.refreshPlaylistsAfterMutation(
+                            sourceKey: sourceKey,
+                            requiredTracks: requiredTracks
+                        )
                     }
                 }
             )
         )
     }
 
-    /// Create a new playlist and immediately refresh local cache for that server.
+    private func playlistMutationProvider(
+        for sourceKey: String
+    ) throws -> (provider: MusicSourceSyncProvider, capability: MusicSourcePlaylistMutating) {
+        try providerResolver.requireCapabilityMatchingSourceScope(
+            sourceKey: sourceKey,
+            name: "playlist mutations",
+            as: MusicSourcePlaylistMutating.self
+        )
+    }
+
+    private func beginPlaylistMutationPersistenceWork(
+        sourceKey: String,
+        tracks: [Track]
+    ) -> SourcePersistenceWorkHandle? {
+        guard let sourceKeys = playlistMutationSourceKeys(sourceKey: sourceKey, tracks: tracks) else {
+            return nil
+        }
+        return beginCurrentSourcePersistenceWork(sourceKeys: sourceKeys)
+    }
+
+    private func playlistMutationSourceKeys(
+        sourceKey: String,
+        tracks: [Track]
+    ) -> Set<String>? {
+        let compatibleTracks = PlaylistActionService().tracks(
+            tracks,
+            compatibleWithServerSourceKey: sourceKey
+        )
+        var sourceKeys: Set<String> = [sourceKey]
+        for track in compatibleTracks {
+            guard let trackSourceKey = track.sourceCompositeKey,
+                  MusicSourceIdentifier(compositeKey: trackSourceKey) != nil else {
+                return nil
+            }
+            sourceKeys.insert(trackSourceKey)
+        }
+        return sourceKeys
+    }
+
+    /// Create a new playlist and schedule provider-owned cache reconciliation.
     public func createPlaylist(
         title: String,
         tracks: [Track],
         serverSourceKey: String
     ) async throws -> PlaylistMutationResult {
-        #if os(iOS)
-        if MusicSourceIdentifier(compositeKey: serverSourceKey)?.type == .appleMusic {
-            guard #available(iOS 18, *),
-                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
-            else { throw PlaylistMutationError.invalidSource }
-            let compatible = tracks.filter(\.isAppleMusic)
-            try await provider.createPlaylist(title: title, tracks: compatible)
-            await refreshAppleMusicPlaylists(provider)
-            return PlaylistMutationResult(addedCount: compatible.count, skippedCount: tracks.count - compatible.count)
+        guard let inputPersistenceWork = beginPlaylistMutationPersistenceWork(
+            sourceKey: serverSourceKey,
+            tracks: tracks
+        ) else {
+            throw PlaylistMutationError.invalidSource
         }
-        #endif
-        return try await playlistMutationController().createPlaylist(
+        defer { finishSourcePersistenceWork(inputPersistenceWork) }
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: serverSourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
+        let provider = try playlistMutationProvider(for: serverSourceKey)
+        let result = try await playlistMutationController(
+            persistenceOperation: persistenceOperation,
+            baseProvider: provider.provider
+        ).createPlaylist(
             title: title,
             tracks: tracks,
-            serverSourceKey: serverSourceKey
+            sourceKey: serverSourceKey,
+            provider: provider.capability
         )
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        return result
     }
 
-    /// Add tracks to an existing playlist and refresh local cache for the playlist's server.
+    /// Add tracks to an existing playlist and reconcile its provider-owned cache.
     public func addTracksToPlaylist(_ tracks: [Track], playlist: Playlist) async throws -> PlaylistMutationResult {
         guard playlist.supportsPlaylistTrackAdds else {
             throw PlaylistMutationError.smartPlaylistReadOnly
         }
-        #if os(iOS)
-        if playlist.sourceType == .appleMusic {
-            guard #available(iOS 18, *),
-                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
-            else { throw PlaylistMutationError.invalidSource }
-            let compatible = tracks.filter(\.isAppleMusic)
-            let startedAt = ProcessInfo.processInfo.systemUptime
-            EnsembleLogger.info(
-                "Apple Music playlist add started playlist=\(playlist.id) tracks=\(compatible.count)"
-            )
-            let added: Int
-            do {
-                added = try await provider.addTracks(compatible, to: playlist.id)
-            } catch {
-                EnsembleLogger.error(
-                    "Apple Music playlist add failed playlist=\(playlist.id) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)): \(error.localizedDescription)"
-                )
-                throw error
-            }
-            persistLastPlaylistTarget(from: playlist)
-            EnsembleLogger.info(
-                "Apple Music playlist add completed playlist=\(playlist.id) tracks=\(added) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
-            )
-            var minimumTrackCount = playlist.trackCount + added
-            do {
-                minimumTrackCount = try await persistOptimisticAppleMusicPlaylistAdd(
-                    compatible,
-                    playlist: playlist
-                )
-            } catch {
-                EnsembleLogger.error(
-                    "Apple Music playlist optimistic cache failed playlist=\(playlist.id): \(error.localizedDescription)"
-                )
-            }
-            let expectedTrackCount = minimumTrackCount
-            Task { [weak self] in
-                await self?.refreshAppleMusicPlaylist(
-                    provider,
-                    playlistID: playlist.id,
-                    minimumTrackCount: expectedTrackCount,
-                    requiredTracks: compatible
-                )
-            }
-            return PlaylistMutationResult(addedCount: added, skippedCount: tracks.count - compatible.count)
+        guard let sourceKey = playlist.sourceCompositeKey,
+              let inputPersistenceWork = beginPlaylistMutationPersistenceWork(
+                  sourceKey: sourceKey,
+                  tracks: tracks
+              ) else {
+            throw PlaylistMutationError.invalidSource
         }
-        #endif
-        return try await playlistMutationController().addTracksToPlaylist(tracks, playlist: playlist)
+        defer { finishSourcePersistenceWork(inputPersistenceWork) }
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: sourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
+        let provider = try playlistMutationProvider(for: sourceKey)
+        let result = try await playlistMutationController(
+            persistenceOperation: persistenceOperation,
+            baseProvider: provider.provider
+        ).addTracksToPlaylist(tracks, playlist: playlist, provider: provider.capability)
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        return result
     }
 
     /// Rename a playlist and refresh server playlists.
@@ -580,17 +879,20 @@ public final class SyncCoordinator: ObservableObject {
         guard playlist.supportsPlaylistEditing else {
             throw PlaylistMutationError.smartPlaylistReadOnly
         }
-        #if os(iOS)
-        if playlist.sourceType == .appleMusic {
-            guard #available(iOS 18, *),
-                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
-            else { throw PlaylistMutationError.invalidSource }
-            try await provider.renamePlaylist(playlist.id, title: newTitle)
-            await refreshAppleMusicPlaylists(provider)
-            return
+        guard let sourceKey = playlist.sourceCompositeKey,
+              let persistenceOperation = beginSourcePersistenceOperation(sourceKey: sourceKey) else {
+            throw PlaylistMutationError.invalidSource
         }
-        #endif
-        try await playlistMutationController().renamePlaylist(playlist, to: newTitle)
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
+        let provider = try playlistMutationProvider(for: sourceKey)
+        try await playlistMutationController(
+            persistenceOperation: persistenceOperation,
+            baseProvider: provider.provider
+        ).renamePlaylist(playlist, to: newTitle, provider: provider.capability)
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
+            throw PlaylistMutationError.invalidSource
+        }
     }
 
     /// Delete a playlist and refresh server playlists.
@@ -598,25 +900,66 @@ public final class SyncCoordinator: ObservableObject {
         guard playlist.supportsPlaylistDeletion else {
             throw PlaylistMutationError.smartPlaylistReadOnly
         }
-        #if os(iOS)
-        if playlist.sourceType == .appleMusic {
-            guard #available(iOS 18, *),
-                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
-            else { throw PlaylistMutationError.invalidSource }
-            try await provider.deletePlaylist(playlist.id)
-            await refreshAppleMusicPlaylists(provider)
-            return
+        guard let sourceKey = playlist.sourceCompositeKey,
+              let persistenceOperation = beginSourcePersistenceOperation(sourceKey: sourceKey) else {
+            throw PlaylistMutationError.invalidSource
         }
-        #endif
-        try await playlistMutationController().deletePlaylist(playlist)
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
+        let provider = try playlistMutationProvider(for: sourceKey)
+        try await playlistMutationController(
+            persistenceOperation: persistenceOperation,
+            baseProvider: provider.provider
+        ).deletePlaylist(playlist, provider: provider.capability)
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
+            throw PlaylistMutationError.invalidSource
+        }
+    }
+
+    internal func persistCreatedPlaylist(
+        _ playlist: Playlist,
+        tracks: [Track]
+    ) async throws {
+        guard let sourceKey = playlist.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else {
+            throw PlaylistMutationError.invalidSource
+        }
+        let snapshots = tracks.compactMap {
+            Self.playlistTrackSnapshot($0, playlistItemID: nil)
+        }
+        _ = try await playlistRepository.upsertPlaylist(
+            PlaylistUpsertInput(
+                ratingKey: playlist.id,
+                key: playlist.key,
+                title: playlist.title,
+                summary: playlist.summary,
+                compositePath: playlist.compositePath,
+                isSmart: playlist.isSmart,
+                duration: Int(playlist.duration * 1_000),
+                trackCount: snapshots.count,
+                dateAdded: playlist.dateAdded,
+                dateModified: playlist.dateModified,
+                lastPlayed: playlist.lastPlayed,
+                actionCapabilities: playlist.actionCapabilities
+            ),
+            sourceCompositeKey: sourceKey
+        )
+        try await playlistRepository.setPlaylistTrackSnapshots(
+            snapshots,
+            forPlaylist: playlist.id,
+            sourceCompositeKey: sourceKey
+        )
+        notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
     }
 
     @discardableResult
-    internal func persistOptimisticAppleMusicPlaylistAdd(
+    internal func persistOptimisticPlaylistAdd(
         _ tracks: [Track],
         playlist: Playlist
     ) async throws -> Int {
-        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        guard let sourceKey = playlist.sourceCompositeKey else {
+            throw PlaylistMutationError.invalidSource
+        }
         guard let cachedPlaylist = try await playlistRepository.fetchPlaylist(
             ratingKey: playlist.id,
             sourceCompositeKey: sourceKey
@@ -631,10 +974,16 @@ public final class SyncCoordinator: ObservableObject {
         )
         guard !newTracks.isEmpty else { return existingItems.count }
 
-        let snapshots = existingItems.map {
-            Self.playlistTrackSnapshot($0.track, playlistItemID: $0.playlistItemID)
-        } + newTracks.map {
-            Self.playlistTrackSnapshot($0, playlistItemID: nil)
+        let snapshots = existingItems.compactMap {
+            Self.playlistTrackSnapshot(
+                $0.track,
+                playlistItemID: $0.playlistItemID
+            )
+        } + newTracks.compactMap {
+            Self.playlistTrackSnapshot(
+                $0,
+                playlistItemID: nil
+            )
         }
         try await playlistRepository.setPlaylistTrackSnapshots(
             snapshots,
@@ -657,7 +1006,7 @@ public final class SyncCoordinator: ObservableObject {
         )
         notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
         EnsembleLogger.info(
-            "Apple Music playlist optimistic cache updated playlist=\(playlist.id) tracks=\(snapshots.count)"
+            "Playlist optimistic cache updated source=\(sourceKey) playlist=\(playlist.id) tracks=\(snapshots.count)"
         )
         return snapshots.count
     }
@@ -665,8 +1014,10 @@ public final class SyncCoordinator: ObservableObject {
     private static func playlistTrackSnapshot(
         _ track: Track,
         playlistItemID: String?
-    ) -> PlaylistTrackSnapshot {
-        PlaylistTrackSnapshot(
+    ) -> PlaylistTrackSnapshot? {
+        guard let sourceCompositeKey = track.sourceCompositeKey,
+              MusicSourceIdentifier(compositeKey: sourceCompositeKey) != nil else { return nil }
+        return PlaylistTrackSnapshot(
             ratingKey: track.id,
             playlistItemID: playlistItemID,
             key: track.key,
@@ -675,24 +1026,93 @@ public final class SyncCoordinator: ObservableObject {
             albumName: track.albumName,
             duration: track.duration,
             thumbPath: track.thumbPath ?? track.fallbackThumbPath,
-            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 
-    #if os(iOS)
-    @available(iOS 18, *)
-    private func refreshAppleMusicPlaylists(_ provider: AppleMusicSourceProvider) async {
-        _ = try? await provider.syncPlaylists(to: playlistRepository, progressHandler: { _ in })
-        notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+    private func refreshProviderPlaylists(
+        _ provider: MusicSourceSyncProvider,
+        sourceKey: String,
+        persistenceOperation: SourcePersistenceOperation
+    ) async {
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
+        let result: PlaylistSyncResult
+        do {
+            result = try await provider.syncPlaylistsIncremental(
+                to: playlistRepository,
+                forceOrphanCheck: true,
+                progressHandler: { _ in }
+            )
+        } catch is CancellationError {
+            return
+        } catch {
+            do {
+                result = try await provider.syncPlaylists(
+                    to: playlistRepository,
+                    progressHandler: { _ in }
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                EnsembleLogger.error(
+                    "Playlist refresh failed source=\(sourceKey): \(error.localizedDescription)"
+                )
+                return
+            }
+        }
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
+        await cachePlaylistArtwork(sourceId: provider.sourceIdentifier, provider: provider)
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
+        publishContentChangeIfNeeded(
+            for: provider.sourceIdentifier,
+            playlistResult: result,
+            syncedAt: Date()
+        )
+        notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
     }
 
-    @available(iOS 18, *)
-    private func refreshAppleMusicPlaylist(
-        _ provider: AppleMusicSourceProvider,
-        playlistID: String,
-        minimumTrackCount: Int,
+    private func refreshPlaylistsAfterMutation(
+        sourceKey: String,
         requiredTracks: [Track]
     ) async {
+        guard let inputPersistenceWork = beginPlaylistMutationPersistenceWork(
+            sourceKey: sourceKey,
+            tracks: requiredTracks
+        ) else {
+            return
+        }
+        defer { finishSourcePersistenceWork(inputPersistenceWork) }
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: sourceKey) else {
+            return
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+        guard let provider = try? playlistMutationProvider(for: sourceKey) else { return }
+        await refreshProviderPlaylists(
+            provider.provider,
+            sourceKey: sourceKey,
+            persistenceOperation: persistenceOperation
+        )
+    }
+
+    private func reconcileProviderPlaylist(
+        _ provider: MusicSourcePlaylistReconciling,
+        providerSourceKey: String,
+        sourceKey: String,
+        playlistID: String,
+        minimumTrackCount: Int,
+        requiredTracks: [Track],
+        expectedRevision: SourceProviderRevision
+    ) async {
+        guard let sourceKeys = playlistMutationSourceKeys(
+            sourceKey: sourceKey,
+            tracks: requiredTracks
+        ),
+              let persistenceWork = beginCurrentSourcePersistenceWork(sourceKeys: sourceKeys),
+              isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey) else {
+            return
+        }
+        defer { finishSourcePersistenceWork(persistenceWork) }
+
         let startedAt = ProcessInfo.processInfo.systemUptime
         let retryDelays: [UInt64] = [0, 1, 2, 4, 8, 16]
         for (index, delay) in retryDelays.enumerated() {
@@ -701,30 +1121,35 @@ public final class SyncCoordinator: ObservableObject {
                 if delay > 0 {
                     try await Task.sleep(nanoseconds: delay * 1_000_000_000)
                 }
-                guard let trackCount = try await provider.syncPlaylist(
+                guard isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey),
+                      isSourcePersistenceWorkCurrent(persistenceWork) else { return }
+                guard let trackCount = try await provider.reconcilePlaylist(
                     id: playlistID,
                     minimumTrackCount: minimumTrackCount,
                     requiredTracks: requiredTracks,
                     to: playlistRepository
                 ) else { continue }
-                notifyPlaylistRefreshCompleted(serverSourceKey: MusicSourceIdentifier.appleMusic.compositeKey)
+                guard isCurrentProviderRevision(expectedRevision, sourceKey: providerSourceKey),
+                      isSourcePersistenceWorkCurrent(persistenceWork) else { return }
+                notifyPlaylistRefreshCompleted(serverSourceKey: sourceKey)
                 EnsembleLogger.info(
-                    "Apple Music playlist refresh completed playlist=\(playlistID) tracks=\(trackCount) attempts=\(attempt) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+                    "Playlist reconciliation completed source=\(sourceKey) playlist=\(playlistID) tracks=\(trackCount) attempts=\(attempt) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
                 )
                 return
             } catch is CancellationError {
                 return
             } catch {
                 EnsembleLogger.error(
-                    "Apple Music playlist refresh failed playlist=\(playlistID) attempt=\(attempt): \(error.localizedDescription)"
+                    "Playlist reconciliation failed source=\(sourceKey) playlist=\(playlistID) attempt=\(attempt): \(error.localizedDescription)"
                 )
             }
         }
         EnsembleLogger.error(
-            "Apple Music playlist refresh did not converge playlist=\(playlistID) expectedTracks=\(minimumTrackCount) requiredTracks=\(requiredTracks.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            "Playlist reconciliation did not converge source=\(sourceKey) playlist=\(playlistID) expectedTracks=\(minimumTrackCount) requiredTracks=\(requiredTracks.count) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
         )
     }
 
+    #if os(iOS)
     @available(iOS 18, *)
     public func getAppleMusicCatalogPlaylistTracks(playlistID: String) async throws -> [Track] {
         guard let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
@@ -752,253 +1177,68 @@ public final class SyncCoordinator: ObservableObject {
         guard playlist.supportsPlaylistEditing else {
             throw PlaylistMutationError.smartPlaylistReadOnly
         }
-        #if os(iOS)
-        if playlist.sourceType == .appleMusic {
-            guard #available(iOS 18, *),
-                  let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
-            else { throw PlaylistMutationError.invalidSource }
-            try await provider.replacePlaylistContents(playlist.id, tracks: orderedTracks)
-            await refreshAppleMusicPlaylists(provider)
-            return
+        guard let sourceKey = playlist.sourceCompositeKey,
+              let inputPersistenceWork = beginPlaylistMutationPersistenceWork(
+                  sourceKey: sourceKey,
+                  tracks: orderedTracks
+              ) else {
+            throw PlaylistMutationError.invalidSource
         }
-        #endif
-        try await playlistMutationController().replacePlaylistContents(playlist, with: orderedTracks)
+        defer { finishSourcePersistenceWork(inputPersistenceWork) }
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: sourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
+        let provider = try playlistMutationProvider(for: sourceKey)
+        try await playlistMutationController(
+            persistenceOperation: persistenceOperation,
+            baseProvider: provider.provider
+        ).replacePlaylistContents(
+            playlist,
+            with: orderedTracks,
+            provider: provider.capability
+        )
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
+            throw PlaylistMutationError.invalidSource
+        }
     }
 
-    /// Edit playlist memberships using Plex item IDs instead of clearing the playlist.
+    /// Edit playlist memberships through the exact provider without clearing the playlist.
     public func editPlaylistItems(
         _ playlist: Playlist,
         originalItems: [PlaylistItem],
         editedItems: [PlaylistItem]
     ) async throws {
-        #if os(iOS)
-        if playlist.sourceType == .appleMusic {
-            try await replacePlaylistContents(playlist, with: editedItems.map(\.track))
-            return
+        guard playlist.supportsPlaylistEditing else {
+            throw PlaylistMutationError.smartPlaylistReadOnly
         }
-        #endif
-        try await playlistMutationController().editPlaylistItems(
+        guard let sourceKey = playlist.sourceCompositeKey else {
+            throw PlaylistMutationError.invalidSource
+        }
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: sourceKey) else {
+            throw PlaylistMutationError.invalidSource
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
+        let provider = try playlistMutationProvider(for: sourceKey)
+        try await playlistMutationController(
+            persistenceOperation: persistenceOperation,
+            baseProvider: provider.provider
+        ).editPlaylistItems(
             playlist,
             originalItems: originalItems,
-            editedItems: editedItems
+            editedItems: editedItems,
+            provider: provider.capability
         )
+        guard isSourcePersistenceOperationCurrent(persistenceOperation) else {
+            throw PlaylistMutationError.invalidSource
+        }
     }
 
     /// Save queue snapshot tracks to a playlist.
     public func saveQueueSnapshot(_ tracks: [Track], to playlist: Playlist) async throws -> PlaylistMutationResult {
         try await addTracksToPlaylist(tracks, playlist: playlist)
-    }
-
-    /// Execute the remote create flow, including the empty-playlist seed fallback.
-    private func createRemotePlaylist(
-        title: String,
-        trackIDs: [String],
-        serverSourceKey: String
-    ) async throws {
-        guard let (server, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        do {
-            try await apiClient.createPlaylist(
-                title: title,
-                trackRatingKeys: trackIDs,
-                serverIdentifier: server.serverId
-            )
-        } catch let error as PlexAPIError {
-            guard trackIDs.isEmpty,
-                  case .httpError(statusCode: 400) = error,
-                  let seedTrackID = await seedTrackIDForServer(
-                    serverSourceKey: serverSourceKey,
-                    parsedServer: server,
-                    apiClient: apiClient
-                  ) else {
-                throw error
-            }
-
-            EnsembleLogger.debug("ℹ️ Empty playlist create returned 400; retrying with seed track fallback")
-            try await apiClient.createPlaylist(
-                title: title,
-                trackRatingKeys: [seedTrackID],
-                serverIdentifier: server.serverId
-            )
-
-            if let createdPlaylist = try? await apiClient.getPlaylists()
-                .first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
-                try? await apiClient.clearPlaylistItems(playlistId: createdPlaylist.ratingKey)
-            }
-        }
-    }
-
-    /// Reconcile a newly created remote playlist into the local cache and return the target.
-    private func reconcileCreatedPlaylist(
-        title: String,
-        filteredTrackIds: [String],
-        serverSourceKey: String,
-        isEmptyCreate: Bool
-    ) async -> Playlist? {
-        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            return nil
-        }
-
-        if let createdRemotePlaylist = try? await apiClient.getPlaylists()
-            .first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame }) {
-            _ = try? await playlistRepository.upsertPlaylist(
-                ratingKey: createdRemotePlaylist.ratingKey,
-                key: createdRemotePlaylist.key,
-                title: createdRemotePlaylist.title,
-                summary: createdRemotePlaylist.summary,
-                compositePath: createdRemotePlaylist.composite,
-                isSmart: createdRemotePlaylist.smart ?? false,
-                duration: isEmptyCreate ? 0 : createdRemotePlaylist.duration,
-                trackCount: isEmptyCreate ? 0 : createdRemotePlaylist.leafCount,
-                dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: serverSourceKey
-            )
-
-            try? await playlistRepository.setPlaylistTracks(
-                isEmptyCreate ? [] : filteredTrackIds,
-                forPlaylist: createdRemotePlaylist.ratingKey,
-                sourceCompositeKey: serverSourceKey
-            )
-
-            return Playlist(
-                id: createdRemotePlaylist.ratingKey,
-                key: createdRemotePlaylist.key,
-                title: createdRemotePlaylist.title,
-                summary: createdRemotePlaylist.summary,
-                isSmart: createdRemotePlaylist.smart ?? false,
-                trackCount: isEmptyCreate ? 0 : (createdRemotePlaylist.leafCount ?? 0),
-                duration: TimeInterval(isEmptyCreate ? 0 : (createdRemotePlaylist.duration ?? 0)),
-                compositePath: createdRemotePlaylist.composite,
-                dateAdded: createdRemotePlaylist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                dateModified: createdRemotePlaylist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                lastPlayed: createdRemotePlaylist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-                sourceCompositeKey: serverSourceKey
-            )
-        }
-
-        return try? await fetchPlaylists(forServerSourceKey: serverSourceKey)
-            .first(where: { $0.title.caseInsensitiveCompare(title) == .orderedSame })
-    }
-
-    private func addTracksToRemotePlaylist(
-        playlistId: String,
-        trackIDs: [String],
-        serverSourceKey: String
-    ) async throws {
-        guard let (server, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        try await apiClient.addItemsToPlaylist(
-            playlistId: playlistId,
-            trackRatingKeys: trackIDs,
-            serverIdentifier: server.serverId
-        )
-    }
-
-    private func renameRemotePlaylist(
-        playlistId: String,
-        newTitle: String,
-        serverSourceKey: String
-    ) async throws {
-        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        try await apiClient.renamePlaylist(playlistId: playlistId, newTitle: newTitle)
-    }
-
-    private func deleteRemotePlaylist(
-        playlistId: String,
-        serverSourceKey: String
-    ) async throws {
-        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        do {
-            if let playlistDeleteHandlerForTesting {
-                try await playlistDeleteHandlerForTesting(apiClient, playlistId)
-            } else {
-                try await apiClient.deletePlaylist(playlistId: playlistId)
-            }
-        } catch PlexAPIError.httpError(statusCode: 404) {
-            EnsembleLogger.debug("Playlist \(playlistId) already absent or inaccessible; converging local deletion")
-        }
-    }
-
-    private func removeRemotePlaylistItem(
-        playlistId: String,
-        itemID: String,
-        serverSourceKey: String
-    ) async throws {
-        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-        if let playlistRemoveItemHandlerForTesting {
-            try await playlistRemoveItemHandlerForTesting(apiClient, playlistId, itemID)
-        } else {
-            try await apiClient.removePlaylistItem(playlistId: playlistId, playlistItemId: itemID)
-        }
-    }
-
-    private func moveRemotePlaylistItem(
-        playlistId: String,
-        itemID: String,
-        afterItemID: String?,
-        serverSourceKey: String
-    ) async throws {
-        guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-        if let playlistMoveItemHandlerForTesting {
-            try await playlistMoveItemHandlerForTesting(apiClient, playlistId, itemID, afterItemID)
-        } else {
-            try await apiClient.movePlaylistItem(
-                playlistId: playlistId,
-                playlistItemId: itemID,
-                afterItemId: afterItemID
-            )
-        }
-    }
-
-    private func replaceRemotePlaylistContents(
-        playlistId: String,
-        trackIDs: [String],
-        serverSourceKey: String
-    ) async throws {
-        guard let (server, apiClient) = apiClient(forServerSourceKey: serverSourceKey) else {
-            throw PlaylistMutationError.invalidSource
-        }
-
-        if let playlistReplaceContentsHandlerForTesting {
-            try await playlistReplaceContentsHandlerForTesting(apiClient, playlistId, trackIDs, server.serverId)
-        } else {
-            let currentItems = try await apiClient.getPlaylistTracks(playlistKey: playlistId)
-            let playlistItemIDs = currentItems.compactMap(\.playlistItemID)
-            if playlistItemIDs.count == currentItems.count {
-                for playlistItemID in playlistItemIDs {
-                    try await apiClient.removePlaylistItem(
-                        playlistId: playlistId,
-                        playlistItemId: playlistItemID
-                    )
-                }
-            } else {
-                EnsembleLogger.debug("⚠️ Playlist \(playlistId) has items without playlistItemID; falling back to bulk clear")
-                try await apiClient.clearPlaylistItems(playlistId: playlistId)
-            }
-            if !trackIDs.isEmpty {
-                try await apiClient.addItemsToPlaylist(
-                    playlistId: playlistId,
-                    trackRatingKeys: trackIDs,
-                    serverIdentifier: server.serverId
-                )
-            }
-        }
     }
 
     /// Perform appropriate sync on app startup based on staleness
@@ -1066,7 +1306,8 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     private func syncExecutionController() -> SyncExecutionController {
-        SyncExecutionController(
+        let providerRevisions = syncProviderRevisions
+        return SyncExecutionController(
             dependencies: .init(
                 libraryRepository: libraryRepository,
                 playlistRepository: playlistRepository,
@@ -1088,6 +1329,10 @@ public final class SyncCoordinator: ObservableObject {
                 connectionStateAfterSuccessfulSync: {
                     await self.serverConnectionController.connectionStateAfterSuccessfulSync(for: $0, fallback: $1)
                 },
+                markSourceSyncCompleted: { source in
+                    guard source == .appleMusic else { return }
+                    self.accountManager.markAppleMusicInitialSyncCompleted()
+                },
                 publishContentChange: { self.publishContentChangeIfNeeded(for: $0, libraryResult: $1, playlistResult: $2, syncedAt: $3) },
                 restoreStatusAfterCancellation: { self.restoreStatusAfterCancellation(for: $0, previousStatus: $1, fallbackConnectionState: $2) },
                 syncErrorMessage: { self.syncErrorMessage(for: $0) },
@@ -1099,7 +1344,25 @@ public final class SyncCoordinator: ObservableObject {
                 isCheckingHealth: { self.isCheckingHealth },
                 lastHealthCheckCompletion: { self.lastHealthCheckCompletion },
                 updateSourceConnectionStates: { self.updateSourceConnectionStates() },
-                setLastStartupSyncCompletion: { self.lastStartupSyncCompletion = $0 }
+                setLastStartupSyncCompletion: { self.lastStartupSyncCompletion = $0 },
+                providerRevision: { providerRevisions[$0.compositeKey] },
+                beginSourcePersistenceWork: {
+                    self.beginSourcePersistenceWork(sourceKey: $0.compositeKey, revision: $1)
+                },
+                isSourcePersistenceWorkCurrent: {
+                    self.isSourcePersistenceWorkCurrent(
+                        sourceKey: $0.compositeKey,
+                        revision: $1,
+                        lease: $2
+                    )
+                },
+                finishSourcePersistenceWork: { self.finishSourcePersistenceWork($0) },
+                runSourceSync: { source, operation in
+                    await self.runSourceSyncSingleFlight(source: source, operation: operation)
+                },
+                publishPreflightFailure: { source, message in
+                    self.publishSourceSyncPreflightFailure(source: source, message: message)
+                }
             )
         )
     }
@@ -1107,14 +1370,14 @@ public final class SyncCoordinator: ObservableObject {
     /// Ensure the server connection is ready for a given track
     /// This ensures we have a working connection URL before attempting playback
     public func ensureServerConnection(for track: Track) async throws {
-        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+        guard let sourceKey = resolvedTrackSourceCompositeKey(for: track) else {
             throw PlexAPIError.noServerSelected
         }
         try await serverConnectionController.ensureServerConnection(sourceKey: sourceKey)
     }
 
     public func serverFailureMessage(for track: Track) async -> String? {
-        guard let sourceKey = await resolvedTrackSourceCompositeKey(for: track) else {
+        guard let sourceKey = resolvedTrackSourceCompositeKey(for: track) else {
             return nil
         }
         return serverConnectionController.serverFailureMessage(sourceKey: sourceKey)
@@ -1136,17 +1399,18 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔍 Track streamKey: \(track.streamKey ?? "nil")")
         EnsembleLogger.debug("🔍 Available providers: \(syncProviders.keys.joined(separator: ", "))")
 
-        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
-        if let resolution = providerResolver.resolve(sourceKey: sourceKey, allowFallback: true) {
-            logStreamProviderResolution(resolution)
-            return try await resolution.provider.getStreamURL(
-                for: track.id, trackStreamKey: track.streamKey,
-                quality: quality, metadataDurationSeconds: track.duration
-            )
-        }
-
-        EnsembleLogger.debug("❌ No providers available")
-        throw PlexAPIError.noServerSelected
+        let (provider, resolution) = try await resolveTrackCapability(
+            for: track,
+            capability: "streaming",
+            as: MusicSourcePlaybackResolving.self
+        )
+        logStreamProviderResolution(resolution)
+        return try await provider.getStreamURL(
+            for: track.id,
+            trackStreamKey: track.streamKey,
+            quality: quality,
+            metadataDurationSeconds: track.duration
+        )
     }
 
     // MARK: - Two-Phase Stream Resolution
@@ -1159,15 +1423,18 @@ public final class SyncCoordinator: ObservableObject {
         quality: StreamingQuality = .original,
         startTime: TimeInterval = 0
     ) async throws -> StreamDecision {
-        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
-        if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
-            return try await resolution.provider.makeStreamDecision(
-                for: track.id, trackStreamKey: track.streamKey,
-                quality: quality, metadataDurationSeconds: track.duration, startTime: startTime
-            )
-        }
-
-        throw PlexAPIError.noServerSelected
+        let (provider, _) = try await resolveTrackCapability(
+            for: track,
+            capability: "streaming",
+            as: MusicSourceTwoPhasePlaybackResolving.self
+        )
+        return try await provider.makeStreamDecision(
+            for: track.id,
+            trackStreamKey: track.streamKey,
+            quality: quality,
+            metadataDurationSeconds: track.duration,
+            startTime: startTime
+        )
     }
 
     /// Phase 2: Assemble a `StreamResolution` from a cached `StreamDecision` using the
@@ -1175,28 +1442,28 @@ public final class SyncCoordinator: ObservableObject {
     /// This is a lightweight operation (no network calls) — the endpoint is read from
     /// `ServerConnectionRegistry` at assembly time.
     public func assembleStreamResolution(for track: Track, from decision: StreamDecision) async throws -> StreamResolution {
-        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
-        if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
-            return try await resolution.provider.assembleStreamResolution(from: decision)
-        }
-
-        throw PlexAPIError.noServerSelected
+        let (provider, _) = try await resolveTrackCapability(
+            for: track,
+            capability: "streaming",
+            as: MusicSourceTwoPhasePlaybackResolving.self
+        )
+        return try await provider.assembleStreamResolution(from: decision)
     }
 
     /// Get a download URL for offline use, skipping the transcode decision endpoint.
     /// Routes through the provider's dedicated download path which avoids the unnecessary
     /// HTTP roundtrip that the streaming path requires for AVPlayer session warmup.
     public func getDownloadURL(for track: Track, quality: StreamingQuality = .original) async throws -> URL {
-        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
-        if let resolution = providerResolver.resolvePlex(sourceKey: sourceKey, allowFallback: true) {
-            return try await resolution.provider.getDownloadURL(
-                for: track.id,
-                trackStreamKey: track.streamKey,
-                quality: quality
-            )
-        }
-
-        throw PlexAPIError.noServerSelected
+        let (provider, _) = try await resolveTrackCapability(
+            for: track,
+            capability: "downloads",
+            as: MusicSourceTwoPhasePlaybackResolving.self
+        )
+        return try await provider.getDownloadURL(
+            for: track.id,
+            trackStreamKey: track.streamKey,
+            quality: quality
+        )
     }
 
     /// Get a quality-aware universal stream URL for offline downloading.
@@ -1258,7 +1525,7 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     private func apiClientForTrack(_ track: Track) async throws -> PlexAPIClient {
-        let sourceKey = await resolvedTrackSourceCompositeKey(for: track)
+        let sourceKey = resolvedTrackSourceCompositeKey(for: track)
         return try serverConnectionController.requireAPIClient(sourceKey: sourceKey)
     }
 
@@ -1266,7 +1533,7 @@ public final class SyncCoordinator: ObservableObject {
     public func getArtworkURL(path: String?, sourceKey: String?, size: Int = 300) async throws -> URL? {
         guard let path = path else { return nil }
 
-        if let resolution = providerResolver.resolve(sourceKey: sourceKey, allowFallback: true) {
+        if let resolution = providerResolver.resolve(sourceKey: sourceKey, allowServerScope: true) {
             return try await resolution.provider.getArtworkURL(path: path, size: size)
         }
 
@@ -1277,36 +1544,34 @@ public final class SyncCoordinator: ObservableObject {
     /// After a successful rating change, triggers a debounced playlist sync so smart playlists
     /// reflect the updated rating state.
     public func rateTrack(track: Track, rating: Int?) async throws {
-        guard let sourceKey = track.sourceCompositeKey else { throw PlexAPIError.noServerSelected }
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
-
-        #if os(iOS)
-        if track.isAppleMusic {
-            guard #available(iOS 18, *), rating != nil,
-                  let catalogID = track.appleMusicCatalogID,
-                  let appleProvider = provider as? AppleMusicSourceProvider
-            else { throw AppleMusicSourceError.favoriteRemovalUnsupported }
-            try await appleProvider.favorite(catalogID: catalogID)
-            return
+        guard let sourceKey = track.sourceCompositeKey else {
+            throw MusicSourceRoutingError.invalidSourceKey(nil)
         }
-        #endif
-
-        try await provider.rateTrack(ratingKey: track.id, rating: rating)
+        let ratingProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "ratings",
+            as: MusicSourceRatingMutating.self
+        )
+        let effects = try await ratingProvider.rateTrack(track, rating: rating)
 
         // Trigger debounced playlist sync so smart playlists reflect the new rating
-        refreshOrchestrator.schedulePostRatingPlaylistSync(
-            serverSourceKey: sourceKey,
-            action: { [weak self] serverSourceKey in
-                await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
-            }
-        )
+        if effects.shouldRefreshPlaylists {
+            refreshOrchestrator.schedulePostRatingPlaylistSync(
+                serverSourceKey: sourceKey,
+                action: { [weak self] serverSourceKey in
+                    await self?.refreshServerPlaylists(serverSourceKey: serverSourceKey)
+                }
+            )
+        }
 
         // Trigger debounced favorites download reconciliation
-        refreshOrchestrator.schedulePostRatingFavoritesReconciliation(
-            action: { [weak self] in
-                await self?.onFavoritesRatingChanged?()
-            }
-        )
+        if effects.shouldReconcileFavoriteDownloads {
+            refreshOrchestrator.schedulePostRatingFavoritesReconciliation(
+                action: { [weak self] in
+                    await self?.onFavoritesRatingChanged?()
+                }
+            )
+        }
     }
 
     /// Report playback timeline to Plex server
@@ -1349,48 +1614,117 @@ public final class SyncCoordinator: ObservableObject {
 
     /// Get tracks for an album from the music source
     public func getAlbumTracks(albumId: String, sourceKey: String) async throws -> [Track] {
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
-        
-        return try await provider.getAlbumTracks(albumKey: albumId)
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "album details",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getAlbumTracks(albumKey: albumId)
     }
 
     /// Get albums for an artist from the music source
     public func getArtistAlbums(artistId: String, sourceKey: String) async throws -> [Album] {
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
-        
-        return try await provider.getArtistAlbums(artistKey: artistId)
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "artist details",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getArtistAlbums(artistKey: artistId)
     }
 
     /// Get all tracks for an artist from the music source
     public func getArtistTracks(artistId: String, sourceKey: String) async throws -> [Track] {
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
-
-        return try await provider.getArtistTracks(artistKey: artistId)
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "artist details",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getArtistTracks(artistKey: artistId)
     }
 
     /// Get detailed artist metadata (genres, country, similar artists, styles) from the source
     public func getArtistDetail(artistId: String, sourceKey: String) async throws -> ArtistDetail? {
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
-
-        return try await provider.getArtistDetail(artistKey: artistId)
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "artist details",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getArtistDetail(artistKey: artistId)
     }
 
     /// Get detailed album metadata (genres, styles, studio/label) from the source
     public func getAlbumDetail(albumId: String, sourceKey: String) async throws -> AlbumDetail? {
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
-
-        return try await provider.getAlbumDetail(albumKey: albumId)
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "album details",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getAlbumDetail(albumKey: albumId)
     }
 
     /// Get similar/related albums from Plex's recommendation engine
     public func getSimilarAlbums(albumId: String, sourceKey: String) async throws -> [Album] {
-        let provider = try providerResolver.requireProvider(sourceKey: sourceKey)
+        let detailProvider = try providerResolver.requireCapability(
+            sourceKey: sourceKey,
+            name: "recommendations",
+            as: MusicSourceDetailProviding.self
+        )
+        return try await detailProvider.getSimilarAlbums(albumKey: albumId)
+    }
 
-        return try await provider.getSimilarAlbums(albumKey: albumId)
+    /// Get source-owned audio metadata without exposing provider API models to callers.
+    public func getAudioFileInfo(trackId: String, sourceKey: String?) async throws -> AudioFileInfo? {
+        guard let provider = fileInfoProvider(for: sourceKey) else { return nil }
+        return try await provider.getAudioFileInfo(trackID: trackId)
+    }
+
+    /// Get the source-owned common album folder when that concept is supported.
+    public func getAlbumFolderPath(albumId: String, sourceKey: String?) async throws -> String? {
+        guard let provider = fileInfoProvider(for: sourceKey) else { return nil }
+        return try await provider.getAlbumFolderPath(albumID: albumId)
     }
 
     /// Delete all CoreData for a removed music source
-    public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async {
+    @discardableResult
+    public func cleanupRemovedSource(_ sourceId: MusicSourceIdentifier) async -> Bool {
+        if !accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey),
+           syncProviders[sourceId.compositeKey] != nil {
+            // Invalidate the provider registration before waiting so no new source work
+            // can begin while cleanup drains an older operation.
+            refreshProviders()
+        }
+        await cancelSourceSync(sourceId)
+        await sourcePersistenceFence.beginCleanup(sourceKey: sourceId.compositeKey)
+        var cleanupFenceFinished = false
+        defer {
+            if !cleanupFenceFinished {
+                sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey)
+            }
+        }
+
+        if accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey) {
+            sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey)
+            cleanupFenceFinished = true
+            refreshProviders()
+            EnsembleLogger.debug("Skipped cleanup for restored source: \(sourceId.compositeKey)")
+            _ = await sync(source: sourceId)
+            return true
+        }
+
+        libraryRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceId.compositeKey)
+        playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: sourceId.compositeKey)
+
+        if sourceId.type == .appleMusic {
+            Playlist.clearAppleMusicPlaylistCapabilityCache()
+            #if os(iOS)
+            if #available(iOS 18, *) {
+                AppleMusicSourceProvider.clearLibraryInventoryState()
+            }
+            #endif
+            HomeHubLoader.removeFailedHubKey(forSourceCompositeKey: sourceId.compositeKey)
+            clearLastPlaylistTargets(forServerSourceKey: sourceId.compositeKey)
+        }
+
         do {
             EnsembleLogger.debug("🗑️ Cleaning up data for removed source: \(sourceId.compositeKey)")
 
@@ -1400,15 +1734,40 @@ public final class SyncCoordinator: ObservableObject {
                 try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             }
 
+            if accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey) {
+                sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey)
+                cleanupFenceFinished = true
+                refreshProviders()
+                EnsembleLogger.debug("Source restored during cleanup; rebuilding cache: \(sourceId.compositeKey)")
+                _ = await sync(source: sourceId)
+                return true
+            }
+
             // Remove from status tracking
             sourceStatuses.removeValue(forKey: sourceId)
 
             // Clear API client cache for this source
             accountManager.clearAPIClientCache(accountId: sourceId.accountId, serverId: sourceId.serverId)
 
+            NotificationCenter.default.post(
+                name: Self.sourceCleanupDidComplete,
+                object: self,
+                userInfo: ["sourceCompositeKey": sourceId.compositeKey]
+            )
+
             EnsembleLogger.debug("✅ Successfully cleaned up source: \(sourceId.compositeKey)")
+            return true
         } catch {
+            if accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey) {
+                sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey)
+                cleanupFenceFinished = true
+                refreshProviders()
+                EnsembleLogger.debug("Source restored after cleanup error; rebuilding cache: \(sourceId.compositeKey)")
+                _ = await sync(source: sourceId)
+                return true
+            }
             EnsembleLogger.debug("❌ Failed to cleanup source \(sourceId.compositeKey): \(error)")
+            return false
         }
     }
 
@@ -1419,21 +1778,27 @@ public final class SyncCoordinator: ObservableObject {
         let uniqueSources = Array(Set(sources))
         guard !uniqueSources.isEmpty else { return }
 
-        do {
-            let cachedSources = try await libraryRepository.fetchMusicSources()
-            let cachedCompositeKeys = Set(cachedSources.compactMap(\.compositeKey))
-
-            for source in uniqueSources where cachedCompositeKeys.contains(source.compositeKey) {
-                await cleanupRemovedSource(source)
-            }
-        } catch {
-            EnsembleLogger.debug("⚠️ Failed to reconcile cached disabled sources: \(error.localizedDescription)")
+        // The source row may not exist yet while an in-flight provider is writing its
+        // first batch. Always enter the source fence, wait, and perform the final purge.
+        for source in uniqueSources {
+            await cleanupRemovedSource(source)
         }
     }
 
     /// Delete server-scoped playlists when no enabled libraries remain on that server.
     public func cleanupServerPlaylists(accountId: String, serverId: String) async {
         let serverSourceKey = "plex:\(accountId):\(serverId)"
+        guard !hasEnabledLibrary(accountId: accountId, serverId: serverId) else {
+            EnsembleLogger.debug("⏹️ Skipping stale playlist cleanup for re-enabled server: \(serverSourceKey)")
+            return
+        }
+        await sourcePersistenceFence.beginCleanup(sourceKey: serverSourceKey)
+        var cleanupFenceFinished = false
+        defer {
+            if !cleanupFenceFinished {
+                sourcePersistenceFence.finishCleanup(sourceKey: serverSourceKey)
+            }
+        }
         do {
             // Collect playlist ratingKeys before deletion for artwork cleanup
             var playlistKeys = Set<String>()
@@ -1443,6 +1808,16 @@ public final class SyncCoordinator: ObservableObject {
                 }
             }
 
+            let restoredBeforeDeletion = enabledLibrarySources(accountId: accountId, serverId: serverId)
+            if !restoredBeforeDeletion.isEmpty {
+                sourcePersistenceFence.finishCleanup(sourceKey: serverSourceKey)
+                cleanupFenceFinished = true
+                refreshProviders()
+                EnsembleLogger.debug("⏹️ Skipping stale playlist cleanup for re-enabled server: \(serverSourceKey)")
+                await sync(sources: restoredBeforeDeletion)
+                return
+            }
+            playlistRepository.discardArtworkInvalidations(forSourceCompositeKey: serverSourceKey)
             try await playlistRepository.deletePlaylists(sourceCompositeKey: serverSourceKey)
             clearLastPlaylistTargets(forServerSourceKey: serverSourceKey)
             let timestampKey = "lastPlaylistSyncAt_\(serverSourceKey)"
@@ -1452,14 +1827,60 @@ public final class SyncCoordinator: ObservableObject {
                 scopeKey: serverSourceKey,
                 scopeType: .serverPlaylists
             )
+            if let sourceCacheCleanupService {
+                _ = try await sourceCacheCleanupService.cleanupSource(serverSourceKey)
+            }
+
+            let restoredSources = enabledLibrarySources(accountId: accountId, serverId: serverId)
+            if !restoredSources.isEmpty {
+                sourcePersistenceFence.finishCleanup(sourceKey: serverSourceKey)
+                cleanupFenceFinished = true
+                refreshProviders()
+                EnsembleLogger.debug("Server restored during playlist cleanup; rebuilding cache: \(serverSourceKey)")
+                await sync(sources: restoredSources)
+                return
+            }
 
             // Delete cached playlist artwork files
             if !playlistKeys.isEmpty {
-                artworkDownloadManager.deleteArtwork(forRatingKeys: playlistKeys)
+                artworkDownloadManager.deleteArtwork(
+                    forRatingKeys: playlistKeys,
+                    sourceCompositeKey: serverSourceKey
+                )
                 EnsembleLogger.debug("🗑️ Deleted \(playlistKeys.count) playlist artwork files for server: \(serverSourceKey)")
             }
         } catch {
+            let restoredSources = enabledLibrarySources(accountId: accountId, serverId: serverId)
+            if !restoredSources.isEmpty {
+                sourcePersistenceFence.finishCleanup(sourceKey: serverSourceKey)
+                cleanupFenceFinished = true
+                refreshProviders()
+                EnsembleLogger.debug("Server restored after cleanup error; rebuilding cache: \(serverSourceKey)")
+                await sync(sources: restoredSources)
+                return
+            }
             EnsembleLogger.debug("❌ Failed to cleanup server playlists \(serverSourceKey): \(error)")
+        }
+    }
+
+    private func hasEnabledLibrary(accountId: String, serverId: String) -> Bool {
+        !enabledLibrarySources(accountId: accountId, serverId: serverId).isEmpty
+    }
+
+    private func enabledLibrarySources(accountId: String, serverId: String) -> [MusicSourceIdentifier] {
+        let libraries = accountManager.plexAccounts
+            .first(where: { $0.id == accountId })?
+            .servers
+            .first(where: { $0.id == serverId })?
+            .libraries
+            .filter(\.isEnabled) ?? []
+        return libraries.map {
+                MusicSourceIdentifier(
+                    type: .plex,
+                    accountId: accountId,
+                    serverId: serverId,
+                    libraryId: $0.key
+                )
         }
     }
     
@@ -1504,7 +1925,8 @@ public final class SyncCoordinator: ObservableObject {
                             type: .album,
                             sourcePath: thumbPath,
                             dateModified: album.dateModified,
-                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension
+                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension,
+                            sourceCompositeKey: sourceId.compositeKey
                         )
                     )
                     cached += 1
@@ -1552,7 +1974,8 @@ public final class SyncCoordinator: ObservableObject {
                             type: .artist,
                             sourcePath: thumbPath,
                             dateModified: artist.dateModified,
-                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension
+                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension,
+                            sourceCompositeKey: sourceId.compositeKey
                         )
                     )
                     cached += 1
@@ -1573,23 +1996,25 @@ public final class SyncCoordinator: ObservableObject {
     /// Lightweight — skips playlists that already have detail-grade cached artwork on disk.
     private func cachePlaylistArtwork(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
         do {
-            // Playlists use a server-level key (plex:account:server), not the
-            // library-level compositeKey (plex:account:server:library)
             let serverKey = MediaSourceIdentity.serverSourceKey(from: sourceId.compositeKey) ?? sourceId.compositeKey
-            let playlists = try await playlistRepository.fetchPlaylists(sourceCompositeKey: serverKey)
+            let playlists = try await playlistRepository.fetchPlaylists(
+                sourceCompositeKeys: [serverKey, sourceId.compositeKey]
+            )
             var cached = 0
             let now = nowProviderForTesting()
 
             for playlist in playlists {
+                let artworkSourceKey = playlist.sourceCompositeKey ?? sourceId.compositeKey
+                let retryKey = "\(artworkSourceKey)|\(playlist.ratingKey)"
                 if await artworkDownloadManager.localArtworkExists(
                     for: playlist,
                     minimumPixelDimension: Self.fullSizeArtworkCacheDimension
                 ) {
-                    playlistArtworkRetryAfter.removeValue(forKey: playlist.ratingKey)
+                    playlistArtworkRetryAfter.removeValue(forKey: retryKey)
                     continue
                 }
 
-                if let retryAfter = playlistArtworkRetryAfter[playlist.ratingKey], retryAfter > now {
+                if let retryAfter = playlistArtworkRetryAfter[retryKey], retryAfter > now {
                     continue
                 }
 
@@ -1609,13 +2034,14 @@ public final class SyncCoordinator: ObservableObject {
                             type: .playlist,
                             sourcePath: thumbPath,
                             dateModified: playlist.dateModified,
-                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension
+                            requestedPixelDimension: Self.fullSizeArtworkCacheDimension,
+                            sourceCompositeKey: artworkSourceKey
                         )
                     )
-                    playlistArtworkRetryAfter.removeValue(forKey: playlist.ratingKey)
+                    playlistArtworkRetryAfter.removeValue(forKey: retryKey)
                     cached += 1
                 } catch {
-                    playlistArtworkRetryAfter[playlist.ratingKey] = now.addingTimeInterval(playlistArtworkFailureBackoff)
+                    playlistArtworkRetryAfter[retryKey] = now.addingTimeInterval(playlistArtworkFailureBackoff)
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for playlist \(playlist.title): \(error.localizedDescription)")
                 }
             }
@@ -1628,64 +2054,42 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    /// Keep only tracks that belong to target server, then dedupe by track id preserving order.
-    /// Uses local lookup when the in-memory track source key is temporarily missing.
-    private func filteredTrackIDsForServer(tracks: [Track], serverSourceKey targetServerSourceKey: String) async -> [String] {
-        var seen = Set<String>()
-        var ids: [String] = []
-
-        for track in tracks {
-            if let trackServerSource = await resolvedServerSourceKey(for: track) {
-                guard trackServerSource == targetServerSourceKey else { continue }
-            } else {
-                // If source is unknown and app only has one server, allow it through.
-                guard hasSingleServerMatching(targetServerSourceKey) else { continue }
-            }
-            guard !seen.contains(track.id) else { continue }
-            seen.insert(track.id)
-            ids.append(track.id)
+    private func resolvedTrackSourceCompositeKey(for track: Track) -> String? {
+        guard let sourceKey = track.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey)?.libraryId != nil else {
+            EnsembleLogger.debug("⚠️ Track has no valid library source key: \(track.id)")
+            return nil
         }
-
-        return ids
+        return sourceKey
     }
 
-    private func resolvedServerSourceKey(for track: Track) async -> String? {
-        if let parsed = MediaSourceIdentity.serverSourceKey(from: track.sourceCompositeKey) {
-            return parsed
+    private func resolveTrackCapability<Capability>(
+        for track: Track,
+        capability: String,
+        as _: Capability.Type
+    ) async throws -> (Capability, SyncProviderResolver.ProviderResolution) {
+        guard let sourceKey = resolvedTrackSourceCompositeKey(for: track) else {
+            throw MusicSourceRoutingError.invalidSourceKey(track.sourceCompositeKey)
         }
-
-        if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
-           let parsed = MediaSourceIdentity.serverSourceKey(from: cachedTrack.sourceCompositeKey) {
-            return parsed
-        }
-
-        return nil
-    }
-
-    private func resolvedTrackSourceCompositeKey(for track: Track) async -> String? {
-        if let source = track.sourceCompositeKey {
-            return source
-        }
-
-        if let cachedTrack = try? await libraryRepository.fetchTrack(ratingKey: track.id),
-           let source = cachedTrack.sourceCompositeKey {
-            EnsembleLogger.debug("🎵 Resolved missing track source from cache: \(track.id) -> \(source)")
-            return source
-        }
-
-        // Last resort: single-provider assumption when app is connected to one library source.
-        if syncProviders.count == 1, let onlyKey = syncProviders.keys.first {
-            EnsembleLogger.debug("🎵 Resolved missing track source via single-provider fallback: \(track.id) -> \(onlyKey)")
-            return onlyKey
-        }
-
-        EnsembleLogger.debug("⚠️ Could not resolve source key for track: \(track.id)")
-        return nil
+        let match = try providerResolver.requireCapabilityMatchingSourceScope(
+            sourceKey: sourceKey,
+            name: capability,
+            as: Capability.self
+        )
+        let resolvedSourceKey = match.provider.sourceIdentifier.compositeKey
+        return (
+            match.capability,
+            SyncProviderResolver.ProviderResolution(
+                sourceKey: resolvedSourceKey,
+                provider: match.provider,
+                usedServerScope: resolvedSourceKey != sourceKey
+            )
+        )
     }
 
     private func logStreamProviderResolution(_ resolution: SyncProviderResolver.ProviderResolution) {
-        guard !resolution.usedFallback else {
-            EnsembleLogger.debug("⚠️ Using fallback provider")
+        guard !resolution.usedServerScope else {
+            EnsembleLogger.debug("🔍 Using provider for server-scoped source")
             return
         }
 
@@ -1708,61 +2112,17 @@ public final class SyncCoordinator: ObservableObject {
         }
     }
 
-    private func hasSingleServerMatching(_ serverSourceKey: String) -> Bool {
-        let uniqueServerSources = Set(
-            syncProviders.keys.compactMap { key in
-                MediaSourceIdentity.serverSourceKey(from: key)
-            }
-        )
-        return uniqueServerSources.count == 1 && uniqueServerSources.first == serverSourceKey
-    }
-
-    private func apiClient(forServerSourceKey serverSourceKey: String) -> (MediaSourceIdentity, PlexAPIClient)? {
-        guard let server = MediaSourceIdentity.parse(serverSourceKey),
-              let apiClient = accountManager.makeAPIClient(accountId: server.accountId, serverId: server.serverId) else {
-            return nil
-        }
-        return (server, apiClient)
-    }
-
-    private func seedTrackIDForServer(
-        serverSourceKey: String,
-        parsedServer: MediaSourceIdentity,
-        apiClient: PlexAPIClient
-    ) async -> String? {
-        // Fast path: try local cache first.
-        if let allTracks = try? await libraryRepository.fetchTracks(),
-           let cachedTrackID = allTracks.first(where: { track in
-            guard let trackSourceCompositeKey = track.sourceCompositeKey,
-                  let trackServerSourceKey = MediaSourceIdentity.serverSourceKey(from: trackSourceCompositeKey) else {
-                return false
-            }
-            return trackServerSourceKey == serverSourceKey
-           })?.ratingKey {
-            return cachedTrackID
-        }
-
-        // Fallback: query Plex for a lightweight inventory and use any one track ID.
-        guard let account = accountManager.plexAccounts.first(where: { $0.id == parsedServer.accountId }),
-              let server = account.servers.first(where: { $0.id == parsedServer.serverId }) else {
-            return nil
-        }
-
-        for library in server.libraries where library.isEnabled {
-            if let seedFromInventory = try? await apiClient.getTrackInventory(sectionKey: library.key).first?.ratingKey {
-                return seedFromInventory
-            }
-        }
-
-        return nil
-    }
-
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
     private func refreshServerPlaylists(serverSourceKey: String) async {
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: serverSourceKey) else {
+            return
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
+
         do {
             guard let result = try await playlistRefreshController.refreshServer(
                 serverSourceKey: serverSourceKey,
-                providers: syncProviders,
+                providers: persistenceOperation.providers,
                 playlistRepository: playlistRepository,
                 trigger: .mutationRefresh,
                 allowFullFallback: true
@@ -1770,7 +2130,9 @@ public final class SyncCoordinator: ObservableObject {
                 return
             }
 
+            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
+            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,
@@ -1781,34 +2143,6 @@ public final class SyncCoordinator: ObservableObject {
             EnsembleLogger.debug("⏹️ SyncCoordinator: Playlist refresh cancelled for \(serverSourceKey)")
         } catch {
             EnsembleLogger.debug("⚠️ SyncCoordinator: Playlist refresh failed for \(serverSourceKey): \(error.localizedDescription)")
-        }
-    }
-
-    private func refreshRemotePlaylist(playlistID: String, serverSourceKey: String) async {
-        if let refreshServerPlaylistsHandlerForTesting {
-            await refreshServerPlaylistsHandlerForTesting(serverSourceKey)
-            return
-        }
-        do {
-            guard let (_, apiClient) = apiClient(forServerSourceKey: serverSourceKey),
-                  let playlist = try await apiClient.getPlaylists().first(where: { $0.ratingKey == playlistID }) else {
-                return
-            }
-            let tracks = try await apiClient.getPlaylistTracks(playlistKey: playlistID)
-            try await PlexMusicSourceSyncProvider.upsertPlaylist(
-                playlist,
-                to: playlistRepository,
-                sourceCompositeKey: serverSourceKey,
-                trackCount: tracks.count
-            )
-            try await playlistRepository.setPlaylistTrackSnapshots(
-                tracks.map(PlexMusicSourceSyncProvider.playlistTrackSnapshot),
-                forPlaylist: playlistID,
-                sourceCompositeKey: serverSourceKey
-            )
-            notifyPlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
-        } catch {
-            EnsembleLogger.error("Failed to refresh playlist \(playlistID) after mutation: \(error.localizedDescription)")
         }
     }
 
@@ -2196,6 +2530,10 @@ public final class SyncCoordinator: ObservableObject {
     ) {
         let source = provider.sourceIdentifier
         syncProviders[source.compositeKey] = provider
+        registerCurrentProviders(
+            enforceSourceConfiguration: false,
+            preserveUnchangedRevisions: false
+        )
         if let status {
             sourceStatuses[source] = status
         } else if sourceStatuses[source] == nil {
@@ -2267,13 +2605,19 @@ public final class SyncCoordinator: ObservableObject {
 
     // MARK: - Provider Access
 
-    /// Returns the PlexAPIClient for a given source composite key, if available.
-    /// Used by LyricsService to fetch track metadata and lyrics content.
-    public func apiClient(for sourceCompositeKey: String?) -> PlexAPIClient? {
-        providerResolver.resolvePlex(
+    /// Returns normalized lyrics access for the exact configured source.
+    public func lyricsProvider(for sourceCompositeKey: String?) -> MusicSourceLyricsProviding? {
+        providerResolver.resolve(
             sourceKey: sourceCompositeKey,
-            allowFallback: false
-        )?.provider.exposedAPIClient
+            allowServerScope: false
+        )?.provider as? MusicSourceLyricsProviding
+    }
+
+    private func fileInfoProvider(for sourceCompositeKey: String?) -> MusicSourceFileInfoProviding? {
+        providerResolver.resolve(
+            sourceKey: sourceCompositeKey,
+            allowServerScope: false
+        )?.provider as? MusicSourceFileInfoProviding
     }
 
     // MARK: - Radio Provider Factory
@@ -2281,48 +2625,9 @@ public final class SyncCoordinator: ObservableObject {
     /// Create a radio provider for a specific music source
     /// Returns nil if the source doesn't support radio or isn't configured
     /// - Parameter sourceKey: The music source composite key
-    public func makeRadioProvider(for sourceKey: String) -> PlexRadioProvider? {
-        EnsembleLogger.debug("🔄 SyncCoordinator.makeRadioProvider() called")
-        EnsembleLogger.debug("  - Source key: \(sourceKey)")
-        
-        guard let identity = MediaSourceIdentity.parse(sourceKey),
-              let libraryId = identity.libraryId,
-              let sourceType = MusicSourceType(rawValue: identity.type) else {
-            EnsembleLogger.debug("❌ Invalid source key format: \(sourceKey)")
-            return nil
-        }
-        EnsembleLogger.debug("  - Source type: \(sourceType)")
-        EnsembleLogger.debug("  - Account ID: \(identity.accountId)")
-        EnsembleLogger.debug("  - Server ID: \(identity.serverId)")
-        EnsembleLogger.debug("  - Library ID: \(libraryId)")
-
-        // Currently only Plex is supported
-        guard sourceType == .plex else {
-            EnsembleLogger.debug("ℹ️ Radio not available for source type: \(sourceType)")
-            return nil
-        }
-
-        // Get API client for this source
-        EnsembleLogger.debug("🔄 Creating API client...")
-        guard let apiClient = accountManager.makeAPIClient(
-            accountId: identity.accountId,
-            serverId: identity.serverId
-        ) else {
-            EnsembleLogger.debug("❌ Could not create API client for source: \(sourceKey)")
-            return nil
-        }
-        EnsembleLogger.debug("✅ API client created")
-
-        // Create Plex radio provider
-        EnsembleLogger.debug("🔄 Creating PlexRadioProvider...")
-        let radioProvider = PlexRadioProvider(
-            sourceKey: sourceKey,
-            apiClient: apiClient,
-            sectionKey: libraryId
-        )
-
-        EnsembleLogger.debug("✅ Created PlexRadioProvider for source: \(sourceKey)")
-        return radioProvider
+    public func makeRadioProvider(for sourceKey: String) -> MusicSourceRadioProviding? {
+        providerResolver.resolve(sourceKey: sourceKey, allowServerScope: true)?.provider
+            as? MusicSourceRadioProviding
     }
     
     // MARK: - Periodic Sync During Active Use
@@ -2404,18 +2709,25 @@ public final class SyncCoordinator: ObservableObject {
     /// Does not depend on `isSyncing` so it can run alongside library sync.
     public func syncServerPlaylistsIncremental(serverKey: String) async {
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered playlist sync for server \(serverKey)")
+        let serverSourceKey = "plex:\(serverKey)"
+        guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: serverSourceKey) else {
+            return
+        }
+        defer { finishSourcePersistenceOperation(persistenceOperation) }
 
         do {
             guard let result = try await webSocketSyncController.refreshServerPlaylists(
                 serverKey: serverKey,
-                providers: syncProviders,
+                providers: persistenceOperation.providers,
                 playlistRepository: playlistRepository,
                 playlistRefreshController: playlistRefreshController
             ) else {
                 EnsembleLogger.error("🔌 SyncCoordinator: No playlist refresh result for server \(serverKey)")
                 return
             }
+            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
+            guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             publishContentChangeIfNeeded(
                 for: result.sourceId,
                 playlistResult: result.playlistResult,

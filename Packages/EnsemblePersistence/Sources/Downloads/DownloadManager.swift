@@ -33,7 +33,7 @@ public protocol DownloadManagerProtocol: Sendable {
     func fetchNextPendingDownload() async throws -> CDDownload?
     func fetchCompletedDownloads() async throws -> [CDDownload]
     func countCompletedDownloads() async throws -> Int
-    func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload?
+    func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload?
     /// Batch fetch downloads for multiple tracks in a single CoreData query.
     /// Returns a dictionary keyed by "sourceCompositeKey|ratingKey" for O(1) lookup.
     func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String: CDDownload]
@@ -41,8 +41,7 @@ public protocol DownloadManagerProtocol: Sendable {
     func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload]
     func countDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> Int
 
-    func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload
-    func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload
+    func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String, quality: String) async throws -> CDDownload
 
     /// Batch-create download records for multiple tracks in a single CoreData save.
     /// Returns the number of newly created pending downloads.
@@ -61,13 +60,11 @@ public protocol DownloadManagerProtocol: Sendable {
     func completeDownload(_ downloadId: NSManagedObjectID, filePath: String, fileSize: Int64, quality: String?) async throws
     func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws
 
-    func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws
-    func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws
+    func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws
     /// Delete source-scoped download records and files in bounded background batches.
     func deleteDownloads(forReferences references: [OfflineTrackReference]) async throws
 
-    func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String?
-    func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String?
+    func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String?
 
     func getTotalDownloadSize() async throws -> Int64
 
@@ -353,7 +350,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? {
+    public func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {
@@ -445,17 +442,9 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload {
-        try await createDownload(
-            forTrackRatingKey: trackRatingKey,
-            sourceCompositeKey: nil,
-            quality: "high"
-        )
-    }
-
     public func createDownload(
         forTrackRatingKey trackRatingKey: String,
-        sourceCompositeKey: String?,
+        sourceCompositeKey: String,
         quality: String
     ) async throws -> CDDownload {
         try await withCheckedThrowingContinuation { continuation in
@@ -517,7 +506,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                     // No CDDownload exists for this track — create a new pending record
                     EnsembleLogger.debug(
-                        "📥 createDownload: no existing record for track=\(trackRatingKey) source=\(sourceCompositeKey ?? "nil") — creating new pending download"
+                        "📥 createDownload: no existing record for track=\(trackRatingKey) source=\(sourceCompositeKey) — creating new pending download"
                     )
                     let download = CDDownload(context: context)
                     download.status = CDDownload.Status.pending.rawValue
@@ -724,11 +713,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {
-        try await deleteDownload(forTrackRatingKey: trackRatingKey, sourceCompositeKey: nil)
-    }
-
-    public func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {
+    public func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             coreDataStack.performBackgroundTask { context in
                 let request = CDDownload.fetchRequest()
@@ -786,11 +771,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         }
     }
 
-    public func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? {
-        try await getLocalFilePath(forTrackRatingKey: trackRatingKey, sourceCompositeKey: nil)
-    }
-
-    public func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? {
+    public func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String? {
         try await withCheckedThrowingContinuation { continuation in
             let context = coreDataStack.viewContext
             context.perform {

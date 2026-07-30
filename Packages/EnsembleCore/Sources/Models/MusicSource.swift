@@ -7,6 +7,24 @@ public enum MusicSourceType: String, Codable, Sendable, CaseIterable {
     case appleMusic
 }
 
+/// Source-routing failures that are independent of any provider API.
+public enum MusicSourceRoutingError: LocalizedError, Equatable, Sendable {
+    case invalidSourceKey(String?)
+    case providerUnavailable(sourceKey: String)
+    case capabilityUnavailable(sourceKey: String, capability: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidSourceKey:
+            return "The music source is invalid."
+        case .providerUnavailable:
+            return "The music source is unavailable."
+        case .capabilityUnavailable(_, let capability):
+            return "This music source doesn’t support \(capability)."
+        }
+    }
+}
+
 /// Provider behavior and copy consumed by shared UI surfaces.
 /// Adding a source should require one entry here, not source checks throughout the UI.
 public struct MusicSourceCapabilities: Sendable, Equatable {
@@ -25,7 +43,44 @@ public struct MusicSourceCapabilities: Sendable, Equatable {
     public let supportsTrackDeletion: Bool
     public let supportsFavoriteRemoval: Bool
     public let supportsCatalogLibraryAdds: Bool
+    /// Whether rating mutations can be persisted and replayed after connectivity returns.
+    public let supportsQueuedRatingMutations: Bool
+    /// Whether playlist mutations can be persisted and replayed after connectivity returns.
+    public let supportsQueuedPlaylistMutations: Bool
+    /// Fallback for regular cached playlists that predate item-level capability persistence.
+    public let supportsRegularPlaylistMutationsByDefault: Bool
+    public let playlistEditsRequireItemIdentifiers: Bool
+    public let playlistsAreServerScoped: Bool
+    public let supportsOfflineDownloads: Bool
+    /// Whether provider-owned Feed items remain actionable without a matching local library row.
+    public let retainsHubItemsWithoutLocalCache: Bool
     public let smartMixCrossSourceNotice: String?
+
+    static let unavailable = MusicSourceCapabilities(
+        displayName: "Unknown Source",
+        defaultLibraryName: "Unknown Library",
+        requiresServerConnection: false,
+        supportsWaveform: false,
+        supportsLyrics: false,
+        lyricsUnavailableMessage: "Lyrics aren’t available because this track’s music source is unknown.",
+        lyricsStatusDescription: "Unavailable",
+        managedPlaybackQualityDescription: nil,
+        supportsAudioFileInfo: false,
+        supportsInstrumentalMode: false,
+        supportsAudioFileSharing: false,
+        supportsMetadataEditing: false,
+        supportsTrackDeletion: false,
+        supportsFavoriteRemoval: false,
+        supportsCatalogLibraryAdds: false,
+        supportsQueuedRatingMutations: false,
+        supportsQueuedPlaylistMutations: false,
+        supportsRegularPlaylistMutationsByDefault: false,
+        playlistEditsRequireItemIdentifiers: true,
+        playlistsAreServerScoped: false,
+        supportsOfflineDownloads: false,
+        retainsHubItemsWithoutLocalCache: false,
+        smartMixCrossSourceNotice: nil
+    )
 }
 
 public extension MusicSourceType {
@@ -48,6 +103,13 @@ public extension MusicSourceType {
                 supportsTrackDeletion: true,
                 supportsFavoriteRemoval: true,
                 supportsCatalogLibraryAdds: false,
+                supportsQueuedRatingMutations: true,
+                supportsQueuedPlaylistMutations: true,
+                supportsRegularPlaylistMutationsByDefault: true,
+                playlistEditsRequireItemIdentifiers: true,
+                playlistsAreServerScoped: true,
+                supportsOfflineDownloads: true,
+                retainsHubItemsWithoutLocalCache: false,
                 smartMixCrossSourceNotice: nil
             )
         case .appleMusic:
@@ -67,6 +129,13 @@ public extension MusicSourceType {
                 supportsTrackDeletion: false,
                 supportsFavoriteRemoval: false,
                 supportsCatalogLibraryAdds: true,
+                supportsQueuedRatingMutations: false,
+                supportsQueuedPlaylistMutations: false,
+                supportsRegularPlaylistMutationsByDefault: false,
+                playlistEditsRequireItemIdentifiers: false,
+                playlistsAreServerScoped: false,
+                supportsOfflineDownloads: false,
+                retainsHubItemsWithoutLocalCache: true,
                 smartMixCrossSourceNotice: "SmartMix cannot transition between songs from Apple Music and other services"
             )
         }
@@ -118,11 +187,16 @@ public struct MusicSourceIdentifier: Hashable, Codable, Sendable, Identifiable {
     }
 
     public init?(compositeKey: String) {
-        let parts = compositeKey.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count == 4, let type = MusicSourceType(rawValue: parts[0]) else {
+        guard let identity = MediaSourceIdentity.parse(compositeKey),
+              let libraryId = identity.libraryId else {
             return nil
         }
-        self.init(type: type, accountId: parts[1], serverId: parts[2], libraryId: parts[3])
+        self.init(
+            type: identity.sourceType,
+            accountId: identity.accountId,
+            serverId: identity.serverId,
+            libraryId: libraryId
+        )
     }
 }
 
@@ -187,25 +261,47 @@ public struct MusicSource: Identifiable, Sendable {
 
 public extension Track {
     var sourceType: MusicSourceType? {
-        sourceCompositeKey.flatMap(MusicSourceIdentifier.init(compositeKey:))?.type
+        MusicSourceIdentifier(compositeKey: sourceCompositeKey ?? "")?.type
     }
 
     var isAppleMusic: Bool { sourceType == .appleMusic }
 
     var sourceCapabilities: MusicSourceCapabilities {
-        (sourceType ?? .plex).capabilities
+        sourceType?.capabilities ?? .unavailable
     }
 
-    /// Catalog results and autoplay tracks use the catalog key. Library sync replaces it
-    /// with `apple-library:<catalog-id>`, so this remains stable across all UI surfaces.
+    /// Catalog results use a catalog key. Library-backed results use a distinct key,
+    /// even when Apple also supplies a catalog identifier.
     var canAddToSourceLibrary: Bool {
         sourceCapabilities.supportsCatalogLibraryAdds && key == "apple-catalog"
     }
 
     var appleMusicCatalogID: String? {
-        if key == "apple-catalog" { return id }
+        if key == "apple-catalog" || key == "apple-catalog-library" { return id }
+        if key.hasPrefix("apple-library-catalog:") {
+            let value = String(key.dropFirst("apple-library-catalog:".count))
+            return value.isEmpty ? nil : value
+        }
         guard key.hasPrefix("apple-library:") else { return nil }
         let value = String(key.dropFirst("apple-library:".count))
-        return value.isEmpty ? nil : value
+        return value.isEmpty || value == id ? nil : value
     }
+
+    var appleMusicLibraryID: String? {
+        guard key.hasPrefix("apple-library:") || key.hasPrefix("apple-library-catalog:") else {
+            return nil
+        }
+        return id.isEmpty ? nil : id
+    }
+
+    internal var appleMusicPlaybackIdentifier: AppleMusicPlaybackIdentifier? {
+        if let catalogID = appleMusicCatalogID { return .catalog(catalogID) }
+        if let libraryID = appleMusicLibraryID { return .library(libraryID) }
+        return nil
+    }
+}
+
+enum AppleMusicPlaybackIdentifier: Equatable {
+    case catalog(String)
+    case library(String)
 }

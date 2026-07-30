@@ -120,6 +120,7 @@ public final class NowPlayingViewModel: ObservableObject {
     /// .saturation(1.9) + .brightness(-0.05) + .blur(80) on every body eval.
     @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
+    private var optimisticTrackFavoritesByIdentity: [String: Bool] = [:]
     @Published private var addedSourceLibraryTrackIdentities = Set<String>()
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
@@ -378,6 +379,13 @@ public final class NowPlayingViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isExhausted in
                 self?.setIfChanged(\.recommendationsExhausted, isExhausted)
+            }
+            .store(in: &cancellables)
+
+        playbackService.incompatibleQueueItemCountPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] count in
+                self?.queueProjection.updateIncompatibleQueueItemCount(count)
             }
             .store(in: &cancellables)
 
@@ -1189,11 +1197,12 @@ public final class NowPlayingViewModel: ObservableObject {
 
     /// Fetch audio format metadata (codec, bitrate, sample rate, etc.) for the current track
     public func fetchAudioFileInfoForCurrentTrack() async -> AudioFileInfo? {
-        guard let track = currentTrack,
-              let apiClient = syncCoordinator.apiClient(for: track.sourceCompositeKey) else { return nil }
+        guard let track = currentTrack else { return nil }
         do {
-            guard let plexTrack = try await apiClient.getTrack(trackKey: track.id) else { return nil }
-            return AudioFileInfo(from: plexTrack)
+            return try await syncCoordinator.getAudioFileInfo(
+                trackId: track.id,
+                sourceKey: track.sourceCompositeKey
+            )
         } catch {
             EnsembleLogger.debug("Failed to fetch audio file info: \(error)")
             return nil
@@ -1422,6 +1431,14 @@ public final class NowPlayingViewModel: ObservableObject {
         playbackService.playLast(tracks)
     }
 
+    public func queueActionAvailability(for track: Track) -> MusicItemActionAvailability {
+        playbackService.queueActionAvailability(for: [track])
+    }
+
+    public func queueActionAvailability(for tracks: [Track]) -> MusicItemActionAvailability {
+        playbackService.queueActionAvailability(for: tracks)
+    }
+
     public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {
         playbackService.moveQueueItem(
             byId: itemId,
@@ -1454,32 +1471,7 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func resolveDefaultPlaylistServerSourceKey(for tracks: [Track]) async -> String? {
-        if let inferred = defaultPlaylistServerSourceKey(for: tracks) {
-            return inferred
-        }
-
-        for track in tracks {
-            if let cachedTrack = try? await libraryRepository.fetchTrack(
-                ratingKey: track.id,
-                sourceCompositeKey: track.sourceCompositeKey
-            ),
-                let source = serverSourceKey(from: cachedTrack.sourceCompositeKey)
-            {
-                return source
-            }
-        }
-
-        if let currentTrack,
-           let cachedTrack = try? await libraryRepository.fetchTrack(
-               ratingKey: currentTrack.id,
-               sourceCompositeKey: currentTrack.sourceCompositeKey
-           ),
-           let source = serverSourceKey(from: cachedTrack.sourceCompositeKey)
-        {
-            return source
-        }
-
-        return nil
+        defaultPlaylistServerSourceKey(for: tracks)
     }
 
     public func loadPlaylists(forServerSourceKey sourceKey: String? = nil) async throws -> [Playlist] {
@@ -1661,7 +1653,11 @@ public final class NowPlayingViewModel: ObservableObject {
     // MARK: - Rating Management
 
     public func isTrackFavorited(_ track: Track) -> Bool {
-        trackDisplayRating(for: track) >= 8
+        let trackIdentity = track.playbackIdentity
+        if track.isAppleMusic || track.favoriteState != nil {
+            return optimisticTrackFavoritesByIdentity[trackIdentity] ?? track.isFavorite
+        }
+        return (optimisticTrackRatingsByIdentity[trackIdentity] ?? track.rating) >= 8
     }
 
     public func setTrackFavorite(_ isFavorite: Bool, for track: Track) async {
@@ -1674,7 +1670,7 @@ public final class NowPlayingViewModel: ObservableObject {
             ))
             return
         }
-        let trackIdentity = track.sourceScopedID
+        let trackIdentity = track.playbackIdentity
         guard !favoriteUpdatesInFlight.contains(trackIdentity) else { return }
         favoriteUpdatesInFlight.insert(trackIdentity)
         defer { favoriteUpdatesInFlight.remove(trackIdentity) }
@@ -1682,6 +1678,7 @@ public final class NowPlayingViewModel: ObservableObject {
         let plexRating: Int? = isFavorite ? 10 : nil
         let optimisticRating = isFavorite ? 10 : 0
         let previousRating = trackDisplayRating(for: track)
+        let previousFavorite = isTrackFavorited(track)
         let loadingToast = trackRatingMutationWorkflow.beginFavoriteUpdate(track: track, isFavorite: isFavorite)
         toastCenter.show(loadingToast)
         defer { toastCenter.dismiss(id: loadingToast.id) }
@@ -1689,6 +1686,7 @@ public final class NowPlayingViewModel: ObservableObject {
         do {
             // Optimistically update local state so UI reflects the change immediately.
             optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
+            optimisticTrackFavoritesByIdentity[trackIdentity] = isFavorite
             applyCurrentTrackRatingIfNeeded(track: track, rating: optimisticRating)
             await playbackService.applyRatingLocally(track: track, rating: optimisticRating)
             try await storeTrackRating(track: track, rating: optimisticRating)
@@ -1715,6 +1713,7 @@ public final class NowPlayingViewModel: ObservableObject {
             ) {
                 let refreshedTrack = Track(from: updatedTrack)
                 optimisticTrackRatingsByIdentity[trackIdentity] = refreshedTrack.rating
+                optimisticTrackFavoritesByIdentity[trackIdentity] = refreshedTrack.isFavorite
                 updateCurrentTrackIfNeeded(refreshedTrack)
             } else {
                 optimisticTrackRatingsByIdentity[trackIdentity] = optimisticRating
@@ -1726,6 +1725,7 @@ public final class NowPlayingViewModel: ObservableObject {
         } catch {
             // Roll back optimistic state if server mutation fails.
             optimisticTrackRatingsByIdentity[trackIdentity] = previousRating
+            optimisticTrackFavoritesByIdentity[trackIdentity] = previousFavorite
             applyCurrentTrackRatingIfNeeded(track: track, rating: previousRating)
             await playbackService.applyRatingLocally(track: track, rating: previousRating)
             try? await storeTrackRating(track: track, rating: previousRating)
@@ -1815,7 +1815,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
         isUpdatingRating = true
         currentRating = newRating
-        let trackIdentity = track.sourceScopedID
+        let trackIdentity = track.playbackIdentity
         optimisticTrackRatingsByIdentity[trackIdentity] = nextDisplayRating
 
         do {
@@ -1842,7 +1842,7 @@ public final class NowPlayingViewModel: ObservableObject {
             ) {
                 let refreshedTrack = Track(from: updatedTrack)
                 optimisticTrackRatingsByIdentity[trackIdentity] = refreshedTrack.rating
-                if currentTrack?.sourceScopedID == trackIdentity {
+                if currentTrack?.playbackIdentity == trackIdentity {
                     currentTrack = refreshedTrack
                 }
             } else {
@@ -1871,19 +1871,30 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     private func applyCurrentTrackRatingIfNeeded(track: Track, rating: Int) {
-        guard let currentTrack, currentTrack.sourceScopedID == track.sourceScopedID else { return }
+        guard let currentTrack, currentTrack.playbackIdentity == track.playbackIdentity else { return }
         self.currentTrack = currentTrack.withRating(rating)
         currentRating = TrackRating.from(rating: rating)
     }
 
     private func updateCurrentTrackIfNeeded(_ track: Track) {
-        guard currentTrack?.sourceScopedID == track.sourceScopedID else { return }
+        guard currentTrack?.playbackIdentity == track.playbackIdentity else { return }
         currentTrack = track
-        currentRating = TrackRating.from(rating: track.rating)
+        currentRating = TrackRating.from(rating: trackDisplayRating(for: track))
     }
 
     private func trackDisplayRating(for track: Track) -> Int {
-        optimisticTrackRatingsByIdentity[track.sourceScopedID] ?? track.rating
+        let trackIdentity = track.playbackIdentity
+        if let optimisticRating = optimisticTrackRatingsByIdentity[trackIdentity] {
+            return optimisticRating
+        }
+        if (track.isAppleMusic || track.favoriteState != nil),
+           let optimisticFavorite = optimisticTrackFavoritesByIdentity[trackIdentity] {
+            return optimisticFavorite ? 10 : 0
+        }
+        if track.favoriteState != nil {
+            return track.isFavorite ? 10 : 0
+        }
+        return track.rating
     }
 
     private func trackWithDisplayRating(_ track: Track) -> Track {
@@ -1913,10 +1924,6 @@ public final class NowPlayingViewModel: ObservableObject {
         }
 
         return try await trackRatingMutationWorkflow.mutate(track, rating: rating)
-    }
-
-    private func serverSourceKey(from sourceCompositeKey: String?) -> String? {
-        MediaSourceIdentity.serverSourceKey(from: sourceCompositeKey)
     }
 
 }

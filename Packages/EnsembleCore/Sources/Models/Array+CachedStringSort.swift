@@ -23,4 +23,25 @@ extension Array where Element: Identifiable, Element.ID == String {
             return ascending ? left < right : left > right
         }
     }
+
+    /// Sorts present values before missing values in either direction and uses a stable identity for ties.
+    func sortedByOptionalComparableKey<Value: Comparable>(
+        _ key: (Element) -> Value?,
+        stableID: (Element) -> String,
+        ascending: Bool
+    ) -> [Element] {
+        sorted {
+            switch (key($0), key($1)) {
+            case let (.some(left), .some(right)):
+                guard left != right else { return stableID($0) < stableID($1) }
+                return ascending ? left < right : left > right
+            case (.some, .none):
+                return true
+            case (.none, .some):
+                return false
+            case (.none, .none):
+                return stableID($0) < stableID($1)
+            }
+        }
+    }
 }

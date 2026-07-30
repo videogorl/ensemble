@@ -1,7 +1,7 @@
 import CoreData
 import Foundation
 
-public struct OfflineTrackReference: Hashable, Sendable {
+public struct OfflineTrackReference: Hashable, Sendable, Codable {
     public let trackRatingKey: String
     public let trackSourceCompositeKey: String
 

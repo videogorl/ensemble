@@ -187,6 +187,20 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             lastPlayed: nil,
             sourceCompositeKey: MediaSourceIdentity.serverSourceKey(for: source)
         )
+        _ = try await playlistRepository.upsertPlaylist(
+            ratingKey: "library-playlist-1",
+            key: "/playlists/library-playlist-1",
+            title: "Library-scoped Playlist",
+            summary: nil,
+            compositePath: "/playlists/library-playlist-1/composite",
+            isSmart: false,
+            duration: nil,
+            trackCount: nil,
+            dateAdded: nil,
+            dateModified: modified,
+            lastPlayed: nil,
+            sourceCompositeKey: source.compositeKey
+        )
 
         await coordinator.syncAll()
 
@@ -194,6 +208,7 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/album-1/thumb", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/library/metadata/artist-1/thumb", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/playlist-1/composite", size: ArtworkSize.detail.rawValue)))
+        XCTAssertTrue(provider.artworkRequests.contains(.init(path: "/playlists/library-playlist-1/composite", size: ArtworkSize.detail.rawValue)))
         XCTAssertTrue(artworkDownloadManager.downloadedRecords.allSatisfy { $0.url.host == "example.com" })
         XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
             $0.ratingKey == "album-1"
@@ -209,6 +224,13 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             $0.ratingKey == "playlist-1"
                 && $0.type == .playlist
                 && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
+                && $0.sourceCompositeKey == MediaSourceIdentity.serverSourceKey(for: source)
+        })
+        XCTAssertTrue(artworkDownloadManager.downloadedIdentities.contains {
+            $0.ratingKey == "library-playlist-1"
+                && $0.type == .playlist
+                && $0.requestedPixelDimension == ArtworkSize.detail.rawValue
+                && $0.sourceCompositeKey == source.compositeKey
         })
     }
 

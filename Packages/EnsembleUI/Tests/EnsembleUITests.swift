@@ -103,7 +103,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(resolved)
         let cacheRequests = await artworkLoader.cacheRequests
         XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, hint)
+        XCTAssertEqual(cacheRequests.first?.hint, hint?.scoped(to: "plex:server:library"))
         XCTAssertEqual(cacheRequests.first?.minimumPixelDimension, 44)
     }
 
@@ -187,7 +187,181 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(artworkPaths, [primaryPath, fallbackPath])
         let cacheRequests = await artworkLoader.cacheRequests
         XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint)
+        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint?.scoped(to: "plex:account:server"))
+    }
+
+    func testArtworkResolverFindsSourceScopedLocalFallbackWhenPrimaryIsNotCached() async throws {
+        let fallbackArtworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: fallbackArtworkURL) }
+
+        let primaryPath = "/playlists/playlist-1/composite"
+        let fallbackPath = "https://example.com/album/{w}x{h}.jpg"
+        let primarySource = "plex:account:server"
+        let fallbackSource = "appleMusic:device:system:library"
+        let artworkLoader = RecordingArtworkLoader(
+            url: nil,
+            localURLsByPath: [fallbackPath: fallbackArtworkURL]
+        )
+        let descriptor = ArtworkResolutionDescriptor(
+            path: primaryPath,
+            sourceKey: primarySource,
+            ratingKey: "playlist-1",
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: nil,
+            fallbackSourceKey: fallbackSource,
+            cacheHint: nil,
+            fallbackCacheHint: nil,
+            size: 600,
+            priority: .high
+        )
+
+        let resolved = await ArtworkImageResolver.locallyCachedImage(
+            for: descriptor,
+            artworkLoader: artworkLoader
+        )
+
+        XCTAssertEqual(resolved?.url, fallbackArtworkURL)
+        XCTAssertTrue(resolved?.blurCacheKey.contains(fallbackSource) == true)
+        let requests = await artworkLoader.localRequests
+        XCTAssertEqual(requests.map(\.path), [primaryPath, fallbackPath])
+        XCTAssertEqual(requests.map(\.sourceKey), [primarySource, fallbackSource])
+    }
+
+    func testMediaHeaderArtworkIdentityIsSourceScopedAndTracksFallbackRelinking() throws {
+        let path = "/library/metadata/shared/thumb"
+        let firstHeader = MediaHeaderData(
+            title: "Playlist",
+            metadataLine: "",
+            artworkPath: path,
+            sourceKey: "plex:account-a:server:library",
+            ratingKey: "shared"
+        )
+        let secondHeader = MediaHeaderData(
+            title: "Playlist",
+            metadataLine: "",
+            artworkPath: path,
+            sourceKey: "plex:account-b:server:library",
+            ratingKey: "shared"
+        )
+        let firstPrimary = try XCTUnwrap(makeMediaHeaderArtworkDescriptor(
+            headerData: firstHeader,
+            mediaType: .playlist
+        ))
+        let secondPrimary = try XCTUnwrap(makeMediaHeaderArtworkDescriptor(
+            headerData: secondHeader,
+            mediaType: .playlist
+        ))
+        XCTAssertNotEqual(firstPrimary.stableBlurCacheKey, secondPrimary.stableBlurCacheKey)
+
+        func fallbackDescriptor(sourceKey: String?) -> ArtworkResolutionDescriptor {
+            ArtworkResolutionDescriptor(
+                path: path,
+                sourceKey: sourceKey,
+                ratingKey: "album-1",
+                fallbackPath: nil,
+                fallbackRatingKey: nil,
+                cacheHint: nil,
+                fallbackCacheHint: nil,
+                size: 600,
+                priority: .high
+            )
+        }
+
+        XCTAssertNotEqual(
+            mediaHeaderArtworkLoadIdentity(
+                primary: firstPrimary,
+                fallback: fallbackDescriptor(sourceKey: firstHeader.sourceKey)
+            ),
+            mediaHeaderArtworkLoadIdentity(
+                primary: firstPrimary,
+                fallback: fallbackDescriptor(sourceKey: secondHeader.sourceKey)
+            )
+        )
+    }
+
+    func testMediaHeaderBlurCacheKeyUsesResolvedFallbackIdentity() {
+        let primary = ArtworkResolutionDescriptor(
+            path: "/playlists/playlist-1/composite",
+            sourceKey: "plex:account:server",
+            ratingKey: "playlist-1",
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: nil,
+            fallbackCacheHint: nil,
+            size: 600,
+            priority: .high
+        )
+        let fallback = ArtworkResolutionDescriptor(
+            path: "https://example.com/album/{w}x{h}.jpg",
+            sourceKey: "appleMusic:device:system:library",
+            ratingKey: "album-1",
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            cacheHint: nil,
+            fallbackCacheHint: nil,
+            size: 600,
+            priority: .high
+        )
+
+        XCTAssertNil(mediaHeaderBlurCacheKey(
+            resolvedBlurCacheKey: nil,
+            descriptors: [primary, fallback]
+        ))
+        XCTAssertEqual(
+            mediaHeaderBlurCacheKey(
+                resolvedBlurCacheKey: fallback.stableBlurCacheKey,
+                descriptors: [primary, fallback]
+            ),
+            fallback.stableBlurCacheKey
+        )
+    }
+
+    func testPlaylistHeaderUsesPersistedFallbackWhenCompositeIsMissing() throws {
+        let sourceKey = "appleMusic:device:system:library"
+        let fallbackPath = "https://example.com/album/{w}x{h}.jpg"
+        let playlist = Playlist(
+            id: "playlist-1",
+            key: "playlist-1",
+            title: "Sleepy Ambient",
+            fallbackArtworkPath: fallbackPath,
+            fallbackArtworkRatingKey: "album-1",
+            fallbackArtworkSourceCompositeKey: sourceKey,
+            sourceCompositeKey: sourceKey
+        )
+
+        let descriptor = try XCTUnwrap(makePlaylistHeaderFallbackArtworkDescriptor(
+            playlist: playlist,
+            track: nil,
+            fallbackSourceKey: nil
+        ))
+
+        XCTAssertEqual(descriptor.path, fallbackPath)
+        XCTAssertEqual(descriptor.ratingKey, "album-1")
+        XCTAssertEqual(descriptor.sourceKey, sourceKey)
+        XCTAssertEqual(descriptor.cacheHint?.kind, .album)
+        XCTAssertEqual(descriptor.cacheHint?.ratingKey, "album-1")
+        XCTAssertEqual(descriptor.cacheHint?.sourceCompositeKey, sourceKey)
+    }
+
+    func testPlaylistHeaderStillFallsBackToLoadedTrackArtwork() throws {
+        let track = Track(
+            id: "track-1",
+            key: "track-1",
+            title: "Track",
+            fallbackThumbPath: "/library/metadata/album-1/thumb",
+            fallbackRatingKey: "album-1",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+
+        let descriptor = try XCTUnwrap(makePlaylistHeaderFallbackArtworkDescriptor(
+            playlist: nil,
+            track: track,
+            fallbackSourceKey: nil
+        ))
+
+        XCTAssertEqual(descriptor.path, track.fallbackThumbPath)
+        XCTAssertEqual(descriptor.ratingKey, "album-1")
+        XCTAssertEqual(descriptor.cacheHint?.kind, .album)
     }
 
     @MainActor
@@ -1143,6 +1317,71 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNil(model.resolve(for: library).onAddToLibrary)
     }
 
+    func testTrackRowInteractionModelUsesNormalizedAppleMusicActionAvailability() {
+        let track = Track(
+            id: "apple-song",
+            key: "apple-library:apple-song",
+            title: "Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let model = TrackRowInteractionModel(
+            onToggleFavorite: { _ in },
+            onEditMetadata: { _ in },
+            onDeleteTrack: { _ in },
+            isTrackFavorited: { _ in true }
+        )
+
+        let resolved = model.resolve(for: track)
+
+        XCTAssertNotNil(resolved.onToggleFavorite)
+        XCTAssertNotNil(resolved.onEditMetadata)
+        XCTAssertNotNil(resolved.onDeleteTrack)
+        XCTAssertFalse(resolved.favoriteAvailability.isAvailable)
+        XCTAssertFalse(resolved.editMetadataAvailability.isAvailable)
+        XCTAssertFalse(resolved.deleteAvailability.isAvailable)
+        XCTAssertTrue(model.hasContextMenu(for: track))
+    }
+
+    func testMediaMenuCatalogRetainsDisabledModelActionAndReason() throws {
+        let availability = MusicItemActionAvailability.readOnly(reason: "This playlist is read-only.")
+        let sections = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: false),
+            context: .library,
+            availability: MediaMenuAvailability(
+                canRename: true,
+                itemActions: [.rename: availability]
+            )
+        )
+
+        let rename = try XCTUnwrap(sections.flatMap(\.actions).first { $0.id == .rename })
+        XCTAssertEqual(rename.availability, availability)
+        XCTAssertFalse(rename.availability.isAvailable)
+        XCTAssertEqual(rename.availability.reason, "This playlist is read-only.")
+    }
+
+    func testMediaMenuCatalogRetainsUnavailableAppleUnfavoriteForMiniPlayer() throws {
+        let availability = MusicItemActionAvailability.unavailable(
+            reason: "Apple Music favorites cannot be removed in Ensemble."
+        )
+        let sections = MediaMenuCatalog.sections(
+            for: .track,
+            context: .miniPlayer,
+            availability: MediaMenuAvailability(
+                canFavorite: true,
+                itemActions: [.favorite: availability]
+            )
+        )
+        let renderable = MediaMenuCatalog.renderableSections(
+            sections,
+            state: MediaMenuState(isFavorited: true),
+            handlers: MediaMenuHandlers(favorite: {})
+        )
+
+        let favorite = try XCTUnwrap(renderable.flatMap(\.actions).first { $0.id == .favorite })
+        XCTAssertEqual(favorite.label(state: MediaMenuState(isFavorited: true))?.title, "Unfavorite")
+        XCTAssertEqual(favorite.availability, availability)
+    }
+
     func testMediaMenuCatalogQueueAndHistoryTrackContextsDivergeOnlyForRemoval() {
         let queue = MediaMenuCatalog.sections(
             for: .track,
@@ -1220,21 +1459,169 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .management), [.getInfo])
     }
 
-    func testMediaMenuCatalogLibraryPlaylistManagementExcludesSmartPlaylists() {
+    func testMediaMenuCatalogSearchMergedPlaylistIsNonDestructive() {
+        let sections = MediaMenuCatalog.sections(
+            for: .mergedPlaylist(isSmart: false),
+            context: .search,
+            availability: .full
+        )
+
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing])
+        XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
+        XCTAssertEqual(sections.actions(in: .offline), [.downloadAll, .removeDownloads])
+        XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
+        XCTAssertNil(sections.first { $0.id == .management })
+    }
+
+    func testMediaMenuCatalogRetainsSmartPlaylistManagementActionsAsReadOnly() throws {
         let regular = MediaMenuCatalog.sections(
             for: .playlist(isSmart: false),
             context: .library,
             availability: .full
         )
+        let readOnly = MusicItemActionAvailability.readOnly(reason: "Smart playlists are read-only.")
         let smart = MediaMenuCatalog.sections(
             for: .playlist(isSmart: true),
             context: .library,
-            availability: .full
+            availability: MediaMenuAvailability(
+                itemActions: [
+                    .rename: readOnly,
+                    .editPlaylist: readOnly,
+                    .deletePlaylist: readOnly
+                ]
+            )
         )
 
         XCTAssertEqual(regular.actions(in: .management), [.getInfo, .rename, .editPlaylist, .deletePlaylist])
         XCTAssertEqual(regular.role(for: .deletePlaylist), .destructive)
-        XCTAssertEqual(smart.actions(in: .management), [.getInfo])
+        XCTAssertEqual(smart.actions(in: .management), [.getInfo, .rename, .editPlaylist, .deletePlaylist])
+        for actionID in [MediaMenuActionID.rename, .editPlaylist, .deletePlaylist] {
+            let action = try XCTUnwrap(smart.flatMap(\.actions).first { $0.id == actionID })
+            XCTAssertEqual(action.availability, readOnly)
+        }
+    }
+
+    func testMediaMenuCatalogOmitsSmartPlaylistManagementWithoutHandlers() {
+        let sections = MediaMenuCatalog.sections(
+            for: .playlist(isSmart: true),
+            context: .library,
+            availability: .full
+        )
+        let renderable = MediaMenuCatalog.renderableSections(
+            sections,
+            state: MediaMenuState(),
+            handlers: MediaMenuHandlers(getInfo: {})
+        )
+
+        XCTAssertEqual(renderable.actions(in: .management), [.getInfo])
+    }
+
+    func testMediaMenuCatalogRetainsMergedSmartManagementActionsAsReadOnly() throws {
+        let readOnly = MusicItemActionAvailability.readOnly(reason: "Smart playlists are read-only.")
+        let sections = MediaMenuCatalog.sections(
+            for: .mergedPlaylist(isSmart: true),
+            context: .library,
+            availability: MediaMenuAvailability(
+                itemActions: [
+                    .renameAll: readOnly,
+                    .deleteAll: readOnly
+                ]
+            )
+        )
+
+        XCTAssertEqual(sections.actions(in: .management), [.renameAll, .deleteAll])
+        for actionID in [MediaMenuActionID.renameAll, .deleteAll] {
+            let action = try XCTUnwrap(sections.flatMap(\.actions).first { $0.id == actionID })
+            XCTAssertEqual(action.availability, readOnly)
+        }
+    }
+
+    func testDownloadMenuKeepsLocalRemovalAvailableWhenSourceSyncIsUnavailable() {
+        let sourceAvailability = MusicItemActionAvailability.unavailable(
+            reason: "This source is unavailable."
+        )
+
+        XCTAssertEqual(
+            resolvedDownloadMenuAvailability(
+                isDownloaded: true,
+                sourceAvailability: sourceAvailability
+            ),
+            .available
+        )
+        XCTAssertEqual(
+            resolvedDownloadMenuAvailability(
+                isDownloaded: false,
+                sourceAvailability: sourceAvailability
+            ),
+            sourceAvailability
+        )
+    }
+
+    func testDetailMenuKeepsUnknownDownloadVisibleButUnavailable() {
+        let album = Album(id: "legacy", key: "/album/legacy", title: "Legacy")
+        let availability = album.actionAvailability(for: .download, downloadStatus: .unknown)
+
+        XCTAssertEqual(
+            resolvedDownloadMenuAvailability(
+                isDownloaded: false,
+                sourceAvailability: availability
+            ),
+            .unavailable(reason: "This item’s music source is unknown.")
+        )
+    }
+
+    func testPlaylistDetailEditAvailabilityPreservesModelReasonAndLocalReadiness() {
+        let readOnly = MusicItemActionAvailability.readOnly(reason: "Smart playlists are read-only.")
+        XCTAssertEqual(
+            resolvedPlaylistDetailEditAvailability(
+                actionAvailability: readOnly,
+                canEditContents: true,
+                unavailableReason: "Playlist contents are not available to edit."
+            ),
+            readOnly
+        )
+        XCTAssertEqual(
+            resolvedPlaylistDetailEditAvailability(
+                actionAvailability: .available,
+                canEditContents: false,
+                unavailableReason: "Playlist contents are not available to edit."
+            ),
+            .unavailable(reason: "Playlist contents are not available to edit.")
+        )
+    }
+
+    func testMergedDetailDownloadUsesAnyDownloadableOrDownloadedConstituent() {
+        let apple = Playlist(
+            id: "apple",
+            key: "apple",
+            title: "Mix",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let plex = Playlist(
+            id: "plex",
+            key: "/playlists/plex",
+            title: "Mix",
+            sourceCompositeKey: "plex:account:server"
+        )
+        let sourceAvailabilities = [
+            apple.actionAvailability(for: .download),
+            plex.actionAvailability(for: .download)
+        ]
+
+        XCTAssertEqual(
+            resolvedMergedDownloadMenuAvailability(
+                isAnyDownloaded: false,
+                sourceAvailabilities: sourceAvailabilities
+            ),
+            .available
+        )
+        XCTAssertEqual(
+            resolvedMergedDownloadMenuAvailability(
+                isAnyDownloaded: true,
+                sourceAvailabilities: [.unavailable(reason: "New downloads are unavailable.")]
+            ),
+            .available
+        )
     }
 
     func testMediaMenuCatalogPinnedMergedPlaylistAddsUnpinAll() {
@@ -1251,7 +1638,12 @@ final class EnsembleUITests: XCTestCase {
     }
 
     func testTrackActionPresentationUsesSharedFavoriteState() {
-        let track = Track(id: "track-1", key: "/tracks/1", title: "Track")
+        let track = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            sourceCompositeKey: "plex:account:server:library"
+        )
         let resolved = TrackRowInteractionModel(
             onPlayNext: { _ in },
             onToggleFavorite: { _ in },
@@ -1268,8 +1660,24 @@ final class EnsembleUITests: XCTestCase {
         )
         XCTAssertEqual(
             TrackActionPresentation.confirmationToast(for: .playNext, track: track, dedupeNamespace: "test")?.dedupeKey,
-            "test-swipe-play-next-track-1"
+            "test-swipe-play-next-plex:account:server:library||track-1"
         )
+    }
+
+    func testTrackActionPresentationDisablesQueueActionsForAnotherPlaybackEngine() {
+        let reason = "This item uses a different playback engine than the current queue."
+        let track = Track(id: "apple-song", key: "apple-song", title: "Song")
+        let resolved = TrackRowInteractionModel(
+            onPlayNext: { _ in },
+            onPlayLast: { _ in },
+            queueActionAvailability: { _ in .unavailable(reason: reason) }
+        )
+        .resolve(for: track)
+
+        XCTAssertFalse(TrackActionPresentation.isSupported(.playNext, resolvedActions: resolved))
+        XCTAssertFalse(TrackActionPresentation.isSupported(.playLast, resolvedActions: resolved))
+        XCTAssertEqual(resolved.playNextAvailability.reason, reason)
+        XCTAssertEqual(resolved.playLastAvailability.reason, reason)
     }
 
     func testTrackActionPresentationDedupeKeysUseSourceScopedTrackIdentity() {
@@ -1291,6 +1699,26 @@ final class EnsembleUITests: XCTestCase {
     }
 
     #if os(macOS)
+    func testAppKitTrackMenuRendersUnavailableAppleActionDisabledWithReason() throws {
+        let track = Track(
+            id: "apple-song",
+            key: "apple-library:apple-song",
+            title: "Song",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let resolved = TrackRowInteractionModel(
+            onToggleFavorite: { _ in },
+            isTrackFavorited: { _ in true }
+        )
+        .resolve(for: track)
+
+        let menu = try XCTUnwrap(NativeMediaTableActionBuilder.contextMenu(for: track, resolvedActions: resolved))
+        let favoriteItem = try XCTUnwrap(menu.items.first { $0.title == "Unfavorite" })
+
+        XCTAssertFalse(favoriteItem.isEnabled)
+        XCTAssertEqual(favoriteItem.toolTip, "Apple Music favorites cannot be removed in Ensemble.")
+    }
+
     func testAppKitTrackContextMenuUsesSharedCatalogOrder() throws {
         let track = Track(
             id: "track-1",
@@ -1299,7 +1727,8 @@ final class EnsembleUITests: XCTestCase {
             artistName: "Artist",
             albumName: "Album",
             albumRatingKey: "album-1",
-            artistRatingKey: "artist-1"
+            artistRatingKey: "artist-1",
+            sourceCompositeKey: "plex:account-1:server-1:library-1"
         )
         let resolved = TrackRowInteractionModel(
             onPlayNext: { _ in },
@@ -1444,6 +1873,9 @@ private final class RecordingForegroundWorkScheduler: ForegroundWorkScheduling, 
 
 private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
     struct LocalRequest: Equatable {
+        let path: String?
+        let sourceKey: String?
+        let ratingKey: String?
         let minimumPixelDimension: Int?
         let allowStaleIdentity: Bool
     }
@@ -1451,14 +1883,21 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
     let url: URL?
     let localURL: URL?
     let urlsByPath: [String: URL]
+    let localURLsByPath: [String: URL]
     private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
     private(set) var localRequests: [LocalRequest] = []
     private(set) var artworkPaths: [String] = []
 
-    init(url: URL?, localURL: URL? = nil, urlsByPath: [String: URL] = [:]) {
+    init(
+        url: URL?,
+        localURL: URL? = nil,
+        urlsByPath: [String: URL] = [:],
+        localURLsByPath: [String: URL] = [:]
+    ) {
         self.url = url
         self.localURL = localURL
         self.urlsByPath = urlsByPath
+        self.localURLsByPath = localURLsByPath
     }
 
     func artworkURLAsync(
@@ -1486,12 +1925,38 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
         minimumPixelDimension: Int?,
         allowStaleIdentity: Bool
     ) async -> URL? {
+        await localArtworkURLAsync(
+            for: path,
+            sourceKey: nil,
+            ratingKey: ratingKey,
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: fallbackRatingKey,
+            minimumPixelDimension: minimumPixelDimension,
+            allowStaleIdentity: allowStaleIdentity
+        )
+    }
+
+    func localArtworkURLAsync(
+        for path: String?,
+        sourceKey: String?,
+        ratingKey: String?,
+        fallbackPath: String?,
+        fallbackRatingKey: String?,
+        minimumPixelDimension: Int?,
+        allowStaleIdentity: Bool
+    ) async -> URL? {
         localRequests.append(
             LocalRequest(
+                path: path,
+                sourceKey: sourceKey,
+                ratingKey: ratingKey,
                 minimumPixelDimension: minimumPixelDimension,
                 allowStaleIdentity: allowStaleIdentity
             )
         )
+        if let path, let localURL = localURLsByPath[path] {
+            return localURL
+        }
         return localURL
     }
 

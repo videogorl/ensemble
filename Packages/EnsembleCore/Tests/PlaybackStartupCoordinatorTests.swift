@@ -91,13 +91,43 @@ final class PlaybackStartupCoordinatorTests: XCTestCase {
         XCTAssertEqual(decision?.prebufferMode, .waitForHealthCheck)
     }
 
-    private func makeTrack(id: String, localFilePath: String? = nil) -> Track {
+    func testRestoreDecisionDoesNotPrebufferAppleMusicTrack() {
+        let coordinator = PlaybackStartupCoordinator()
+        let track = makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let snapshot = PlaybackQueueSnapshot(
+            queue: [QueueItem(track: track)],
+            history: [],
+            currentIndex: 0,
+            currentTime: 12
+        )
+
+        let decision = coordinator.makeRestoreDecision(
+            snapshot: snapshot,
+            resolvedTrack: track,
+            playbackState: .stopped,
+            existingQueueCount: 0,
+            isShuffleEnabled: false,
+            serverReady: true
+        )
+
+        XCTAssertEqual(decision?.prebufferMode, PlaybackStartupPrebufferMode.none)
+    }
+
+    private func makeTrack(
+        id: String,
+        localFilePath: String? = nil,
+        sourceCompositeKey: String? = nil
+    ) -> Track {
         Track(
             id: id,
             key: "/library/metadata/\(id)",
             title: "Track \(id)",
             duration: 180,
-            localFilePath: localFilePath
+            localFilePath: localFilePath,
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 }

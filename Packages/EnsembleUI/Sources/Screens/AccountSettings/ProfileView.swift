@@ -8,8 +8,8 @@ public struct ProfileView: View {
     @ObservedObject private var profileStore = DependencyContainer.shared.userProfileStore
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let playbackService = DependencyContainer.shared.playbackService
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     private let cacheManager = DependencyContainer.shared.cacheManager
 
     @State private var showingDeleteAlert = false
@@ -56,15 +56,27 @@ public struct ProfileView: View {
                         let sourceIds = allSources(for: account)
                         let serverIds = account.servers.map(\.id)
                         accountManager.removePlexAccount(id: account.id)
+                        syncCoordinator.refreshProviders()
 
                         Task {
+                            var cleanupSucceeded = true
                             for sourceId in sourceIds {
-                                await syncCoordinator.cleanupRemovedSource(sourceId)
+                                let sourceCleanupSucceeded = await syncCoordinator.cleanupRemovedSource(sourceId)
+                                cleanupSucceeded = cleanupSucceeded && sourceCleanupSucceeded
                             }
                             for serverId in serverIds {
                                 await syncCoordinator.cleanupServerPlaylists(accountId: account.id, serverId: serverId)
                             }
-                            syncCoordinator.refreshProviders()
+                            if !cleanupSucceeded {
+                                DependencyContainer.shared.toastCenter.show(
+                                    ToastPayload(
+                                        style: .error,
+                                        iconSystemName: EnsembleDesign.Icon.error,
+                                        title: "Account Removed",
+                                        message: "Some local data could not be fully cleared. Try clearing all library data from Storage."
+                                    )
+                                )
+                            }
                         }
 
                         accountToDelete = nil
@@ -197,6 +209,7 @@ public struct ProfileView: View {
                     MusicSourceAccountDetailView(accountId: account.id)
                 } label: {
                     MusicSourceAccountRow(
+                        sourceType: .plex,
                         sourceName: "Plex",
                         accountIdentifier: displayAccountIdentifier(for: account)
                     )
@@ -216,8 +229,9 @@ public struct ProfileView: View {
                     AppleMusicSourceDetailView()
                 } label: {
                     MusicSourceAccountRow(
+                        sourceType: .appleMusic,
                         sourceName: "Apple Music",
-                        accountIdentifier: "This Device"
+                        accountIdentifier: appleMusicAccountIdentifier
                     )
                 }
             }
@@ -241,6 +255,25 @@ public struct ProfileView: View {
             if !accountManager.hasAnySources {
                 Text("Add a music source account to access your libraries.")
             }
+        }
+    }
+
+    private var appleMusicAccountIdentifier: String {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return accountManager.isAppleMusicInitialSyncPending
+                ? "This Device • Sync Pending"
+                : "This Device"
+        }
+
+        switch syncStatus {
+        case .syncing:
+            return "This Device • Syncing"
+        case .error:
+            return "This Device • Sync Failed"
+        case .idle where accountManager.isAppleMusicInitialSyncPending:
+            return "This Device • Sync Pending"
+        case .idle, .lastSynced:
+            return "This Device"
         }
     }
 
@@ -544,6 +577,7 @@ public struct ProfileView: View {
                         } label: {
                             HStack {
                                 MusicSourceAccountRow(
+                                    sourceType: .plex,
                                     sourceName: "Plex",
                                     accountIdentifier: displayAccountIdentifier(for: account)
                                 )
@@ -935,11 +969,11 @@ public struct ProfileView: View {
         for account in accounts {
             accountManager.removePlexAccount(id: account.id)
         }
+        syncCoordinator.refreshProviders()
 
         Task {
             do {
                 try await cacheManager.clearAllCaches()
-                syncCoordinator.refreshProviders()
                 EnsembleLogger.debug("ProfileView: removed all accounts and cleared cached library data")
             } catch {
                 EnsembleLogger.debug("ProfileView: failed to clear cached data after removing all accounts: \(error.localizedDescription)")
@@ -1002,10 +1036,11 @@ public struct ProfileView: View {
 #if os(iOS)
 private struct AppleMusicSourceDetailView: View {
     @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
-    private let syncCoordinator = DependencyContainer.shared.syncCoordinator
+    @ObservedObject private var syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dismiss) private var dismiss
     @State private var showingRemoveAlert = false
     @State private var isRemoving = false
+    @State private var cleanupError: String?
 
     var body: some View {
         List {
@@ -1021,10 +1056,38 @@ private struct AppleMusicSourceDetailView: View {
             }
 
             Section {
+                HStack {
+                    Text("Library")
+                    Spacer()
+                    Text(syncStatusText)
+                        .foregroundStyle(syncStatusColor)
+                }
+
+                if syncNeedsRetry {
+                    Button("Retry Sync") {
+                        syncCoordinator.refreshProviders()
+                        Task {
+                            await syncCoordinator.sync(source: .appleMusic)
+                        }
+                    }
+                }
+            } footer: {
+                if let syncErrorMessage {
+                    Text(syncErrorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section {
                 Button("Remove Source", role: .destructive) {
                     showingRemoveAlert = true
                 }
                 .disabled(isRemoving)
+            } footer: {
+                if let cleanupError {
+                    Text(cleanupError)
+                        .foregroundStyle(.red)
+                }
             }
         }
         .navigationTitle("Apple Music")
@@ -1033,16 +1096,66 @@ private struct AppleMusicSourceDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Remove", role: .destructive) {
                 isRemoving = true
+                cleanupError = nil
                 accountManager.setAppleMusicEnabled(false)
+                syncCoordinator.refreshProviders()
                 Task {
-                    await syncCoordinator.cleanupRemovedSource(.appleMusic)
-                    syncCoordinator.refreshProviders()
-                    dismiss()
+                    if await syncCoordinator.cleanupRemovedSource(.appleMusic) {
+                        dismiss()
+                    } else {
+                        isRemoving = false
+                        cleanupError = "Apple Music was removed, but its local data could not be fully cleared. Tap Remove Source to retry."
+                    }
                 }
             }
         } message: {
             Text("This removes Apple Music from Ensemble and clears its synced library data from this device.")
         }
+    }
+
+    private var syncStatusText: String {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return accountManager.isAppleMusicInitialSyncPending ? "Pending" : "Ready"
+        }
+
+        switch syncStatus {
+        case .idle:
+            return accountManager.isAppleMusicInitialSyncPending ? "Pending" : "Ready"
+        case .syncing(let progress):
+            return "Syncing \(Int(progress * 100))%"
+        case .error:
+            return "Failed"
+        case .lastSynced:
+            return "Up to Date"
+        }
+    }
+
+    private var syncStatusColor: Color {
+        guard let syncStatus = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return .secondary
+        }
+        switch syncStatus {
+        case .syncing:
+            return EnsembleDesign.Color.accent
+        case .error:
+            return EnsembleDesign.Color.destructive
+        case .idle, .lastSynced:
+            return .secondary
+        }
+    }
+
+    private var syncNeedsRetry: Bool {
+        if case .syncing = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus {
+            return false
+        }
+        return accountManager.isAppleMusicInitialSyncPending || syncErrorMessage != nil
+    }
+
+    private var syncErrorMessage: String? {
+        guard case .error(let message) = syncCoordinator.sourceStatuses[.appleMusic]?.syncStatus else {
+            return nil
+        }
+        return message
     }
 }
 #endif

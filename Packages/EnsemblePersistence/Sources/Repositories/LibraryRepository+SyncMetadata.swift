@@ -202,6 +202,7 @@ extension LibraryRepository {
             request: request,
             validRatingKeys: validRatingKeys,
             sourceKey: sourceKey,
+            artworkType: .artist,
             ratingKey: { $0.ratingKey }
         )
     }
@@ -212,6 +213,7 @@ extension LibraryRepository {
             request: request,
             validRatingKeys: validRatingKeys,
             sourceKey: sourceKey,
+            artworkType: .album,
             ratingKey: { $0.ratingKey }
         )
     }
@@ -222,6 +224,7 @@ extension LibraryRepository {
             request: request,
             validRatingKeys: validRatingKeys,
             sourceKey: sourceKey,
+            artworkType: .track,
             ratingKey: { $0.ratingKey }
         )
     }
@@ -230,6 +233,7 @@ extension LibraryRepository {
         request: NSFetchRequest<Item>,
         validRatingKeys: Set<String>,
         sourceKey: String,
+        artworkType: ArtworkType,
         ratingKey: @escaping (Item) -> String
     ) async throws -> Int {
         try await coreDataStack.performBackgroundContext { context in
@@ -242,6 +246,12 @@ extension LibraryRepository {
             var removedCount = 0
             for item in localItems {
                 if !validRatingKeys.contains(ratingKey(item)) {
+                    self.recordArtworkInvalidation(ArtworkInvalidationInfo(
+                        ratingKey: ratingKey(item),
+                        type: artworkType,
+                        reason: .removed,
+                        sourceCompositeKey: sourceKey
+                    ))
                     context.delete(item)
                     removedCount += 1
                 }
@@ -271,7 +281,81 @@ extension LibraryRepository {
                     summary: artist.summary,
                     thumbPath: artist.thumbPath,
                     artPath: artist.artPath,
-                    dateModified: artist.dateModified
+                    dateAdded: artist.dateAdded,
+                    dateModified: artist.dateModified,
+                    actionCapabilitiesData: artist.actionCapabilitiesData
+                )
+            }
+            return result
+        }
+    }
+
+    /// Fetches source-scoped album fields for metadata comparison without escaping managed objects.
+    public func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] {
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.fetchBatchSize = 200
+            request.relationshipKeyPathsForPrefetching = ["artist"]
+            let albums = try context.fetch(request)
+            var result: [String: AlbumSyncMetadata] = [:]
+            result.reserveCapacity(albums.count)
+            for album in albums {
+                result[album.ratingKey] = AlbumSyncMetadata(
+                    key: album.key,
+                    title: album.title,
+                    artistName: album.artistName,
+                    albumArtist: album.albumArtist,
+                    artistRatingKey: album.artist?.ratingKey,
+                    summary: album.summary,
+                    thumbPath: album.thumbPath,
+                    artPath: album.artPath,
+                    year: album.year > 0 ? Int(album.year) : nil,
+                    trackCount: Int(album.trackCount),
+                    dateAdded: album.dateAdded,
+                    dateModified: album.dateModified,
+                    rating: Int(album.rating),
+                    genreNames: album.genreNames,
+                    releaseFormat: album.releaseFormat,
+                    actionCapabilitiesData: album.actionCapabilitiesData
+                )
+            }
+            return result
+        }
+    }
+
+    /// Fetches source-scoped track fields for metadata comparison without escaping managed objects.
+    public func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata] {
+        try await coreDataStack.performBackgroundContext { context in
+            let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
+            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.fetchBatchSize = 200
+            request.relationshipKeyPathsForPrefetching = ["album"]
+            let tracks = try context.fetch(request)
+            var result: [String: TrackSyncMetadata] = [:]
+            result.reserveCapacity(tracks.count)
+            for track in tracks {
+                result[track.ratingKey] = TrackSyncMetadata(
+                    key: track.key,
+                    title: track.title,
+                    artistName: track.artistName,
+                    albumName: track.albumName,
+                    albumRatingKey: track.album?.ratingKey,
+                    trackNumber: Int(track.trackNumber),
+                    discNumber: Int(track.discNumber),
+                    duration: Int(track.duration),
+                    thumbPath: track.thumbPath,
+                    streamKey: track.streamKey,
+                    streamId: track.streamId > 0 ? Int(track.streamId) : nil,
+                    dateAdded: track.dateAdded,
+                    dateModified: track.dateModified,
+                    lastPlayed: track.lastPlayed,
+                    lastRatedAt: track.lastRatedAt,
+                    rating: Int(track.rating),
+                    isFavorite: track.isFavorite?.boolValue,
+                    playCount: Int(track.playCount),
+                    genreNames: track.genreNames,
+                    actionCapabilitiesData: track.actionCapabilitiesData
                 )
             }
             return result
@@ -390,6 +474,7 @@ extension LibraryRepository {
                     self.recordArtworkInvalidationIfNeeded(
                         ratingKey: input.ratingKey,
                         type: .artist,
+                        sourceCompositeKey: sourceCompositeKey,
                         oldThumbPath: existing.thumbPath,
                         oldArtPath: existing.artPath,
                         oldDateModified: existing.dateModified,
@@ -405,10 +490,15 @@ extension LibraryRepository {
                 artist.summary = input.summary
                 artist.thumbPath = input.thumbPath
                 artist.artPath = input.artPath
-                if existing == nil, let added = input.dateAdded {
+                if input.updatesDateAdded {
+                    artist.dateAdded = input.dateAdded
+                } else if artist.dateAdded == nil, let added = input.dateAdded {
                     artist.dateAdded = added
                 }
                 artist.dateModified = input.dateModified
+                if let actionCapabilitiesData = input.actionCapabilitiesData {
+                    artist.actionCapabilitiesData = actionCapabilitiesData
+                }
                 artist.updatedAt = now
                 artist.sourceCompositeKey = sourceCompositeKey
                 artist.source = source
@@ -465,6 +555,7 @@ extension LibraryRepository {
                     self.recordArtworkInvalidationIfNeeded(
                         ratingKey: input.ratingKey,
                         type: .album,
+                        sourceCompositeKey: sourceCompositeKey,
                         oldThumbPath: existing.thumbPath,
                         oldArtPath: existing.artPath,
                         oldDateModified: existing.dateModified,
@@ -483,16 +574,23 @@ extension LibraryRepository {
                 album.thumbPath = input.thumbPath
                 album.artPath = input.artPath
                 album.year = Int32(input.year ?? 0)
-                album.trackCount = Int32(input.trackCount ?? 0)
+                if let trackCount = input.trackCount {
+                    album.trackCount = Int32(trackCount)
+                }
                 album.genreNames = input.genreNames
                 if input.updatesReleaseFormat {
                     album.releaseFormat = input.releaseFormat
                 }
-                if existing == nil, let added = input.dateAdded {
+                if input.updatesDateAdded {
+                    album.dateAdded = input.dateAdded
+                } else if album.dateAdded == nil, let added = input.dateAdded {
                     album.dateAdded = added
                 }
                 album.dateModified = input.dateModified
                 album.rating = Int16(input.rating ?? 0)
+                if let actionCapabilitiesData = input.actionCapabilitiesData {
+                    album.actionCapabilitiesData = actionCapabilitiesData
+                }
                 album.updatedAt = now
                 album.sourceCompositeKey = sourceCompositeKey
                 album.source = source
@@ -562,13 +660,21 @@ extension LibraryRepository {
                 track.streamKey = input.streamKey
                 track.streamId = Int32(input.streamId ?? 0)
                 track.genreNames = input.genreNames
-                if existing == nil, let added = input.dateAdded {
+                if input.updatesDateAdded {
+                    track.dateAdded = input.dateAdded
+                } else if track.dateAdded == nil, let added = input.dateAdded {
                     track.dateAdded = added
                 }
                 track.dateModified = input.dateModified
                 track.lastPlayed = input.lastPlayed
                 track.lastRatedAt = input.lastRatedAt
                 track.rating = Int16(input.rating ?? 0)
+                if let isFavorite = input.isFavorite {
+                    track.isFavorite = NSNumber(value: isFavorite)
+                }
+                if let actionCapabilitiesData = input.actionCapabilitiesData {
+                    track.actionCapabilitiesData = actionCapabilitiesData
+                }
                 track.playCount = Int32(input.playCount ?? 0)
                 track.updatedAt = now
                 track.sourceCompositeKey = sourceCompositeKey
@@ -581,7 +687,8 @@ extension LibraryRepository {
                         self.recordReparent(TrackReparentInfo(
                             trackRatingKey: input.ratingKey,
                             oldAlbumRatingKey: oldKey,
-                            newAlbumRatingKey: albumKey
+                            newAlbumRatingKey: albumKey,
+                            sourceCompositeKey: sourceCompositeKey
                         ))
                     }
 

@@ -3,28 +3,260 @@ import EnsemblePersistence
 import Foundation
 
 /// Syncs a single Plex server+library to CoreData
-public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchecked Sendable {
+public final class PlexMusicSourceSyncProvider:
+    MusicSourceSyncProvider,
+    MusicSourceTwoPhasePlaybackResolving,
+    MusicSourceRatingMutating,
+    MusicSourcePlaylistMutating,
+    MusicSourcePlaybackReporting,
+    MusicSourceDetailProviding,
+    MusicSourceFileInfoProviding,
+    MusicSourceLyricsProviding,
+    MusicSourceRadioProviding,
+    @unchecked Sendable
+{
     static let playlistOrphanCheckInterval: TimeInterval = 24 * 60 * 60
 
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
     private let syncCursorRepository: SyncCursorRepositoryProtocol?
+    private let enabledSectionKeys: [String]
     /// Library section key used for API calls. Internal for WebSocket-triggered sync matching.
     let sectionKey: String
-
-    /// Read-only access for services that need direct API calls (e.g. LyricsService)
-    public var exposedAPIClient: PlexAPIClient { apiClient }
 
     public init(
         sourceIdentifier: MusicSourceIdentifier,
         apiClient: PlexAPIClient,
         sectionKey: String,
+        enabledSectionKeys: [String] = [],
         syncCursorRepository: SyncCursorRepositoryProtocol? = nil
     ) {
         self.sourceIdentifier = sourceIdentifier
         self.apiClient = apiClient
         self.sectionKey = sectionKey
+        self.enabledSectionKeys = Self.playlistSeedSectionKeys(
+            primary: sectionKey,
+            enabled: enabledSectionKeys
+        )
         self.syncCursorRepository = syncCursorRepository
+    }
+
+    enum PlaylistEditOperation: Equatable {
+        case remove(itemID: String)
+        case move(itemID: String, afterItemID: String?)
+    }
+
+    static func playlistSeedSectionKeys(primary: String, enabled: [String]) -> [String] {
+        var seen = Set<String>()
+        return ([primary] + enabled).filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    static func isConvergedPlaylistDeleteError(_ error: Error) -> Bool {
+        guard let error = error as? PlexAPIError,
+              case .httpError(statusCode: 404) = error else {
+            return false
+        }
+        return true
+    }
+
+    static func playlistEditOperations(
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) throws -> [PlaylistEditOperation] {
+        guard originalItems.allSatisfy({ $0.playlistItemID != nil }),
+              editedItems.allSatisfy({ $0.playlistItemID != nil }) else {
+            throw PlaylistMutationError.incompletePlaylistContents
+        }
+
+        let originalIDs = originalItems.compactMap(\.playlistItemID)
+        let desiredIDs = editedItems.compactMap(\.playlistItemID)
+        guard Set(originalIDs).count == originalIDs.count,
+              Set(desiredIDs).count == desiredIDs.count,
+              Set(desiredIDs).isSubset(of: Set(originalIDs)) else {
+            throw PlaylistMutationError.incompletePlaylistContents
+        }
+
+        let desiredSet = Set(desiredIDs)
+        var operations = originalIDs
+            .filter { !desiredSet.contains($0) }
+            .map { PlaylistEditOperation.remove(itemID: $0) }
+        var currentIDs = originalIDs.filter(desiredSet.contains)
+        for (targetIndex, itemID) in desiredIDs.enumerated() where currentIDs[targetIndex] != itemID {
+            guard let currentIndex = currentIDs.firstIndex(of: itemID) else { continue }
+            currentIDs.remove(at: currentIndex)
+            currentIDs.insert(itemID, at: targetIndex)
+            operations.append(.move(
+                itemID: itemID,
+                afterItemID: targetIndex == 0 ? nil : desiredIDs[targetIndex - 1]
+            ))
+        }
+        return operations
+    }
+
+    /// Creates a regular Plex audio playlist, including Plex's empty-playlist seed workaround.
+    public func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? {
+        let trackIDs = tracks.map(\.id)
+        var seededEmptyPlaylist = false
+        do {
+            try await apiClient.createPlaylist(
+                title: title,
+                trackRatingKeys: trackIDs,
+                serverIdentifier: sourceIdentifier.serverId
+            )
+        } catch let error as PlexAPIError {
+            guard trackIDs.isEmpty,
+                  case .httpError(statusCode: 400) = error,
+                  let seedTrackID = await playlistSeedTrackID() else {
+                throw error
+            }
+
+            try await apiClient.createPlaylist(
+                title: title,
+                trackRatingKeys: [seedTrackID],
+                serverIdentifier: sourceIdentifier.serverId
+            )
+            seededEmptyPlaylist = true
+        }
+
+        guard let playlist = try await Self.pollForCreatedPlaylist(
+            title: title,
+            seededEmptyPlaylist: seededEmptyPlaylist,
+            fetchPlaylists: { try await self.apiClient.getPlaylists() },
+            clearPlaylistItems: { try await self.apiClient.clearPlaylistItems(playlistId: $0) }
+        ) else { return nil }
+        return Playlist(
+            id: playlist.ratingKey,
+            key: playlist.key,
+            title: playlist.title,
+            summary: playlist.summary,
+            trackCount: tracks.count,
+            duration: tracks.reduce(0) { $0 + $1.duration },
+            compositePath: playlist.composite,
+            dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            sourceCompositeKey: "\(sourceIdentifier.type.rawValue):\(sourceIdentifier.accountId):\(sourceIdentifier.serverId)",
+            actionCapabilities: PlaylistActionCapabilities(
+                canAddItems: true,
+                canRename: true,
+                canReorder: true,
+                canDelete: true
+            )
+        )
+    }
+
+    static func pollForCreatedPlaylist(
+        title: String,
+        seededEmptyPlaylist: Bool,
+        retryDelays: [UInt64] = [0, 100_000_000, 250_000_000, 500_000_000, 1_000_000_000],
+        fetchPlaylists: @escaping @Sendable () async throws -> [PlexPlaylist],
+        clearPlaylistItems: @escaping @Sendable (String) async throws -> Void,
+        sleep: @escaping @Sendable (UInt64) async throws -> Void = { try await Task.sleep(nanoseconds: $0) }
+    ) async throws -> PlexPlaylist? {
+        for delay in retryDelays {
+            if delay > 0 { try await sleep(delay) }
+            guard let playlist = try? await fetchPlaylists().first(where: {
+                $0.title.caseInsensitiveCompare(title) == .orderedSame
+            }) else { continue }
+            if seededEmptyPlaylist {
+                try? await clearPlaylistItems(playlist.ratingKey)
+            }
+            return playlist
+        }
+        return nil
+    }
+
+    /// Adds source-compatible tracks to a Plex playlist.
+    public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
+        guard !tracks.isEmpty else { return 0 }
+        try await apiClient.addItemsToPlaylist(
+            playlistId: playlistID,
+            trackRatingKeys: tracks.map(\.id),
+            serverIdentifier: sourceIdentifier.serverId
+        )
+        return tracks.count
+    }
+
+    /// Renames a Plex playlist.
+    public func renamePlaylist(_ playlistID: String, title: String) async throws {
+        try await apiClient.renamePlaylist(playlistId: playlistID, newTitle: title)
+    }
+
+    /// Deletes a Plex playlist, treating an absent or inaccessible playlist as converged.
+    public func deletePlaylist(_ playlistID: String) async throws {
+        do {
+            try await apiClient.deletePlaylist(playlistId: playlistID)
+        } catch where Self.isConvergedPlaylistDeleteError(error) {
+            EnsembleLogger.debug("Playlist \(playlistID) already absent or inaccessible; converging local deletion")
+        }
+    }
+
+    /// Replaces all Plex playlist memberships while preserving the requested order.
+    public func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws {
+        let currentItems = try await apiClient.getPlaylistTracks(playlistKey: playlistID)
+        let playlistItemIDs = currentItems.compactMap(\.playlistItemID)
+        if playlistItemIDs.count == currentItems.count {
+            for playlistItemID in playlistItemIDs {
+                try await apiClient.removePlaylistItem(
+                    playlistId: playlistID,
+                    playlistItemId: playlistItemID
+                )
+            }
+        } else {
+            EnsembleLogger.debug("Playlist \(playlistID) has items without playlistItemID; falling back to bulk clear")
+            try await apiClient.clearPlaylistItems(playlistId: playlistID)
+        }
+        if !tracks.isEmpty {
+            try await apiClient.addItemsToPlaylist(
+                playlistId: playlistID,
+                trackRatingKeys: tracks.map(\.id),
+                serverIdentifier: sourceIdentifier.serverId
+            )
+        }
+    }
+
+    /// Applies removals and moves through Plex's stable playlist membership IDs.
+    public func editPlaylistItems(
+        _ playlistID: String,
+        originalItems: [PlaylistItem],
+        editedItems: [PlaylistItem]
+    ) async throws {
+        for operation in try Self.playlistEditOperations(
+            originalItems: originalItems,
+            editedItems: editedItems
+        ) {
+            switch operation {
+            case .remove(let itemID):
+                try await apiClient.removePlaylistItem(
+                    playlistId: playlistID,
+                    playlistItemId: itemID
+                )
+            case .move(let itemID, let afterItemID):
+                try await apiClient.movePlaylistItem(
+                    playlistId: playlistID,
+                    playlistItemId: itemID,
+                    afterItemId: afterItemID
+                )
+            }
+        }
+    }
+
+    private func playlistSeedTrackID() async -> String? {
+        for sectionKey in enabledSectionKeys {
+            if let inventory = try? await apiClient.getTrackInventory(sectionKey: sectionKey),
+               let trackID = inventory.first?.ratingKey {
+                return trackID
+            }
+        }
+        return nil
+    }
+
+    public func getRecommendedTracks(basedOn track: Track, limit: Int) async -> [Track]? {
+        await PlexRadioProvider(
+            sourceKey: sourceIdentifier.compositeKey,
+            apiClient: apiClient,
+            sectionKey: sectionKey
+        ).getRecommendedTracks(basedOn: track, limit: limit)
     }
 
     public func getHomeHubs(limit: Int) async throws -> [Hub] {
@@ -37,12 +269,19 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
                 }
                 .map { HubItem(from: $0, sourceKey: sourceKey) }
             guard !items.isEmpty else { return nil }
+            let semanticKind = HubSemanticKind.provider(
+                identifier: plexHub.id,
+                title: plexHub.title,
+                context: plexHub.context
+            )
             return Hub(
                 id: "\(sourceKey):\(plexHub.id)",
-                title: plexHub.title,
+                title: semanticKind.displayTitle(fallback: plexHub.title),
                 type: plexHub.type ?? "mixed",
                 items: items,
-                context: plexHub.context
+                context: plexHub.context,
+                semanticKind: semanticKind,
+                sourceScope: HubSourceScope(source: sourceIdentifier)
             )
         }
     }
@@ -267,7 +506,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         existingMetadata: [String: ArtistSyncMetadata]
     ) -> [ArtistUpsertInput] {
         inputs.filter { input in
-            existingMetadata[input.ratingKey] != ArtistSyncMetadata(input)
+            existingMetadata[input.ratingKey]?.matches(input) != true
         }
     }
 
@@ -284,8 +523,9 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         )
     }
 
-    private static func albumUpsertInput(
+    static func albumUpsertInput(
         from album: PlexAlbum,
+        trackCount: Int? = nil,
         releaseFormat: AlbumReleaseFormat? = nil,
         updatesReleaseFormat: Bool = false
     ) -> AlbumUpsertInput {
@@ -300,7 +540,7 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             thumbPath: album.thumb,
             artPath: album.art,
             year: album.year,
-            trackCount: album.leafCount,
+            trackCount: trackCount ?? album.leafCount,
             dateAdded: album.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             dateModified: album.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
             rating: 0,
@@ -308,6 +548,14 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
             releaseFormat: releaseFormat?.rawValue,
             updatesReleaseFormat: updatesReleaseFormat
         )
+    }
+
+    static func trackCountsByAlbumRatingKey(_ tracks: [PlexTrack]) -> [String: Int] {
+        tracks.reduce(into: [:]) { counts, track in
+            if let albumRatingKey = track.parentRatingKey {
+                counts[albumRatingKey, default: 0] += 1
+            }
+        }
     }
 
     static func trackUpsertInput(from track: PlexTrack, genreNames: String?) -> TrackUpsertInput {
@@ -368,12 +616,15 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         let releaseFormats = await libraryAlbumReleaseFormats()
+        let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
+        let trackCountsByAlbum = Self.trackCountsByAlbumRatingKey(tracks)
         let albumRatingKeys = Set(albums.map { $0.ratingKey })
         // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
         var albumGenresByKey: [String: String] = [:]
         let albumInputs = albums.map { album in
             let input = Self.albumUpsertInput(
                 from: album,
+                trackCount: trackCountsByAlbum[album.ratingKey],
                 releaseFormat: releaseFormats?[album.ratingKey],
                 updatesReleaseFormat: releaseFormats != nil
             )
@@ -389,7 +640,6 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         // Sync tracks (batch upsert — biggest win, ~24s → ~2-3s)
         progressHandler(0.5)
         phaseStart = CFAbsoluteTimeGetCurrent()
-        let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
         let trackRatingKeys = Set(tracks.map { $0.ratingKey })
         let trackInputs = tracks.map { track in
             // Copy genre from parent album (Plex doesn't return genres on tracks)
@@ -405,14 +655,16 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         phaseStart = CFAbsoluteTimeGetCurrent()
         let genres = try await apiClient.getGenres(sectionKey: sectionKey)
         let genreRatingKeys = Set(genres.compactMap { $0.ratingKey })
-        for genre in genres {
-            _ = try await repository.upsertGenre(
-                ratingKey: genre.ratingKey,
-                key: genre.key,
-                title: genre.title,
-                sourceCompositeKey: sourceKey
-            )
-        }
+        try await repository.batchUpsertGenres(
+            genres.map { genre in
+                GenreUpsertInput(
+                    ratingKey: genre.ratingKey,
+                    key: genre.key,
+                    title: genre.title
+                )
+            },
+            sourceCompositeKey: sourceKey
+        )
 
         EnsembleLogger.debug("⏱️ Full sync: genres \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s (\(genres.count) items)")
 
@@ -698,18 +950,28 @@ public final class PlexMusicSourceSyncProvider: MusicSourceSyncProvider, @unchec
         sourceCompositeKey: String,
         trackCount: Int? = nil
     ) async throws -> CDPlaylist {
-        try await repository.upsertPlaylist(
-            ratingKey: playlist.ratingKey,
-            key: playlist.key,
-            title: playlist.title,
-            summary: playlist.summary,
-            compositePath: playlist.composite,
-            isSmart: playlist.smart ?? false,
-            duration: playlist.duration,
-            trackCount: trackCount ?? playlist.leafCount,
-            dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
-            lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+        let isSmart = playlist.smart ?? false
+        return try await repository.upsertPlaylist(
+            PlaylistUpsertInput(
+                ratingKey: playlist.ratingKey,
+                key: playlist.key,
+                title: playlist.title,
+                summary: playlist.summary,
+                compositePath: playlist.composite,
+                isSmart: isSmart,
+                duration: playlist.duration,
+                trackCount: trackCount ?? playlist.leafCount,
+                dateAdded: playlist.addedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                dateModified: playlist.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                lastPlayed: playlist.lastViewedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+                actionCapabilities: PlaylistActionCapabilities(
+                    canAddItems: !isSmart,
+                    canRename: !isSmart,
+                    canReorder: !isSmart,
+                    canDelete: !isSmart,
+                    unavailableReason: isSmart ? "Smart playlists are read-only." : nil
+                )
+            ),
             sourceCompositeKey: sourceCompositeKey
         )
     }
@@ -857,8 +1119,12 @@ public func getStreamURL(
         try await apiClient.getArtworkURL(path: path, size: size)
     }
 
-    public func rateTrack(ratingKey: String, rating: Int?) async throws {
-        try await apiClient.rateTrack(ratingKey: ratingKey, rating: rating)
+    public func rateTrack(
+        _ track: Track,
+        rating: Int?
+    ) async throws -> MusicSourceRatingMutationEffects {
+        try await apiClient.rateTrack(ratingKey: track.id, rating: rating)
+        return .refreshPlaylistsAndFavoriteDownloads
     }
 
     public func reportTimeline(ratingKey: String, key: String, state: String, time: Int, duration: Int) async throws {
@@ -867,6 +1133,67 @@ public func getStreamURL(
 
     public func scrobble(ratingKey: String) async throws {
         try await apiClient.scrobble(ratingKey: ratingKey)
+    }
+
+    public func getAudioFileInfo(trackID: String) async throws -> AudioFileInfo? {
+        guard let track = try await apiClient.getTrack(trackKey: trackID) else { return nil }
+        return AudioFileInfo(from: track)
+    }
+
+    public func getAlbumFolderPath(albumID: String) async throws -> String? {
+        let tracks = try await apiClient.getAlbumTracks(albumKey: albumID)
+        let paths = tracks.compactMap { $0.media?.first?.part?.first?.file }
+        return Self.albumFolderPath(from: paths)
+    }
+
+    static func albumFolderPath(from filePaths: [String]) -> String? {
+        var seen = Set<String>()
+        let directoryComponents = filePaths
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .map { URL(fileURLWithPath: $0).deletingLastPathComponent().pathComponents }
+        guard var commonComponents = directoryComponents.first else { return nil }
+
+        for components in directoryComponents.dropFirst() {
+            commonComponents = Array(
+                zip(commonComponents, components)
+                    .prefix { $0 == $1 }
+                    .map(\.0)
+            )
+            if commonComponents.isEmpty { return nil }
+        }
+
+        return NSString.path(withComponents: commonComponents)
+    }
+
+    public func getLyricsMetadata(trackID: String) async throws -> MusicSourceLyricsMetadata? {
+        guard let track = try await apiClient.getTrack(trackKey: trackID) else { return nil }
+        return MusicSourceLyricsMetadata(
+            title: track.title,
+            dateModified: track.updatedAt.map { Date(timeIntervalSince1970: TimeInterval($0)) },
+            normalAssets: track.normalLyricsStreams.compactMap(Self.lyricsAsset),
+            chordCandidateAssets: track.chordCandidateStreams.compactMap(Self.lyricsAsset)
+        )
+    }
+
+    public func getLyricsContent(asset: MusicSourceLyricsAsset, raw: Bool) async throws -> String? {
+        if raw || asset.isLocalMedia {
+            return try await apiClient.getRawLyricsContent(streamKey: asset.key)
+        }
+        return try await apiClient.getLyricsContent(streamKey: asset.key)
+    }
+
+    private static func lyricsAsset(_ stream: PlexStream) -> MusicSourceLyricsAsset? {
+        guard let key = stream.key else { return nil }
+        return MusicSourceLyricsAsset(
+            id: String(stream.id),
+            key: key,
+            codec: stream.codec,
+            format: stream.format,
+            provider: stream.provider,
+            file: stream.file,
+            isTimed: stream.timed == 1,
+            isLocalMedia: stream.isLocalMediaLyricsStream
+        )
     }
 
     public func getAlbumTracks(albumKey: String) async throws -> [Track] {

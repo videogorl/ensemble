@@ -8,7 +8,7 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
     private final class PlaylistRepositoryMock: PlaylistRepositoryProtocol, @unchecked Sendable {
         var playlists: [String: CDPlaylist] = [:]
         var fetchPlaylistCalls: [(ratingKey: String, sourceCompositeKey: String?)] = []
-        var fetchPlaylistsForReferencesCalls: [[SourceScopedArtworkReference]] = []
+        var fetchPlaylistBodiesCalls: [[SourceScopedArtworkReference]] = []
 
         func fetchPlaylists() async throws -> [CDPlaylist] { Array(playlists.values) }
 
@@ -26,8 +26,8 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
             return playlists[Self.lookupKey(ratingKey: ratingKey, sourceCompositeKey: sourceCompositeKey)]
         }
 
-        func fetchPlaylists(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
-            fetchPlaylistsForReferencesCalls.append(references)
+        func fetchPlaylistBodies(forReferences references: [SourceScopedArtworkReference]) async throws -> [String: CDPlaylist] {
+            fetchPlaylistBodiesCalls.append(references)
             var result: [String: CDPlaylist] = [:]
             for reference in references {
                 if let playlist = playlists[reference.lookupKey] {
@@ -66,15 +66,15 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
         )
 
         XCTAssertEqual(tracks.map(\.id), ["a1", "b1", "a2", "b2"])
-        XCTAssertEqual(repository.fetchPlaylistsForReferencesCalls.count, 1)
+        XCTAssertEqual(repository.fetchPlaylistBodiesCalls.count, 1)
         XCTAssertEqual(
-            repository.fetchPlaylistsForReferencesCalls.first?.map(\.lookupKey),
+            repository.fetchPlaylistBodiesCalls.first?.map(\.lookupKey),
             ["source-a|playlist-1", "source-b|playlist-2"]
         )
         XCTAssertTrue(repository.fetchPlaylistCalls.isEmpty)
     }
 
-    func testResolvedTracksFallsBackToSingleFetchForLegacyUnscopedPlaylist() async throws {
+    func testResolvedTracksSkipsLegacyUnscopedPlaylistInsteadOfFetchingAmbiguousID() async throws {
         let context = CoreDataStack.inMemory().viewContext
         let playlist = Playlist(id: "playlist-legacy", key: "/playlists/legacy", title: "Legacy")
         let repository = PlaylistRepositoryMock()
@@ -85,39 +85,27 @@ final class DisplayPlaylistResolvedTracksTests: XCTestCase {
             using: repository
         )
 
-        XCTAssertEqual(tracks.map(\.id), ["legacy-1"])
-        XCTAssertTrue(repository.fetchPlaylistsForReferencesCalls.isEmpty)
-        XCTAssertEqual(repository.fetchPlaylistCalls.count, 1)
-        XCTAssertEqual(repository.fetchPlaylistCalls.first?.ratingKey, "playlist-legacy")
-        XCTAssertNil(repository.fetchPlaylistCalls.first?.sourceCompositeKey)
+        XCTAssertTrue(tracks.isEmpty)
+        XCTAssertTrue(repository.fetchPlaylistBodiesCalls.isEmpty)
+        XCTAssertTrue(repository.fetchPlaylistCalls.isEmpty)
     }
 
-    func testPlaylistMapperReferencesFirstTrackAlbumArtwork() {
+    func testPlaylistMapperUsesPersistedFallbackArtwork() {
         let context = CoreDataStack.inMemory().viewContext
-        let album = CDAlbum(context: context)
-        album.ratingKey = "album-1"
-        album.key = "/library/metadata/album-1"
-        album.title = "Album"
-        album.thumbPath = "/library/metadata/album-1/thumb"
-
-        let track = CDTrack(context: context)
-        track.ratingKey = "track-1"
-        track.key = "/library/metadata/track-1"
-        track.title = "Track"
-        track.album = album
-
         let playlist = Playlist(id: "playlist-1", key: "/playlists/1", title: "Mix")
         let cachedPlaylist = makeCachedPlaylist(playlist, trackIDs: [], context: context)
-        let membership = CDPlaylistTrack(context: context)
-        membership.order = 0
-        membership.playlist = cachedPlaylist
-        membership.track = track
-        cachedPlaylist.playlistTracks = NSSet(object: membership)
+        cachedPlaylist.fallbackArtworkPath = "/library/metadata/album-1/thumb"
+        cachedPlaylist.fallbackArtworkRatingKey = "album-1"
+        cachedPlaylist.fallbackArtworkSourceCompositeKey = "plex:account:server:library"
 
         let mapped = Playlist(from: cachedPlaylist)
 
-        XCTAssertEqual(mapped.fallbackArtworkPath, album.thumbPath)
-        XCTAssertEqual(mapped.fallbackArtworkRatingKey, album.ratingKey)
+        XCTAssertEqual(mapped.fallbackArtworkPath, cachedPlaylist.fallbackArtworkPath)
+        XCTAssertEqual(mapped.fallbackArtworkRatingKey, cachedPlaylist.fallbackArtworkRatingKey)
+        XCTAssertEqual(
+            mapped.fallbackArtworkSourceCompositeKey,
+            cachedPlaylist.fallbackArtworkSourceCompositeKey
+        )
     }
 
     private func makeCachedPlaylist(

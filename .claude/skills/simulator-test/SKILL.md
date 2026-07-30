@@ -128,7 +128,6 @@ Use the window-targeted artifact for before/after performance comparisons, espec
 ```bash
 # 1. Build
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -sdk iphonesimulator \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   build
 
@@ -188,10 +187,11 @@ Use the device name (not UUID) with `xcrun simctl` commands, or use `booted` as 
 
 ```bash
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -sdk iphonesimulator \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
   build 2>&1 | grep -E "error:|BUILD" | tail -5
 ```
+
+Omit `-sdk iphonesimulator` for the full app scheme so Xcode can build its embedded Watch target with `watchsimulator`.
 
 Check for `BUILD SUCCEEDED`. If the build fails, fix errors before proceeding.
 

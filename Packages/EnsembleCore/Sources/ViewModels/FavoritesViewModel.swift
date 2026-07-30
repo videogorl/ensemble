@@ -76,7 +76,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
 
     /// Loads favorite tracks directly from CoreData (offline-first)
-    /// Fetches all tracks with rating >= 8 (4+ stars) across all sources
+    /// Fetches all provider-normalized favorite tracks across all sources.
     public func loadTracks() async {
         if tracks.isEmpty {
             isLoading = true

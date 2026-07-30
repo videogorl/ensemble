@@ -170,23 +170,18 @@ final class PlaylistDropResolverTests: XCTestCase {
         )
     }
 
-    func testUnknownTrackSourceIsStampedWithTargetServer() async throws {
+    func testRejectsUnknownTrackSource() async throws {
         let target = makePlaylist(id: "target", title: "Road Trip", sourceCompositeKey: "plex:account:server")
 
-        let resolution = try await resolver.resolve(
+        await assertDropError(
+            expected: .crossSource(itemTitle: "Unknown Source", playlistTitle: target.title),
             references: [
                 .init(kind: .track, id: "unknown-source", sourceKey: nil, title: "Unknown Source")
             ],
             target: makeTarget(target),
             tracks: [],
-            albums: [],
-            playlists: [target],
-            loadAlbumTracks: { _ in [] },
-            loadPlaylistTracks: { _ in [] }
+            playlists: [target]
         )
-
-        XCTAssertEqual(resolution.tracks.map(\.id), ["unknown-source"])
-        XCTAssertEqual(resolution.tracks.first?.sourceCompositeKey, "plex:account:server")
     }
 
     func testRejectsSmartSourcePlaylistAndEmptyExpansions() async throws {

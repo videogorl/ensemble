@@ -87,12 +87,12 @@ public final class AppReadinessCoordinator: ObservableObject {
             credentialLoadState = accountManager.credentialLoadState
             isRestoringCloudSources = accountManager.isAwaitingCloudSources
 
-            accountManager.$plexAccounts
+            accountManager.sourceConfigurationPublisher
                 .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak accountManager] _ in
-                    guard let self, let accountManager else { return }
-                    self.hasConfiguredAccounts = accountManager.hasAnySources
-                    self.hasEnabledLibraries = !accountManager.enabledSources().isEmpty
+                .sink { [weak self] configuration in
+                    guard let self else { return }
+                    self.hasConfiguredAccounts = configuration.hasAnySources
+                    self.hasEnabledLibraries = !configuration.enabledSources.isEmpty
                     self.recomputeSnapshot()
                 }
                 .store(in: &cancellables)

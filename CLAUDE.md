@@ -102,11 +102,12 @@ Use `gemini -p` as an optional implementation aid for very large context reads o
 ## Commands
 
 ```bash
-# Full app build
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+# Full app build. Let the destination select iOS; `-sdk iphonesimulator` also
+# overrides the embedded Watch target and can link iOS package objects into it.
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # All app tests
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 
 # Package tests
 swift test --package-path Packages/EnsembleAPI

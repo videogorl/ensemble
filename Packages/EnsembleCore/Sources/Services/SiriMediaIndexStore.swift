@@ -24,6 +24,10 @@ public enum SiriMediaIndexNotifications {
 }
 
 enum SystemMediaSourceScope {
+    static func enabledLibraryKeys(for sources: [MusicSourceIdentifier]) -> Set<String> {
+        Set(sources.map(\.compositeKey))
+    }
+
     static func allows(_ sourceCompositeKey: String?, within allowedSourceKeys: Set<String>?) -> Bool {
         guard let allowedSourceKeys else { return true }
         guard let sourceCompositeKey else { return false }

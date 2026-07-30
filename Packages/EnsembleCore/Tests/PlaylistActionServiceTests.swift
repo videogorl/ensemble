@@ -28,13 +28,13 @@ final class PlaylistActionServiceTests: XCTestCase {
         ]
         let playlist = makePlaylist(sourceCompositeKey: "plex:account:server:playlist-library")
 
-        XCTAssertEqual(service.compatibleTrackCount(tracks, for: playlist), 3)
-        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:server"), 3)
-        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:missing"), 1)
+        XCTAssertEqual(service.compatibleTrackCount(tracks, for: playlist), 2)
+        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:server"), 2)
+        XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: "plex:account:missing"), 0)
         XCTAssertEqual(service.compatibleTrackCount(tracks, forServerSourceKey: nil), 0)
     }
 
-    func testCompatibleTracksDedupeAndStampUnknownSources() {
+    func testCompatibleTracksDedupeAndRejectUnknownSources() {
         let tracks = [
             makeTrack(id: "same", sourceCompositeKey: "plex:account:server:library-a"),
             makeTrack(id: "same", sourceCompositeKey: "plex:account:server:library-a"),
@@ -44,9 +44,8 @@ final class PlaylistActionServiceTests: XCTestCase {
 
         let compatible = service.tracks(tracks, compatibleWithServerSourceKey: "plex:account:server")
 
-        XCTAssertEqual(compatible.map(\.id), ["same", "unknown"])
+        XCTAssertEqual(compatible.map(\.id), ["same"])
         XCTAssertEqual(compatible[0].sourceCompositeKey, "plex:account:server:library-a")
-        XCTAssertEqual(compatible[1].sourceCompositeKey, "plex:account:server")
         XCTAssertTrue(service.tracks(tracks, compatibleWithServerSourceKey: nil).isEmpty)
     }
 
@@ -96,6 +95,19 @@ final class PlaylistActionServiceTests: XCTestCase {
         XCTAssertEqual(
             service.tracks([catalogTrack, libraryTrack], compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey).count,
             1
+        )
+    }
+
+    func testAppleMusicTracksWithDifferentCatalogIDsAreNotDeduplicatedByMetadata() {
+        let first = makeAppleTrack(id: "catalog-1", key: "apple-catalog")
+        let second = makeAppleTrack(id: "catalog-2", key: "apple-catalog")
+
+        XCTAssertEqual(
+            service.tracks(
+                [first, second],
+                compatibleWithServerSourceKey: MusicSourceIdentifier.appleMusic.compositeKey
+            ).map(\.id),
+            ["catalog-1", "catalog-2"]
         )
     }
 

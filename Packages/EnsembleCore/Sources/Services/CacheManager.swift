@@ -1,6 +1,5 @@
 import EnsemblePersistence
 import Foundation
-import Nuke
 
 /// Types of cache that can be managed
 public enum CacheType: String, CaseIterable {
@@ -65,22 +64,23 @@ public final class CacheManager: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let lyricsService: LyricsService
-    private let nukeCacheDirectoryNames = [
-        "com.ensemble.artwork",
-        "com.github.kean.Nuke"
-    ]
+    private let transientArtworkCacheReset: @MainActor () async throws -> Void
     public var sourceCacheCleanupService: SourceCacheCleaning?
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         downloadManager: DownloadManagerProtocol,
-        lyricsService: LyricsService
+        lyricsService: LyricsService,
+        transientArtworkCacheReset: (@MainActor () async throws -> Void)? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.downloadManager = downloadManager
         self.lyricsService = lyricsService
+        self.transientArtworkCacheReset = transientArtworkCacheReset ?? {
+            try await ArtworkLoader.resetSharedPipelineCaches()
+        }
     }
     
     /// Refresh cache size information for all cache types
@@ -176,12 +176,15 @@ public final class CacheManager: ObservableObject {
 
         try await artworkDownloadManager.clearArtworkCache()
         try await clearNukeImageCache()
-        ArtworkBlurRenderer.clearCache()
-        invalidateArtworkCacheConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: cleared artwork caches (after: \(after.logDescription))")
+    }
+
+    /// Clears shared transient artwork render caches without touching source-owned durable files.
+    public func clearTransientArtworkCaches() async throws {
+        try await clearNukeImageCache()
     }
     
     /// Clear all caches
@@ -199,8 +202,6 @@ public final class CacheManager: ObservableObject {
             try await artworkDownloadManager.clearArtworkCache()
         }
         try await clearNukeImageCache()
-        ArtworkBlurRenderer.clearCache()
-        invalidateArtworkCacheConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
@@ -288,7 +289,7 @@ public final class CacheManager: ObservableObject {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         var totalSize: Int64 = 0
 
-        for directoryName in nukeCacheDirectoryNames {
+        for directoryName in ArtworkLoader.transientCacheDirectoryNames {
             let nukeCacheDir = cacheDir.appendingPathComponent(directoryName)
             guard FileManager.default.fileExists(atPath: nukeCacheDir.path) else { continue }
 
@@ -324,16 +325,8 @@ public final class CacheManager: ObservableObject {
     }
     
     private func clearNukeImageCache() async throws {
-        ImagePipeline.shared.cache.removeAll()
-
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-
-        for directoryName in nukeCacheDirectoryNames {
-            let nukeCacheDir = cacheDir.appendingPathComponent(directoryName)
-            if FileManager.default.fileExists(atPath: nukeCacheDir.path) {
-                try FileManager.default.removeItem(at: nukeCacheDir)
-            }
-        }
+        try await transientArtworkCacheReset()
+        invalidateArtworkCacheConsumers()
     }
     
     public var formattedTotalSize: String {

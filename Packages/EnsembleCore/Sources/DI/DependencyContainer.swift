@@ -276,6 +276,7 @@ public final class DependencyContainer: @unchecked Sendable {
             hubRepository: hubRepository,
             downloadManager: downloadManager,
             targetRepository: offlineDownloadTargetRepository,
+            pendingMutationRepository: core.pendingMutationRepository,
             artworkDownloadManager: artworkDownloadManager,
             fetchArtworkRatingKeys: { [libraryRepository = core.libraryRepository] sourceKey in
                 guard let repository = libraryRepository as? LibraryRepository else { return [] }
@@ -311,8 +312,8 @@ public final class DependencyContainer: @unchecked Sendable {
                     lyricsService.clearAllCaches()
                 }
             },
-            clearSharedArtworkCaches: { [weak cacheManager = playback.cacheManager] in
-                try await cacheManager?.clearArtworkCaches()
+            clearSharedArtworkCaches: { [weak artworkLoader = playback.artworkLoader as? ArtworkLoader] in
+                try await artworkLoader?.resetTransientCaches()
             }
         )
         sourceCacheCleanupService = builtSourceCacheCleanupService
@@ -380,6 +381,10 @@ public final class DependencyContainer: @unchecked Sendable {
         let keychain = KeychainService.shared
         let coreDataStack = CoreDataStack.shared
         let pinManager = MainActor.assumeIsolated { PinManager() }
+        let artworkDownloadManager = ArtworkDownloadManager()
+        Task.detached(priority: .utility) {
+            artworkDownloadManager.preparePersistentCache()
+        }
 
         return CoreBootstrap(
             keychain: keychain,
@@ -392,7 +397,7 @@ public final class DependencyContainer: @unchecked Sendable {
             moodRepository: MoodRepository(coreDataStack: coreDataStack),
             downloadManager: DownloadManager(coreDataStack: coreDataStack),
             offlineDownloadTargetRepository: OfflineDownloadTargetRepository(coreDataStack: coreDataStack),
-            artworkDownloadManager: ArtworkDownloadManager(),
+            artworkDownloadManager: artworkDownloadManager,
             pendingMutationRepository: PendingMutationRepository(coreDataStack: coreDataStack),
             settingsManager: MainActor.assumeIsolated { SettingsManager() },
             navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },
@@ -509,7 +514,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 libraryRepository: core.libraryRepository,
                 artworkDownloadManager: core.artworkDownloadManager,
                 downloadManager: core.downloadManager,
-                lyricsService: lyricsService
+                lyricsService: lyricsService,
+                transientArtworkCacheReset: {
+                    try await artworkLoader.resetTransientCaches()
+                }
             )
         }
 
@@ -631,7 +639,7 @@ public final class DependencyContainer: @unchecked Sendable {
         foregroundWorkScheduler: ForegroundWorkScheduler
     ) -> SiriBootstrap {
         let enabledSystemMediaSourceKeys: SystemMediaEnabledSourceKeysProvider = { @MainActor in
-            Set(network.accountManager.enabledSources().filter { $0.type == .plex }.map(\.compositeKey))
+            SystemMediaSourceScope.enabledLibraryKeys(for: network.accountManager.enabledSources())
         }
         let siriMediaIndexStore = MainActor.assumeIsolated {
             SiriMediaIndexStore(
@@ -901,14 +909,33 @@ public final class DependencyContainer: @unchecked Sendable {
         syncCoordinator.onTrackAlbumChanged = { [weak self] reparentedTracks in
             guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
             for info in reparentedTracks {
-                await artworkLoader.invalidateArtwork(ratingKey: info.oldAlbumRatingKey, type: .album)
-                await artworkLoader.invalidateArtwork(ratingKey: info.trackRatingKey, type: .album)
+                await artworkLoader.invalidateArtwork(
+                    ratingKey: info.oldAlbumRatingKey,
+                    type: .album,
+                    sourceCompositeKey: info.sourceCompositeKey
+                )
+                await artworkLoader.invalidateArtwork(
+                    ratingKey: info.trackRatingKey,
+                    type: .album,
+                    sourceCompositeKey: info.sourceCompositeKey
+                )
             }
         }
         syncCoordinator.onArtworkMetadataChanged = { [weak self] invalidations in
-            guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
+            guard let self, let artworkLoader = self.artworkLoader as? ArtworkLoader else { return }
             for info in invalidations {
-                await artworkLoader.invalidateArtwork(ratingKey: info.ratingKey, type: info.type)
+                await artworkLoader.invalidateArtwork(
+                    ratingKey: info.ratingKey,
+                    type: info.type,
+                    sourceCompositeKey: info.sourceCompositeKey
+                )
+                if info.reason == .removed, let sourceCompositeKey = info.sourceCompositeKey {
+                    self.artworkDownloadManager.deleteArtwork(
+                        ratingKey: info.ratingKey,
+                        type: info.type,
+                        sourceCompositeKey: sourceCompositeKey
+                    )
+                }
             }
         }
         syncCoordinator.sourceCacheCleanupService = sourceCacheCleanupService

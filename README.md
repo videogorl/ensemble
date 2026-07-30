@@ -43,7 +43,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization
 - **SmartMix** — Optional playback mode with Profile settings, silence-aware DJ-style overlaps, crossfading Now Playing artwork, same-album protection by default, an eased outgoing high-pass sweep, and tempo matching when analysis confidence is high
 - **Smart Navigation** — Navigate from Now Playing to artist/album details with automatic tab fallback logic
-- **Siri Voice Playback + App Intents** — “Play track/album/artist/playlist ... on Ensemble” resolves indexed Plex library media in SiriKit and executes playback in-app via `handleInApp`; App Intents also expose non-playing media navigation and portable Ensemble-link creation
+- **Siri Voice Playback + App Intents** — “Play track/album/artist/playlist ... on Ensemble” resolves indexed music from enabled sources in SiriKit and executes playback in-app via `handleInApp`; App Intents also expose non-playing media navigation and portable Ensemble-link creation
 - **AirPlay Support** — Stream to AirPlay devices with native picker
 - **Background Audio** — Continues playing when app is backgrounded
 - **Lock Screen Controls** — Play/pause/skip from iOS Control Center and lock screen
@@ -159,7 +159,7 @@ ensemble/
 ### Building & Testing
 ```bash
 # Build full app
-xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -sdk iphonesimulator build
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 
 # Build individual package
 swift build --package-path Packages/EnsembleCore

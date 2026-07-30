@@ -161,6 +161,24 @@ public final class CoreDataStack: @unchecked Sendable {
         guard trackEntity.propertiesByName["streamId"] != nil else {
             return false
         }
+        guard trackEntity.propertiesByName["isFavorite"] != nil else {
+            return false
+        }
+        guard trackEntity.propertiesByName["actionCapabilitiesData"] != nil,
+              model.entitiesByName["CDAlbum"]?.propertiesByName["actionCapabilitiesData"] != nil,
+              model.entitiesByName["CDArtist"]?.propertiesByName["actionCapabilitiesData"] != nil else {
+            return false
+        }
+        guard let playlistEntity = model.entitiesByName["CDPlaylist"],
+              playlistEntity.propertiesByName["canAddItems"] != nil,
+              playlistEntity.propertiesByName["fallbackArtworkPath"] != nil else {
+            return false
+        }
+        guard let hubEntity = model.entitiesByName["CDHub"],
+              hubEntity.propertiesByName["semanticKind"] != nil,
+              hubEntity.propertiesByName["sourceScopeSourceCompositeKey"] != nil else {
+            return false
+        }
         guard let cursorEntity = model.entitiesByName["CDSyncCursor"],
               cursorEntity.propertiesByName["scopeKey"] != nil,
               cursorEntity.propertiesByName["scopeType"] != nil else {

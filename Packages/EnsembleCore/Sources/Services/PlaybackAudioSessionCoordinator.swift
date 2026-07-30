@@ -125,20 +125,37 @@ final class PlaybackAudioSessionCoordinator {
         #endif
     }
 
-    func activateForPlayback(shouldStartPlayback: Bool) async {
+    @discardableResult
+    func activateForPlayback(shouldStartPlayback: Bool) async -> Bool {
         #if !os(macOS)
         let session = sessionProvider()
         if shouldStartPlayback {
             do {
                 try session.setActive(true)
+                return true
             } catch {
                 EnsembleLogger.debug("⚠️ Audio session setActive failed; retrying once: \(error)")
                 try? await Task.sleep(nanoseconds: 500_000_000)
-                try? session.setActive(true)
+                guard !Task.isCancelled else { return false }
+                do {
+                    try session.setActive(true)
+                    return true
+                } catch {
+                    EnsembleLogger.debug("⚠️ Audio session setActive failed after retry: \(error)")
+                    return false
+                }
             }
         } else {
-            try? session.setActive(true)
+            do {
+                try session.setActive(true)
+                return true
+            } catch {
+                EnsembleLogger.debug("⚠️ Audio session setActive failed: \(error)")
+                return false
+            }
         }
+        #else
+        return true
         #endif
     }
 

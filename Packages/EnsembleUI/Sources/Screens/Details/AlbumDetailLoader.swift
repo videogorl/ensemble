@@ -77,17 +77,12 @@ struct AlbumDetailLoader: View {
     }
 
     private func loadCachedTracks(albumId: String, sourceKey: String?) async -> [Track]? {
+        guard let sourceKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return nil }
         do {
-            let cachedTracks: [Track]
-            if let sourceKey {
-                cachedTracks = try await deps.libraryRepository
-                    .fetchTracks(forAlbum: albumId, sourceCompositeKey: sourceKey)
-                    .map { Track(from: $0) }
-            } else {
-                cachedTracks = try await deps.libraryRepository
-                    .fetchTracks(forAlbum: albumId)
-                    .map { Track(from: $0) }
-            }
+            let cachedTracks = try await deps.libraryRepository
+                .fetchTracks(forAlbum: albumId, sourceCompositeKey: sourceKey)
+                .map { Track(from: $0) }
             return cachedTracks.isEmpty ? nil : cachedTracks
         } catch {
             EnsembleLogger.debug("💿 AlbumDetailLoader: cached track load failed for \(albumId): \(error.localizedDescription)")

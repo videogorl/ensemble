@@ -22,11 +22,10 @@ final class DownloadTransferExecutorTests: XCTestCase {
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
         func fetchNextPendingDownload() async throws -> CDDownload? { nil }
         func fetchCompletedDownloads() async throws -> [CDDownload] { [] }
-        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> CDDownload? { nil }
+        func fetchDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> CDDownload? { nil }
         func fetchDownloadsBatch(forReferences references: [OfflineTrackReference]) async throws -> [String : CDDownload] { [:] }
         func fetchDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws -> [CDDownload] { [] }
-        func createDownload(forTrackRatingKey trackRatingKey: String) async throws -> CDDownload { fatalError() }
-        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?, quality: String) async throws -> CDDownload {
+        func createDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String, quality: String) async throws -> CDDownload {
             if let createdDownload {
                 return createdDownload
             }
@@ -50,10 +49,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
             )
         }
         func failDownload(_ downloadId: NSManagedObjectID, error: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String) async throws {}
-        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws {}
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String) async throws -> String? { nil }
-        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String?) async throws -> String? { nil }
+        func deleteDownload(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws {}
+        func getLocalFilePath(forTrackRatingKey trackRatingKey: String, sourceCompositeKey: String) async throws -> String? { nil }
         func getTotalDownloadSize() async throws -> Int64 { 0 }
         func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}
@@ -117,7 +114,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 scheduleDownloadsChanged: {
                     notificationCount += 1
                 },
-                isStillReferenced: { _ in true }
+                isStillReferenced: { _ in true },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
             )
         )
 
@@ -171,7 +170,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 },
                 enqueueSidecarAnalysis: { _, _ in },
                 scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true }
+                isStillReferenced: { _ in true },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
             )
         )
 
@@ -223,7 +224,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 },
                 enqueueSidecarAnalysis: { _, _ in },
                 scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true }
+                isStillReferenced: { _ in true },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
             )
         )
 
@@ -276,7 +279,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 scheduleDownloadsChanged: {
                     notificationCount += 1
                 },
-                isStillReferenced: { _ in false }
+                isStillReferenced: { _ in false },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
             )
         )
 
@@ -314,7 +319,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchAndCacheLyrics: { _, _ in },
                 enqueueSidecarAnalysis: { _, _ in },
                 scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true }
+                isStillReferenced: { _ in true },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
             )
         )
 

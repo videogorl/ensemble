@@ -50,7 +50,7 @@ public struct SearchView: View {
         _hasAppleMusic = State(initialValue: container.accountManager.isAppleMusicEnabled)
         _isSyncing = State(initialValue: container.syncCoordinator.isSyncing)
         _hasEnabledLibrariesState = State(
-            initialValue: Self.computeHasEnabledLibraries(in: container.accountManager.plexAccounts)
+            initialValue: !container.accountManager.enabledSources().isEmpty
         )
         _isRestoringCloudSources = State(initialValue: container.accountManager.isAwaitingCloudSources)
         _activeDownloadTrackIdentities = State(
@@ -85,6 +85,8 @@ public struct SearchView: View {
                 exploreView
             } else if viewModel.isSearching {
                 loadingView
+            } else if let searchError = viewModel.searchError {
+                searchErrorView(searchError)
             } else if viewModel.orderedSections.isEmpty {
                 noResultsView
             } else {
@@ -106,10 +108,9 @@ public struct SearchView: View {
             currentTrackId: $currentTrackId,
             recentPlaylistTitle: $nvmRecentPlaylistTitle
         )
-        .onReceive(accountManager.$plexAccounts) { accounts in
-            let has = !accounts.isEmpty || accountManager.isAppleMusicEnabled
-            if has != hasAnySources { hasAnySources = has }
-            let enabledLibs = Self.computeHasEnabledLibraries(in: accounts)
+        .onReceive(accountManager.sourceConfigurationPublisher) { snapshot in
+            if snapshot.hasAnySources != hasAnySources { hasAnySources = snapshot.hasAnySources }
+            let enabledLibs = !snapshot.enabledSources.isEmpty
             if enabledLibs != hasEnabledLibrariesState { hasEnabledLibrariesState = enabledLibs }
         }
         .onReceive(accountManager.$isAppleMusicEnabled) { enabled in
@@ -233,6 +234,18 @@ public struct SearchView: View {
             navigationCoordinator.push(destination, in: .search)
             handleSearchResultNavigation()
         }
+    }
+
+    internal static func playlistDestination(
+        for displayPlaylist: DisplayPlaylist
+    ) -> NavigationCoordinator.Destination {
+        if displayPlaylist.isMerged {
+            return .mergedPlaylist(
+                title: displayPlaylist.title,
+                isSmart: displayPlaylist.isSmart
+            )
+        }
+        return .playlistDetail(displayPlaylist.primaryPlaylist)
     }
 
     private func collapseSearchPresentation() {
@@ -785,27 +798,23 @@ public struct SearchView: View {
             }
 
         case .playlists:
-            if !viewModel.playlistResults.isEmpty {
+            if !viewModel.displayPlaylistResults.isEmpty {
                 compactSection(
                     section: .playlists,
                     title: "Playlists",
-                    count: viewModel.playlistResults.count,
-                    items: displayedResults(viewModel.playlistResults)
-                ) { playlist in
+                    count: viewModel.displayPlaylistResults.count,
+                    items: displayedResults(viewModel.displayPlaylistResults)
+                ) { displayPlaylist in
                     Button {
-                        routeSearchResult(to: .playlistDetail(playlist))
+                        routeSearchResult(
+                            to: Self.playlistDestination(for: displayPlaylist)
+                        )
                     } label: {
-                        CompactPlaylistRow(playlist: playlist)
+                        CompactPlaylistRow(displayPlaylist: displayPlaylist)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        PlaylistActionsContextMenu(
-                            playlist: playlist,
-                            nowPlayingVM: nowPlayingVM,
-                            onGetInfo: {
-                                libraryItemInfoRequest = .playlist(playlist)
-                            }
-                        )
+                        playlistContextMenu(for: displayPlaylist)
                     }
                 }
             }
@@ -911,6 +920,28 @@ public struct SearchView: View {
         )
     }
 
+    @ViewBuilder
+    private func playlistContextMenu(for displayPlaylist: DisplayPlaylist) -> some View {
+        if displayPlaylist.isMerged {
+            MergedPlaylistActionsContextMenu(
+                displayPlaylist: displayPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "search-merged-playlist-menu",
+                context: .search
+            )
+        } else {
+            let playlist = displayPlaylist.primaryPlaylist
+            PlaylistActionsContextMenu(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "search-playlist-menu",
+                onGetInfo: {
+                    libraryItemInfoRequest = .playlist(playlist)
+                }
+            )
+        }
+    }
+
     private func compactSection<T: Identifiable, Content: View>(
         section: SearchSection,
         title: String,
@@ -961,6 +992,21 @@ public struct SearchView: View {
         EnsembleStateScaffold(kind: .loading, title: "Searching…")
     }
 
+    private func searchErrorView(_ message: String) -> some View {
+        EnsembleStateScaffold(
+            kind: .error,
+            title: "Unable to Search",
+            message: message
+        ) {
+            Button {
+                viewModel.retrySearch()
+            } label: {
+                EnsembleStateActionLabel("Retry", systemImage: EnsembleDesign.Icon.retry)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     @ViewBuilder
     private var noResultsView: some View {
         if isRestoringCloudSources || !hasAnySources || usesLibrarySyncRecovery || !hasEnabledSearchLibrary {
@@ -1001,14 +1047,6 @@ public struct SearchView: View {
 
     private var gridColumns: [GridItem] {
         AlbumCardLayoutMetrics.compact.gridColumns
-    }
-
-    private static func computeHasEnabledLibraries(in accounts: [PlexAccountConfig]) -> Bool {
-        accounts.contains { account in
-            account.servers.contains { server in
-                server.libraries.contains(where: \.isEnabled)
-            }
-        }
     }
 
     private var hasEnabledSearchLibrary: Bool {

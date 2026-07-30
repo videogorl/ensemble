@@ -17,6 +17,30 @@ final class AccountManagerAuthPolicyTests: XCTestCase {
         super.tearDown()
     }
 
+    func testAppleMusicSetupStorePreservesPendingRetryUntilSyncCompletes() throws {
+        let suiteName = "AccountManagerAuthPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        AccountManager.persistAppleMusicEnabled(true, to: defaults)
+        XCTAssertEqual(
+            AccountManager.loadAppleMusicSetupState(from: defaults),
+            AccountManager.AppleMusicSetupState(isEnabled: true, isInitialSyncPending: true)
+        )
+
+        AccountManager.persistAppleMusicInitialSyncCompleted(to: defaults)
+        XCTAssertEqual(
+            AccountManager.loadAppleMusicSetupState(from: defaults),
+            AccountManager.AppleMusicSetupState(isEnabled: true, isInitialSyncPending: false)
+        )
+
+        AccountManager.persistAppleMusicEnabled(false, to: defaults)
+        XCTAssertEqual(
+            AccountManager.loadAppleMusicSetupState(from: defaults),
+            AccountManager.AppleMusicSetupState(isEnabled: false, isInitialSyncPending: false)
+        )
+    }
+
     func testServerNameUsesAppleMusicSourceName() {
         let manager = AccountManager(keychain: TestKeychain())
 

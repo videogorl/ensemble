@@ -1,4 +1,5 @@
 import CoreSpotlight
+import EnsemblePersistence
 import EnsembleSiriShared
 import XCTest
 @testable import EnsembleCore
@@ -70,6 +71,64 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         XCTAssertEqual(
             SystemMediaIntegrationService.localArtworkURL(for: item, artworkDirectory: artworkDirectory),
             expectedURL
+        )
+    }
+
+    func testLocalArtworkURLUsesSourceScopedCacheIdentity() throws {
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: artworkDirectory) }
+        let sourceA = "plex:account-a:server:library"
+        let sourceB = "plex:account-b:server:library"
+        let filenameA = ArtworkDownloadManager.cacheFilename(
+            ratingKey: "album-1",
+            type: .album,
+            sourceCompositeKey: sourceA
+        )
+        let filenameB = ArtworkDownloadManager.cacheFilename(
+            ratingKey: "album-1",
+            type: .album,
+            sourceCompositeKey: sourceB
+        )
+        let urlA = artworkDirectory.appendingPathComponent(filenameA)
+        let urlB = artworkDirectory.appendingPathComponent(filenameB)
+        try Data("a".utf8).write(to: urlA)
+        try Data("b".utf8).write(to: urlB)
+        let item = SiriMediaIndexItem(
+            kind: .album,
+            id: "album-1",
+            displayName: "Album",
+            sourceCompositeKey: sourceB,
+            artworkCacheKey: "album-1",
+            artworkCacheType: .album
+        )
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.localArtworkURL(for: item, artworkDirectory: artworkDirectory),
+            urlB
+        )
+        XCTAssertNotEqual(urlA, urlB)
+    }
+
+    func testSourceScopedLocalArtworkURLDoesNotClaimLegacyArtwork() throws {
+        let artworkDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: artworkDirectory) }
+        let legacyURL = artworkDirectory.appendingPathComponent("album-1_album.jpg")
+        try Data("legacy".utf8).write(to: legacyURL)
+        let item = SiriMediaIndexItem(
+            kind: .album,
+            id: "album-1",
+            displayName: "Album",
+            sourceCompositeKey: "plex:account:server:library",
+            artworkCacheKey: "album-1",
+            artworkCacheType: .album
+        )
+
+        XCTAssertNil(
+            SystemMediaIntegrationService.localArtworkURL(for: item, artworkDirectory: artworkDirectory)
         )
     }
 
@@ -171,6 +230,20 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         ))
         XCTAssertFalse(SystemMediaSourceScope.allows(nil, within: allowedSources))
         XCTAssertTrue(SystemMediaSourceScope.allows(nil, within: nil))
+    }
+
+    func testSystemMediaSourceScopeIncludesEveryEnabledProvider() {
+        let plex = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "library"
+        )
+
+        XCTAssertEqual(
+            SystemMediaSourceScope.enabledLibraryKeys(for: [plex, .appleMusic]),
+            [plex.compositeKey, MusicSourceIdentifier.appleMusic.compositeKey]
+        )
     }
 
     func testSystemMediaSourceScopeExpandsPlaylistKeysToEnabledServers() {

@@ -2,7 +2,7 @@ import EnsembleCore
 import SwiftUI
 
 /// Detail view for a merged playlist — shows interleaved tracks from all constituent
-/// playlists across servers, with source server chips and edit/delete-all flows.
+/// playlists across sources, with source chips and edit/delete-all flows.
 public struct MergedPlaylistDetailView: View {
     @StateObject private var viewModel: MergedPlaylistDetailViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
@@ -26,6 +26,22 @@ public struct MergedPlaylistDetailView: View {
     }
 
     public var body: some View {
+        let playlists = viewModel.displayPlaylist.playlists
+        let downloadAvailabilities = playlists.map { playlist in
+            playlist.actionAvailability(
+                for: .download,
+                downloadStatus: DownloadCapabilityPolicy.status(
+                    for: playlist.sourceCompositeKey,
+                    accountManager: deps.accountManager
+                )
+            )
+        }
+        let isAnyDownloaded = playlists.contains {
+            deps.offlineDownloadService.isPlaylistDownloadEnabled($0)
+        }
+        let downloadablePlaylists = zip(playlists, downloadAvailabilities).compactMap { playlist, availability in
+            availability.isAvailable ? playlist : nil
+        }
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -42,16 +58,37 @@ public struct MergedPlaylistDetailView: View {
                     excludedGenres: $viewModel.filterOptions.excludedGenres,
                     reservesEmptySpace: true
                 ) {
-                    // Source server chips — shows which servers this merge pulls from
-                    if !viewModel.sourceServerNames.isEmpty {
-                        sourceServerChips
+                    if !viewModel.sourceNames.isEmpty {
+                        sourceChips
                     }
                 }
             ),
             playlistMenuActions: PlaylistDetailMenuActions(
-                canRename: !viewModel.displayPlaylist.editablePlaylists.isEmpty,
-                canEdit: !viewModel.displayPlaylist.editablePlaylists.isEmpty && !viewModel.tracks.isEmpty && !viewModel.hasUnavailableTracks,
-                canDelete: !viewModel.displayPlaylist.deletablePlaylists.isEmpty,
+                downloadAvailability: resolvedMergedDownloadMenuAvailability(
+                    isAnyDownloaded: isAnyDownloaded,
+                    sourceAvailabilities: downloadAvailabilities
+                ),
+                isDownloaded: isAnyDownloaded,
+                renameAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .rename) }
+                ),
+                editAvailability: .combined(
+                    playlists.map { viewModel.editAvailability(for: $0) }
+                ),
+                deleteAvailability: .combined(
+                    playlists.map { $0.actionAvailability(for: .delete) }
+                ),
+                onToggleDownload: {
+                    Task {
+                        let targets = isAnyDownloaded ? playlists : downloadablePlaylists
+                        for playlist in targets {
+                            await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                                playlist,
+                                isEnabled: !isAnyDownloaded
+                            )
+                        }
+                    }
+                },
                 onRename: {
                     renamePromptText = viewModel.displayPlaylist.title
                     showRenamePrompt = true
@@ -94,7 +131,7 @@ public struct MergedPlaylistDetailView: View {
             .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
             let count = viewModel.displayPlaylist.editablePlaylists.count
-            Text("This will rename the playlist on \(count) server\(count == 1 ? "" : "s").")
+            Text("This will rename the playlist in \(count) source\(count == 1 ? "" : "s").")
         }
         // Delete all constituent playlists
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
@@ -119,7 +156,7 @@ public struct MergedPlaylistDetailView: View {
             }
         } message: {
             let count = viewModel.displayPlaylist.deletablePlaylists.count
-            Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) server\(count == 1 ? "" : "s").")
+            Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) source\(count == 1 ? "" : "s").")
         }
         // Edit picker — choose which constituent playlist to edit
         .sheet(isPresented: $showEditPicker, onDismiss: presentPendingEditTarget) {
@@ -172,8 +209,8 @@ public struct MergedPlaylistDetailView: View {
             metadataParts.append("Smart Playlist")
         }
 
-        let serverCount = viewModel.sourceServerNames.count
-        metadataParts.append("Merged from \(serverCount) server\(serverCount == 1 ? "" : "s")")
+        let sourceCount = viewModel.sourceNames.count
+        metadataParts.append("Merged from \(sourceCount) source\(sourceCount == 1 ? "" : "s")")
 
         if !viewModel.tracks.isEmpty {
             metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
@@ -190,14 +227,14 @@ public struct MergedPlaylistDetailView: View {
         )
     }
 
-    // MARK: - Source Server Chips
+    // MARK: - Source Chips
 
-    /// Horizontal row of capsule chips showing each server this merge pulls from
-    private var sourceServerChips: some View {
+    /// Horizontal row of capsule chips showing each source this merge pulls from.
+    private var sourceChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
-                ForEach(viewModel.sourceServerNames, id: \.sourceKey) { source in
-                    Text(displayServerName(source.name))
+                ForEach(viewModel.sourceNames, id: \.sourceKey) { source in
+                    Text(displaySourceName(source.name))
                         .font(EnsembleDesign.Typography.cardSubtitle)
                         .foregroundColor(EnsembleDesign.Color.accent)
                         .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
@@ -214,22 +251,23 @@ public struct MergedPlaylistDetailView: View {
 
     // MARK: - Edit Picker
 
-    /// Sheet listing each constituent playlist with server name — tap to edit individually
+    /// Sheet listing each constituent playlist with its source name.
     private var editPickerSheet: some View {
         List {
             ForEach(viewModel.displayPlaylist.playlists, id: \.sourceScopedID) { playlist in
+                let editAvailability = viewModel.editAvailability(for: playlist)
                 Button {
                     pendingEditTarget = playlist
                     showEditPicker = false
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                            Text(serverName(for: playlist))
+                            Text(sourceName(for: playlist))
                                 .font(EnsembleDesign.Typography.rowPrimary)
                             Text("\(playlist.trackCount) songs")
                                 .font(EnsembleDesign.Typography.rowSecondary)
                                 .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            if let reason = playlist.playlistEditingUnavailableReason {
+                            if let reason = editAvailability.reason {
                                 Text(reason)
                                     .font(EnsembleDesign.Typography.rowSecondary)
                                     .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -242,7 +280,7 @@ public struct MergedPlaylistDetailView: View {
                     }
                 }
                 .foregroundColor(EnsembleDesign.Color.primaryText)
-                .disabled(!playlist.supportsPlaylistEditing)
+                .disabled(!editAvailability.isAvailable)
             }
         }
         .listStyle(.plain)
@@ -264,13 +302,13 @@ public struct MergedPlaylistDetailView: View {
         .nativeSheetNavigationContainer()
     }
 
-    private func serverName(for playlist: Playlist) -> String {
-        guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Server" }
-        return displayServerName(DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Server")
+    private func sourceName(for playlist: Playlist) -> String {
+        guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Source" }
+        return displaySourceName(DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Source")
     }
 
-    private func displayServerName(_ serverName: String) -> String {
-        DemoModeRedaction.serverName(serverName, isEnabled: settingsManager.demoModeEnabled)
+    private func displaySourceName(_ sourceName: String) -> String {
+        DemoModeRedaction.serverName(sourceName, isEnabled: settingsManager.demoModeEnabled)
     }
 
     private func presentPendingEditTarget() {

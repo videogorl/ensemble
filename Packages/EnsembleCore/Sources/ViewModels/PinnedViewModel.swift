@@ -103,7 +103,7 @@ public final class PinnedViewModel: ObservableObject {
         let playlistReferences = references(in: pins, matching: .playlist)
         let albumsByKey = (try? await libraryRepository.fetchAlbums(forReferences: albumReferences)) ?? [:]
         let artistsByKey = (try? await libraryRepository.fetchArtists(forReferences: artistReferences)) ?? [:]
-        let playlistsByKey = (try? await playlistRepository.fetchPlaylists(forReferences: playlistReferences)) ?? [:]
+        let playlistsByKey = (try? await playlistRepository.fetchPlaylistHeaders(forReferences: playlistReferences)) ?? [:]
 
         var resolved: [ResolvedPin] = []
         resolved.reserveCapacity(pins.count)

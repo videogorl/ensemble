@@ -67,6 +67,7 @@ extension CDSyncCursor {
 
 @objc(CDArtist)
 public class CDArtist: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var name: String
@@ -102,6 +103,7 @@ extension CDArtist {
 
 @objc(CDAlbum)
 public class CDAlbum: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var title: String
@@ -145,6 +147,7 @@ extension CDAlbum {
 
 @objc(CDTrack)
 public class CDTrack: NSManagedObject {
+    @NSManaged public var actionCapabilitiesData: Data?
     @NSManaged public var ratingKey: String
     @NSManaged public var key: String
     @NSManaged public var title: String
@@ -161,6 +164,7 @@ public class CDTrack: NSManagedObject {
     @NSManaged public var lastPlayed: Date?
     @NSManaged public var lastRatedAt: Date?
     @NSManaged public var rating: Int16
+    @NSManaged public var isFavorite: NSNumber?
     @NSManaged public var playCount: Int32
     @NSManaged public var updatedAt: Date?
     @NSManaged public var genreNames: String?
@@ -196,6 +200,14 @@ public class CDPlaylist: NSManagedObject {
     @NSManaged public var title: String
     @NSManaged public var summary: String?
     @NSManaged public var compositePath: String?
+    @NSManaged public var fallbackArtworkPath: String?
+    @NSManaged public var fallbackArtworkRatingKey: String?
+    @NSManaged public var fallbackArtworkSourceCompositeKey: String?
+    @NSManaged public var canAddItems: NSNumber?
+    @NSManaged public var canRename: NSNumber?
+    @NSManaged public var canReorder: NSNumber?
+    @NSManaged public var canDelete: NSNumber?
+    @NSManaged public var actionUnavailableReason: String?
     @NSManaged public var isSmart: Bool
     @NSManaged public var duration: Int64
     @NSManaged public var trackCount: Int32
@@ -232,6 +244,19 @@ extension CDPlaylist {
     public var hasUnavailableTracks: Bool {
         let memberships = playlistTracks as? Set<CDPlaylistTrack> ?? []
         return memberships.count < Int(trackCount) || memberships.contains { $0.track == nil }
+    }
+
+    public var persistedActionCapabilities: PlaylistActionCapabilities? {
+        guard let canAddItems, let canRename, let canReorder, let canDelete else {
+            return nil
+        }
+        return PlaylistActionCapabilities(
+            canAddItems: canAddItems.boolValue,
+            canRename: canRename.boolValue,
+            canReorder: canReorder.boolValue,
+            canDelete: canDelete.boolValue,
+            unavailableReason: actionUnavailableReason
+        )
     }
 }
 
@@ -436,6 +461,9 @@ public class CDHub: NSManagedObject {
     @NSManaged public var type: String
     @NSManaged public var context: String?
     @NSManaged public var order: Int16
+    @NSManaged public var semanticKind: String?
+    @NSManaged public var sourceScopeServerCompositeKey: String?
+    @NSManaged public var sourceScopeSourceCompositeKey: String?
     @NSManaged public var items: NSOrderedSet?
     @NSManaged public var snapshot: CDHomeFeedSnapshot?
 }
@@ -455,11 +483,16 @@ extension CDHub {
 @objc(CDHubItem)
 public class CDHubItem: NSManagedObject {
     @NSManaged public var id: String
+    @NSManaged public var key: String?
     @NSManaged public var type: String
     @NSManaged public var title: String
     @NSManaged public var subtitle: String?
     @NSManaged public var thumbPath: String?
     @NSManaged public var sourceCompositeKey: String
+    @NSManaged public var year: NSNumber?
+    @NSManaged public var addedAt: Date?
+    @NSManaged public var lastViewedAt: Date?
+    @NSManaged public var viewCount: NSNumber?
     @NSManaged public var order: Int16
     @NSManaged public var hub: CDHub?
 }
