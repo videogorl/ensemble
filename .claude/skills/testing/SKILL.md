@@ -17,11 +17,14 @@ This is the canonical verification policy. Other skills may add task-specific de
 | CoreData model/repository | `scripts/compile_coredata_model.sh`, `swift test --package-path Packages/EnsemblePersistence`, and dependent package tests as needed. |
 | UI, navigation, playback, sync workflow, or user-visible bug fix | Affected package tests plus visual runtime validation of the changed flow on each touched platform when feasible. Navigate to the changed surface and exercise the changed behavior; launching the app, landing on the default tab, or checking an unrelated screen is not sufficient. Capture screenshots or equivalent UI inspection evidence; if visual validation is blocked, document the blocker and residual risk. |
 | Performance-sensitive SwiftUI/playback/download change | Targeted tests plus simulator/device evidence. Use `scripts/capture_performance_gate.sh` when changing observation, root chrome, Feed launch/refresh, or Downloads queue behavior. |
+| Multi-source/provider integration | Affected package and persistence tests, simulator proof for normalized cached UI, and a physical iPhone/iPad for authorization, DRM playback, system-player state, AirPlay, or live provider mutations. Exercise each provider alone and at least one merged result or mixed-source entry path. |
 | Broad architectural refactor | Tests for new services/repositories, affected package tests, app build, and simulator verification for user-facing paths. |
 
 Every completed turn with code, UI, behavior, script, or policy changes needs targeted verification before handoff. Select the smallest verification that proves the changed contract, but make it specific to the changed area. For example, after fixing Albums on iOS, build/run the iOS app and navigate to Albums to verify the Albums behavior itself; a Feed launch screenshot does not verify an Albums change.
 
 If runtime verification is blocked by credentials, third-party service availability, simulator state, or an external dependency, report the blocker precisely and do not present the task as fully verified.
+
+Provider work is not complete when only the new provider succeeds. Re-run a representative existing-provider path, then test the normalized or merged path. When playback engines differ, verify queue construction, mutation, restoration, autoplay, background transition, and Now Playing state with both possible starting engines. When source lifecycle changes, verify add, usable-while-syncing behavior, refresh, disable/remove, cached-data cleanup, and re-add.
 
 ## When To Write Tests
 
@@ -73,6 +76,8 @@ Typical expectations:
 
 For macOS-visible UI changes, use the built app with Computer Use, Xcode UI tooling, screenshots, or another direct UI inspection path. A build-only check is not sufficient unless the changed surface cannot be reached because of a documented environment blocker such as missing credentials, unavailable data, or a locked desktop.
 
+The simulator cannot prove Apple Music subscription authorization, DRM playback, system Now Playing behavior, live Apple library mutations, or AirPlay. Use it for cached-data layout and navigation, then load the physical-device section of `simulator-test` for those contracts.
+
 ## Test Locations
 
 Each package owns tests beside its sources:
@@ -101,5 +106,9 @@ Use `@testable import` for internal package behavior. Prefer protocol mocks for 
 - Offline download target reconciliation and stale `.downloading` recovery.
 - Siri matching/scoring and in-app playback payload routing.
 - Feed last-good cache preservation.
+- Provider-neutral identity, capability, action, and mutation routing across colliding IDs and same-named media.
+- Cross-provider playlist grouping and source-specific mutability.
+- Playback-engine queue affinity, removed-item disclosure, background continuity, and provider-matched autoplay.
+- Source removal cleanup for database rows, transient/durable artwork, provider state, and restored queue references.
 
 Check existing tests before adding new files so coverage stays focused instead of duplicated.

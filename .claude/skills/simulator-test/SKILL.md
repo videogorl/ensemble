@@ -121,6 +121,39 @@ screencapture -x -l <window-id> /tmp/ensemble-device-profile/artifacts/iphone-mi
 
 Use the window-targeted artifact for before/after performance comparisons, especially when collecting Time Profiler or Instruments evidence from a physical device.
 
+## Physical Device Validation
+
+Use a physical iPhone or iPad when the contract depends on Apple Music authorization, subscription state, DRM playback, `ApplicationMusicPlayer`, system Now Playing, AirPlay, Siri, or live provider mutations. Simulator success is still useful for cached UI and navigation, but it does not prove those integrations.
+
+Prefer `xcrun devicectl` for device discovery, fresh install/launch, installed-build verification, process state, and file collection. Use Device Hub or iPhone Mirroring only for visible interaction that the CLI cannot perform. Obtain any required approval before a signed device build or install.
+
+```bash
+# Discover the current device and destination identifier.
+xcrun devicectl list devices
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble -showdestinations
+
+# Build for the exact attached device. Do not reuse an unverified old artifact.
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
+  -destination 'id=<device-udid>' build
+
+# Install and verify the resulting app before testing.
+xcrun devicectl device install app --device <device-udid> <path-to-Ensemble.app>
+xcrun devicectl device info apps --device <device-udid>
+```
+
+Physical-device rules:
+
+- Record the device, OS, source commit, built app path, and installed version. A visible app launch does not rule out a stale installation.
+- Treat mirrored input as untrusted until the phone UI or fresh Ensemble logs confirm the action. If Device Hub stops accepting input, restart it and re-check the device lock state before repeating the gesture.
+- Establish an audio baseline with a known Plex track before diagnosing Apple Music silence. Confirm audible output when the transport exposes it, and also inspect elapsed progress/system Now Playing in Lock Screen or Control Center. If UI state advances but mirrored audio is silent, distinguish an app failure from a Device Hub/iPhone Mirroring transport limitation by changing only the mirror connection.
+- Capture the exact interaction and a focused log window together. For MusicKit work, include preparation, queue replacement, playback state, unresolved IDs, interruption, autoplay/station, and background-transition messages.
+- After adding a source, verify the app returns to usable UI while initial sync continues. Browse/search during sync, confirm progress advances rather than sticking, and confirm completion or a surfaced error.
+- Perform provider mutations with disposable items or playlists. Verify both the remote result in the provider's app and Ensemble's refreshed local state; API acceptance alone is not convergence proof.
+- Source removal, playlist deletion, queue destruction, and cache cleanup require explicit authorization. When authorized, capture before/after database counts and cache inventory, confirm removed-source media disappears without harming other sources, then re-add the source and verify recovery.
+- For background playback, start audio, background or lock the phone, wait through an actual track boundary, and confirm uninterrupted audio plus advancing system Now Playing state. Foreground-only success does not prove this path.
+
+Do not claim that the agent heard audio unless the active audio transport exposes it or the user confirms it. Logs and moving system progress prove playback state, not audibility.
+
 ---
 
 ## Quick Reference
@@ -349,4 +382,4 @@ If the app cannot be fully validated because login, network state, or an externa
 - **Multiple runs:** Rename the log file between runs (e.g., `/tmp/ensemble-test-log-v2.txt`) to avoid confusion.
 - **Large logs:** The full debug log can be 5000+ lines for a 10s capture. Use targeted grep patterns rather than reading the whole file.
 - **Simulator performance:** Simulator probes are faster than real devices (local network latency is near-zero). Device logs will show longer probe times.
-- **Real device logs:** For device testing, the user must capture logs via Console.app or `log stream` on the device. This skill covers simulator-only workflows.
+- **Real device logs:** Prefer Xcode's device console, copied `PersistentLogService` session logs, or another device-supported log collection path. Correlate timestamps with visible actions; do not rely on the mirror alone.

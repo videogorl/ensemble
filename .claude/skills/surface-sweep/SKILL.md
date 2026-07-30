@@ -15,6 +15,7 @@ Default coverage:
 - iPhone compact navigation: tab bar, More routing, sheets, full-screen Now Playing, compact rows, StageFlow-capable landscape surfaces.
 - iPad regular navigation: sidebar/split behavior, regular-width sheets, wide Now Playing.
 - macOS: sidebar, detail panes, auxiliary windows/sheets, menus/popovers, Now Playing viewport, table interactions, command availability.
+- Provider-aware iOS/iPadOS pass when multiple sources are configured: source lifecycle, normalized metadata/actions, merged media, and playback-engine boundaries.
 
 Out of scope unless the user explicitly asks:
 - watchOS.
@@ -32,7 +33,7 @@ ARTIFACT_ROOT="/tmp/ensemble-surface-sweep-$RUN_ID"
 mkdir -p "$ARTIFACT_ROOT"/{iphone,ipad,macos,logs}
 ```
 
-3. Confirm the app has usable local state. If there are no Plex accounts or no enabled libraries, still sweep onboarding/empty states, but mark library-dependent coverage as blocked.
+3. Confirm the app has usable local state and record every enabled source type. If there are no accounts or enabled libraries, still sweep onboarding/empty states, but mark library-dependent coverage as blocked. If provider-aware behavior is in scope, record whether live credentials, a subscription, and a physical device are available.
 4. Build before touching UI:
 
 ```bash
@@ -65,6 +66,8 @@ Keep runners read-only against source files. They may create artifacts under the
 - For destructive or expensive actions, open the menu/dialog when useful, capture the confirmation UI, then cancel. Do not perform the destructive final action unless the user explicitly asked for it.
 - Restore toggles/settings that were changed only for coverage. Prefer observing existing toggle state over changing it when the control itself is already visible.
 - Keep data-dependent coverage honest: if there are no playlists, pins, downloads, lyrics, queue items, or search results, record the blocker instead of inventing coverage.
+- When two providers are available, test each alone before testing merged views. Record the source identity of every representative item and verify provider-specific unavailable actions are visibly disabled with a reason instead of omitted or allowed to fail late.
+- Use a physical iPhone/iPad for MusicKit authorization, DRM playback, AirPlay, Siri, background system-player transitions, and remote Apple library mutations. A simulator pass can verify cached UI but cannot close those journeys.
 - Compare observed behavior against the relevant `app-policies` references. Record contradictions as policy discrepancies and record missing policy coverage when a behavior is important but not covered by a policy.
 
 ## Issue Loop
@@ -87,7 +90,8 @@ Run the sweep in this order:
 1. iPhone compact.
 2. iPad regular.
 3. macOS.
-4. Cross-platform parity pass for surfaces that looked different or failed on one platform.
+4. Provider-aware physical-device pass when live system services or multiple playback engines are in scope.
+5. Cross-platform parity pass for surfaces that looked different or failed on one platform.
 
 ## Evidence
 
@@ -96,6 +100,7 @@ Use [evidence-template.md](references/evidence-template.md) for the final sweep 
 Minimum final handoff:
 - build commands and results,
 - platform/device list,
+- enabled source/provider matrix and whether each path used cached or live data,
 - artifact root,
 - completed surfaces,
 - blocked surfaces with exact reason,
