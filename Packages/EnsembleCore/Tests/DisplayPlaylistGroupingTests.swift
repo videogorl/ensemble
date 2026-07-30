@@ -2,6 +2,22 @@ import XCTest
 @testable import EnsembleCore
 
 final class DisplayPlaylistGroupingTests: XCTestCase {
+    func testAppleMusicPaginationProgressAdvancesWithoutClaimingCompletion() {
+        XCTAssertEqual(
+            AppleMusicPagination.progress(fetchedPageCount: 1, hasNextPage: true),
+            1.0 / 11.0,
+            accuracy: 0.001
+        )
+        XCTAssertLessThan(
+            AppleMusicPagination.progress(fetchedPageCount: 42, hasNextPage: true),
+            1
+        )
+        XCTAssertEqual(
+            AppleMusicPagination.progress(fetchedPageCount: 42, hasNextPage: false),
+            1
+        )
+    }
+
     func testGroupMergesCaseAndDiacriticVariants() {
         let playlists = [
             Playlist(id: "one", key: "/one", title: "Café Mix", sourceCompositeKey: "plex:a:one"),

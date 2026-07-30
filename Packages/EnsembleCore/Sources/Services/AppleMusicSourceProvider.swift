@@ -1,6 +1,15 @@
+import Foundation
+
+enum AppleMusicPagination {
+    static func progress(fetchedPageCount: Int, hasNextPage: Bool) -> Double {
+        guard hasNextPage else { return 1 }
+        let pageCount = max(fetchedPageCount, 0)
+        return Double(pageCount) / Double(pageCount + 10)
+    }
+}
+
 #if os(iOS)
 import EnsemblePersistence
-import Foundation
 import MediaPlayer
 import MusicKit
 
@@ -74,7 +83,12 @@ public actor AppleMusicSourceProvider:
 
         progressHandler(0.1)
         async let nativeMetadataFetch = Self.fetchNativeLibraryMetadata()
-        let fetchedSongs: [LibrarySong] = try await fetchAll(path: Self.librarySongsPath)
+        let fetchedSongs: [LibrarySong] = try await fetchAll(
+            path: Self.librarySongsPath,
+            progressHandler: { progress in
+                progressHandler(0.1 + (progress * 0.4))
+            }
+        )
         var seenSongIDs = Set<String>()
         let songs = fetchedSongs.filter { seenSongIDs.insert($0.id).inserted }
         let nativeMetadata = try await nativeMetadataFetch
@@ -724,11 +738,19 @@ public actor AppleMusicSourceProvider:
         } ?? []
     }
 
-    private func fetchAll<Resource: Decodable>(path: String) async throws -> [Resource] {
+    private func fetchAll<Resource: Decodable>(
+        path: String,
+        progressHandler: @Sendable (Double) -> Void = { _ in }
+    ) async throws -> [Resource] {
         let initialPath = path
         var path: String? = path
         var result: [Resource] = []
+        var fetchedPageCount = 0
+        var fetchedPaths = Set<String>()
         while let current = path {
+            guard fetchedPaths.insert(current).inserted else {
+                throw AppleMusicSourceError.repeatedPaginationCursor
+            }
             let data: Data
             do {
                 data = try await request(path: current)
@@ -739,6 +761,11 @@ public actor AppleMusicSourceProvider:
             let page = try JSONDecoder().decode(Page<Resource>.self, from: data)
             result.append(contentsOf: page.data)
             path = page.next.map { Self.continuationPath($0, preservingQueryFrom: initialPath) }
+            fetchedPageCount += 1
+            progressHandler(AppleMusicPagination.progress(
+                fetchedPageCount: fetchedPageCount,
+                hasNextPage: path != nil
+            ))
         }
         return result
     }
@@ -1521,6 +1548,7 @@ public enum AppleMusicSourceError: LocalizedError {
     case playlistDeletionUnsupported
     case playlistNotFound
     case catalogSongNotFound
+    case repeatedPaginationCursor
     case http(Int)
 
     public var errorDescription: String? {
@@ -1530,6 +1558,7 @@ public enum AppleMusicSourceError: LocalizedError {
         case .playlistDeletionUnsupported: "Delete this Apple Music playlist in the Music app."
         case .playlistNotFound: "The Apple Music playlist could not be found."
         case .catalogSongNotFound: "The Apple Music song could not be found."
+        case .repeatedPaginationCursor: "Apple Music returned a repeated library page. Please try again."
         case .http(let status): "Apple Music returned HTTP \(status)."
         }
     }
