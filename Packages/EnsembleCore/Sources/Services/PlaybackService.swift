@@ -5754,9 +5754,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @available(iOS 18, *)
         @MainActor
         private func isCurrentAppleMusicStationQueue(_ queueGeneration: UInt64) -> Bool {
-            guard isCurrentAppleMusicQueue(queueGeneration),
-                  appleMusicPlaybackController?.isStationActive == true else { return false }
-            return playbackState == .playing || playbackState == .buffering
+            isCurrentAppleMusicQueue(queueGeneration)
+                && appleMusicPlaybackController?.isStationActive == true
         }
     #endif
 
