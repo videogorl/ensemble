@@ -86,12 +86,6 @@ No unresolved critical issues are currently documented.
 - **Area:** `ArtworkLoader.predownloadArtwork`
 - **Status:** Artwork is pre-cached only for items that pass through sync. Browsing an uncached item may still require network.
 
-### Library Visibility Selector Not Shipped
-
-- **Area:** `LibraryVisibilityProfile`, `LibraryVisibilityStore`
-- **Status:** Core filtering seams exist, but user-facing selector/editor UI is not shipped.
-- **Rule:** Visibility profiles hide/show browse content only; they do not change sync enablement.
-
 ## Watchlist
 
 ### AirPlay Glitch During Health Probes

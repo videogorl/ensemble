@@ -198,7 +198,6 @@ See `CLAUDE.md` for detailed development guidelines, including:
 - **watchOS:** Downloads are intentionally deferred from standalone watch V1. The watch app builds through the `EnsembleWatch` scheme as an independent target; phone remote control still works when the iPhone app is also installed.
 - **Background continued processing limits (iOS 26+):** `BGContinuedProcessingTask` is best-effort; queued requests can be rejected or canceled by the system, and the app falls back to the persistent in-app queue.
 - **Artwork Pre-Caching:** Methods exist but not automatically called during sync
-- **Visibility Profile UI:** `LibraryVisibilityProfile` groundwork is implemented, but profile selector/editor UI is not shipped yet
 
 ## Development Status
 
@@ -206,6 +205,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 **Completed:**
 - Multi-library Plex support with network resilience
+- Profile Focus menu for device-local library visibility without changing sync configuration
 - Hub-based home screen with offline-first loading and DetailLoader pattern
 - Customizable hub section ordering with drag-to-reorder interface
 - StageFlow immersive carousel for albums, songs, and playlists in iPhone landscape

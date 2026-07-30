@@ -198,7 +198,7 @@ When modifying Plex library enablement/sync behavior:
    - If no enabled libraries remain on that server, also purge server-level playlists via `SyncCoordinator.purgeServerPlaylists(...)`.
 4. Keep sync-enable (`PlexLibraryConfig.isEnabled`) logic separate from non-destructive visibility filtering.
 
-## Working With LibraryVisibilityProfile Groundwork
+## Working With Library Visibility
 
 Use this for browse-surface visibility controls that must not affect sync:
 
@@ -214,8 +214,9 @@ store.setActiveProfile(id: profileID)
 
 Rules:
 - Visibility profiles hide/show content only; they do not enable/disable sync libraries.
-- Apply profile filtering in ViewModels after loading data (`LibraryViewModel`, `SearchViewModel`, `HomeViewModel` seams).
+- Apply profile filtering in ViewModels after loading data (`LibraryViewModel`, `PlaylistViewModel`, `SearchViewModel`, `HomeViewModel` seams).
 - Keep source filtering keyed by full `sourceCompositeKey` to avoid collisions across servers/libraries.
+- `ProfileToolbarButton` owns the native visibility menu and lists only sync-enabled libraries; keep Settings first and Apple Music as its own item.
 
 ## Creating a DetailLoader
 
