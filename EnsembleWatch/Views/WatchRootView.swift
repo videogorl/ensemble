@@ -8,10 +8,12 @@ import UIKit
 #endif
 
 struct WatchRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
     @State private var showsNowPlaying = false
     @State private var selectedPin: EnsembleMediaSummary?
+    @State private var hasHandledRemotePresentationForActivePhase = false
 
     var body: some View {
         NavigationStack {
@@ -33,10 +35,43 @@ struct WatchRootView: View {
         }
         .onAppear {
             experience.start()
+            presentRemoteNowPlayingIfNeeded()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                presentRemoteNowPlayingIfNeeded()
+            case .background:
+                hasHandledRemotePresentationForActivePhase = false
+            case .inactive:
+                break
+            @unknown default:
+                break
+            }
+        }
+        .onReceive(remoteSession.$snapshot) { _ in
+            presentRemoteNowPlayingIfNeeded()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)) { _ in
             experience.cloudPreferencesDidChange()
         }
+    }
+
+    private func presentRemoteNowPlayingIfNeeded() {
+        guard scenePhase == .active,
+              !hasHandledRemotePresentationForActivePhase else { return }
+
+        if experience.playback.isPlaying {
+            hasHandledRemotePresentationForActivePhase = true
+            return
+        }
+
+        guard remoteSession.snapshot?.currentTrack != nil,
+              remoteSession.snapshot?.playbackState == .playing else { return }
+
+        hasHandledRemotePresentationForActivePhase = true
+        experience.playbackTarget = .remote
+        showsNowPlaying = true
     }
 
     private var rootContent: some View {

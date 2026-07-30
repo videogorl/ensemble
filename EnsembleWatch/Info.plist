@@ -22,6 +22,8 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>Ensemble needs access to your local network to connect to Plex servers.</string>
+    <key>PUICAutoLaunchAudioOptOut</key>
+    <false/>
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>
