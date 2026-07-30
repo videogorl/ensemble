@@ -1662,11 +1662,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         if isAutoplayEnabled {
+            if let seed = currentTrack,
+               await startAppleMusicAutoplayStationIfPossible(seed: seed) {
+                return
+            }
             let previousCount = queue.count
             await refreshAutoplayQueue()
 
-            let refreshedNextIndex = currentQueueIndex + 1
-            if queue.count > previousCount, refreshedNextIndex < queue.count {
+            if let refreshedNextIndex = Self.autoplayAdvanceIndex(
+                previousQueueCount: previousCount,
+                currentQueueIndex: currentQueueIndex,
+                queueCount: queue.count
+            ) {
                 currentQueueIndex = refreshedNextIndex
                 await playCurrentQueueItem(caller: "handleQueueExhausted-autoplay")
                 savePlaybackState()
@@ -3292,7 +3299,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return
                 } else if self.isAutoplayEnabled {
                     EnsembleLogger.debug("[next] Queue ended, autoplay enabled, refreshing...")
+                    if let seed = self.currentTrack,
+                       await self.startAppleMusicAutoplayStationIfPossible(seed: seed) {
+                        return
+                    }
+                    let previousCount = self.queue.count
                     await self.refreshAutoplayQueue()
+                    guard !Task.isCancelled else { return }
+                    if let nextIndex = Self.autoplayAdvanceIndex(
+                        previousQueueCount: previousCount,
+                        currentQueueIndex: self.currentQueueIndex,
+                        queueCount: self.queue.count
+                    ) {
+                        self.currentQueueIndex = nextIndex
+                        await self.playCurrentQueueItem(caller: "next()-autoplay")
+                        self.savePlaybackState()
+                    } else {
+                        self.stop()
+                    }
                 } else {
                     self.stop()
                 }
@@ -4189,6 +4213,44 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             _ = await appendAppleMusicAutoplayFallback(for: seedTrack)
         }
         EnsembleLogger.debug("🔄 ═══════════════════════════════════════════════════════════\n")
+    }
+
+    static func autoplayAdvanceIndex(
+        previousQueueCount: Int,
+        currentQueueIndex: Int,
+        queueCount: Int
+    ) -> Int? {
+        let nextIndex = currentQueueIndex + 1
+        return queueCount > previousQueueCount && nextIndex < queueCount ? nextIndex : nil
+    }
+
+    @MainActor
+    private func startAppleMusicAutoplayStationIfPossible(seed: Track) async -> Bool {
+        #if os(iOS)
+            guard #available(iOS 18, *),
+                  seed.isAppleMusic,
+                  syncCoordinator.accountManager.isAppleMusicEnabled else { return false }
+            let generation = playbackGenerationCounter
+            do {
+                try await appleMusicPlaybackController?.startStation(
+                    seed: seed,
+                    smartMixEnabled: isSmartMixEnabled
+                )
+                guard generation == playbackGenerationCounter,
+                      appleMusicPlaybackController?.isStationActive == true,
+                      appleMusicPlaybackController?.activeQueueGeneration != nil else { return false }
+                recommendationsExhausted = false
+                isSkipTransitionInProgress = false
+                disarmSkipTransitionSafety()
+                return true
+            } catch {
+                EnsembleLogger.error("Apple Music autoplay station failed: \(error.localizedDescription)")
+                recommendationsExhausted = true
+                return false
+            }
+        #else
+            return false
+        #endif
     }
 
     private func appendAppleMusicAutoplayFallback(for seed: Track) async -> Bool {
@@ -5589,25 +5651,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if Self.shouldStartAppleMusicAutoplay(nextItem: nextItem, isEnabled: isAutoplayEnabled),
                let seed = currentTrack {
                 if nextIndex < queue.count { queue.removeSubrange(nextIndex...) }
-                let generation = playbackGenerationCounter
-                do {
-                    try await appleMusicPlaybackController?.startStation(
-                        seed: seed,
-                        smartMixEnabled: isSmartMixEnabled
-                    )
-                    guard generation == playbackGenerationCounter,
-                          syncCoordinator.accountManager.isAppleMusicEnabled,
-                          currentTrack?.isAppleMusic == true,
-                          appleMusicPlaybackController?.isStationActive == true,
-                          appleMusicPlaybackController?.activeQueueGeneration != nil else { return }
-                    recommendationsExhausted = false
-                } catch {
-                    guard generation == playbackGenerationCounter,
-                          syncCoordinator.accountManager.isAppleMusicEnabled,
-                          currentTrack?.isAppleMusic == true else { return }
-                    recommendationsExhausted = true
-                    stop()
-                }
+                if !(await startAppleMusicAutoplayStationIfPossible(seed: seed)) { stop() }
                 return
             }
             guard nextItem != nil else {

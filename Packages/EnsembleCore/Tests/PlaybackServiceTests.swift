@@ -1203,6 +1203,19 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(PlaybackService.shouldStartAppleMusicAutoplay(nextItem: manual, isEnabled: true))
     }
 
+    func testQueueEndAutoplayOnlyAdvancesWhenRefreshAppendsATrack() {
+        XCTAssertNil(PlaybackService.autoplayAdvanceIndex(
+            previousQueueCount: 1,
+            currentQueueIndex: 0,
+            queueCount: 1
+        ))
+        XCTAssertEqual(PlaybackService.autoplayAdvanceIndex(
+            previousQueueCount: 1,
+            currentQueueIndex: 0,
+            queueCount: 2
+        ), 1)
+    }
+
     func testAppleMusicStationAdvancesPastSeedBeforePlaying() async throws {
         let player = RecordingAppleMusicStationPlayer()
 
