@@ -315,6 +315,30 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         XCTAssertNil(ArtworkBlurRenderer.cachedBlurredImage(for: image))
     }
 
+    func testURLCacheInvalidationRequestsVisibleArtworkRetryWhenCoalesced() async {
+        let artworkManager = RecordingArtworkDownloadManager(strictPath: nil, stalePath: nil)
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+        let retryNotifications = expectation(description: "visible artwork retry")
+        retryNotifications.expectedFulfillmentCount = 2
+        let observer = NotificationCenter.default.addObserver(
+            forName: ArtworkLoader.serversBecameAvailable,
+            object: artworkLoader,
+            queue: nil
+        ) { _ in
+            retryNotifications.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        await artworkLoader.invalidateURLCache()
+        await artworkLoader.invalidateURLCache()
+
+        await fulfillment(of: [retryNotifications], timeout: 1)
+    }
+
     func testInvalidatedArtworkKeepsPersistentFileAsOfflineFallback() async throws {
         let localURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
