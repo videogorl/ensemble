@@ -1263,11 +1263,6 @@ public struct SidebarView: View {
             max: RootSidebarColumnWidth.maximum
         )
         .toolbar {
-            #if os(macOS)
-            ToolbarItem {
-                ProfileToolbarButton()
-            }
-            #endif
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
                     Image(systemName: EnsembleDesign.Icon.download)
@@ -1278,6 +1273,11 @@ public struct SidebarView: View {
                 ProfileToolbarButton()
                 #endif
             }
+            #if os(macOS)
+            ToolbarItem {
+                ProfileToolbarButton()
+            }
+            #endif
         }
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
         // instead of computed properties ensures updates survive NavigationSplitView
