@@ -84,7 +84,7 @@ final class PlaybackReportingController {
 
     private func scrobbleIfNeeded(track: Track?, time: TimeInterval, duration: TimeInterval) {
         guard !hasScrobbled,
-              defaults.bool(forKey: Self.scrobblingEnabledKey),
+              SettingsManager.effectiveScrobblingEnabled(in: defaults),
               let track,
               duration > 0,
               time / duration >= Self.scrobbleCompletionThreshold else {
@@ -113,6 +113,5 @@ final class PlaybackReportingController {
         }
     }
 
-    private static let scrobblingEnabledKey = "scrobblingEnabled"
     private static let scrobbleCompletionThreshold = 0.9
 }

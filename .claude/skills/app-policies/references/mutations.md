@@ -18,6 +18,7 @@ Load this reference for playlist changes, ratings/favorites, metadata edits/dele
 - Apple Music favorites are binary and use `inFavorites` as cached truth. Heart adds through Apple's Favorites API and maps locally to rating 10 so the shared Favorites view includes it; accepted favorites remain protected from an older concurrent library-sync snapshot until Apple reports `inFavorites`. Dislike is unavailable. Until a supported removal action is proven on hardware, an already-filled Apple heart is disabled and explains that removal is managed by Apple Music.
 - Apple Music catalog songs whose MusicKit `libraryAddedDate` is absent expose `Add to Library` through shared track menus and Now Playing. `AppleMusicSourceProvider` owns the `MusicLibrary.add` mutation; successful adds refresh the device-local Apple source and never enter Plex's offline mutation queue.
 - Scrobbles and playback tracking must remain source-exact and should not cross Plex source boundaries.
+- The iOS Focus scrobbling filter is a temporary device-local override of the saved Ensemble setting. Ending the Focus restores the saved value; the override gates new scrobbles but does not discard mutations already queued for replay.
 
 ## Owners
 

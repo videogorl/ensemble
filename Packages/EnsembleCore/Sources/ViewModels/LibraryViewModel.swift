@@ -498,11 +498,14 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func setupVisibilityObservation() {
-        self.visibilityStore.$profiles
-            .combineLatest(self.visibilityStore.$activeProfileID)
+        Publishers.CombineLatest3(
+            self.visibilityStore.$profiles,
+            self.visibilityStore.$activeProfileID,
+            self.visibilityStore.$focusFilter
+        )
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _ in
                 self?.applyVisibilityToPublishedCollections()
             }
             .store(in: &cancellables)
@@ -784,8 +787,10 @@ public final class LibraryViewModel: ObservableObject {
     /// Guards each assignment to avoid firing objectWillChange when content hasn't changed,
     /// which would cause spurious body re-evaluations in all subscribing views.
     private func applyVisibilityToPublishedCollections() {
-        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
         let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let hiddenSourceCompositeKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+        )
         let cachedSourceFilter = sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
             ? sourceConfiguration
             : nil

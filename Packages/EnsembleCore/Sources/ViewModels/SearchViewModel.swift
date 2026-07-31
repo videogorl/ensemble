@@ -182,11 +182,14 @@ public final class SearchViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        self.visibilityStore.$profiles
-            .combineLatest(self.visibilityStore.$activeProfileID)
+        Publishers.CombineLatest3(
+            self.visibilityStore.$profiles,
+            self.visibilityStore.$activeProfileID,
+            self.visibilityStore.$focusFilter
+        )
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _ in
                 self?.applyVisibilityToSearchResults()
                 self?.applyVisibilityToExploreContent()
             }
@@ -552,8 +555,10 @@ public final class SearchViewModel: ObservableObject {
     }
 
     private func applyVisibilityToSearchResults() {
-        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
         let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let hiddenSourceCompositeKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+        )
         let cachedSourceFilter = scope == .appleMusic
             ? sourceConfiguration
             : sourceConfigurationForCachedFiltering(sourceConfiguration)
@@ -609,10 +614,11 @@ public final class SearchViewModel: ObservableObject {
     }
 
     private func applyVisibilityToExploreContent() {
-        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
-        let sourceConfiguration = sourceConfigurationForCachedFiltering(
-            accountManager.sourceConfigurationSnapshot
+        let currentSourceConfiguration = accountManager.sourceConfigurationSnapshot
+        let hiddenSourceCompositeKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: currentSourceConfiguration.enabledSourceKeys
         )
+        let sourceConfiguration = sourceConfigurationForCachedFiltering(currentSourceConfiguration)
         recentlyPlayedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,

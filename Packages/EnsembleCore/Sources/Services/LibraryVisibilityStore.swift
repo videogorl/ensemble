@@ -1,6 +1,17 @@
 import Combine
 import Foundation
 
+/// The library allowlist supplied by the active system Focus filter.
+public struct LibraryVisibilityFocusFilter: Equatable, Sendable {
+    public let visibleSourceCompositeKeys: Set<String>
+    public var isEnabled: Bool
+
+    public init(visibleSourceCompositeKeys: Set<String>, isEnabled: Bool = true) {
+        self.visibleSourceCompositeKeys = visibleSourceCompositeKeys
+        self.isEnabled = isEnabled
+    }
+}
+
 /// Persists library visibility profiles and tracks the active profile used by UI filtering surfaces.
 @MainActor
 public final class LibraryVisibilityStore: ObservableObject {
@@ -8,6 +19,7 @@ public final class LibraryVisibilityStore: ObservableObject {
 
     @Published public private(set) var profiles: [LibraryVisibilityProfile]
     @Published public private(set) var activeProfileID: String
+    @Published public private(set) var focusFilter: LibraryVisibilityFocusFilter?
 
     public var activeProfile: LibraryVisibilityProfile {
         profile(id: activeProfileID) ?? .default
@@ -44,7 +56,48 @@ public final class LibraryVisibilityStore: ObservableObject {
 
         self.profiles = normalizedProfiles
         self.activeProfileID = validActiveProfileID
+        self.focusFilter = nil
         persist()
+    }
+
+    public var isFocusFilterActive: Bool {
+        focusFilter != nil
+    }
+
+    public var isFocusFilterEnabled: Bool {
+        focusFilter?.isEnabled == true
+    }
+
+    /// Returns the hidden sources after applying the active Focus allowlist over the manual setting.
+    public func effectiveHiddenSourceCompositeKeys(
+        enabledSourceCompositeKeys: Set<String>
+    ) -> Set<String> {
+        guard let focusFilter, focusFilter.isEnabled else {
+            return hiddenSourceCompositeKeys
+        }
+        return enabledSourceCompositeKeys.subtracting(focusFilter.visibleSourceCompositeKeys)
+    }
+
+    /// Applies or clears the system Focus library allowlist.
+    public func setFocusVisibleSourceCompositeKeys(
+        _ keys: Set<String>?,
+        resetsBypass: Bool = true
+    ) {
+        let nextFilter = keys.map { keys in
+            if !resetsBypass, let focusFilter, focusFilter.visibleSourceCompositeKeys == keys {
+                return focusFilter
+            }
+            return LibraryVisibilityFocusFilter(visibleSourceCompositeKeys: keys)
+        }
+        guard focusFilter != nextFilter else { return }
+        focusFilter = nextFilter
+    }
+
+    /// Temporarily enables or bypasses the active system Focus library filter.
+    public func setFocusFilterEnabled(_ isEnabled: Bool) {
+        guard var focusFilter, focusFilter.isEnabled != isEnabled else { return }
+        focusFilter.isEnabled = isEnabled
+        self.focusFilter = focusFilter
     }
 
     public func profile(id: String) -> LibraryVisibilityProfile? {

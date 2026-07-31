@@ -147,11 +147,14 @@ public final class HomeViewModel: ObservableObject {
             await self?.restoreCachedHubs(generation: cacheRestoreGeneration)
         }
         
-        self.visibilityStore.$profiles
-            .combineLatest(self.visibilityStore.$activeProfileID)
+        Publishers.CombineLatest3(
+            self.visibilityStore.$profiles,
+            self.visibilityStore.$activeProfileID,
+            self.visibilityStore.$focusFilter
+        )
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _ in
                 self?.applyVisibilityToPublishedHubs()
             }
             .store(in: &cancellables)
@@ -359,10 +362,13 @@ public final class HomeViewModel: ObservableObject {
                 let availableHubs = await filterHubsForLocalAvailability(cachedSnapshot.orderedHubs)
                 guard generation == contentGeneration, !Task.isCancelled else { return }
                 unfilteredHubs = availableHubs
+                let sourceConfiguration = accountManager.sourceConfigurationSnapshot
                 hubs = Self.filterHubsForVisibility(
                     availableHubs,
-                    hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys,
-                    sourceConfiguration: accountManager.sourceConfigurationSnapshot,
+                    hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                        enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+                    ),
+                    sourceConfiguration: sourceConfiguration,
                     preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot
                 )
                 EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(hubs.count) hubs)")
@@ -496,10 +502,13 @@ public final class HomeViewModel: ObservableObject {
         let availableSnapshot = await filterHubsForLocalAvailability(snapshot)
         guard generation == contentGeneration, !Task.isCancelled else { return }
         unfilteredHubs = availableSnapshot
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
         let visibleSnapshot = Self.filterHubsForVisibility(
             availableSnapshot,
-            hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys,
-            sourceConfiguration: accountManager.sourceConfigurationSnapshot,
+            hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+            ),
+            sourceConfiguration: sourceConfiguration,
             preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot
         )
 
@@ -509,10 +518,13 @@ public final class HomeViewModel: ObservableObject {
     }
 
     private func applyVisibilityToPublishedHubs() {
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
         let visibleHubs = Self.filterHubsForVisibility(
             unfilteredHubs,
-            hiddenSourceCompositeKeys: visibilityStore.hiddenSourceCompositeKeys,
-            sourceConfiguration: accountManager.sourceConfigurationSnapshot,
+            hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+            ),
+            sourceConfiguration: sourceConfiguration,
             preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot
         )
 

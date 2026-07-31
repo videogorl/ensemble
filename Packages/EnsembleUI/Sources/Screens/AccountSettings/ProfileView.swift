@@ -28,6 +28,13 @@ public struct ProfileView: View {
     private static let supportURL = URL(string: "https://ensemble.videogorl.me")!
     private static let storageScrollTarget = "profile-storage-section"
 
+    private var scrobblingSubtitle: String {
+        guard let focusOverride = settingsManager.focusScrobblingOverride else {
+            return "Report play counts to your Plex server"
+        }
+        return focusOverride ? "Enabled by Focus" : "Disabled by Focus"
+    }
+
     public init() {}
 
     public var body: some View {
@@ -356,10 +363,11 @@ public struct ProfileView: View {
                 EnsembleUtilityRowLabel(
                     iconSystemName: EnsembleDesign.Icon.scrobble,
                     title: "Scrobbling",
-                    subtitle: "Report play counts to your Plex server",
+                    subtitle: scrobblingSubtitle,
                     iconColor: EnsembleDesign.Color.primaryText
                 )
             }
+            .disabled(settingsManager.focusScrobblingOverride != nil)
 
             NavigationLink {
                 AudioQualitySettingsView()
@@ -698,10 +706,11 @@ public struct ProfileView: View {
                     EnsembleUtilityRowLabel(
                         iconSystemName: EnsembleDesign.Icon.scrobble,
                         title: "Scrobbling",
-                        subtitle: "Report play counts to your Plex server",
+                        subtitle: scrobblingSubtitle,
                         iconColor: EnsembleDesign.Color.primaryText
                     )
                 }
+                .disabled(settingsManager.focusScrobblingOverride != nil)
             }
 
             EnsembleUtilityCardDivider()

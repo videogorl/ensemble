@@ -193,11 +193,14 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func setupVisibilityObservation() {
-        visibilityStore.$profiles
-            .combineLatest(visibilityStore.$activeProfileID)
+        Publishers.CombineLatest3(
+            visibilityStore.$profiles,
+            visibilityStore.$activeProfileID,
+            visibilityStore.$focusFilter
+        )
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _ in
+            .sink { [weak self] _ in
                 self?.applyVisibilityToPublishedPlaylists()
             }
             .store(in: &cancellables)
@@ -609,8 +612,10 @@ public final class PlaylistViewModel: ObservableObject {
 
     private func applyVisibilityToPublishedPlaylists() {
         let configuredPlaylists = filterPlaylistsForSourceConfiguration(allPlaylists)
-        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
         let sourceConfiguration = accountManager?.sourceConfigurationSnapshot
+        let hiddenSourceCompositeKeys = visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: sourceConfiguration?.enabledSourceKeys ?? []
+        )
         let visiblePlaylists = configuredPlaylists.filter { playlist in
             guard let sourceKey = playlist.sourceCompositeKey else { return false }
             return !LibraryVisibilityFiltering.isHiddenSourceKey(

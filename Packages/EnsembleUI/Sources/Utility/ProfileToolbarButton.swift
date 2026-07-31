@@ -49,6 +49,19 @@ public struct ProfileToolbarButton: View {
                 }
             }
 
+            if visibilityStore.isFocusFilterActive {
+                Section {
+                    Toggle(
+                        isOn: Binding(
+                            get: { visibilityStore.isFocusFilterEnabled },
+                            set: { visibilityStore.setFocusFilterEnabled($0) }
+                        )
+                    ) {
+                        Label("Filtered by Focus", systemImage: EnsembleDesign.Icon.filterCircle)
+                    }
+                }
+            }
+
             ForEach(accountManager.plexAccounts) { account in
                 ForEach(account.servers) { server in
                     if server.libraries.contains(where: \.isEnabled) {
@@ -88,14 +101,21 @@ public struct ProfileToolbarButton: View {
                     visibilityStore.hiddenSourceCompositeKeys.subtracting(enabledSourceKeys)
                 )
             }
-            .disabled(enabledSourceKeys.isDisjoint(with: visibilityStore.hiddenSourceCompositeKeys))
+            .disabled(
+                visibilityStore.isFocusFilterEnabled ||
+                    enabledSourceKeys.isDisjoint(with: visibilityStore.hiddenSourceCompositeKeys)
+            )
 
             Button("Hide All") {
                 visibilityStore.setHiddenSourceCompositeKeys(
                     visibilityStore.hiddenSourceCompositeKeys.union(enabledSourceKeys)
                 )
             }
-            .disabled(enabledSourceKeys.isEmpty || enabledSourceKeys.isSubset(of: visibilityStore.hiddenSourceCompositeKeys))
+            .disabled(
+                visibilityStore.isFocusFilterEnabled ||
+                    enabledSourceKeys.isEmpty ||
+                    enabledSourceKeys.isSubset(of: visibilityStore.hiddenSourceCompositeKeys)
+            )
         } label: {
             #if os(macOS)
             macOSProfileImage
@@ -123,6 +143,12 @@ public struct ProfileToolbarButton: View {
         Set(accountManager.enabledSources().map(\.compositeKey))
     }
 
+    private var effectiveHiddenSourceKeys: Set<String> {
+        visibilityStore.effectiveHiddenSourceCompositeKeys(
+            enabledSourceCompositeKeys: enabledSourceKeys
+        )
+    }
+
     static func serverSectionTitle(_ name: String, email: String?, isDuplicate: Bool) -> String {
         guard isDuplicate,
               let email = email?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -136,7 +162,7 @@ public struct ProfileToolbarButton: View {
         Toggle(
             title,
             isOn: Binding(
-                get: { !visibilityStore.hiddenSourceCompositeKeys.contains(source.compositeKey) },
+                get: { !effectiveHiddenSourceKeys.contains(source.compositeKey) },
                 set: {
                     visibilityStore.setSourceVisibility(
                         sourceCompositeKey: source.compositeKey,
@@ -145,6 +171,7 @@ public struct ProfileToolbarButton: View {
                 }
             )
         )
+        .disabled(visibilityStore.isFocusFilterEnabled)
     }
 
     @ViewBuilder

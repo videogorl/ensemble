@@ -3,6 +3,59 @@ import XCTest
 
 @MainActor
 final class LibraryVisibilityProfileTests: XCTestCase {
+    func testFocusAllowlistTemporarilyOverridesManualVisibility() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        guard let userDefaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+
+        let store = LibraryVisibilityStore(userDefaults: userDefaults)
+        store.setHiddenSourceCompositeKeys(["manual-hidden"])
+        store.setFocusVisibleSourceCompositeKeys(["focus-visible"])
+
+        XCTAssertEqual(
+            store.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: ["manual-hidden", "focus-visible", "new-library"]
+            ),
+            ["manual-hidden", "new-library"]
+        )
+
+        store.setFocusFilterEnabled(false)
+        XCTAssertEqual(
+            store.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: ["manual-hidden", "focus-visible", "new-library"]
+            ),
+            ["manual-hidden"]
+        )
+
+        store.setFocusFilterEnabled(true)
+        store.setFocusVisibleSourceCompositeKeys(nil)
+        XCTAssertEqual(store.hiddenSourceCompositeKeys, ["manual-hidden"])
+        XCTAssertEqual(
+            store.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: ["manual-hidden", "focus-visible", "new-library"]
+            ),
+            ["manual-hidden"]
+        )
+    }
+
+    func testForegroundRefreshPreservesFocusBypassUntilFocusChanges() {
+        let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
+        let userDefaults = UserDefaults(suiteName: suiteName)!
+        defer { userDefaults.removePersistentDomain(forName: suiteName) }
+        let store = LibraryVisibilityStore(userDefaults: userDefaults)
+        store.setFocusVisibleSourceCompositeKeys(["library"])
+        store.setFocusFilterEnabled(false)
+
+        store.setFocusVisibleSourceCompositeKeys(["library"], resetsBypass: false)
+        XCTAssertFalse(store.isFocusFilterEnabled)
+
+        store.setFocusVisibleSourceCompositeKeys(["library"], resetsBypass: true)
+        XCTAssertTrue(store.isFocusFilterEnabled)
+    }
+
     func testStorePersistsActiveProfileAndHiddenSources() {
         let suiteName = "LibraryVisibilityProfileTests.\(UUID().uuidString)"
         guard let userDefaults = UserDefaults(suiteName: suiteName) else {

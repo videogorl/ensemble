@@ -221,6 +221,9 @@ struct EnsembleApp: App {
             switch phase {
             case .active:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
+                if #available(iOS 16.0, *) {
+                    await EnsembleFocusFilter.refreshCurrent()
+                }
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 let isInitialActivation = !hasHandledInitialIOSActivePhase
                 if isInitialActivation {

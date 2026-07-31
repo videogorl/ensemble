@@ -250,8 +250,11 @@ public enum DemoModeRedaction {
 
 @MainActor
 public final class SettingsManager: ObservableObject {
+    nonisolated public static let scrobblingEnabledKey = "scrobblingEnabled"
     public static let playlistMergeEnabledKey = "playlistMergeEnabled"
     public static let defaultPlaylistMergeEnabled = true
+    nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
+    nonisolated private static let noFocusScrobblingOverride = -1
     /// Posted when the persisted playlist merge preference changes.
     public static let playlistMergePreferenceDidChange = Notification.Name(
         "SettingsManager.playlistMergePreferenceDidChange"
@@ -277,13 +280,26 @@ public final class SettingsManager: ObservableObject {
         )
     }
 
+    nonisolated public static func effectiveScrobblingEnabled(in defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: focusScrobblingOverrideKey) != nil {
+            switch defaults.integer(forKey: focusScrobblingOverrideKey) {
+            case 0: return false
+            case 1: return true
+            default: break
+            }
+        }
+        guard defaults.object(forKey: scrobblingEnabledKey) != nil else { return true }
+        return defaults.bool(forKey: scrobblingEnabledKey)
+    }
+
     @AppStorage("accentColor") public var accentColorName: String = "blue"
     @AppStorage("enabledTabs") private var enabledTabsData: Data = Data()
     @AppStorage("trackSwipeLayout") private var trackSwipeLayoutData: Data = Data()
     @AppStorage("songsTableColumns") private var songsTableColumnsData: Data = Data()
     @AppStorage(AllowInsecureConnectionsPolicy.defaultsKey) private var allowInsecureConnectionsPolicyRawValue: String = AllowInsecureConnectionsPolicy.defaultForEnsemble.rawValue
     @AppStorage(AuroraVisualizationPreference.enabledKey) public var auroraVisualizationEnabled: Bool = AuroraVisualizationPreference.defaultEnabled
-    @AppStorage("scrobblingEnabled") public var scrobblingEnabled: Bool = true
+    @AppStorage(scrobblingEnabledKey) public var scrobblingEnabled: Bool = true
+    @AppStorage(focusScrobblingOverrideKey) private var focusScrobblingOverrideRawValue = noFocusScrobblingOverride
     @AppStorage(playlistMergeEnabledKey) public var playlistMergeEnabled: Bool = defaultPlaylistMergeEnabled
     #if DEBUG
     @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
@@ -299,7 +315,7 @@ public final class SettingsManager: ObservableObject {
         // before the setting has ever been toggled (PlaybackService reads directly).
         UserDefaults.standard.register(defaults: [
             AuroraVisualizationPreference.enabledKey: AuroraVisualizationPreference.defaultEnabled,
-            "scrobblingEnabled": true,
+            Self.scrobblingEnabledKey: true,
             Self.playlistMergeEnabledKey: Self.defaultPlaylistMergeEnabled,
             "demoModeEnabled": false
         ])
@@ -310,6 +326,25 @@ public final class SettingsManager: ObservableObject {
                 enabledTabsData = encoded
             }
         }
+    }
+
+    public var focusScrobblingOverride: Bool? {
+        switch focusScrobblingOverrideRawValue {
+        case 0: return false
+        case 1: return true
+        default: return nil
+        }
+    }
+
+    public var effectiveScrobblingEnabled: Bool {
+        focusScrobblingOverride ?? scrobblingEnabled
+    }
+
+    /// Applies or clears the temporary scrobbling value supplied by the active system Focus.
+    public func setFocusScrobblingOverride(_ isEnabled: Bool?) {
+        let nextValue = isEnabled.map { $0 ? 1 : 0 } ?? Self.noFocusScrobblingOverride
+        guard focusScrobblingOverrideRawValue != nextValue else { return }
+        focusScrobblingOverrideRawValue = nextValue
     }
     
     public var enabledTabs: [TabItem] {
