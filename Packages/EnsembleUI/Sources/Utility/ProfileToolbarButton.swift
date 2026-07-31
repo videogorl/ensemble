@@ -105,8 +105,9 @@ public struct ProfileToolbarButton: View {
         }
         #if os(macOS)
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .frame(
-            width: EnsembleScaffold.ProfileToolbar.imageDimension + EnsembleDesign.Spacing.md,
+            width: EnsembleScaffold.ProfileToolbar.imageDimension,
             height: EnsembleScaffold.ProfileToolbar.imageDimension
         )
         .clipped()
