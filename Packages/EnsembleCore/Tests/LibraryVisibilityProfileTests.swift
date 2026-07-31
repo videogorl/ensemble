@@ -85,6 +85,50 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         XCTAssertEqual(playlists.map(\.id), ["playlist-visible"])
     }
 
+    func testServerScopedPlaylistHidesOnlyWhenEveryEnabledLibraryIsHidden() {
+        let firstLibrary = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "first"
+        )
+        let secondLibrary = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "second"
+        )
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [firstLibrary, secondLibrary],
+            enabledSources: [firstLibrary, secondLibrary],
+            authoritativeSourceTypes: [.plex],
+            hasAnySources: true,
+            isAuthoritative: true
+        )
+        let playlist = Playlist(
+            id: "playlist",
+            key: "/playlists/playlist",
+            title: "Playlist",
+            sourceCompositeKey: "plex:account:server"
+        )
+
+        XCTAssertEqual(
+            LibraryVisibilityFiltering.visibleItems(
+                [playlist],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).map(\.id),
+            ["playlist"]
+        )
+        XCTAssertTrue(
+            LibraryVisibilityFiltering.visibleItems(
+                [playlist],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey, secondLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).isEmpty
+        )
+    }
+
     func testProviderAuthorityFiltersRemovedAppleWhilePreservingUnresolvedPlex() {
         let appleKey = MusicSourceIdentifier.appleMusic.compositeKey
         let tracks = [

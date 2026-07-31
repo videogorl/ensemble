@@ -83,7 +83,9 @@ public final class PlaylistViewModel: ObservableObject {
     private let mutationCoordinator: MutationCoordinator
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager?
+    private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
+    private var allPlaylists: [Playlist] = []
     private var coalescedReloadTask: Task<Void, Never>?
     private var optimisticCreatingPlaylists: [Playlist] = []
     private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
@@ -105,6 +107,7 @@ public final class PlaylistViewModel: ObservableObject {
         mutationCoordinator: MutationCoordinator,
         toastCenter: ToastCenter,
         accountManager: AccountManager? = nil,
+        visibilityStore: LibraryVisibilityStore? = nil,
         observesExternalChanges: Bool = true
     ) {
         self.playlistRepository = playlistRepository
@@ -112,6 +115,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.mutationCoordinator = mutationCoordinator
         self.toastCenter = toastCenter
         self.accountManager = accountManager
+        self.visibilityStore = visibilityStore ?? .shared
         self.lastObservedSourceConfiguration = accountManager?.sourceConfigurationSnapshot
         self.isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         let savedFilters = FilterPersistence.load(for: "Playlists")
@@ -135,6 +139,7 @@ public final class PlaylistViewModel: ObservableObject {
         // Merge-aware pipelines that group playlists into DisplayPlaylist entries
         setupDisplayPlaylistsPipeline()
         setupSortedDisplayPlaylistsPipeline()
+        setupVisibilityObservation()
 
         if observesExternalChanges {
             observeExternalChanges()
@@ -184,6 +189,17 @@ public final class PlaylistViewModel: ObservableObject {
     
     private func setupFilterPersistence() {
         FilterPersistence.observe($filterOptions, key: "Playlists", storingIn: &cancellables)
+    }
+
+    private func setupVisibilityObservation() {
+        visibilityStore.$profiles
+            .combineLatest(visibilityStore.$activeProfileID)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _, _ in
+                self?.applyVisibilityToPublishedPlaylists()
+            }
+            .store(in: &cancellables)
     }
 
     public func loadPlaylists() async {
@@ -255,8 +271,8 @@ public final class PlaylistViewModel: ObservableObject {
         optimisticDeletedPlaylistIDs.insert(playlist.id)
         optimisticCreatingPlaylists.removeAll { $0.id == playlist.id }
         optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlist.id)
-        publishPlaylistsIfChanged(filterOptimisticallyDeletedPlaylists(playlists))
-        updateLastGoodSnapshotIfNeeded(playlists)
+        publishPlaylistsIfChanged(filterOptimisticallyDeletedPlaylists(allPlaylists))
+        updateLastGoodSnapshotIfNeeded(allPlaylists)
     }
 
     public func clearOptimisticDelete(for playlistID: String) {
@@ -496,11 +512,10 @@ public final class PlaylistViewModel: ObservableObject {
             let hasDegradedData = emptyTitleCount > 0
             if merged.isEmpty && shouldTreatEmptyPlaylistCacheAsAuthoritative {
                 clearLocalPlaylistCache(resetLastGoodSnapshot: true)
-            } else if (merged.isEmpty || hasDegradedData) && !playlists.isEmpty {
-                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(emptyTitleCount) empty titles, preserving \(self.playlists.count) existing)")
+            } else if (merged.isEmpty || hasDegradedData) && !allPlaylists.isEmpty {
+                EnsembleLogger.debug("📋 PlaylistViewModel: skipping degraded reload (\(merged.count) playlists, \(emptyTitleCount) empty titles, preserving \(self.allPlaylists.count) existing)")
             } else {
                 publishPlaylistsIfChanged(merged)
-                nameCollisionTitles = DisplayPlaylist.detectNameCollisions(merged)
                 updateLastGoodSnapshotIfNeeded(merged)
             }
         } catch {
@@ -515,14 +530,13 @@ public final class PlaylistViewModel: ObservableObject {
     private func seedFromLastGoodSnapshotIfAvailable() {
         let snapshot = Self.lastGoodPlaylistsSnapshot
         guard !snapshot.isEmpty else { return }
-        let visibleSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
-        if visibleSnapshot != snapshot {
-            Self.lastGoodPlaylistsSnapshot = visibleSnapshot
+        let configuredSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
+        if configuredSnapshot != snapshot {
+            Self.lastGoodPlaylistsSnapshot = configuredSnapshot
         }
-        guard !visibleSnapshot.isEmpty else { return }
-        playlists = visibleSnapshot
-        self.visibleSnapshot = visibleSnapshot
-        applyDerivedPlaylistSnapshots(visibleSnapshot)
+        guard !configuredSnapshot.isEmpty else { return }
+        allPlaylists = configuredSnapshot
+        applyVisibilityToPublishedPlaylists()
         isShowingStaleSnapshot = true
     }
 
@@ -534,9 +548,8 @@ public final class PlaylistViewModel: ObservableObject {
         }
         let filteredSnapshot = filterPlaylistsForSourceConfiguration(snapshot)
         guard !filteredSnapshot.isEmpty else { return }
-        playlists = filteredSnapshot
-        visibleSnapshot = filteredSnapshot
-        applyDerivedPlaylistSnapshots(filteredSnapshot)
+        allPlaylists = filteredSnapshot
+        applyVisibilityToPublishedPlaylists()
         updateLastGoodSnapshotIfNeeded(filteredSnapshot)
     }
 
@@ -563,6 +576,7 @@ public final class PlaylistViewModel: ObservableObject {
         if resetLastGoodSnapshot {
             Self.lastGoodPlaylistsSnapshot = []
         }
+        allPlaylists = []
         optimisticCreatingPlaylists = []
         optimisticRenamedPlaylistTitlesByID = [:]
         optimisticDeletedPlaylistIDs = []
@@ -577,10 +591,28 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func publishPlaylistsIfChanged(_ nextPlaylists: [Playlist]) {
-        guard playlists != nextPlaylists else { return }
-        playlists = nextPlaylists
-        visibleSnapshot = nextPlaylists
-        applyDerivedPlaylistSnapshots(nextPlaylists)
+        if allPlaylists != nextPlaylists {
+            allPlaylists = nextPlaylists
+        }
+        applyVisibilityToPublishedPlaylists()
+    }
+
+    private func applyVisibilityToPublishedPlaylists() {
+        let configuredPlaylists = filterPlaylistsForSourceConfiguration(allPlaylists)
+        let hiddenSourceCompositeKeys = visibilityStore.hiddenSourceCompositeKeys
+        let sourceConfiguration = accountManager?.sourceConfigurationSnapshot
+        let visiblePlaylists = configuredPlaylists.filter { playlist in
+            guard let sourceKey = playlist.sourceCompositeKey else { return false }
+            return !LibraryVisibilityFiltering.isHiddenSourceKey(
+                sourceKey,
+                hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                sourceConfiguration: sourceConfiguration
+            )
+        }
+        guard playlists != visiblePlaylists else { return }
+        playlists = visiblePlaylists
+        visibleSnapshot = visiblePlaylists
+        applyDerivedPlaylistSnapshots(visiblePlaylists)
     }
 
     private func filterOptimisticallyDeletedPlaylists(_ playlists: [Playlist]) -> [Playlist] {
@@ -645,18 +677,20 @@ public final class PlaylistViewModel: ObservableObject {
             optimisticCreatingPlaylists,
             configuration: configuration
         )
-        let visible = filterPlaylistsForSourceConfiguration(
-            playlists,
+        let configured = filterPlaylistsForSourceConfiguration(
+            allPlaylists,
             configuration: configuration
         )
-        if visible != playlists {
-            publishPlaylistsIfChanged(visible)
-            if !visible.contains(where: { $0.title.isEmpty }) {
-                Self.lastGoodPlaylistsSnapshot = visible
+        if configured != allPlaylists {
+            publishPlaylistsIfChanged(configured)
+            if !configured.contains(where: { $0.title.isEmpty }) {
+                Self.lastGoodPlaylistsSnapshot = configured
             }
-            if visible.isEmpty {
+            if configured.isEmpty {
                 isShowingStaleSnapshot = false
             }
+        } else {
+            applyVisibilityToPublishedPlaylists()
         }
 
         scheduleCoalescedPlaylistReload(reason: "source-configuration")
@@ -699,7 +733,11 @@ public final class PlaylistViewModel: ObservableObject {
         )
         optimisticCreatingPlaylists.removeAll(where: { matchesPlaylistIdentity($0, placeholder) })
         optimisticCreatingPlaylists.append(placeholder)
-        playlists = mergeWithOptimisticCreatingPlaylists(playlists.filter { !Self.isOptimisticCreatingPlaylistID($0.id) })
+        publishPlaylistsIfChanged(
+            mergeWithOptimisticCreatingPlaylists(
+                allPlaylists.filter { !Self.isOptimisticCreatingPlaylistID($0.id) }
+            )
+        )
     }
 
     private func removeOptimisticCreatingPlaylist(title: String, serverSourceKey: String) {
@@ -731,7 +769,7 @@ public final class PlaylistViewModel: ObservableObject {
 
     public func applyOptimisticRename(forPlaylistID playlistID: String, newTitle: String) {
         optimisticRenamedPlaylistTitlesByID[playlistID] = newTitle
-        playlists = applyOptimisticRenames(to: playlists)
+        publishPlaylistsIfChanged(applyOptimisticRenames(to: allPlaylists))
     }
 
     public func clearOptimisticRename(for playlistID: String) {
@@ -750,11 +788,13 @@ public final class PlaylistViewModel: ObservableObject {
 
                 if hasMaterializedTitle {
                     clearOptimisticRename(for: playlistID)
-                    playlists = mergeWithOptimisticCreatingPlaylists(serverPlaylists)
+                    publishPlaylistsIfChanged(mergeWithOptimisticCreatingPlaylists(serverPlaylists))
                     return
                 }
 
-                playlists = mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+                publishPlaylistsIfChanged(
+                    mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+                )
             } catch {
                 self.error = error.localizedDescription
                 return

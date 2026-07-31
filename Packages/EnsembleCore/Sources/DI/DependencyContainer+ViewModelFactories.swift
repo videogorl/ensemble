@@ -96,6 +96,7 @@ public extension DependencyContainer {
             mutationCoordinator: mutationCoordinator,
             toastCenter: toastCenter,
             accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore,
             observesExternalChanges: observesExternalChanges
         )
     }

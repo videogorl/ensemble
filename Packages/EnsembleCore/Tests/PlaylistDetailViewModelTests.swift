@@ -1029,6 +1029,82 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isShowingStaleSnapshot)
     }
 
+    func testPlaylistVisibilityFiltersBeforeCrossProviderMerging() async throws {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let suiteName = "PlaylistVisibility.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let wasMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
+        defer {
+            UserDefaults.standard.set(wasMergeEnabled, forKey: SettingsManager.playlistMergeEnabledKey)
+        }
+        let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let plexPlaylist = makePlaylist(
+            id: "plex",
+            title: "Road",
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        let applePlaylist = makePlaylist(
+            id: "apple",
+            title: "Road",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        for playlist in [plexPlaylist, applePlaylist] {
+            playlistRepository.playlists[playlistRepository.playlistKey(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        }
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter(),
+            visibilityStore: visibilityStore
+        )
+        viewModel.isMergeEnabled = true
+
+        await viewModel.loadPlaylists()
+        XCTAssertEqual(Set(viewModel.playlists.map(\.id)), ["apple", "plex"])
+        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
+        XCTAssertTrue(viewModel.hasNameCollision("Road"))
+
+        visibilityStore.setSourceVisibility(
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            isVisible: false
+        )
+        try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: ["plex"])
+        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.map(\.id), ["plex"])
+        XCTAssertFalse(viewModel.displayPlaylists.first?.isMerged ?? true)
+        XCTAssertFalse(viewModel.hasNameCollision("Road"))
+
+        visibilityStore.setSourceVisibility(
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
+            isVisible: true
+        )
+        visibilityStore.setSourceVisibility(
+            sourceCompositeKey: "plex:account-1:server-1",
+            isVisible: false
+        )
+        try await waitForPlaylistIDs(viewModel: viewModel, expectedIDs: ["apple"])
+        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.map(\.id), ["apple"])
+        XCTAssertFalse(viewModel.displayPlaylists.first?.isMerged ?? true)
+
+        visibilityStore.setSourceVisibility(
+            sourceCompositeKey: "plex:account-1:server-1",
+            isVisible: true
+        )
+        let deadline = Date().addingTimeInterval(2)
+        while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(Set(viewModel.displayPlaylists.first?.playlists.map(\.id) ?? []), ["apple", "plex"])
+        XCTAssertTrue(viewModel.hasNameCollision("Road"))
+    }
+
     func testPlaylistViewModelSeedsNewInstanceFromLastGoodSnapshot() async {
         PlaylistViewModel.resetLastGoodSnapshotForTesting()
         let syncCoordinator = makeSyncCoordinator()
