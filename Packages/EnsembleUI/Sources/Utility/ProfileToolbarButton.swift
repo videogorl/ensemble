@@ -94,9 +94,18 @@ public struct ProfileToolbarButton: View {
             }
             .disabled(enabledSourceKeys.isEmpty || enabledSourceKeys.isSubset(of: visibilityStore.hiddenSourceCompositeKeys))
         } label: {
+            #if os(macOS)
+            toolbarPlaceholder
+            #else
             profileImage
+            #endif
         }
+        #if os(macOS)
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        #else
         .buttonStyle(.plain)
+        #endif
         .accessibilityIdentifier(AutomationIdentifiers.Sidebar.profileToolbar)
         .help("Profile Focus")
     }

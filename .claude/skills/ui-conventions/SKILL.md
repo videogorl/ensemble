@@ -187,10 +187,10 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 
 ### Profile Toolbar Button
 - **iPhone:** `ProfileToolbarButton` (28×28pt circular profile image) is owned by `MainTabView` and attached once to each visible tab root-content wrapper plus the root `More` wrapper. On iOS 16+, keep it mounted at that root owner instead of toggling it from navigation path emptiness, so it returns with the native root toolbar during pops; iOS 15 may still path-gate the fallback `NavigationView` item to avoid inherited toolbar leakage. Place it after other root actions in the trailing stack. Do not add it inside individual screens, or it will remount during pop transitions and can leak into pushed `More` destinations.
-- **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon
-- Tapping opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`)
+- **iPad/macOS:** `ProfileToolbarButton` placed in sidebar toolbar, replacing the previous gear icon. macOS uses the native profile glyph so the menu remains a visible toolbar item instead of collapsing into overflow.
+- Tapping opens the native Profile Focus menu; its Settings item opens `ProfileView` via `AuxiliaryPresentation.profile` (formerly `.settings`).
 - App-level Settings commands route through `NavigationCoordinator.openProfileFromActiveScene(fallback:)`; `RootView` registers its window-scoped coordinator as the active auxiliary command coordinator on appear/scene activation so `⌘,` opens Profile in the active scene instead of the legacy shared coordinator.
-- The button displays the user's profile image if set, otherwise falls back to a person icon
+- On iPhone and iPad, the button displays the user's profile image if set and otherwise falls back to a person icon; macOS always uses the native person icon for stable toolbar-menu placement.
 
 ### System Integration
 - Leverage native SwiftUI components and iOS system features (e.g., `AVRoutePickerView` for AirPlay, `MPRemoteCommandCenter` for lock screen)

@@ -1264,7 +1264,9 @@ public struct SidebarView: View {
         )
         .toolbar {
             #if os(macOS)
-            EnsembleToolbarLeadingSpacer()
+            ToolbarItem {
+                ProfileToolbarButton()
+            }
             #endif
             ToolbarItemGroup(placement: .primaryActionIfAvailable) {
                 Button { navigationCoordinator.openDownloads() } label: {
@@ -1272,7 +1274,9 @@ public struct SidebarView: View {
                 }
                 .accessibilityIdentifier(AutomationIdentifiers.Sidebar.downloadsToolbar)
                 .help("Downloads")
+                #if !os(macOS)
                 ProfileToolbarButton()
+                #endif
             }
         }
         // Sync cached sidebar playlists from VM publisher. Using @State + .onReceive
