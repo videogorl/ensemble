@@ -1,5 +1,8 @@
 import EnsembleCore
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Compact profile menu for toolbar placement.
 /// Provides device-local library visibility controls and opens Settings.
@@ -95,18 +98,23 @@ public struct ProfileToolbarButton: View {
             .disabled(enabledSourceKeys.isEmpty || enabledSourceKeys.isSubset(of: visibilityStore.hiddenSourceCompositeKeys))
         } label: {
             #if os(macOS)
-            toolbarPlaceholder
+            macOSProfileImage
             #else
             profileImage
             #endif
         }
         #if os(macOS)
         .menuStyle(.borderlessButton)
-        .fixedSize()
+        .frame(
+            width: EnsembleScaffold.ProfileToolbar.imageDimension + EnsembleDesign.Spacing.md,
+            height: EnsembleScaffold.ProfileToolbar.imageDimension
+        )
+        .clipped()
         #else
         .buttonStyle(.plain)
         #endif
         .accessibilityIdentifier(AutomationIdentifiers.Sidebar.profileToolbar)
+        .accessibilityLabel("Profile")
         .help("Profile Focus")
     }
 
@@ -156,6 +164,30 @@ public struct ProfileToolbarButton: View {
             toolbarPlaceholder
         }
     }
+
+    #if os(macOS)
+    @ViewBuilder
+    private var macOSProfileImage: some View {
+        if let imageURL = profileStore.profileImageURL,
+           let image = Self.macOSToolbarProfileImage(at: imageURL) {
+            Image(nsImage: image)
+        } else {
+            toolbarPlaceholder
+        }
+    }
+
+    private static func macOSToolbarProfileImage(at url: URL) -> NSImage? {
+        guard let source = NSImage(contentsOf: url) else { return nil }
+        let dimension = EnsembleScaffold.ProfileToolbar.imageDimension
+        let bounds = NSRect(x: 0, y: 0, width: dimension, height: dimension)
+        let image = NSImage(size: bounds.size)
+        image.lockFocus()
+        NSBezierPath(ovalIn: bounds).addClip()
+        source.draw(in: bounds, from: .zero, operation: .copy, fraction: 1)
+        image.unlockFocus()
+        return image
+    }
+    #endif
 
     private var toolbarPlaceholder: some View {
         Image(systemName: EnsembleDesign.Icon.profilePlaceholder)
