@@ -1036,7 +1036,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let wasMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         defer {
-            UserDefaults.standard.set(wasMergeEnabled, forKey: SettingsManager.playlistMergeEnabledKey)
+            SettingsManager.setStoredPlaylistMergeEnabled(wasMergeEnabled)
         }
         let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
         let syncCoordinator = makeSyncCoordinator()
@@ -1071,6 +1071,20 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(Set(viewModel.playlists.map(\.id)), ["apple", "plex"])
         XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
+
+        SettingsManager.setStoredPlaylistMergeEnabled(false)
+        let unmergedDeadline = Date().addingTimeInterval(2)
+        while viewModel.displayPlaylists.count != 2, Date() < unmergedDeadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
+
+        SettingsManager.setStoredPlaylistMergeEnabled(true)
+        let mergedDeadline = Date().addingTimeInterval(2)
+        while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < mergedDeadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
 
         visibilityStore.setSourceVisibility(
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,

@@ -205,7 +205,7 @@ See `CLAUDE.md` for detailed development guidelines, including:
 
 **Completed:**
 - Multi-library Plex support with network resilience
-- Profile Focus menu for device-local library visibility without changing sync configuration
+- Profile Focus menu for device-local library visibility and playlist merging without changing sync configuration
 - Hub-based home screen with offline-first loading and DetailLoader pattern
 - Customizable hub section ordering with drag-to-reorder interface
 - StageFlow immersive carousel for albums, songs, and playlists in iPhone landscape

@@ -85,6 +85,19 @@ public final class PinnedViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(
+            for: SettingsManager.playlistMergePreferenceDidChange,
+            object: UserDefaults.standard
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            guard let self, !self.isMoving else { return }
+            Task { @MainActor in
+                await self.loadPinnedItems()
+            }
+        }
+        .store(in: &cancellables)
     }
 
     /// Fetch pinned items from Core Data by ratingKey, preserving pin order.

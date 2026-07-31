@@ -192,7 +192,10 @@ public final class SearchViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+        NotificationCenter.default.publisher(
+            for: SettingsManager.playlistMergePreferenceDidChange,
+            object: playlistMergeDefaults
+        )
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.refreshPlaylistMergePreference()

@@ -68,7 +68,7 @@ public final class PlaylistViewModel: ObservableObject {
     /// Whether cross-server playlist merging is enabled (persisted via SettingsManager)
     @Published public var isMergeEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(isMergeEnabled, forKey: SettingsManager.playlistMergeEnabledKey)
+            SettingsManager.setStoredPlaylistMergeEnabled(isMergeEnabled)
         }
     }
     /// Merge-aware playlist list for the UI — groups same-named playlists when merge is on
@@ -140,6 +140,7 @@ public final class PlaylistViewModel: ObservableObject {
         setupDisplayPlaylistsPipeline()
         setupSortedDisplayPlaylistsPipeline()
         setupVisibilityObservation()
+        setupPlaylistMergePreferenceObservation()
 
         if observesExternalChanges {
             observeExternalChanges()
@@ -200,6 +201,22 @@ public final class PlaylistViewModel: ObservableObject {
                 self?.applyVisibilityToPublishedPlaylists()
             }
             .store(in: &cancellables)
+    }
+
+    private func setupPlaylistMergePreferenceObservation() {
+        NotificationCenter.default.publisher(
+            for: SettingsManager.playlistMergePreferenceDidChange,
+            object: UserDefaults.standard
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            guard let self else { return }
+            let isEnabled = SettingsManager.storedPlaylistMergeEnabled()
+            if self.isMergeEnabled != isEnabled {
+                self.isMergeEnabled = isEnabled
+            }
+        }
+        .store(in: &cancellables)
     }
 
     public func loadPlaylists() async {
@@ -450,13 +467,6 @@ public final class PlaylistViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
-    }
-
-    // MARK: - Merge Helpers
-
-    /// Toggles the cross-server merge setting
-    public func toggleMerge() {
-        isMergeEnabled.toggle()
     }
 
     /// Whether a playlist title has name collisions across servers (for showing server chips)

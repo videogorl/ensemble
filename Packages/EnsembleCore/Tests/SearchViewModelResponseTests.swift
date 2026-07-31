@@ -231,11 +231,7 @@ final class SearchViewModelResponseTests: XCTestCase {
             .first(where: { $0.count == 2 })
             .sink { _ in resultsUpdated.fulfill() }
 
-        harness.defaults.set(false, forKey: SettingsManager.playlistMergeEnabledKey)
-        NotificationCenter.default.post(
-            name: UserDefaults.didChangeNotification,
-            object: harness.defaults
-        )
+        SettingsManager.setStoredPlaylistMergeEnabled(false, in: harness.defaults)
 
         await fulfillment(of: [resultsUpdated], timeout: 1)
         withExtendedLifetime(update) {}

@@ -252,12 +252,29 @@ public enum DemoModeRedaction {
 public final class SettingsManager: ObservableObject {
     public static let playlistMergeEnabledKey = "playlistMergeEnabled"
     public static let defaultPlaylistMergeEnabled = true
+    /// Posted when the persisted playlist merge preference changes.
+    public static let playlistMergePreferenceDidChange = Notification.Name(
+        "SettingsManager.playlistMergePreferenceDidChange"
+    )
 
     public static func storedPlaylistMergeEnabled(in defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: playlistMergeEnabledKey) != nil else {
             return defaultPlaylistMergeEnabled
         }
         return defaults.bool(forKey: playlistMergeEnabledKey)
+    }
+
+    /// Persists the playlist merge preference and notifies live projections.
+    public static func setStoredPlaylistMergeEnabled(
+        _ isEnabled: Bool,
+        in defaults: UserDefaults = .standard
+    ) {
+        guard storedPlaylistMergeEnabled(in: defaults) != isEnabled else { return }
+        defaults.set(isEnabled, forKey: playlistMergeEnabledKey)
+        NotificationCenter.default.post(
+            name: playlistMergePreferenceDidChange,
+            object: defaults
+        )
     }
 
     @AppStorage("accentColor") public var accentColorName: String = "blue"

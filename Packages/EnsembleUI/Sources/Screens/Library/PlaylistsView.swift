@@ -122,17 +122,6 @@ public struct PlaylistsView: View {
         #endif
     }
 
-    private var playlistMergeButton: some View {
-        Button {
-            viewModel.toggleMerge()
-        } label: {
-            Image(systemName: viewModel.isMergeEnabled
-                  ? EnsembleDesign.Icon.merge
-                  : EnsembleDesign.Icon.mergeBranch)
-        }
-        .accessibilityLabel(viewModel.isMergeEnabled ? "Unmerge Playlists" : "Merge Playlists")
-    }
-
     private var playlistSortMenu: some View {
         Menu {
             ForEach(PlaylistSortOption.allCases, id: \.self) { option in
@@ -355,7 +344,6 @@ public struct PlaylistsView: View {
             }
             .toolbar {
                 EnsembleBrowseToolbar(isVisible: !isStageFlowActive) {
-                    playlistMergeButton
                     PlaylistsNewButton {
                         showCreatePlaylistPush = true
                     }

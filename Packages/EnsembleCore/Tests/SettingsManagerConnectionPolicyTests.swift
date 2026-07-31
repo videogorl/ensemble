@@ -53,6 +53,7 @@ final class SettingsManagerConnectionPolicyTests: XCTestCase {
 
     func testPlaylistMergePreferenceDefaultsToEnabledWithoutRegisteredDefaults() {
         XCTAssertTrue(SettingsManager.storedPlaylistMergeEnabled())
+        XCTAssertTrue(SettingsManager().playlistMergeEnabled)
     }
 
     #if DEBUG
