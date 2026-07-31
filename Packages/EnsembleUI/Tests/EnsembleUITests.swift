@@ -11,6 +11,17 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testDuplicateProfileFocusServerTitleIncludesAccountEmail() {
+        XCTAssertEqual(
+            ProfileToolbarButton.serverSectionTitle(
+                "Server Name",
+                email: "email@domain.com",
+                isDuplicate: true
+            ),
+            "Server Name (email@domain.com)"
+        )
+    }
+
     func testCompactArtistHeroOverscrollStartsBeforeSafeAreaClears() {
         XCTAssertEqual(
             ArtistDetailView.compactHeroOverscroll(globalMinY: -59),

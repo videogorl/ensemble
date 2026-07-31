@@ -20,19 +20,29 @@ public struct ProfileToolbarButton: View {
     }
 
     public var body: some View {
-        Menu {
-            Button {
-                navigationCoordinator.openProfile()
-            } label: {
-                Label("Settings", systemImage: EnsembleDesign.Icon.settings)
-            }
+        let serverNames = accountManager.plexAccounts
+            .flatMap(\.servers)
+            .filter { $0.libraries.contains(where: \.isEnabled) }
+            .map(\.name)
+        // ponytail: Configured server lists are tiny; precompute counts if that changes.
 
-            Divider()
+        Menu {
+            Section {
+                Button("Settings", systemImage: EnsembleDesign.Icon.settings) {
+                    navigationCoordinator.openProfile()
+                }
+            }
 
             ForEach(accountManager.plexAccounts) { account in
                 ForEach(account.servers) { server in
                     if server.libraries.contains(where: \.isEnabled) {
-                        Section(server.name) {
+                        Section(
+                            Self.serverSectionTitle(
+                                server.name,
+                                email: account.email,
+                                isDuplicate: serverNames.filter { $0 == server.name }.count > 1
+                            )
+                        ) {
                             ForEach(server.libraries.filter(\.isEnabled)) { library in
                                 sourceToggle(
                                     library.title,
@@ -80,6 +90,15 @@ public struct ProfileToolbarButton: View {
 
     private var enabledSourceKeys: Set<String> {
         Set(accountManager.enabledSources().map(\.compositeKey))
+    }
+
+    static func serverSectionTitle(_ name: String, email: String?, isDuplicate: Bool) -> String {
+        guard isDuplicate,
+              let email = email?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !email.isEmpty else {
+            return name
+        }
+        return "\(name) (\(email))"
     }
 
     private func sourceToggle(_ title: String, source: MusicSourceIdentifier) -> some View {
