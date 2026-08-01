@@ -31,19 +31,22 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertEqual(displayPlaylists[0].title, "Café Mix")
     }
 
-    func testGroupMergesAppleMusicAndPlexPlaylistsByTitle() {
+    func testGroupKeepsAppleMusicNextToMergedPlexPlaylists() {
         let playlists = [
-            Playlist(id: "plex", key: "/plex", title: "Road Trip", sourceCompositeKey: "plex:a:s:l"),
-            Playlist(id: "apple", key: "apple", title: "road trip", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)
+            Playlist(id: "plex-a", key: "/plex-a", title: "Road Trip", sourceCompositeKey: "plex:a:s:l"),
+            Playlist(id: "apple", key: "apple", title: "road trip", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+            Playlist(id: "plex-b", key: "/plex-b", title: "Road Trip", sourceCompositeKey: "plex:b:s:l"),
+            Playlist(id: "plex-c", key: "/plex-c", title: "Road Trip", sourceCompositeKey: "plex:c:s:l")
         ]
 
         let displayPlaylists = DisplayPlaylist.group(playlists, merge: true)
 
-        XCTAssertEqual(displayPlaylists.count, 1)
-        XCTAssertEqual(Set(displayPlaylists[0].playlists.compactMap(\.sourceType)), [.plex, .appleMusic])
+        XCTAssertEqual(displayPlaylists.count, 2)
+        XCTAssertEqual(displayPlaylists[0].playlists.map(\.id), ["plex-a", "plex-b", "plex-c"])
+        XCTAssertEqual(displayPlaylists[1].playlists.map(\.id), ["apple"])
     }
 
-    func testGroupMergesReadOnlyPersonalAppleMusicPlaylistWithRegularPlexPlaylist() {
+    func testGroupKeepsReadOnlyPersonalAppleMusicPlaylistSeparateFromRegularPlexPlaylist() {
         let playlists = [
             Playlist(id: "apple", key: "apple", title: "Ambient Electric", isSmart: false, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
             Playlist(id: "plex", key: "/plex", title: "Ambient Electric", sourceCompositeKey: "plex:a:s:l")
@@ -51,10 +54,10 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
         let displayPlaylists = DisplayPlaylist.group(playlists, merge: true)
 
-        XCTAssertEqual(displayPlaylists.count, 1)
-        XCTAssertEqual(displayPlaylists[0].playlists.count, 2)
-        XCTAssertFalse(displayPlaylists[0].isSmart)
-        XCTAssertEqual(displayPlaylists[0].editablePlaylists.map(\.id), ["plex"])
+        XCTAssertEqual(displayPlaylists.count, 2)
+        XCTAssertEqual(displayPlaylists.map { $0.playlists.map(\.id) }, [["apple"], ["plex"]])
+        XCTAssertEqual(displayPlaylists[0].editablePlaylists.map(\.id), [])
+        XCTAssertEqual(displayPlaylists[1].editablePlaylists.map(\.id), ["plex"])
     }
 
     func testGroupKeepsCuratedAppleMusicPlaylistSeparateFromRegularPlexPlaylist() {

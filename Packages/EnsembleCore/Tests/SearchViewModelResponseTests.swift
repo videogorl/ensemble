@@ -187,20 +187,22 @@ final class SearchViewModelResponseTests: XCTestCase {
         XCTAssertEqual(result.addedAlbums.map(\.id), ["added"])
     }
 
-    func testPlaylistProjectionMergesCrossProviderAmbientElectricResults() throws {
+    func testPlaylistProjectionKeepsAppleMusicSeparateFromMergedPlexResults() throws {
         let results = SearchViewModel.displayPlaylists(
             ambientElectricPlaylists(),
             scope: .library,
             mergeEnabled: true
         )
 
-        let result = try XCTUnwrap(results.first)
-        XCTAssertEqual(results.count, 1)
-        XCTAssertEqual(result.playlists.count, 3)
-        XCTAssertEqual(result.trackCount, 292)
+        let plex = try XCTUnwrap(results.first { $0.playlists.count == 2 })
+        let apple = try XCTUnwrap(results.first { $0.primaryPlaylist.sourceType == .appleMusic })
+        XCTAssertEqual(results.count, 2)
+        XCTAssertEqual(plex.trackCount, 18)
+        XCTAssertEqual(apple.trackCount, 274)
+        XCTAssertFalse(apple.isMerged)
         XCTAssertEqual(
-            Set(result.playlists.compactMap(\.sourceCompositeKey)),
-            [Self.plexSourceOne, Self.plexSourceTwo, Self.appleMusicSource]
+            Set(plex.playlists.compactMap(\.sourceCompositeKey)),
+            [Self.plexSourceOne, Self.plexSourceTwo]
         )
     }
 

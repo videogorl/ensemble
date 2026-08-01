@@ -54,7 +54,7 @@ Search and catalog:
 - Mutate the Apple library, return to Search, and verify Search remains usable while refresh/sync occurs. Inventory caches before and after repeated catalog searches: search artwork must use bounded transient caching and must not create durable library-artwork entries, while synced library artwork remains reusable by browse and detail surfaces.
 
 Playlists and merging:
-- Verify Apple playlists populate with artwork and merge with same-named Plex playlists across source types. Open the merged playlist and confirm each source remains identifiable.
+- Verify Apple playlists populate with artwork and remain beside, rather than inside, same-named merged Plex playlists. Open the merged Plex playlist and confirm its constituents remain identifiable.
 - Compare one user-created Apple playlist with one Apple editorial/generated playlist. Classification and action availability must follow item-level capabilities: editable content is a regular playlist; curated/generated read-only content may be presented as smart/read-only.
 - Open Edit on a merged playlist. Every contributing source appears in the source picker; unsupported operations stay visible but disabled with their reason.
 - With disposable data and explicit mutation authorization, create an Apple playlist, add Apple songs, reorder/rename where the provider reports support, and confirm the optimistic local state, remote Apple Music result, and eventual reconciled state. Record acceptance and convergence timing; an older refresh must not roll back the optimistic mutation. Keep Plex tracks disabled as Apple-playlist targets.

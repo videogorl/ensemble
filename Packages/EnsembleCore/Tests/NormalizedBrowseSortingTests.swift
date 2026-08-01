@@ -54,7 +54,7 @@ final class NormalizedBrowseSortingTests: XCTestCase {
         XCTAssertEqual(sorted.last?.dateAdded, Date(timeIntervalSince1970: 2025))
     }
 
-    func testMergedPlaylistsSortByAggregateDateCountAndDurationAfterGrouping() {
+    func testApplePlaylistStaysSeparateWhenSortingSameNamedPlaylists() {
         let playlists = [
             Playlist(
                 id: "ambient-a",
@@ -87,16 +87,16 @@ final class NormalizedBrowseSortingTests: XCTestCase {
         let grouped = DisplayPlaylist.group(playlists, merge: true)
 
         XCTAssertEqual(
-            PlaylistViewModel.sortDisplayPlaylists(grouped, by: .dateAdded, ascending: true).map(\.title),
-            ["Middle", "Ambient"]
+            PlaylistViewModel.sortDisplayPlaylists(grouped, by: .dateAdded, ascending: true).map { $0.primaryPlaylist.id },
+            ["ambient-a", "middle", "ambient-b"]
         )
         XCTAssertEqual(
-            PlaylistViewModel.sortDisplayPlaylists(grouped, by: .trackCount, ascending: true).map(\.title),
-            ["Middle", "Ambient"]
+            PlaylistViewModel.sortDisplayPlaylists(grouped, by: .trackCount, ascending: true).map { $0.primaryPlaylist.id },
+            ["ambient-a", "ambient-b", "middle"]
         )
         XCTAssertEqual(
-            PlaylistViewModel.sortDisplayPlaylists(grouped, by: .duration, ascending: true).map(\.title),
-            ["Middle", "Ambient"]
+            PlaylistViewModel.sortDisplayPlaylists(grouped, by: .duration, ascending: true).map { $0.primaryPlaylist.id },
+            ["ambient-a", "ambient-b", "middle"]
         )
     }
 

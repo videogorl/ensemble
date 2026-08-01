@@ -1069,7 +1069,8 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         await viewModel.loadPlaylists()
         XCTAssertEqual(Set(viewModel.playlists.map(\.id)), ["apple", "plex"])
-        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
+        XCTAssertEqual(viewModel.displayPlaylists.count, 2)
+        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
 
         SettingsManager.setStoredPlaylistMergeEnabled(false)
@@ -1081,10 +1082,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         SettingsManager.setStoredPlaylistMergeEnabled(true)
         let mergedDeadline = Date().addingTimeInterval(2)
-        while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < mergedDeadline {
+        while viewModel.displayPlaylists.count != 2 || viewModel.displayPlaylists.contains(where: \.isMerged), Date() < mergedDeadline {
             try await Task.sleep(for: .milliseconds(25))
         }
-        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
+        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
 
         visibilityStore.setSourceVisibility(
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
@@ -1112,10 +1113,11 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             isVisible: true
         )
         let deadline = Date().addingTimeInterval(2)
-        while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < deadline {
+        while viewModel.displayPlaylists.count != 2 || viewModel.displayPlaylists.contains(where: \.isMerged), Date() < deadline {
             try await Task.sleep(for: .milliseconds(25))
         }
-        XCTAssertEqual(Set(viewModel.displayPlaylists.first?.playlists.map(\.id) ?? []), ["apple", "plex"])
+        XCTAssertEqual(Set(viewModel.displayPlaylists.flatMap(\.playlists).map(\.id)), ["apple", "plex"])
+        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
     }
 

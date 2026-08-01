@@ -57,4 +57,21 @@ final class PlexPlaylistMutationModelsTests: XCTestCase {
         XCTAssertEqual(groups.map { $0.map(\.id) }, [["regular-a", "regular-b"], ["other"], ["smart"]])
         XCTAssertEqual(PlexPlaylistMergeRules.interleaved([["a1", "a2"], ["b1"], ["c1", "c2"]]), ["a1", "b1", "c1", "a2", "c2"])
     }
+
+    func testPlaylistMergeRulesKeepExcludedItemsAsIndividualGroups() {
+        let items = [
+            (title: "Mix", isSmart: false, id: "plex-a"),
+            (title: "Mix", isSmart: false, id: "apple"),
+            (title: "Mix", isSmart: false, id: "plex-b")
+        ]
+
+        let groups = PlexPlaylistMergeRules.grouped(
+            items,
+            title: \.title,
+            isSmart: \.isSmart,
+            shouldMerge: { $0.id != "apple" }
+        )
+
+        XCTAssertEqual(groups.map { $0.map(\.id) }, [["plex-a", "plex-b"], ["apple"]])
+    }
 }
