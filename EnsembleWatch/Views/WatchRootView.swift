@@ -23,7 +23,9 @@ struct WatchRootView: View {
                 }
         }
         .sheet(isPresented: $showsNowPlaying) {
-            NowPlayingView()
+            NavigationStack {
+                WatchNowPlayingView()
+            }
         }
         .environmentObject(experience)
         .environmentObject(experience.playback)
@@ -1075,6 +1077,343 @@ private struct WatchArtistAlbumSummary: Identifiable {
             return "Unknown Album"
         }
         return albumTitle
+    }
+}
+
+private struct WatchNowPlayingView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    @EnvironmentObject private var playback: WatchPlaybackController
+    @EnvironmentObject private var remoteSession: WatchSessionModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var artwork: UIImage?
+    @State private var blurredArtwork: UIImage?
+    @State private var showsMoreActions = false
+
+    var body: some View {
+        ZStack {
+            nowPlayingBackground
+
+            if let presentation = currentPresentation {
+                GeometryReader { geometry in
+                    let artworkSide = min(136, min(geometry.size.width * 0.6, geometry.size.height * 0.48))
+
+                    VStack(spacing: 4) {
+                        Spacer(minLength: 0)
+
+                        artworkView
+                            .frame(width: artworkSide, height: artworkSide)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(alignment: .bottomTrailing) {
+                                WatchSystemVolumeControl(origin: volumeControlOrigin)
+                                    .id(volumeControlOrigin)
+                                    .frame(width: 1, height: 1)
+                                    .opacity(0.01)
+                                    .accessibilityHidden(true)
+                            }
+
+                        VStack(spacing: 0) {
+                            Text(presentation.title)
+                                .font(.headline)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+
+                            Text(presentation.artist)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 12)
+
+                        Spacer(minLength: 0)
+                    }
+                    .safeAreaPadding(.bottom, 28)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "music.note")
+                        .font(.title)
+                        .foregroundStyle(.secondary)
+                    Text("Nothing Playing")
+                        .font(.headline)
+                    Text(currentEmptyMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+            }
+        }
+        .navigationTitle("")
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Close Now Playing")
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showsMoreActions = true
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("More Actions")
+            }
+
+            ToolbarItemGroup(placement: .bottomBar) {
+                previousButton
+                playPauseButton
+                nextButton
+            }
+        }
+        .confirmationDialog("More Actions", isPresented: $showsMoreActions, titleVisibility: .visible) {
+            playbackTargetMenu
+
+            if experience.playbackTarget == .remote {
+                Button(remoteSession.snapshot?.isShuffleEnabled == true ? "Disable Shuffle" : "Enable Shuffle") {
+                    remoteSession.send(.toggleShuffle)
+                }
+
+                Button(remoteRepeatTitle) {
+                    remoteSession.send(.cycleRepeatMode)
+                }
+            }
+        }
+        .task(id: artworkIdentity) {
+            await loadArtwork()
+        }
+    }
+
+    @ViewBuilder
+    private var nowPlayingBackground: some View {
+        if let blurredArtwork {
+            Image(uiImage: blurredArtwork)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFill()
+                .saturation(0.8)
+                .overlay(Color.black.opacity(0.42))
+                .ignoresSafeArea()
+        } else {
+            Color.black.ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder
+    private var artworkView: some View {
+        if let artwork {
+            Image(uiImage: artwork)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ZStack {
+                Color.secondary.opacity(0.18)
+                Image(systemName: "music.note")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var playbackTargetMenu: some View {
+        Button {
+            experience.playbackTarget = .local
+        } label: {
+            Label("This Watch", systemImage: experience.playbackTarget == .local ? "checkmark" : "applewatch")
+        }
+
+        Button {
+            experience.playbackTarget = .remote
+        } label: {
+            Label("iPhone", systemImage: experience.playbackTarget == .remote ? "checkmark" : "iphone")
+        }
+    }
+
+    private var previousButton: some View {
+        Button {
+            if experience.playbackTarget == .local {
+                experience.playPrevious()
+            } else {
+                remoteSession.send(.previous)
+            }
+        } label: {
+            Image(systemName: "backward.fill")
+        }
+        .accessibilityLabel("Previous")
+        .disabled(previousDisabled)
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            if experience.playbackTarget == .local {
+                playback.togglePlayPause()
+            } else {
+                remoteSession.send(.togglePlayPause)
+            }
+        } label: {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.headline)
+                .overlay {
+                    Circle()
+                        .trim(from: 0, to: playbackProgress)
+                        .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 32, height: 32)
+                }
+        }
+        .buttonBorderShape(.circle)
+        .scaleEffect(1.15)
+        .accessibilityLabel(isPlaying ? "Pause" : "Play")
+        .accessibilityValue("\(Int(playbackProgress * 100)) percent")
+        .disabled(playPauseDisabled)
+    }
+
+    private var nextButton: some View {
+        Button {
+            if experience.playbackTarget == .local {
+                experience.playNext()
+            } else {
+                remoteSession.send(.next)
+            }
+        } label: {
+            Image(systemName: "forward.fill")
+        }
+        .accessibilityLabel("Next")
+        .disabled(nextDisabled)
+    }
+
+    private var currentPresentation: WatchNowPlayingPresentation? {
+        if experience.playbackTarget == .remote {
+            guard let track = remoteSession.snapshot?.currentTrack else { return nil }
+            return WatchNowPlayingPresentation(
+                title: track.title,
+                artist: track.artistName ?? "Unknown Artist"
+            )
+        }
+
+        guard let track = playback.currentTrack else { return nil }
+        return WatchNowPlayingPresentation(
+            title: track.title,
+            artist: track.artistName ?? "Unknown Artist"
+        )
+    }
+
+    private var isPlaying: Bool {
+        experience.playbackTarget == .local ? playback.isPlaying : remoteSession.isPlaying
+    }
+
+    private var playbackProgress: Double {
+        experience.playbackTarget == .local ? playback.progress : remoteSession.progress
+    }
+
+    private var playPauseDisabled: Bool {
+        if experience.playbackTarget == .local {
+            return playback.currentTrack == nil
+        }
+        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable || remoteSession.isSendingCommand
+    }
+
+    private var previousDisabled: Bool {
+        if experience.playbackTarget == .local {
+            return !experience.canPlayPrevious
+        }
+        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable || remoteSession.isSendingCommand
+    }
+
+    private var nextDisabled: Bool {
+        if experience.playbackTarget == .local {
+            return !experience.canPlayNext
+        }
+        guard remoteSession.isReachable, !remoteSession.isSendingCommand,
+              let snapshot = remoteSession.snapshot else { return true }
+        return snapshot.currentTrack == nil || snapshot.currentQueueIndex >= snapshot.queueCount - 1
+    }
+
+    private var currentEmptyMessage: String {
+        experience.playbackTarget == .local ? experience.playbackStatusMessage : remoteSession.statusMessage
+    }
+
+    private var remoteRepeatTitle: String {
+        switch remoteSession.snapshot?.repeatMode {
+        case .all:
+            return "Repeat All"
+        case .one:
+            return "Repeat One"
+        case .off, nil:
+            return "Repeat Off"
+        }
+    }
+
+    private var volumeControlOrigin: WKInterfaceVolumeControl.Origin {
+        experience.playbackTarget == .local ? .local : .companion
+    }
+
+    private var artworkIdentity: String {
+        if experience.playbackTarget == .remote {
+            guard let track = remoteSession.snapshot?.currentTrack else { return "remote" }
+            return "remote:\(track.id):\(track.artworkData?.hashValue ?? 0)"
+        }
+        guard let track = playback.currentTrack else { return "local" }
+        return "local:\(track.sourceKey):\(track.id)"
+    }
+
+    private func loadArtwork() async {
+        artwork = nil
+        blurredArtwork = nil
+
+        if experience.playbackTarget == .remote {
+            guard let data = remoteSession.snapshot?.currentTrack?.artworkData,
+                  let image = UIImage(data: data) else { return }
+            artwork = image
+            blurredArtwork = WatchArtworkLoader.blurred(image)
+            return
+        }
+
+        guard let track = playback.currentTrack,
+              let url = await experience.artworkURL(for: track, size: 240),
+              let image = await WatchArtworkLoader.image(from: url) else { return }
+        playback.setNowPlayingArtwork(image, for: track)
+        artwork = image
+        blurredArtwork = WatchArtworkLoader.blurred(image)
+    }
+}
+
+private struct WatchNowPlayingPresentation {
+    let title: String
+    let artist: String
+}
+
+private struct WatchSystemVolumeControl: WKInterfaceObjectRepresentable {
+    let origin: WKInterfaceVolumeControl.Origin
+
+    func makeWKInterfaceObject(context: Context) -> WKInterfaceVolumeControl {
+        let control = WKInterfaceVolumeControl(origin: origin)
+        focus(control)
+        return control
+    }
+
+    func updateWKInterfaceObject(_ control: WKInterfaceVolumeControl, context: Context) {
+        focus(control)
+    }
+
+    static func dismantleWKInterfaceObject(
+        _ control: WKInterfaceVolumeControl,
+        coordinator: Void
+    ) {
+        control.resignFocus()
+    }
+
+    private func focus(_ control: WKInterfaceVolumeControl) {
+        DispatchQueue.main.async {
+            control.focus()
+        }
     }
 }
 
