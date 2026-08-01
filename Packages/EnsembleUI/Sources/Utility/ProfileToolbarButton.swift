@@ -127,10 +127,9 @@ public struct ProfileToolbarButton: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .frame(
-            width: EnsembleScaffold.ProfileToolbar.imageDimension,
+            width: EnsembleScaffold.ProfileToolbar.imageDimension + EnsembleDesign.Spacing.md,
             height: EnsembleScaffold.ProfileToolbar.imageDimension
         )
-        .clipped()
         #else
         .buttonStyle(.plain)
         #endif
