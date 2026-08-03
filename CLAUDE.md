@@ -2,6 +2,16 @@
 
 Repository guidance for AI agents working on Ensemble.
 
+- Do not preserve backward compatibility. Remove obsolete paths instead of
+adding compatibility layers, fallbacks, or migrations. 
+- Choose the simplest implementation that fully meets the current requirements. Avoid speculative abstractions, configuration, and indirection. 
+- Grow the system in layers. Start from the smallest version that works end to end, and add each new capability on top of a product that already works. Never trade a working product for unfinished complexity.
+- Keep components modular and concerns clearly separated.
+- Prefer established, well-maintained libraries when they reduce overall complexity or improve reliability. Do not reimplement common functionality without a clear reason. 
+- Lean on the dependencies already in the project before writing your own implementation or adding packages. Do not assume a library lacks a capability without checking its documentation and types. 
+- Make architectural decisions for the long term. Do not accept a stopgap that only works for now and is meant to be replaced later.
+- Study how established products solve the problem before designing a solution. Adopt their proven patterns and conventions rather than inventing an approach from scratch.
+
 ## Product And Constraints
 
 Ensemble is a Plex music player for iOS 15+, iPadOS 15+, macOS 12+, and watchOS 10+. It should feel native, information-dense, customizable, and reliable on 2 GB RAM devices such as iPhone 6s and iPad Air 2.
@@ -59,9 +69,9 @@ For bug reports:
 
 ## Ensemble Worker
 
-The Cloudflare Worker for `ensemble.videogorl.me` lives in the sibling repository `/Users/felicity/Developer/Sites/ensemble-worker/ensemble` and is mirrored privately at `https://github.com/videogorl/ensemble-worker`.
+The Cloudflare Worker for `ensemble.videogorl.me` lives in the sibling repository `~/Developer/Sites/ensemble-worker/ensemble` and is mirrored privately at `https://github.com/videogorl/ensemble-worker`.
 
-It preserves the Notion-backed website and serves `/.well-known/apple-app-site-association` for Ensemble Universal Links. Cloudflare Workers Builds tests with `npm test -- --run` and deploys `main` with `npx wrangler deploy`. After Worker changes, verify both the AASA endpoint and the homepage return `200`.
+It serves `/.well-known/apple-app-site-association` for Ensemble Universal Links. Cloudflare Workers Builds tests with `npm test -- --run` and deploys `main` with `npx wrangler deploy`. After Worker changes, verify both the AASA endpoint and the homepage return `200`.
 
 ## Plex Streaming Guardrail
 
@@ -90,14 +100,6 @@ Update docs only when the change creates information future agents or users need
 | Agent workflow change | `CLAUDE.md` |
 
 Do not update README or VOCABULARY for every internal refactor.
-
-## Notion
-
-If the task starts from a Notion page, use the Notion MCP. If access is unavailable, ask instead of guessing. Move the page to an in-progress status before implementation and to done when the work is complete.
-
-## Gemini CLI
-
-Use `gemini -p` as an optional implementation aid for very large context reads or bounded UI implementation after planning locally. Do not delegate architecture, structural refactors, or planning decisions to Gemini.
 
 ## Commands
 
