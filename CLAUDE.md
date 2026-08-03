@@ -20,6 +20,12 @@ The app is in beta. Handle data and migration edge cases defensively; asking tes
 
 Always use `Ensemble.xcworkspace`, not `Ensemble.xcodeproj`.
 
+For macOS runtime work, never assume opening an app named `Ensemble` launches
+the intended build. Launch the explicit `.app` path produced by the current
+build, then verify the running PID's executable path and build version before
+UI testing; generic display-name launches can select stale Periphery or other
+LaunchServices-registered artifacts.
+
 ## Skill Routing
 
 Load the smallest relevant set of skills before non-trivial work:
