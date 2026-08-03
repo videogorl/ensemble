@@ -1317,22 +1317,21 @@ private struct WatchNowPlayingView: View {
         if experience.playbackTarget == .local {
             return playback.currentTrack == nil
         }
-        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable || remoteSession.isSendingCommand
+        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable
     }
 
     private var previousDisabled: Bool {
         if experience.playbackTarget == .local {
             return !experience.canPlayPrevious
         }
-        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable || remoteSession.isSendingCommand
+        return remoteSession.snapshot?.currentTrack == nil || !remoteSession.isReachable
     }
 
     private var nextDisabled: Bool {
         if experience.playbackTarget == .local {
             return !experience.canPlayNext
         }
-        guard remoteSession.isReachable, !remoteSession.isSendingCommand,
-              let snapshot = remoteSession.snapshot else { return true }
+        guard remoteSession.isReachable, let snapshot = remoteSession.snapshot else { return true }
         return snapshot.currentTrack == nil || snapshot.currentQueueIndex >= snapshot.queueCount - 1
     }
 

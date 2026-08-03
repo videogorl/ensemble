@@ -73,16 +73,13 @@ struct WatchCompanionCommand: Codable {
 struct WatchCompanionCommandResponse: Codable {
     let accepted: Bool
     let errorMessage: String?
-    let snapshot: WatchCompanionSessionSnapshot?
 
     init(
         accepted: Bool,
-        errorMessage: String? = nil,
-        snapshot: WatchCompanionSessionSnapshot? = nil
+        errorMessage: String? = nil
     ) {
         self.accepted = accepted
         self.errorMessage = errorMessage
-        self.snapshot = snapshot
     }
 }
 

@@ -166,8 +166,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
         guard let playbackService = deps?.playbackService else {
             return WatchCompanionCommandResponse(
                 accepted: false,
-                errorMessage: "Playback is not ready.",
-                snapshot: makeSnapshot()
+                errorMessage: "Playback is not ready."
             )
         }
 
@@ -192,8 +191,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             guard let time = command.time else {
                 return WatchCompanionCommandResponse(
                     accepted: false,
-                    errorMessage: "Missing seek time.",
-                    snapshot: makeSnapshot()
+                    errorMessage: "Missing seek time."
                 )
             }
             playbackService.seek(to: time)
@@ -206,7 +204,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
         }
 
         publishSnapshot()
-        return WatchCompanionCommandResponse(accepted: true, snapshot: makeSnapshot())
+        return WatchCompanionCommandResponse(accepted: true)
     }
 
     nonisolated func session(
@@ -259,8 +257,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             } catch {
                 let response = WatchCompanionCommandResponse(
                     accepted: false,
-                    errorMessage: error.localizedDescription,
-                    snapshot: makeSnapshot()
+                    errorMessage: error.localizedDescription
                 )
                 let responseData = try? encoder.encode(response)
                 replyHandler(responseData.map { [WatchCompanionPayloadKey.response: $0] } ?? [:])
