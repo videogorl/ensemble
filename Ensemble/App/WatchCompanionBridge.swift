@@ -156,8 +156,9 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             return cachedArtwork.data
         }
 
-        let size = CGSize(width: 200, height: 200)
-        guard let data = artwork.image(at: size)?.jpegData(compressionQuality: 0.7) else { return nil }
+        let size = CGSize(width: 96, height: 96)
+        guard let data = artwork.image(at: size)?.jpegData(compressionQuality: 0.3),
+              data.count <= 40_000 else { return nil }
         cachedArtwork = (trackID, artwork, data)
         return data
     }
