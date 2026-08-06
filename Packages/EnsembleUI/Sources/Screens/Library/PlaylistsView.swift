@@ -706,8 +706,8 @@ public struct PlaylistsView: View {
         }
     }
 
-    /// Creates a playlist on one or more servers with a single aggregate toast.
-    /// When merge is enabled, the callback may pass multiple server keys.
+    /// Creates a playlist on one or more sources with a single aggregate toast.
+    /// When merge is enabled, the callback may pass multiple source keys.
     private func createPlaylistOnServers(named title: String, serverSourceKeys: [String]) {
         let creatingToast = ToastPayload(
             style: .info,
@@ -740,7 +740,7 @@ public struct PlaylistsView: View {
             creatingPlaylistToastID = nil
 
             if successCount == serverSourceKeys.count {
-                // All servers succeeded
+                // All sources succeeded
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .success,
@@ -750,13 +750,13 @@ public struct PlaylistsView: View {
                     )
                 )
             } else if successCount > 0 {
-                // Partial success — some servers created it, others failed
+                // Partial success — some sources created it, others failed
                 deps.toastCenter.show(
                     ToastPayload(
                         style: .warning,
                         iconSystemName: EnsembleDesign.Icon.error,
-                        title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) servers",
-                        message: lastError ?? "Some servers could not create this playlist.",
+                        title: "Created \(title) on \(successCount)/\(serverSourceKeys.count) sources",
+                        message: lastError ?? "Some sources could not create this playlist.",
                         dedupeKey: "playlist-create-partial-\(title.lowercased())"
                     )
                 )
@@ -1330,10 +1330,10 @@ public struct PlaylistDetailView: View {
 
 // MARK: - Create Playlist View
 
-/// Pushed view for creating a new playlist with optional multi-server selection.
-/// When only one server is available, the server picker is hidden and the playlist
-/// is created on that server automatically. With multiple servers, a multi-select
-/// list lets the user create the same playlist on several servers at once.
+/// Pushed view for creating a new playlist with optional multi-source selection.
+/// When only one source is available, the source picker is hidden and the playlist
+/// is created there automatically. With multiple sources, a multi-select list lets
+/// the user create the same playlist on several sources at once.
 private struct CreatePlaylistView: View {
     let serverOptions: [PlaylistServerOption]
     let isMergeEnabled: Bool
@@ -1402,7 +1402,7 @@ private struct CreatePlaylistView: View {
             Section {
                 compactServerSelectionRows
             } header: {
-                Text("Servers")
+                Text("Sources")
             } footer: {
                 Text(serverSelectionFooter)
             }
@@ -1419,7 +1419,7 @@ private struct CreatePlaylistView: View {
 
         if serverOptions.count > 1 {
             EnsembleUtilityCardSection(
-                "Servers",
+                "Sources",
                 footer: serverSelectionFooter
             ) {
                 serverSelectionRows(cardRows: true)
@@ -1428,7 +1428,7 @@ private struct CreatePlaylistView: View {
     }
 
     private var serverSelectionFooter: String {
-        "\(selectedServerIDs.count) of \(serverOptions.count) servers selected. Selected servers will receive the new playlist."
+        "\(selectedServerIDs.count) of \(serverOptions.count) sources selected. Selected sources will receive the new playlist."
     }
 
     private var playlistNameField: some View {
@@ -1488,7 +1488,7 @@ private struct CreatePlaylistView: View {
         }
         .accessibilityLabel(option.name)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
-        .accessibilityHint("Toggles whether this server receives the new playlist.")
+        .accessibilityHint("Toggles whether this source receives the new playlist.")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 

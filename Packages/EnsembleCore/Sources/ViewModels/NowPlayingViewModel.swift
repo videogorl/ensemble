@@ -36,7 +36,7 @@ public enum TrackRating: Equatable {
 }
 
 public struct PlaylistServerOption: Identifiable, Equatable {
-    public let id: String // server-level source key: plex:account:server
+    public let id: String // playlist-scope source key, such as plex:account:server or appleMusic:device
     public let name: String
 
     public init(id: String, name: String) {
@@ -1454,14 +1454,45 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Playlist Management
 
-    /// Candidate server options for playlist creation. Deduplicated at server level.
+    /// Candidate source options for playlist creation. Plex is deduplicated at server level.
     public func playlistServerOptions() -> [PlaylistServerOption] {
-        var options: [PlaylistServerOption] = []
+        var plexOptions: [PlaylistServerOption] = []
         for account in syncCoordinator.accountManager.plexAccounts {
             for server in account.servers {
                 let sourceKey = "plex:\(account.id):\(server.id)"
-                options.append(PlaylistServerOption(id: sourceKey, name: server.name))
+                plexOptions.append(PlaylistServerOption(id: sourceKey, name: server.name))
             }
+        }
+
+        let includesAppleMusic: Bool
+        #if os(iOS)
+        if #available(iOS 18, *) {
+            includesAppleMusic = syncCoordinator.accountManager.isAppleMusicEnabled
+        } else {
+            includesAppleMusic = false
+        }
+        #else
+        includesAppleMusic = false
+        #endif
+
+        return Self.playlistCreationOptions(
+            plexOptions: plexOptions,
+            includesAppleMusic: includesAppleMusic
+        )
+    }
+
+    nonisolated static func playlistCreationOptions(
+        plexOptions: [PlaylistServerOption],
+        includesAppleMusic: Bool
+    ) -> [PlaylistServerOption] {
+        var options = plexOptions
+        if includesAppleMusic {
+            options.append(
+                PlaylistServerOption(
+                    id: MusicSourceIdentifier.appleMusic.compositeKey,
+                    name: MusicSourceType.appleMusic.capabilities.displayName
+                )
+            )
         }
         return options.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
