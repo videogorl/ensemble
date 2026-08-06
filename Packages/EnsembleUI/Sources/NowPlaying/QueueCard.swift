@@ -126,18 +126,6 @@ public struct QueueCard: View {
                 .font(EnsembleDesign.Typography.sectionTitle)
                 .foregroundColor(EnsembleDesign.Color.primaryText)
 
-            if !queueProjection.showHistory, queueProjection.incompatibleQueueItemCount > 0 {
-                Label(
-                    "\(queueProjection.incompatibleQueueItemCount)",
-                    systemImage: EnsembleDesign.Icon.error
-                )
-                .font(EnsembleDesign.Typography.stateMessage)
-                .foregroundColor(EnsembleDesign.Color.warning)
-                .accessibilityLabel(
-                    "Incompatible queue items removed: \(queueProjection.incompatibleQueueItemCount)"
-                )
-            }
-
             Spacer()
 
             HStack(spacing: TrackListLayoutMetrics.rowHorizontalPadding) {

@@ -13,7 +13,7 @@ final class PlaybackAudioSessionCoordinator {
     #endif
     private var interruptionObserver: Any?
     private var routeChangeObserver: Any?
-    private var isConfigured = false
+    private var configuredMixing: Bool?
 
     #if !os(macOS)
     init(
@@ -68,18 +68,29 @@ final class PlaybackAudioSessionCoordinator {
     }
 
     @discardableResult
-    func ensureConfigured(onConfigured: @escaping @MainActor () -> Void) -> Bool {
+    func ensureConfigured(
+        mixWithOthers: Bool = false,
+        onConfigured: @escaping @MainActor () -> Void
+    ) -> Bool {
         #if !os(macOS)
-        guard !isConfigured else { return true }
+        guard configuredMixing != mixWithOthers else { return true }
 
         do {
             let session = sessionProvider()
-            try session.setCategory(
-                .playback,
-                mode: .default,
-                policy: .longFormAudio,
-                options: []
-            )
+            if mixWithOthers {
+                try session.setCategory(
+                    .playback,
+                    mode: .default,
+                    options: [.mixWithOthers]
+                )
+            } else {
+                try session.setCategory(
+                    .playback,
+                    mode: .default,
+                    policy: .longFormAudio,
+                    options: []
+                )
+            }
 
             // Starting in iOS 17 / tvOS 17 / watchOS 10, AVAudioSession can ask
             // the system to surface route disconnects as interruptions. That
@@ -94,11 +105,13 @@ final class PlaybackAudioSessionCoordinator {
                 }
             }
 
-            isConfigured = true
+            configuredMixing = mixWithOthers
             Task { @MainActor in
                 onConfigured()
             }
-            EnsembleLogger.debug("🔊 Audio session category configured (deferred from launch)")
+            EnsembleLogger.debug(
+                "🔊 Audio session category configured (mixWithOthers=\(mixWithOthers))"
+            )
             return true
         } catch {
             EnsembleLogger.debug("⚠️ Audio session setCategory failed (will retry on next call): \(error)")
@@ -170,6 +183,6 @@ final class PlaybackAudioSessionCoordinator {
     }
 
     var isConfiguredForDiagnostics: Bool {
-        isConfigured
+        configuredMixing != nil
     }
 }
