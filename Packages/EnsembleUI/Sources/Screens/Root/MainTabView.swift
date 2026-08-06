@@ -723,19 +723,11 @@ public struct SidebarView: View {
         let newSmart = items.filter(\.isSmart)
         let newRegular = items.filter { !$0.isSmart }
 
-        // Never replace a populated cache with empty data. The shared
-        // PlaylistViewModel is also used by PlaylistsView — its .task
-        // reloads with showLoading:true, which briefly sets playlists=[]
-        // and fires this handler. Allowing the clear would wipe the sidebar.
-        if !newSmart.isEmpty || cachedSmartPlaylists.isEmpty {
-            if newSmart != cachedSmartPlaylists {
-                cachedSmartPlaylists = newSmart
-            }
+        if newSmart != cachedSmartPlaylists {
+            cachedSmartPlaylists = newSmart
         }
-        if !newRegular.isEmpty || cachedRegularPlaylists.isEmpty {
-            if newRegular != cachedRegularPlaylists {
-                cachedRegularPlaylists = newRegular
-            }
+        if newRegular != cachedRegularPlaylists {
+            cachedRegularPlaylists = newRegular
         }
     }
 

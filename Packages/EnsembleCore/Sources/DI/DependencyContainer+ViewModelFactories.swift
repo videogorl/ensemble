@@ -224,7 +224,9 @@ public extension DependencyContainer {
             pinManager: pinManager,
             pinMutationWorkflow: pinMutationWorkflow,
             libraryRepository: libraryRepository,
-            playlistRepository: playlistRepository
+            playlistRepository: playlistRepository,
+            accountManager: accountManager,
+            visibilityStore: libraryVisibilityStore
         )
     }
 

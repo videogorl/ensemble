@@ -49,6 +49,15 @@ public enum ResolvedPin: Identifiable {
     }
 }
 
+extension ResolvedPin: LibraryVisibilitySourceIdentifiable {
+    var sourceCompositeKey: String? {
+        switch self {
+        case .mergedPlaylist: return nil
+        default: return pinnedItem.sourceCompositeKey
+        }
+    }
+}
+
 /// Resolves pin references into domain objects for display
 @MainActor
 public final class PinnedViewModel: ObservableObject {
@@ -61,6 +70,8 @@ public final class PinnedViewModel: ObservableObject {
     private let pinMutationWorkflow: PinMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let accountManager: AccountManager
+    private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
     private var isMoving = false
 
@@ -68,12 +79,16 @@ public final class PinnedViewModel: ObservableObject {
         pinManager: PinManager,
         pinMutationWorkflow: PinMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore
     ) {
         self.pinManager = pinManager
         self.pinMutationWorkflow = pinMutationWorkflow ?? PinMutationWorkflow(pinManager: pinManager)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.accountManager = accountManager
+        self.visibilityStore = visibilityStore
 
         // Refresh when pins change (unless we are currently moving/reordering)
         pinManager.objectWillChange
@@ -95,6 +110,22 @@ public final class PinnedViewModel: ObservableObject {
             guard let self, !self.isMoving else { return }
             Task { @MainActor in
                 await self.loadPinnedItems()
+            }
+        }
+        .store(in: &cancellables)
+
+        Publishers.CombineLatest3(
+            visibilityStore.$profiles,
+            visibilityStore.$activeProfileID,
+            visibilityStore.$focusFilter
+        )
+        .dropFirst()
+        .map { _ in () }
+        .merge(with: accountManager.sourceConfigurationPublisher.dropFirst().map { _ in () })
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            Task { @MainActor in
+                await self?.loadPinnedItems()
             }
         }
         .store(in: &cancellables)
@@ -138,6 +169,17 @@ public final class PinnedViewModel: ObservableObject {
                 resolved.append(.playlist(Playlist(from: cd), pin))
             }
         }
+
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        resolved = LibraryVisibilityFiltering.visibleItems(
+            resolved,
+            hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+            ),
+            sourceConfiguration: sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
+                ? sourceConfiguration
+                : nil
+        )
 
         // When merge is enabled, group adjacent playlist pins with the same title
         let isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()

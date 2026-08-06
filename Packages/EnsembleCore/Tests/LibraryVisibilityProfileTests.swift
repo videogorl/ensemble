@@ -182,6 +182,40 @@ final class LibraryVisibilityProfileTests: XCTestCase {
         )
     }
 
+    func testServerScopedPlaylistPinHidesWithItsServer() {
+        let firstLibrary = MusicSourceIdentifier(type: .plex, accountId: "a", serverId: "s", libraryId: "first")
+        let secondLibrary = MusicSourceIdentifier(type: .plex, accountId: "a", serverId: "s", libraryId: "second")
+        let configuration = SourceConfigurationSnapshot(
+            configuredSources: [firstLibrary, secondLibrary],
+            enabledSources: [firstLibrary, secondLibrary],
+            authoritativeSourceTypes: [.plex],
+            hasAnySources: true,
+            isAuthoritative: true
+        )
+        let sourceKey = "plex:a:s"
+        let pinnedItem = PinnedItem(id: "playlist", sourceCompositeKey: sourceKey, type: .playlist, title: "Playlist")
+        let pin = ResolvedPin.playlist(
+            Playlist(id: "playlist", key: "/playlists/playlist", title: "Playlist", sourceCompositeKey: sourceKey),
+            pinnedItem
+        )
+
+        XCTAssertEqual(
+            LibraryVisibilityFiltering.visibleItems(
+                [pin],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).map(\.id),
+            [pinnedItem.sourceScopedID]
+        )
+        XCTAssertTrue(
+            LibraryVisibilityFiltering.visibleItems(
+                [pin],
+                hiddenSourceCompositeKeys: [firstLibrary.compositeKey, secondLibrary.compositeKey],
+                sourceConfiguration: configuration
+            ).isEmpty
+        )
+    }
+
     func testProviderAuthorityFiltersRemovedAppleWhilePreservingUnresolvedPlex() {
         let appleKey = MusicSourceIdentifier.appleMusic.compositeKey
         let tracks = [
