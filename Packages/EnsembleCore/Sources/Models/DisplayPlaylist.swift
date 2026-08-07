@@ -87,7 +87,7 @@ public struct DisplayPlaylist: Identifiable, Equatable {
     // MARK: - Grouping Helpers
 
     /// Groups playlists into DisplayPlaylist entries based on merge toggle.
-    /// When merge is enabled, same-named regular Plex playlists are grouped while Apple Music playlists remain individual.
+    /// When merge is enabled, playlists with the same normalized title and grouping kind are grouped.
     /// Mutability does not affect grouping; regular and smart classification remains semantic.
     /// When merge is disabled, each playlist becomes its own DisplayPlaylist.
     /// The input order is preserved — the first occurrence of each group key
@@ -100,8 +100,7 @@ public struct DisplayPlaylist: Identifiable, Equatable {
         return PlexPlaylistMergeRules.grouped(
             playlists,
             title: \.title,
-            isSmart: \.isSmartForPlaylistGrouping,
-            shouldMerge: { $0.sourceType != .appleMusic }
+            isSmart: \.isSmartForPlaylistGrouping
         ).map { group in
             if group.count == 1 {
                 return .single(group[0])

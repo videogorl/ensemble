@@ -325,14 +325,14 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         )
 
         XCTAssertEqual(start?.trimmedTitle, "New Mix")
-        XCTAssertEqual(start?.pendingToast.title, "Renaming on 2 servers...")
+        XCTAssertEqual(start?.pendingToast.title, "Renaming on 2 sources...")
         XCTAssertEqual(start?.pendingToast.dedupeKey, "merged-rename-display-1")
         XCTAssertEqual(stub.renamedPlaylistIDs, ["playlist-1"])
         XCTAssertFalse(result.completedAll)
         XCTAssertEqual(result.succeededCount, 1)
         XCTAssertEqual(result.totalCount, 2)
         XCTAssertEqual(result.resultToast.style, .warning)
-        XCTAssertEqual(result.resultToast.title, "Renamed on 1/2 servers")
+        XCTAssertEqual(result.resultToast.title, "Renamed on 1/2 sources")
         XCTAssertEqual(result.resultToast.dedupeKey, "merged-rename-result-display-1")
     }
 
@@ -345,7 +345,7 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         let start = workflow.beginDeleteAll(displayPlaylist: displayPlaylist)
         let result = await workflow.finishDeleteAll(displayPlaylist: displayPlaylist)
 
-        XCTAssertEqual(start?.pendingToast.title, "Deleting from 2 servers...")
+        XCTAssertEqual(start?.pendingToast.title, "Deleting from 2 sources...")
         XCTAssertEqual(start?.pendingToast.dedupeKey, "merged-delete-display-1")
         XCTAssertEqual(stub.deletedPlaylistIDs, ["playlist-1"])
         XCTAssertFalse(result.completedAll)

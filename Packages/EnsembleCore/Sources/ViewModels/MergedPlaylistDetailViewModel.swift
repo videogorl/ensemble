@@ -184,6 +184,11 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         return .available
     }
 
+    public func canRemoveTrackFromPlaylist(_ track: Track) -> Bool {
+        guard let playlist = playlistOwningTrack(track) else { return false }
+        return editAvailability(for: playlist).isAvailable
+    }
+
     /// Sync all constituent playlists then reload
     public func refreshFromServer() async {
         guard !syncCoordinator.isOffline, !syncCoordinator.isSyncing else {

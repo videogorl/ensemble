@@ -12,44 +12,44 @@ private extension Notification.Name {
 }
 
 private enum PlaylistMutationEvent {
-    case deletionStarted(playlistID: String)
-    case deletionSucceeded(playlistID: String)
-    case deletionFailed(playlistID: String)
-    case renameStarted(playlistID: String, newTitle: String)
-    case renameSucceeded(playlistID: String, newTitle: String)
-    case renameFailed(playlistID: String)
+    case deletionStarted(playlistIdentity: String)
+    case deletionSucceeded(playlistIdentity: String)
+    case deletionFailed(playlistIdentity: String)
+    case renameStarted(playlistIdentity: String, newTitle: String)
+    case renameSucceeded(playlistIdentity: String, newTitle: String)
+    case renameFailed(playlistIdentity: String)
 
     static var publisher: AnyPublisher<PlaylistMutationEvent, Never> {
         Publishers.MergeMany([
             notificationPublisher(for: .playlistDeletionStarted) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .deletionStarted(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .deletionStarted(playlistIdentity: playlistIdentity)
             },
             notificationPublisher(for: .playlistDeletionSucceeded) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .deletionSucceeded(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .deletionSucceeded(playlistIdentity: playlistIdentity)
             },
             notificationPublisher(for: .playlistDeletionFailed) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .deletionFailed(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .deletionFailed(playlistIdentity: playlistIdentity)
             },
             notificationPublisher(for: .playlistRenameStarted) { note in
-                guard let playlistID = note.playlistID,
+                guard let playlistIdentity = note.playlistIdentity,
                       let newTitle = note.newTitle else {
                     return nil
                 }
-                return .renameStarted(playlistID: playlistID, newTitle: newTitle)
+                return .renameStarted(playlistIdentity: playlistIdentity, newTitle: newTitle)
             },
             notificationPublisher(for: .playlistRenameSucceeded) { note in
-                guard let playlistID = note.playlistID,
+                guard let playlistIdentity = note.playlistIdentity,
                       let newTitle = note.newTitle else {
                     return nil
                 }
-                return .renameSucceeded(playlistID: playlistID, newTitle: newTitle)
+                return .renameSucceeded(playlistIdentity: playlistIdentity, newTitle: newTitle)
             },
             notificationPublisher(for: .playlistRenameFailed) { note in
-                guard let playlistID = note.playlistID else { return nil }
-                return .renameFailed(playlistID: playlistID)
+                guard let playlistIdentity = note.playlistIdentity else { return nil }
+                return .renameFailed(playlistIdentity: playlistIdentity)
             }
         ])
         .eraseToAnyPublisher()
@@ -66,8 +66,8 @@ private enum PlaylistMutationEvent {
 }
 
 private extension Notification {
-    var playlistID: String? {
-        userInfo?["playlistID"] as? String
+    var playlistIdentity: String? {
+        userInfo?["playlistIdentity"] as? String
     }
 
     var newTitle: String? {
@@ -86,9 +86,9 @@ public struct PlaylistsView: View {
     private let presentationMode: PresentationMode
     private let externalSelectedPlaylist: Binding<DisplayPlaylist?>?
     @State private var localSelectedPlaylist: DisplayPlaylist?
-    @State private var pendingDeletionPlaylistIDs: Set<String> = []
+    @State private var pendingDeletionPlaylistIdentities: Set<String> = []
     @State private var playlistPendingSwipeDelete: Playlist?
-    @State private var deletingToastIDsByPlaylistID: [String: UUID] = [:]
+    @State private var deletingToastIDsByPlaylistIdentity: [String: UUID] = [:]
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
@@ -151,7 +151,7 @@ public struct PlaylistsView: View {
 
     private func filteredDisplayedPlaylists(_ displayPlaylists: [DisplayPlaylist]) -> [DisplayPlaylist] {
         displayPlaylists.filter { dp in
-            !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+            !dp.playlists.allSatisfy { pendingDeletionPlaylistIdentities.contains($0.sourceScopedID) }
         }
     }
 
@@ -180,40 +180,40 @@ public struct PlaylistsView: View {
 
     private func handlePlaylistMutationEvent(_ event: PlaylistMutationEvent) {
         switch event {
-        case .deletionStarted(let playlistID):
-            pendingDeletionPlaylistIDs.insert(playlistID)
+        case .deletionStarted(let playlistIdentity):
+            pendingDeletionPlaylistIdentities.insert(playlistIdentity)
             refreshCachedDisplayedPlaylists()
 
-        case .deletionFailed(let playlistID):
-            pendingDeletionPlaylistIDs.remove(playlistID)
+        case .deletionFailed(let playlistIdentity):
+            pendingDeletionPlaylistIdentities.remove(playlistIdentity)
             refreshCachedDisplayedPlaylists()
-            if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+            if let toastID = deletingToastIDsByPlaylistIdentity.removeValue(forKey: playlistIdentity) {
                 deps.toastCenter.dismiss(id: toastID)
             }
 
-        case .deletionSucceeded(let playlistID):
-            if let toastID = deletingToastIDsByPlaylistID.removeValue(forKey: playlistID) {
+        case .deletionSucceeded(let playlistIdentity):
+            if let toastID = deletingToastIDsByPlaylistIdentity.removeValue(forKey: playlistIdentity) {
                 deps.toastCenter.dismiss(id: toastID)
             }
             Task {
                 await viewModel.loadPlaylists()
-                pendingDeletionPlaylistIDs.remove(playlistID)
+                pendingDeletionPlaylistIdentities.remove(playlistIdentity)
                 refreshCachedDisplayedPlaylists()
             }
 
-        case .renameStarted(let playlistID, let newTitle):
-            viewModel.applyOptimisticRename(forPlaylistID: playlistID, newTitle: newTitle)
+        case .renameStarted(let playlistIdentity, let newTitle):
+            viewModel.applyOptimisticRename(forPlaylistIdentity: playlistIdentity, newTitle: newTitle)
 
-        case .renameSucceeded(let playlistID, let newTitle):
+        case .renameSucceeded(let playlistIdentity, let newTitle):
             Task {
                 await viewModel.awaitRenamedPlaylistMaterialization(
-                    for: playlistID,
+                    forPlaylistIdentity: playlistIdentity,
                     expectedTitle: newTitle
                 )
             }
 
-        case .renameFailed(let playlistID):
-            viewModel.clearOptimisticRename(for: playlistID)
+        case .renameFailed(let playlistIdentity):
+            viewModel.clearOptimisticRename(forPlaylistIdentity: playlistIdentity)
             Task {
                 await viewModel.loadPlaylists()
             }
@@ -263,7 +263,7 @@ public struct PlaylistsView: View {
                     startOptimisticDelete(for: playlist)
                 }
             } message: {
-                Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from Plex.")
+                Text("This will permanently delete \"\(playlistPendingSwipeDelete?.title ?? "this playlist")\" from its source.")
             }
             .onReceive(accountManager.$isAwaitingCloudSources) { awaiting in
                 if awaiting != isRestoringCloudSources { isRestoringCloudSources = awaiting }
@@ -272,7 +272,7 @@ public struct PlaylistsView: View {
                 let latest = settingsManager.demoModeEnabled
                 if latest != demoModeEnabled { demoModeEnabled = latest }
             }
-            // Alert: confirm delete for merged playlists (affects all servers)
+            // Alert: confirm delete for every deletable source in a merged playlist.
             .alert("Delete Merged Playlist?", isPresented: Binding(
                 get: { displayPlaylistPendingDelete != nil },
                 set: { if !$0 { displayPlaylistPendingDelete = nil } }
@@ -287,7 +287,7 @@ public struct PlaylistsView: View {
                 }
             } message: {
                 let count = displayPlaylistPendingDelete?.deletablePlaylists.count ?? 0
-                Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
+                Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) source\(count == 1 ? "" : "s").")
             }
             .sheet(item: $playlistForEditSheet) { playlist in
                 PlaylistDetailView(
@@ -398,7 +398,7 @@ public struct PlaylistsView: View {
                 .disabled(renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } message: {
                 let count = renamePushDP?.editablePlaylists.count ?? 0
-                Text("This will rename on \(count) server\(count == 1 ? "" : "s").")
+                Text("This will rename on \(count) source\(count == 1 ? "" : "s").")
             }
     }
 
@@ -430,7 +430,7 @@ public struct PlaylistsView: View {
                 hasAnySources: accountManager.hasAnySources,
                 isSyncing: syncCoordinator.isSyncing,
                 hasEnabledLibraries: hasEnabledLibraries,
-                emptyMessage: "Create playlists in Plex to see them here"
+                emptyMessage: "Create playlists in your music sources to see them here"
             ),
             addSource: { navigationCoordinator.showingAddAccount = true },
             manageSources: { navigationCoordinator.openProfile() }
@@ -631,7 +631,9 @@ public struct PlaylistsView: View {
         // Filter out display playlists whose only constituent is pending deletion
         cachedDisplayedPlaylists
             ?? viewModel.displayPlaylists.filter { dp in
-                !dp.playlists.allSatisfy { pendingDeletionPlaylistIDs.contains($0.id) }
+                !dp.playlists.allSatisfy {
+                    pendingDeletionPlaylistIdentities.contains($0.sourceScopedID)
+                }
             }
     }
 
@@ -663,19 +665,20 @@ public struct PlaylistsView: View {
     }
 
     private func startOptimisticDelete(for playlist: Playlist) {
-        guard !pendingDeletionPlaylistIDs.contains(playlist.id) else { return }
+        let playlistIdentity = playlist.sourceScopedID
+        guard !pendingDeletionPlaylistIdentities.contains(playlistIdentity) else { return }
         guard let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
 
         viewModel.applyOptimisticDelete(for: playlist)
 
         let deletingToast = start.pendingToast
-        deletingToastIDsByPlaylistID[playlist.id] = deletingToast.id
+        deletingToastIDsByPlaylistIdentity[playlistIdentity] = deletingToast.id
         deps.toastCenter.show(deletingToast)
 
         NotificationCenter.default.post(
             name: .playlistDeletionStarted,
             object: nil,
-            userInfo: ["playlistID": playlist.id]
+            userInfo: ["playlistIdentity": playlistIdentity]
         )
 
         Task {
@@ -685,16 +688,16 @@ public struct PlaylistsView: View {
                 NotificationCenter.default.post(
                     name: .playlistDeletionSucceeded,
                     object: nil,
-                    userInfo: ["playlistID": playlist.id]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
                 deps.toastCenter.show(result.successToast)
             } catch {
                 NotificationCenter.default.post(
                     name: .playlistDeletionFailed,
                     object: nil,
-                    userInfo: ["playlistID": playlist.id]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
-                viewModel.clearOptimisticDelete(for: playlist.id)
+                viewModel.clearOptimisticDelete(forPlaylistIdentity: playlistIdentity)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.deleteFailureToast(
@@ -793,7 +796,7 @@ public struct PlaylistsView: View {
                 )
                 if result.outcome == .completed {
                     await viewModel.awaitRenamedPlaylistMaterialization(
-                        for: playlist.id,
+                        forPlaylistIdentity: playlist.sourceScopedID,
                         expectedTitle: start.trimmedTitle
                     )
                     deps.pinMutationWorkflow.updateTitle(
@@ -805,7 +808,7 @@ public struct PlaylistsView: View {
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
-                viewModel.clearOptimisticRename(for: playlist.id)
+                viewModel.clearOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID)
                 await viewModel.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
@@ -1079,14 +1082,14 @@ public struct PlaylistDetailView: View {
                     playlist: viewModel.playlist
                 ) else { return }
                 isDeletingPlaylist = true
-                let playlistID = viewModel.playlist.id
+                let playlistIdentity = viewModel.playlist.sourceScopedID
                 let deletingToast = start.pendingToast
                 deletingToastID = deletingToast.id
                 deps.toastCenter.show(deletingToast)
                 NotificationCenter.default.post(
                     name: .playlistDeletionStarted,
                     object: nil,
-                    userInfo: ["playlistID": playlistID]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
                 dismiss()
                 Task {
@@ -1102,7 +1105,7 @@ public struct PlaylistDetailView: View {
                         NotificationCenter.default.post(
                             name: .playlistDeletionSucceeded,
                             object: nil,
-                            userInfo: ["playlistID": playlistID]
+                            userInfo: ["playlistIdentity": playlistIdentity]
                         )
                         deps.toastCenter.show(deleteResult.successToast)
                     } catch {
@@ -1114,7 +1117,7 @@ public struct PlaylistDetailView: View {
                         NotificationCenter.default.post(
                             name: .playlistDeletionFailed,
                             object: nil,
-                            userInfo: ["playlistID": playlistID]
+                            userInfo: ["playlistIdentity": playlistIdentity]
                         )
                         deps.toastCenter.show(
                             deps.playlistMutationWorkflow.deleteFailureToast(
@@ -1126,7 +1129,7 @@ public struct PlaylistDetailView: View {
                 }
             }
         } message: {
-            Text("This will permanently delete \"\(viewModel.playlist.title)\" from Plex.")
+            Text("This will permanently delete \"\(viewModel.playlist.title)\" from its source.")
         }
         .refreshable {
             await viewModel.refreshFromServer()
@@ -1159,7 +1162,7 @@ public struct PlaylistDetailView: View {
         let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newTitle.isEmpty else { return }
 
-        let playlistID = viewModel.playlist.id
+        let playlistIdentity = viewModel.playlist.sourceScopedID
         guard let start = deps.playlistMutationWorkflow.beginRename(
             playlist: viewModel.playlist,
             to: newTitle
@@ -1171,7 +1174,7 @@ public struct PlaylistDetailView: View {
             name: .playlistRenameStarted,
             object: nil,
             userInfo: [
-                "playlistID": playlistID,
+                "playlistIdentity": playlistIdentity,
                 "newTitle": start.trimmedTitle
             ]
         )
@@ -1187,7 +1190,7 @@ public struct PlaylistDetailView: View {
                     name: .playlistRenameSucceeded,
                     object: nil,
                     userInfo: [
-                        "playlistID": playlistID,
+                        "playlistIdentity": playlistIdentity,
                         "newTitle": start.trimmedTitle
                     ]
                 )
@@ -1197,7 +1200,7 @@ public struct PlaylistDetailView: View {
                 NotificationCenter.default.post(
                     name: .playlistRenameFailed,
                     object: nil,
-                    userInfo: ["playlistID": playlistID]
+                    userInfo: ["playlistIdentity": playlistIdentity]
                 )
                 deps.toastCenter.show(
                     deps.playlistMutationWorkflow.renameFailureToast(

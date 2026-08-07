@@ -201,12 +201,12 @@ public final class PinnedViewModel: ObservableObject {
         }
     }
 
-    /// Groups resolved playlist pins with the same (title, isSmart) into merged entries.
+    /// Groups resolved playlist pins with the same normalized title and semantic kind.
     /// Non-playlist pins pass through unchanged. The first occurrence of each group key
     /// determines the merged entry's position in the output.
     private func mergePlaylistPins(_ pins: [ResolvedPin]) -> [ResolvedPin] {
         struct GroupKey: Hashable {
-            let title: String
+            let normalizedTitle: String
             let isSmart: Bool
         }
 
@@ -220,7 +220,10 @@ public final class PinnedViewModel: ObservableObject {
         for pin in pins {
             switch pin {
             case let .playlist(playlist, pinnedItem):
-                let key = GroupKey(title: playlist.title, isSmart: playlist.isSmartForPlaylistGrouping)
+                let key = GroupKey(
+                    normalizedTitle: DisplayPlaylist.normalizedTitle(playlist.title),
+                    isSmart: playlist.isSmartForPlaylistGrouping
+                )
                 if groupIndex[key] == nil {
                     // First occurrence — reserve a slot in the output
                     groupIndex[key] = output.count
@@ -243,7 +246,7 @@ public final class PinnedViewModel: ObservableObject {
             let pinnedItems = groupPins[key] ?? []
             if playlists.count > 1 {
                 let dp = DisplayPlaylist.merged(
-                    title: key.title,
+                    title: playlists[0].title,
                     isSmart: playlists.contains(where: \.isSmart),
                     playlists: playlists
                 )

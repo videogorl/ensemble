@@ -1405,6 +1405,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     nowPlayingVM: nowPlayingVM
                 ) != nil
             },
+            canRemoveFromPlaylist: { track in
+                guard let merged = viewModel as? MergedPlaylistDetailViewModel else { return true }
+                return merged.canRemoveTrackFromPlaylist(track)
+            },
             recentPlaylistTitle: lastPlaylistQuickTarget?.title
         )
     }

@@ -759,22 +759,16 @@ public enum PlexPlaylistMergeRules {
         "\(normalizedTitle(title))\u{0}\(isSmart)"
     }
 
-    /// Groups mergeable playlist identities while preserving their first occurrence and source order.
-    /// Items rejected by `shouldMerge` remain individual groups.
+    /// Groups equal playlist identities while preserving their first occurrence and source order.
     public static func grouped<Item>(
         _ items: [Item],
         title: (Item) -> String,
-        isSmart: (Item) -> Bool,
-        shouldMerge: (Item) -> Bool = { _ in true }
+        isSmart: (Item) -> Bool
     ) -> [[Item]] {
         var groups: [[Item]] = []
         var indexes: [String: Int] = [:]
 
         for item in items {
-            guard shouldMerge(item) else {
-                groups.append([item])
-                continue
-            }
             let itemKey = key(title: title(item), isSmart: isSmart(item))
             if let index = indexes[itemKey] {
                 groups[index].append(item)

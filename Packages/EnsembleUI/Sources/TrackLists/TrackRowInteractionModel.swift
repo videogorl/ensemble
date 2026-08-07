@@ -58,6 +58,7 @@ public struct TrackRowInteractionModel {
     public let onDeleteTrack: ((Track) -> Void)?
     public let isTrackFavorited: ((Track) -> Bool)?
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
+    public let canRemoveFromPlaylist: ((Track) -> Bool)?
     public let recentPlaylistTitle: String?
 
     public init(
@@ -77,6 +78,7 @@ public struct TrackRowInteractionModel {
         onDeleteTrack: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
+        canRemoveFromPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil
     ) {
         self.onPlayNext = onPlayNext
@@ -95,11 +97,16 @@ public struct TrackRowInteractionModel {
         self.onDeleteTrack = onDeleteTrack
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
+        self.canRemoveFromPlaylist = canRemoveFromPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
     }
 
     public func isFavorited(_ track: Track) -> Bool {
         isTrackFavorited?(track) ?? track.isFavorite
+    }
+
+    public func allowsRemovalFromPlaylist(_ track: Track) -> Bool {
+        canRemoveFromPlaylist?(track) ?? true
     }
 
     public func hasContextMenu(for track: Track) -> Bool {
