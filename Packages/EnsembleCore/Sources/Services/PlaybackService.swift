@@ -1275,9 +1275,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioAnalyzer()
         setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
-        #if os(iOS)
-            Task { @MainActor [weak self] in self?.setupAppleMusicPlayback() }
-        #endif
     }
 
     init(
@@ -1316,9 +1313,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioAnalyzer()
         setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
-        #if os(iOS)
-            Task { @MainActor [weak self] in self?.setupAppleMusicPlayback() }
-        #endif
     }
 
     deinit {
@@ -1941,7 +1935,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         public func handleApplicationDidBecomeActive() {
             guard #available(iOS 18, *), currentTrack?.isAppleMusic == true else { return }
             stopAppleMusicBackgroundBridge()
-            _ = ensureAudioSessionConfigured(mixWithOthers: false)
         }
     #endif
 
@@ -4615,7 +4608,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         #if os(iOS)
             if #available(iOS 18, *), queue[currentQueueIndex].track.isAppleMusic {
-                ensureAudioSessionConfigured()
+                ensureAudioSessionConfigured(mixWithOthers: true)
                 await playCurrentAppleMusicSegment(
                     startTime: startTime,
                     generation: requestGeneration
@@ -4633,6 +4626,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         return
                     }
                     appleMusicBackgroundBridgeTrackID = nil
+                    audioEngine?.stop()
                 } else {
                     appleMusicPlaybackController?.stop()
                     didRelease = true
@@ -5787,11 +5781,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
-    private func setupAppleMusicPlayback() {
+    private func setupAppleMusicPlayback() async {
         #if os(iOS)
             guard #available(iOS 18, *) else { return }
             guard appleMusicPlaybackController == nil else { return }
-            let controller = AppleMusicPlaybackController()
+            let controller = await AppleMusicPlaybackController.make()
+            guard appleMusicPlaybackController == nil else { return }
             controller.onTrackChanged = { [weak self] identity, queueGeneration in
                 Task { @MainActor in
                     self?.handleAppleMusicTrackChanged(
@@ -5864,7 +5859,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updateNowPlayingInfo()
 
             do {
-                setupAppleMusicPlayback()
+                await setupAppleMusicPlayback()
                 guard let controller = appleMusicPlaybackController else {
                     throw AppleMusicSourceError.musicKitPlaybackRequired
                 }
@@ -6085,7 +6080,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   await audioSessionCoordinator.activateForPlayback(shouldStartPlayback: true),
                   generation == playbackGenerationCounter,
                   currentTrack?.playbackIdentity == track.playbackIdentity,
+                  Self.shouldMaintainAppleMusicBackgroundBridge(
+                      applicationIsActive: UIApplication.shared.applicationState == .active,
+                      playbackState: playbackState,
+                      currentTrackIsAppleMusic: track.isAppleMusic
+                  ),
                   let audioEngine else { return false }
+            if audioEngine.isProviderHandoffBridgeActive {
+                appleMusicBackgroundBridgeTrackID = track.playbackIdentity
+                return true
+            }
             do {
                 try audioEngine.startProviderHandoffBridge()
                 appleMusicBackgroundBridgeTrackID = track.playbackIdentity

@@ -13,11 +13,11 @@ No unresolved critical issues are currently documented.
 
 ## Active Limitations
 
-### Mixed-Provider System Ownership During Apple Music Playback
+### Mixed-Provider Remote Skip Boundaries
 
 - **Area:** `PlaybackService`, `PlaybackNowPlayingBridge`, `AppleMusicPlaybackController`, iOS/iPadOS 18+.
-- **Status:** Mixed Apple Music/Plex audio and automatic segment-end handoff work in the background. On iOS/iPadOS 27, `ApplicationMusicPlayer` becomes the system Now Playing owner after Apple playback starts, and Control Center skip commands no longer reach Ensemble's retained `NowPlaying.MediaSession`; requesting system-primary ownership is foreground-only and fails in the background. iOS/iPadOS 18–26 use the legacy MediaPlayer centers and have no equivalent retained system-primary API, so their exact ownership continuity is also unverified.
-- **Rule:** Do not claim end-to-end Control Center skip continuity while an Apple Music segment is active. Keep automatic advancement and app-owned controls working. Investigate `SystemMusicPlayer` before adding another background process or ownership retry.
+- **Status:** Finite Apple Music segments use `SystemMusicPlayer`, so system controls and automatic Apple-to-Plex/Plex-to-Apple handoffs continue while Ensemble is inactive or backgrounded. The system player can navigate inside its submitted Apple segment, but it provides no callback for Previous at the first Apple item or Next at the last Apple item, so those remote commands cannot cross a Plex boundary. The full background audio and Control Center handoff is physically verified on iOS 27; iOS 18–26 use the same APIs but still need a physical-device pass.
+- **Rule:** Keep automatic boundary advancement and app-owned cross-provider controls working. Do not claim that Control Center Previous/Next can cross the outer edges of a submitted Apple segment.
 
 ### Top-Level Navigation Pop-In During Playback
 
@@ -92,6 +92,7 @@ No unresolved critical issues are currently documented.
 - **Area:** `ArtworkLoader.predownloadArtwork`
 - **Status:** Artwork is pre-cached only for items that pass through sync. Browsing an uncached item may still require network.
 - **Now Playing effect:** Metadata can update before different uncached artwork finishes cache lookup, decode, or fetch. Keep the prior artwork during that bounded interval; do not flash a generated placeholder. Consecutive tracks sharing the same source-scoped artwork resolution identity should reuse the resolved image immediately.
+- **Apple Music effect:** During `SystemMusicPlayer` playback, MusicKit owns Control Center artwork and may publish it shortly after the title and transport state. Ensemble cannot force that system-owned artwork update.
 
 ## Watchlist
 

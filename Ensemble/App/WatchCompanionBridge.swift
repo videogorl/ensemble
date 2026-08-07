@@ -145,12 +145,6 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     }
 
     private func currentArtworkData(for trackID: String, title: String) -> Data? {
-        #if canImport(NowPlaying)
-        if #available(iOS 27.0, *) {
-            return nil
-        }
-        #endif
-
         guard let info = MPNowPlayingInfoCenter.default().nowPlayingInfo,
               info[MPMediaItemPropertyTitle] as? String == title,
               let artwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {

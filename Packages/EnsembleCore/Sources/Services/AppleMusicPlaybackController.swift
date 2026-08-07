@@ -33,6 +33,14 @@ enum AppleMusicPlaybackResolutionPolicy {
 }
 
 enum AppleMusicPlaybackEndPolicy {
+    static func isFinalEntry(
+        currentMusicID: String,
+        lastSubmittedMusicID: String?,
+        isStationActive: Bool
+    ) -> Bool {
+        !isStationActive && currentMusicID == lastSubmittedMusicID
+    }
+
     static func shouldReportEnd(
         playbackTime: TimeInterval,
         duration: TimeInterval,
@@ -126,6 +134,11 @@ enum AppleMusicPlaybackOperationDisposition: Equatable {
     case stopPlayer
 }
 
+enum AppleMusicPlaybackBackend: Equatable, Sendable {
+    case finite
+    case station
+}
+
 final class AppleMusicPlaybackOperationCoordinator: @unchecked Sendable {
     private enum Intent {
         case preparingQueue
@@ -137,14 +150,19 @@ final class AppleMusicPlaybackOperationCoordinator: @unchecked Sendable {
     private let lock = NSLock()
     private var generation: UInt64 = 0
     private var intent: Intent = .stopped
+    private var backend: AppleMusicPlaybackBackend = .finite
     private var cancellation: (() -> Void)?
 
-    func begin(replacingQueue: Bool = false) -> UInt64 {
+    func begin(
+        replacingQueue: Bool = false,
+        backend: AppleMusicPlaybackBackend = .finite
+    ) -> UInt64 {
         lock.lock()
         let previousCancellation = cancellation
         cancellation = nil
         generation &+= 1
         intent = replacingQueue ? .preparingQueue : .playing
+        self.backend = backend
         let nextGeneration = generation
         lock.unlock()
         previousCancellation?()
@@ -204,10 +222,14 @@ final class AppleMusicPlaybackOperationCoordinator: @unchecked Sendable {
         lock.unlock()
     }
 
-    func disposition(for generation: UInt64) -> AppleMusicPlaybackOperationDisposition {
+    func disposition(
+        for generation: UInt64,
+        backend: AppleMusicPlaybackBackend = .finite
+    ) -> AppleMusicPlaybackOperationDisposition {
         lock.lock()
         defer { lock.unlock() }
         guard self.generation == generation else {
+            if self.backend != backend { return .stopPlayer }
             return switch intent {
             case .preparingQueue: .stopPlayer
             case .playing: .ignore
@@ -220,24 +242,22 @@ final class AppleMusicPlaybackOperationCoordinator: @unchecked Sendable {
 
     func acceptCompletion(
         for generation: UInt64,
+        backend: AppleMusicPlaybackBackend = .finite,
         reassertPause: () -> Void,
         reassertStop: () -> Void
     ) -> Bool {
-        lock.lock()
-        guard self.generation != generation else {
-            lock.unlock()
+        switch disposition(for: generation, backend: backend) {
+        case .apply:
             return true
+        case .ignore:
+            return false
+        case .pausePlayer:
+            reassertPause()
+            return false
+        case .stopPlayer:
+            reassertStop()
+            return false
         }
-        let latestIntent = intent
-        lock.unlock()
-
-        switch latestIntent {
-        case .preparingQueue: reassertStop()
-        case .playing: break
-        case .paused: reassertPause()
-        case .stopped: reassertStop()
-        }
-        return false
     }
 }
 
@@ -246,6 +266,10 @@ import Combine
 import MusicKit
 
 extension ApplicationMusicPlayer: AppleMusicStationPlaybackStarting {}
+
+private struct SystemMusicPlayerBox: @unchecked Sendable {
+    let player: SystemMusicPlayer
+}
 
 @MainActor
 protocol AppleMusicPlaybackControlling: AnyObject {
@@ -276,7 +300,12 @@ protocol AppleMusicPlaybackControlling: AnyObject {
 @available(iOS 18, *)
 @MainActor
 final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
-    private let player = ApplicationMusicPlayer.shared
+    private static let finitePlayerLoadTask = Task.detached(priority: .userInitiated) {
+        SystemMusicPlayerBox(player: SystemMusicPlayer.shared)
+    }
+
+    private let finitePlayer: SystemMusicPlayer
+    private let stationPlayer = ApplicationMusicPlayer.shared
     private var cancellables = Set<AnyCancellable>()
     private var trackIdentityByMusicID: [String: String] = [:]
     private var trackByMusicID: [String: Track] = [:]
@@ -289,7 +318,19 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private var isPreparingQueue = false
     private var artworkRequestMusicID: String?
     private var enrichedArtwork: (musicID: String, url: String)?
+    private var lastSubmittedMusicID: String?
+    private var savedSystemRepeatMode: MusicPlayer.RepeatMode?
+    private var savedSystemShuffleMode: MusicPlayer.ShuffleMode?
+    private var ownsSystemPlayer = false
     private let operations = AppleMusicPlaybackOperationCoordinator()
+
+    private var player: MusicPlayer {
+        isStationActive ? stationPlayer : finitePlayer
+    }
+
+    private var currentEntry: MusicPlayer.Queue.Entry? {
+        isStationActive ? stationPlayer.queue.currentEntry : finitePlayer.queue.currentEntry
+    }
 
     private(set) var isStationActive = false
     private(set) var activeQueueGeneration: UInt64?
@@ -300,35 +341,46 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     var onTrackMetadataChanged: ((Track, UInt64) -> Void)?
     var onDynamicQueueChanged: (([Track], UInt64) -> Void)?
 
-    init() {
-        player.queue.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in DispatchQueue.main.async { self?.publishCurrentEntry() } }
-            .store(in: &cancellables)
-        player.state.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] in DispatchQueue.main.async { self?.publishState() } }
-            .store(in: &cancellables)
+    static func make() async -> AppleMusicPlaybackController {
+        let box = await finitePlayerLoadTask.value
+        return AppleMusicPlaybackController(finitePlayer: box.player)
+    }
+
+    private init(finitePlayer: SystemMusicPlayer) {
+        self.finitePlayer = finitePlayer
+        observe(
+            queue: finitePlayer.queue.objectWillChange,
+            state: finitePlayer.state.objectWillChange
+        )
+        observe(
+            queue: stationPlayer.queue.objectWillChange,
+            state: stationPlayer.state.objectWillChange
+        )
         Timer.publish(every: 0.25, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self,
                       let queueGeneration = self.activeQueueGeneration else { return }
-                guard self.player.state.playbackStatus == .playing else {
+                let player = self.player
+                guard player.state.playbackStatus == .playing else {
                     self.endStallTracker.reset()
                     self.publishState()
                     return
                 }
-                let playbackTime = self.player.playbackTime
+                let playbackTime = player.playbackTime
                 self.onTimeChanged?(playbackTime, queueGeneration)
                 guard !self.hasReportedEnd,
-                      let currentEntry = self.player.queue.currentEntry,
+                      let currentEntry = self.currentEntry,
                       case let .song(song)? = currentEntry.item,
                       let duration = song.duration else {
                     self.endStallTracker.reset()
                     return
                 }
-                let isFinalEntry = currentEntry.id == self.player.queue.entries.last?.id
+                let isFinalEntry = AppleMusicPlaybackEndPolicy.isFinalEntry(
+                    currentMusicID: String(describing: song.id),
+                    lastSubmittedMusicID: self.lastSubmittedMusicID,
+                    isStationActive: self.isStationActive
+                )
                 if AppleMusicPlaybackEndPolicy.shouldReportEnd(
                     playbackTime: playbackTime,
                     duration: duration,
@@ -352,7 +404,10 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         try await runOperation(
             staleResult: [],
             replacingQueue: true,
-            onFailure: { generation in self.failQueuePreparation(generation: generation) }
+            backend: .finite,
+            onFailure: { generation in
+                self.failQueuePreparation(generation: generation, backend: .finite)
+            }
         ) { generation in
             return try await self.performPlay(
                 tracks: tracks,
@@ -373,7 +428,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         beginQueuePreparation()
         let resolution = try await resolveSongs(for: tracks)
         try Task.checkCancellation()
-        guard acceptCompletion(for: generation) else { return [] }
+        guard acceptCompletion(for: generation, backend: .finite) else { return [] }
         let resolvedTracks = resolution.resolvedTracks
         let songs = resolvedTracks.map(\.song)
         guard let first = songs.first else { throw AppleMusicSourceError.musicKitPlaybackRequired }
@@ -390,19 +445,20 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         isStationActive = false
         artworkRequestMusicID = nil
         enrichedArtwork = nil
-        player.transition = smartMixEnabled ? .crossfade : .none
+        claimSystemPlayer()
+        lastSubmittedMusicID = songs.last.map { String(describing: $0.id) }
         activeQueueGeneration = generation
-        player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
+        finitePlayer.queue = MusicPlayer.Queue(for: songs, startingAt: first)
         if let current = resolvedTracks.first {
             publishMetadata(for: current.song, track: current.track, queueGeneration: generation)
         }
-        try await player.prepareToPlay()
+        try await finitePlayer.prepareToPlay()
         try Task.checkCancellation()
-        guard acceptCompletion(for: generation) else { return [] }
-        if let startTime { player.playbackTime = startTime }
-        try await player.play()
+        guard acceptCompletion(for: generation, backend: .finite) else { return [] }
+        if let startTime { finitePlayer.playbackTime = startTime }
+        try await finitePlayer.play()
         try Task.checkCancellation()
-        guard acceptCompletion(for: generation) else { return [] }
+        guard acceptCompletion(for: generation, backend: .finite) else { return [] }
         operations.markPlaying(generation)
         pausedEndTask?.cancel()
         pausedEndTask = nil
@@ -487,6 +543,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
 
     func pause() {
         let wasPreparingQueue = isPreparingQueue
+        let wasStationActive = isStationActive
         operations.pause()
         pausedEndTask?.cancel()
         pausedEndTask = nil
@@ -496,7 +553,12 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             isStationActive = false
             wasPlaying = false
             hasReportedEnd = true
-            player.stop()
+            if wasStationActive {
+                stationPlayer.stop()
+                stationPlayer.queue.entries = []
+            } else {
+                releaseSystemPlayer()
+            }
         } else {
             wasPlaying = false
             endStallTracker.reset()
@@ -504,19 +566,23 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
     }
     func resume() async throws {
+        let backend: AppleMusicPlaybackBackend = isStationActive ? .station : .finite
+        let player: MusicPlayer = backend == .station ? stationPlayer : finitePlayer
         try await runOperation(
             staleResult: (),
+            backend: backend,
             onFailure: { generation in self.operations.markPaused(generation) }
         ) { generation in
-            try await self.player.play()
+            try await player.play()
             try Task.checkCancellation()
-            guard self.acceptCompletion(for: generation) else { return }
+            guard self.acceptCompletion(for: generation, backend: backend) else { return }
             self.operations.markPlaying(generation)
             self.wasPlaying = true
             self.endStallTracker.reset()
         }
     }
     func stop() {
+        let wasStationActive = isStationActive
         operations.stop()
         pausedEndTask?.cancel()
         pausedEndTask = nil
@@ -526,10 +592,15 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         isPreparingQueue = false
         isStationActive = false
         activeQueueGeneration = nil
-        player.stop()
-        player.queue.entries = []
+        if wasStationActive {
+            stationPlayer.stop()
+            stationPlayer.queue.entries = []
+        } else {
+            releaseSystemPlayer()
+        }
         trackIdentityByMusicID = [:]
         trackByMusicID = [:]
+        lastSubmittedMusicID = nil
         artworkRequestMusicID = nil
         enrichedArtwork = nil
     }
@@ -543,18 +614,34 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
     }
     func stopAndWaitForRelease() async -> Bool {
+        let wasStationActive = isStationActive
+        let wasSystemOwned = ownsSystemPlayer
         stop()
+        guard wasStationActive || wasSystemOwned else { return true }
+        let releasedPlayer: MusicPlayer = wasStationActive ? stationPlayer : finitePlayer
         for _ in 0..<40 {
-            if player.state.playbackStatus == .stopped,
-               player.queue.currentEntry == nil { return true }
+            let hasCurrentEntry = wasStationActive
+                ? stationPlayer.queue.currentEntry != nil
+                : finitePlayer.queue.currentEntry != nil
+            let status = releasedPlayer.state.playbackStatus
+            if wasStationActive {
+                if status == .stopped, !hasCurrentEntry { return true }
+            } else if status == .stopped || status == .paused || status == .interrupted {
+                return true
+            }
             do {
                 try await Task.sleep(nanoseconds: 25_000_000)
             } catch {
                 return false
             }
         }
-        return player.state.playbackStatus == .stopped
-            && player.queue.currentEntry == nil
+        let hasCurrentEntry = wasStationActive
+            ? stationPlayer.queue.currentEntry != nil
+            : finitePlayer.queue.currentEntry != nil
+        let status = releasedPlayer.state.playbackStatus
+        return wasStationActive
+            ? status == .stopped && !hasCurrentEntry
+            : status == .stopped || status == .paused || status == .interrupted
     }
     func seek(to time: TimeInterval) { player.playbackTime = time }
 
@@ -562,7 +649,10 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         try await runOperation(
             staleResult: (),
             replacingQueue: true,
-            onFailure: { generation in self.failQueuePreparation(generation: generation) }
+            backend: .station,
+            onFailure: { generation in
+                self.failQueuePreparation(generation: generation, backend: .station)
+            }
         ) { generation in
             try await self.performStartStation(
                 seed: seed,
@@ -587,22 +677,22 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             throw AppleMusicSourceError.musicKitPlaybackRequired
         }
         try Task.checkCancellation()
-        guard acceptCompletion(for: generation) else { return }
+        guard acceptCompletion(for: generation, backend: .station) else { return }
         let detailed = try await song.with([.station])
         try Task.checkCancellation()
-        guard acceptCompletion(for: generation) else { return }
+        guard acceptCompletion(for: generation, backend: .station) else { return }
         guard let station = detailed.station else { throw AppleMusicSourceError.musicKitPlaybackRequired }
         trackIdentityByMusicID = [:]
         trackByMusicID = [:]
         isStationActive = true
         artworkRequestMusicID = nil
         enrichedArtwork = nil
-        player.transition = smartMixEnabled ? .crossfade : .none
+        stationPlayer.transition = smartMixEnabled ? .crossfade : .none
         activeQueueGeneration = generation
-        player.queue = ApplicationMusicPlayer.Queue(for: [station])
-        try await AppleMusicStationStartSequence.startAfterSeed(on: player) { [weak self] in
+        stationPlayer.queue = ApplicationMusicPlayer.Queue(for: [station])
+        try await AppleMusicStationStartSequence.startAfterSeed(on: stationPlayer) { [weak self] in
             try Task.checkCancellation()
-            guard self?.operations.disposition(for: generation) == .apply else {
+            guard self?.operations.disposition(for: generation, backend: .station) == .apply else {
                 throw CancellationError()
             }
         }
@@ -617,24 +707,24 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
 
     func skipToNextEntry() async throws {
-        try await runOperation(staleResult: ()) { generation in
-            try await self.player.skipToNextEntry()
+        try await runOperation(staleResult: (), backend: .station) { generation in
+            try await self.stationPlayer.skipToNextEntry()
             try Task.checkCancellation()
-            guard self.acceptCompletion(for: generation) else { return }
+            guard self.acceptCompletion(for: generation, backend: .station) else { return }
         }
     }
 
     func removeFirstUpcomingEntry(catalogID: String) -> Bool {
         guard isStationActive,
-              let currentEntry = player.queue.currentEntry else { return false }
-        var entries = player.queue.entries
+              let currentEntry = stationPlayer.queue.currentEntry else { return false }
+        var entries = stationPlayer.queue.entries
         guard let currentIndex = entries.firstIndex(where: { $0.id == currentEntry.id }),
               let index = entries.indices.first(where: { index in
                   guard index > currentIndex, let item = entries[index].item else { return false }
                   return String(describing: item.id) == catalogID
               }) else { return false }
         entries.remove(at: index)
-        player.queue.entries = entries
+        stationPlayer.queue.entries = entries
         return true
     }
 
@@ -642,10 +732,11 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func runOperation<Result: Sendable>(
         staleResult: Result,
         replacingQueue: Bool = false,
+        backend: AppleMusicPlaybackBackend = .finite,
         onFailure: @escaping @MainActor (UInt64) -> Void = { _ in },
         operation: @escaping @MainActor (UInt64) async throws -> Result
     ) async throws -> Result {
-        let generation = operations.begin(replacingQueue: replacingQueue)
+        let generation = operations.begin(replacingQueue: replacingQueue, backend: backend)
         let task = Task { @MainActor in try await operation(generation) }
         operations.registerCancellation({ task.cancel() }, for: generation)
 
@@ -655,7 +746,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 self.operations.finish(generation)
                 return result
             } catch {
-                guard self.acceptCompletion(for: generation) else {
+                guard self.acceptCompletion(for: generation, backend: backend) else {
                     self.operations.finish(generation)
                     return staleResult
                 }
@@ -672,18 +763,32 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask?.cancel()
         pausedEndTask = nil
         isPreparingQueue = true
+        let wasStationActive = isStationActive
         activeQueueGeneration = nil
-        isStationActive = false
         wasPlaying = false
         hasReportedEnd = true
-        player.stop()
+        if wasStationActive {
+            stationPlayer.stop()
+            stationPlayer.queue.entries = []
+        } else {
+            releaseSystemPlayer()
+        }
+        isStationActive = false
+        lastSubmittedMusicID = nil
     }
 
-    private func failQueuePreparation(generation: UInt64) {
-        guard operations.disposition(for: generation) == .apply else { return }
+    private func failQueuePreparation(
+        generation: UInt64,
+        backend: AppleMusicPlaybackBackend
+    ) {
+        guard operations.disposition(for: generation, backend: backend) == .apply else { return }
         pausedEndTask?.cancel()
         pausedEndTask = nil
-        player.stop()
+        if backend == .station {
+            stationPlayer.stop()
+        } else {
+            releaseSystemPlayer()
+        }
         activeQueueGeneration = nil
         isPreparingQueue = false
         isStationActive = false
@@ -692,24 +797,28 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         operations.markStopped(generation)
     }
 
-    private func acceptCompletion(for generation: UInt64) -> Bool {
+    private func acceptCompletion(
+        for generation: UInt64,
+        backend: AppleMusicPlaybackBackend
+    ) -> Bool {
         operations.acceptCompletion(
             for: generation,
+            backend: backend,
             reassertPause: {
                 if activeQueueGeneration == nil {
-                    player.stop()
+                    stopPlayer(for: backend)
                 } else {
-                    player.pause()
+                    pausePlayer(for: backend)
                 }
             },
-            reassertStop: { player.stop() }
+            reassertStop: { stopPlayer(for: backend) }
         )
     }
 
     private func publishCurrentEntry() {
         guard !isPreparingQueue else { return }
         guard let queueGeneration = activeQueueGeneration else { return }
-        guard let item = player.queue.currentEntry?.item else { return }
+        guard let item = currentEntry?.item else { return }
         let id = String(describing: item.id)
         if let identity = trackIdentityByMusicID[id] {
             onTrackChanged?(identity, queueGeneration)
@@ -776,7 +885,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             }
             guard let artworkURL else { return }
             guard self.activeQueueGeneration == queueGeneration,
-                  let currentItem = self.player.queue.currentEntry?.item,
+                  let currentItem = self.currentEntry?.item,
                   String(describing: currentItem.id) == id else { return }
             self.enrichedArtwork = (id, artworkURL)
             self.onTrackMetadataChanged?(
@@ -807,8 +916,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func publishStationQueue(queueGeneration: UInt64) {
         guard isStationActive,
               activeQueueGeneration == queueGeneration,
-              let currentEntry = player.queue.currentEntry else { return }
-        let entries = Array(player.queue.entries)
+              let currentEntry = stationPlayer.queue.currentEntry else { return }
+        let entries = Array(stationPlayer.queue.entries)
         guard let currentIndex = entries.firstIndex(where: { $0.id == currentEntry.id }) else { return }
         let tracks = entries.dropFirst(currentIndex + 1).compactMap { entry -> Track? in
             guard case .song(let song)? = entry.item else { return nil }
@@ -842,14 +951,18 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func publishState() {
         guard !isPreparingQueue, activeQueueGeneration != nil else { return }
         let playbackStatus = player.state.playbackStatus
-        let currentEntry = player.queue.currentEntry
+        let currentEntry = self.currentEntry
         let reachedFinalEntryEnd: Bool
         if case let .song(song)? = currentEntry?.item,
            let duration = song.duration {
             reachedFinalEntryEnd = AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
                 playbackTime: player.playbackTime,
                 duration: duration,
-                isFinalEntry: currentEntry?.id == player.queue.entries.last?.id,
+                isFinalEntry: AppleMusicPlaybackEndPolicy.isFinalEntry(
+                    currentMusicID: String(describing: song.id),
+                    lastSubmittedMusicID: lastSubmittedMusicID,
+                    isStationActive: isStationActive
+                ),
                 wasPlaying: wasPlaying,
                 isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
             )
@@ -885,7 +998,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             }
             guard let self, !Task.isCancelled else { return }
             defer { self.pausedEndTask = nil }
-            let playbackStatus = self.player.state.playbackStatus
+            let player = self.player
+            let playbackStatus = player.state.playbackStatus
             guard self.activeQueueGeneration == queueGeneration,
                   (forStoppedPlayback ? playbackStatus == .stopped : playbackStatus == .paused),
                   !self.isInterrupted,
@@ -895,13 +1009,17 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 return
             }
             guard
-                  let currentEntry = self.player.queue.currentEntry,
+                  let currentEntry = self.currentEntry,
                   case let .song(song)? = currentEntry.item,
                   let duration = song.duration,
                   AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
-                      playbackTime: self.player.playbackTime,
+                      playbackTime: player.playbackTime,
                       duration: duration,
-                      isFinalEntry: currentEntry.id == self.player.queue.entries.last?.id,
+                      isFinalEntry: AppleMusicPlaybackEndPolicy.isFinalEntry(
+                          currentMusicID: String(describing: song.id),
+                          lastSubmittedMusicID: self.lastSubmittedMusicID,
+                          isStationActive: self.isStationActive
+                      ),
                       wasPlaying: self.wasPlaying
                   ) else { return }
             self.reportEnded()
@@ -916,6 +1034,54 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         wasPlaying = false
         endStallTracker.reset()
         onEnded?(queueGeneration)
+    }
+
+    private func claimSystemPlayer() {
+        guard !ownsSystemPlayer else { return }
+        savedSystemRepeatMode = finitePlayer.state.repeatMode
+        savedSystemShuffleMode = finitePlayer.state.shuffleMode
+        finitePlayer.state.repeatMode = MusicPlayer.RepeatMode.none
+        finitePlayer.state.shuffleMode = .off
+        ownsSystemPlayer = true
+    }
+
+    private func releaseSystemPlayer() {
+        guard ownsSystemPlayer else { return }
+        finitePlayer.stop()
+        finitePlayer.queue = MusicPlayer.Queue(for: [Song]())
+        finitePlayer.state.repeatMode = savedSystemRepeatMode
+        finitePlayer.state.shuffleMode = savedSystemShuffleMode
+        savedSystemRepeatMode = nil
+        savedSystemShuffleMode = nil
+        ownsSystemPlayer = false
+    }
+
+    private func pausePlayer(for backend: AppleMusicPlaybackBackend) {
+        switch backend {
+        case .finite: finitePlayer.pause()
+        case .station: stationPlayer.pause()
+        }
+    }
+
+    private func stopPlayer(for backend: AppleMusicPlaybackBackend) {
+        switch backend {
+        case .finite: finitePlayer.stop()
+        case .station: stationPlayer.stop()
+        }
+    }
+
+    private func observe(
+        queue: AnyPublisher<Void, Never>,
+        state: AnyPublisher<Void, Never>
+    ) {
+        queue
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in DispatchQueue.main.async { self?.publishCurrentEntry() } }
+            .store(in: &cancellables)
+        state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in DispatchQueue.main.async { self?.publishState() } }
+            .store(in: &cancellables)
     }
 }
 

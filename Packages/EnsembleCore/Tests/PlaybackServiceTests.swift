@@ -1285,6 +1285,16 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testAppleMusicPlaybackEndPolicyReportsTheFinalEntryAtItsEnd() {
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            currentMusicID: "final",
+            lastSubmittedMusicID: "final",
+            isStationActive: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            currentMusicID: "final",
+            lastSubmittedMusicID: "final",
+            isStationActive: true
+        ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
             playbackTime: 298.84,
             duration: 298.9,

@@ -73,6 +73,71 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(commandCenter.changeRepeat.currentRepeatType, .one)
     }
 
+    #if os(iOS)
+    func testAppleMusicDeferralClearsSystemStateUntilPlexRestoresIt() {
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let commandCenter = FakeRemoteCommandCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: commandCenter
+        )
+        let plexState = makeState(track: makeTrack(), playbackState: .playing)
+        let appleState = makeState(track: makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        ))
+
+        bridge.updateNowPlayingInfo(plexState)
+        bridge.updateNowPlayingInfo(appleState)
+
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo)
+        XCTAssertEqual(nowPlayingCenter.playbackState, .stopped)
+        XCTAssertFalse(commandCenter.play.isEnabled)
+        XCTAssertFalse(commandCenter.pause.isEnabled)
+        XCTAssertFalse(commandCenter.togglePlayPause.isEnabled)
+        XCTAssertFalse(commandCenter.nextTrack.isEnabled)
+        XCTAssertFalse(commandCenter.previousTrack.isEnabled)
+        XCTAssertFalse(commandCenter.changePlaybackPosition.isEnabled)
+        XCTAssertFalse(commandCenter.changeRepeat.isEnabled)
+        XCTAssertFalse(commandCenter.changeShuffle.isEnabled)
+        XCTAssertFalse(commandCenter.like.isEnabled)
+        XCTAssertFalse(commandCenter.dislike.isEnabled)
+
+        bridge.updateNowPlayingInfo(plexState)
+
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Name")
+        XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
+        XCTAssertTrue(commandCenter.pause.isEnabled)
+        XCTAssertTrue(commandCenter.nextTrack.isEnabled)
+        XCTAssertTrue(commandCenter.previousTrack.isEnabled)
+    }
+
+    func testAppleMusicDeferralRejectsStalePlexArtworkCompletion() async throws {
+        let artworkURL = try makeTemporaryPNG()
+        defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(
+                artworkURL: artworkURL,
+                responseDelayNanoseconds: 200_000_000
+            ),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.updateNowPlayingInfo(makeState(track: makeTrack()))
+        bridge.updateNowPlayingInfo(makeState(track: makeTrack(
+            id: "apple-track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )))
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo)
+        XCTAssertEqual(nowPlayingCenter.playbackState, .stopped)
+    }
+    #endif
+
     func testBridgeReplacesExistingArtworkWhenArtworkIdentityChanges() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
@@ -477,7 +542,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         albumRatingKey: String? = "album-1",
         thumbPath: String? = "/thumb/track",
         fallbackThumbPath: String? = "/thumb/album",
-        fallbackRatingKey: String? = "album-1"
+        fallbackRatingKey: String? = "album-1",
+        sourceCompositeKey: String = "plex://server/library"
     ) -> Track {
         Track(
             id: id,
@@ -495,7 +561,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             fallbackThumbPath: fallbackThumbPath,
             fallbackRatingKey: fallbackRatingKey,
             genres: ["Electronic"],
-            sourceCompositeKey: "plex://server/library"
+            sourceCompositeKey: sourceCompositeKey
         )
     }
 

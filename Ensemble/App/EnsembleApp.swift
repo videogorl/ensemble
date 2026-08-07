@@ -306,6 +306,7 @@ struct EnsembleApp: App {
             case .inactive:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "inactive"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                await DependencyContainer.shared.playbackService.handleApplicationDidEnterBackground()
                 break
             @unknown default:
                 break
