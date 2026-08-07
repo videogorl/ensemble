@@ -53,9 +53,21 @@ enum AppleMusicPlaybackEndPolicy {
         playbackTime: TimeInterval,
         duration: TimeInterval,
         isFinalEntry: Bool,
-        wasPlaying: Bool
+        wasPlaying: Bool,
+        isEndSuppressed: Bool = false
     ) -> Bool {
-        wasPlaying && isFinalEntry && duration > 0 && playbackTime >= duration - 0.25
+        wasPlaying
+            && !isEndSuppressed
+            && isFinalEntry
+            && duration > 0
+            && playbackTime >= duration - 0.25
+    }
+
+    static func shouldConfirmStoppedEnd(
+        wasPlaying: Bool,
+        isEndSuppressed: Bool
+    ) -> Bool {
+        wasPlaying && !isEndSuppressed
     }
 }
 
@@ -255,6 +267,7 @@ protocol AppleMusicPlaybackControlling: AnyObject {
     func stop()
     func stopAndWaitForRelease() async -> Bool
     func seek(to time: TimeInterval)
+    func setInterruptionActive(_ isActive: Bool)
     func startStation(seed: Track, smartMixEnabled: Bool) async throws
     func skipToNextEntry() async throws
     func removeFirstUpcomingEntry(catalogID: String) -> Bool
@@ -270,6 +283,9 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private var wasPlaying = false
     private var hasReportedEnd = false
     private var endStallTracker = AppleMusicPlaybackEndStallTracker()
+    private var pausedEndTask: Task<Void, Never>?
+    private var suppressPausedEndUntilPlaybackResumes = false
+    private var isInterrupted = false
     private var isPreparingQueue = false
     private var artworkRequestMusicID: String?
     private var enrichedArtwork: (musicID: String, url: String)?
@@ -388,6 +404,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         try Task.checkCancellation()
         guard acceptCompletion(for: generation) else { return [] }
         operations.markPlaying(generation)
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         hasReportedEnd = false
         wasPlaying = true
         endStallTracker.reset()
@@ -470,6 +488,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     func pause() {
         let wasPreparingQueue = isPreparingQueue
         operations.pause()
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         isPreparingQueue = false
         if wasPreparingQueue {
             activeQueueGeneration = nil
@@ -498,6 +518,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
     func stop() {
         operations.stop()
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         wasPlaying = false
         hasReportedEnd = true
         endStallTracker.reset()
@@ -510,6 +532,15 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         trackByMusicID = [:]
         artworkRequestMusicID = nil
         enrichedArtwork = nil
+    }
+
+    func setInterruptionActive(_ isActive: Bool) {
+        isInterrupted = isActive
+        if isActive {
+            suppressPausedEndUntilPlaybackResumes = true
+            pausedEndTask?.cancel()
+            pausedEndTask = nil
+        }
     }
     func stopAndWaitForRelease() async -> Bool {
         stop()
@@ -576,6 +607,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             }
         }
         operations.markPlaying(generation)
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         hasReportedEnd = false
         wasPlaying = true
         endStallTracker.reset()
@@ -636,6 +669,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
 
     private func beginQueuePreparation() {
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         isPreparingQueue = true
         activeQueueGeneration = nil
         isStationActive = false
@@ -646,6 +681,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
 
     private func failQueuePreparation(generation: UInt64) {
         guard operations.disposition(for: generation) == .apply else { return }
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         player.stop()
         activeQueueGeneration = nil
         isPreparingQueue = false
@@ -813,21 +850,68 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 playbackTime: player.playbackTime,
                 duration: duration,
                 isFinalEntry: currentEntry?.id == player.queue.entries.last?.id,
-                wasPlaying: wasPlaying
+                wasPlaying: wasPlaying,
+                isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
             )
         } else {
             reachedFinalEntryEnd = false
         }
-        if wasPlaying,
-           playbackStatus == .stopped || (playbackStatus == .paused && reachedFinalEntryEnd) {
-            reportEnded()
+        if playbackStatus == .stopped,
+           AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+               wasPlaying: wasPlaying,
+               isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
+           ) {
+            scheduleEndConfirmation(forStoppedPlayback: true)
+        } else if playbackStatus == .paused, reachedFinalEntryEnd {
+            scheduleEndConfirmation(forStoppedPlayback: false)
         } else if playbackStatus == .playing {
+            pausedEndTask?.cancel()
+            pausedEndTask = nil
             wasPlaying = true
+            suppressPausedEndUntilPlaybackResumes = false
+        } else {
+            pausedEndTask?.cancel()
+            pausedEndTask = nil
+        }
+    }
+
+    private func scheduleEndConfirmation(forStoppedPlayback: Bool) {
+        guard pausedEndTask == nil, let queueGeneration = activeQueueGeneration else { return }
+        pausedEndTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 300_000_000)
+            } catch {
+                return
+            }
+            guard let self, !Task.isCancelled else { return }
+            defer { self.pausedEndTask = nil }
+            let playbackStatus = self.player.state.playbackStatus
+            guard self.activeQueueGeneration == queueGeneration,
+                  (forStoppedPlayback ? playbackStatus == .stopped : playbackStatus == .paused),
+                  !self.isInterrupted,
+                  !self.suppressPausedEndUntilPlaybackResumes else { return }
+            if forStoppedPlayback {
+                self.reportEnded()
+                return
+            }
+            guard
+                  let currentEntry = self.player.queue.currentEntry,
+                  case let .song(song)? = currentEntry.item,
+                  let duration = song.duration,
+                  AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+                      playbackTime: self.player.playbackTime,
+                      duration: duration,
+                      isFinalEntry: currentEntry.id == self.player.queue.entries.last?.id,
+                      wasPlaying: self.wasPlaying
+                  ) else { return }
+            self.reportEnded()
         }
     }
 
     private func reportEnded() {
         guard !hasReportedEnd, let queueGeneration = activeQueueGeneration else { return }
+        pausedEndTask?.cancel()
+        pausedEndTask = nil
         hasReportedEnd = true
         wasPlaying = false
         endStallTracker.reset()

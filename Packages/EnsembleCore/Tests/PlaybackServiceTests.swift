@@ -1083,30 +1083,31 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
     }
 
-    func testAppleMusicHandoffWarmsOnlyAtFinalNativeBoundary() {
-        XCTAssertFalse(PlaybackService.shouldWarmAppleMusicHandoff(
-            playbackTime: 97.9,
-            duration: 100,
-            hasNativeNextTrack: true,
-            alreadyPrepared: false
+    func testAppleMusicBackgroundBridgeOnlyRunsDuringActivePlaybackInBackground() {
+        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .playing,
+            currentTrackIsAppleMusic: true
         ))
-        XCTAssertTrue(PlaybackService.shouldWarmAppleMusicHandoff(
-            playbackTime: 98,
-            duration: 100,
-            hasNativeNextTrack: true,
-            alreadyPrepared: false
+        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .loading,
+            currentTrackIsAppleMusic: true
         ))
-        XCTAssertFalse(PlaybackService.shouldWarmAppleMusicHandoff(
-            playbackTime: 99,
-            duration: 100,
-            hasNativeNextTrack: false,
-            alreadyPrepared: false
+        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: true,
+            playbackState: .playing,
+            currentTrackIsAppleMusic: true
         ))
-        XCTAssertFalse(PlaybackService.shouldWarmAppleMusicHandoff(
-            playbackTime: 99,
-            duration: 100,
-            hasNativeNextTrack: true,
-            alreadyPrepared: true
+        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .paused,
+            currentTrackIsAppleMusic: true
+        ))
+        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .playing,
+            currentTrackIsAppleMusic: false
         ))
         XCTAssertFalse(PlaybackService.shouldPauseAudioEngineBeforeLoading(
             isProviderHandoffBridgeActive: true
@@ -1114,6 +1115,53 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(PlaybackService.shouldPauseAudioEngineBeforeLoading(
             isProviderHandoffBridgeActive: false
         ))
+    }
+
+    func testNewPlaybackRequestTakesBackgroundTaskOwnership() {
+        var ownership = PlaybackBackgroundTaskOwnership()
+
+        XCTAssertTrue(ownership.begin(for: 1))
+        XCTAssertFalse(ownership.begin(for: 2))
+        XCTAssertFalse(ownership.end(for: 1))
+        XCTAssertEqual(ownership.generation, 2)
+        XCTAssertTrue(ownership.end(for: 2))
+        XCTAssertNil(ownership.generation)
+    }
+
+    func testBackgroundTaskOwnershipCanBeForceEnded() {
+        var ownership = PlaybackBackgroundTaskOwnership()
+
+        XCTAssertFalse(ownership.forceEnd())
+        XCTAssertTrue(ownership.begin(for: 1))
+        XCTAssertFalse(ownership.begin(for: 2))
+        XCTAssertTrue(ownership.forceEnd())
+        XCTAssertNil(ownership.generation)
+    }
+
+    func testSystemFeedbackAvailabilityMatchesProviderCapabilities() {
+        let plex = makePlexTrack(id: "plex")
+        let apple = makeAppleTrack(id: "apple")
+
+        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
+            for: plex,
+            isLiked: true
+        ).canLike)
+        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
+            for: plex,
+            isLiked: false
+        ).canDislike)
+        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
+            for: apple,
+            isLiked: false
+        ).canLike)
+        XCTAssertFalse(PlaybackService.systemFeedbackAvailability(
+            for: apple,
+            isLiked: false
+        ).canDislike)
+        XCTAssertFalse(PlaybackService.systemFeedbackAvailability(
+            for: apple,
+            isLiked: true
+        ).canLike)
     }
 
     func testAppleMusicQueueMutationSynchronizationTargetsOnlyActiveApplePlayback() {
@@ -1275,6 +1323,21 @@ final class PlaybackServiceTests: XCTestCase {
             duration: 298.9,
             isFinalEntry: false,
             wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.9,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true,
+            isEndSuppressed: true
+        ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+            wasPlaying: true,
+            isEndSuppressed: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+            wasPlaying: true,
+            isEndSuppressed: true
         ))
     }
 

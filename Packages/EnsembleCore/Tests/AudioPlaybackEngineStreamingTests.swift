@@ -115,7 +115,10 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         let engine = AudioPlaybackEngine()
         try engine.setup()
         let rendered = expectation(description: "streaming source rendered")
-        engine.onFirstAudibleRender = { _ in rendered.fulfill() }
+        engine.onFirstAudibleRender = { _, generation in
+            XCTAssertEqual(generation, 42)
+            rendered.fulfill()
+        }
         let source = PlaybackSource.directHTTP(
             URLRequest(url: fixtureURL),
             metadata: PlaybackSourceMetadata(
@@ -128,7 +131,11 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
             )
         )
 
-        try await engine.load(source: source, trackId: "streaming-resume-test")
+        try await engine.load(
+            source: source,
+            trackId: "streaming-resume-test",
+            playbackGeneration: 42
+        )
         try engine.play()
         await fulfillment(of: [rendered], timeout: 1)
         guard let sourceNode = streamingSourceNode(from: engine),
@@ -166,9 +173,10 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
 
         let engine = AudioPlaybackEngine()
         let failed = expectation(description: "streaming failure reached engine")
-        engine.onError = { error, trackId in
+        engine.onError = { error, trackId, generation in
             XCTAssertEqual((error as NSError).code, NSURLErrorNetworkConnectionLost)
             XCTAssertNil(trackId)
+            XCTAssertEqual(generation, 0)
             failed.fulfill()
         }
         let format = try await engine.startStreamingPipeline(
@@ -200,7 +208,8 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
         let engine = AudioPlaybackEngine()
         try engine.setup()
         let completed = expectation(description: "streaming playback completed")
-        engine.onPlaybackComplete = {
+        engine.onPlaybackComplete = { generation in
+            XCTAssertEqual(generation, 55)
             completed.fulfill()
         }
 
@@ -217,7 +226,11 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
             )
         )
 
-        try await engine.load(source: source, trackId: trackId)
+        try await engine.load(
+            source: source,
+            trackId: trackId,
+            playbackGeneration: 55
+        )
         try engine.play()
         await fulfillment(of: [completed], timeout: 2)
         engine.stop()

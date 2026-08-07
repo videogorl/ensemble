@@ -822,7 +822,7 @@ public actor AppleMusicSourceProvider:
         -> NativeLibraryMetadataSnapshot
     {
         let startedAt = Date()
-        async let songsFetch = fetchNativeLibraryItems(Song.self) {
+        let songs = try await fetchNativeLibraryItems(Song.self) {
             NativeLibrarySongMetadata(
                 itemID: $0.id.rawValue,
                 dateAdded: $0.libraryAddedDate,
@@ -830,17 +830,10 @@ public actor AppleMusicSourceProvider:
                 playCount: $0.playCount
             )
         }
-        async let albumsFetch = fetchNativeLibraryItems(MusicKit.Album.self) {
-            NativeLibraryDateMetadata(itemID: $0.id.rawValue, dateAdded: $0.libraryAddedDate)
-        }
-        async let artistsFetch = fetchNativeLibraryItems(MusicKit.Artist.self) {
-            NativeLibraryDateMetadata(itemID: $0.id.rawValue, dateAdded: $0.libraryAddedDate)
-        }
-        let (songs, albums, artists) = try await (songsFetch, albumsFetch, artistsFetch)
         return NativeLibraryMetadataSnapshot(
             songs: songs,
-            albums: albums,
-            artists: artists,
+            albums: [],
+            artists: [],
             elapsedMilliseconds: max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
         )
     }

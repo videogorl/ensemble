@@ -156,6 +156,8 @@ struct PlaybackNowPlayingState {
     let repeatMode: RepeatMode
     let isLiked: Bool
     let isDisliked: Bool
+    let canLike: Bool
+    let canDislike: Bool
     let canPlay: Bool
     let canPause: Bool
     let canSkipForward: Bool
@@ -253,11 +255,13 @@ private final class PlaybackMediaSessionModel: MediaSessionRepresentable {
             }
             .enabled(state.canPlay || state.canPause),
             .next {
+                EnsembleLogger.debug("[Handoff] media session next command received")
                 guard handlers.shouldAcceptSkip() else { return }
                 handlers.next()
             }
             .enabled(state.canSkipForward),
             .previous {
+                EnsembleLogger.debug("[Handoff] media session previous command received")
                 guard handlers.shouldAcceptSkip() else { return }
                 handlers.previous()
             }
@@ -282,10 +286,12 @@ private final class PlaybackMediaSessionModel: MediaSessionRepresentable {
             .enabled(state.canToggleShuffle),
             .feedback(title: "Like", status: state.isLiked ? .positive : .neutral) { _ in
                 _ = handlers.rateLike()
-            },
+            }
+            .enabled(state.canLike),
             .feedback(title: "Dislike", status: state.isDisliked ? .negative : .neutral) { _ in
                 _ = handlers.rateDislike()
             }
+            .enabled(state.canDislike)
         ]
     }
 
@@ -311,8 +317,8 @@ private final class PlaybackMediaSessionModel: MediaSessionRepresentable {
         expectedArtworkID = id
     }
 
-    func updateArtwork(_ image: CGImage, id: String, onlyIfEmpty: Bool = false) {
-        guard expectedArtworkID == id, !onlyIfEmpty || mediaArtwork == nil else { return }
+    func updateArtwork(_ image: CGImage, id: String) {
+        guard expectedArtworkID == id else { return }
         mediaArtwork = NowPlaying.Artwork(id: id) { _ in
             try NowPlaying.ArtworkRepresentation(cgImage: image)
         }
@@ -419,8 +425,8 @@ private final class PlaybackMediaSessionOwner {
         EnsembleLogger.debug("[NowPlaying] Ended iOS 27 media session")
     }
 
-    func updateArtwork(_ image: CGImage, id: String, onlyIfEmpty: Bool = false) {
-        model.updateArtwork(image, id: id, onlyIfEmpty: onlyIfEmpty)
+    func updateArtwork(_ image: CGImage, id: String) {
+        model.updateArtwork(image, id: id)
     }
 
     private func promoteToSystemPrimaryWhenPossible(for state: PlaybackNowPlayingState) {
@@ -449,11 +455,6 @@ private final class PlaybackMediaSessionOwner {
             + " appPrimary=\(session.isApplicationPrimary) systemPrimary=\(session.isSystemPrimary)"
         )
 
-        guard session.isApplicationPrimary || session.canBecomeApplicationPrimary else {
-            EnsembleLogger.debug("[NowPlaying] Application-primary promotion deferred: session is ineligible")
-            return
-        }
-
         promotionGeneration &+= 1
         let generation = promotionGeneration
         promotionTask = Task { @MainActor [weak self, weak session] in
@@ -471,36 +472,65 @@ private final class PlaybackMediaSessionOwner {
                 }
             }
 
-            if !session.isApplicationPrimary {
+            for retryIndex in 0..<2 {
+                guard self.promotionGeneration == generation,
+                      self.model.state?.track?.playbackIdentity == trackID,
+                      self.model.state?.playbackState == .playing,
+                      UIApplication.shared.applicationState == .active,
+                      !Task.isCancelled else { return }
+
+                var failed = false
+                if !session.isApplicationPrimary {
+                    if session.canBecomeApplicationPrimary {
+                        do {
+                            try await session.requestToBecomeApplicationPrimary()
+                            EnsembleLogger.debug(
+                                "[NowPlaying] Media session application-primary request completed:"
+                                + " appPrimary=\(session.isApplicationPrimary)"
+                                + " canBecomeApplicationPrimary=\(session.canBecomeApplicationPrimary)"
+                            )
+                        } catch {
+                            failed = true
+                            EnsembleLogger.error(
+                                "[NowPlaying] Application-primary request failed: \(error.localizedDescription)"
+                            )
+                        }
+                    } else {
+                        failed = true
+                        EnsembleLogger.debug("[NowPlaying] Application-primary promotion deferred: session is ineligible")
+                    }
+                }
+
+                guard self.promotionGeneration == generation,
+                      self.model.state?.track?.playbackIdentity == trackID,
+                      self.model.state?.playbackState == .playing,
+                      UIApplication.shared.applicationState == .active,
+                      !Task.isCancelled else { return }
+
+                if !failed, session.isApplicationPrimary {
+                    do {
+                        try await session.requestToBecomeSystemPrimary()
+                        EnsembleLogger.debug(
+                            "[NowPlaying] Media session promoted: appPrimary=\(session.isApplicationPrimary)"
+                            + " systemPrimary=\(session.isSystemPrimary)"
+                        )
+                        return
+                    } catch {
+                        failed = true
+                        EnsembleLogger.error("[NowPlaying] System-primary request failed: \(error.localizedDescription)")
+                    }
+                } else if !failed {
+                    failed = true
+                    EnsembleLogger.error("[NowPlaying] System-primary request skipped: session is not application-primary")
+                }
+
+                guard failed, retryIndex == 0 else { return }
                 do {
-                    try await session.requestToBecomeApplicationPrimary()
-                    EnsembleLogger.debug(
-                        "[NowPlaying] Media session application-primary request completed:"
-                        + " appPrimary=\(session.isApplicationPrimary)"
-                        + " canBecomeApplicationPrimary=\(session.canBecomeApplicationPrimary)"
-                    )
+                    try await Task.sleep(nanoseconds: 750_000_000)
                 } catch {
-                    EnsembleLogger.error(
-                        "[NowPlaying] Application-primary request failed: \(error.localizedDescription)"
-                    )
                     return
                 }
-            }
-
-            guard session.isApplicationPrimary else {
-                EnsembleLogger.error("[NowPlaying] System-primary request skipped: session is not application-primary")
-                return
-            }
-            guard UIApplication.shared.applicationState == .active, !Task.isCancelled else { return }
-
-            do {
-                try await session.requestToBecomeSystemPrimary()
-                EnsembleLogger.debug(
-                    "[NowPlaying] Media session promoted: appPrimary=\(session.isApplicationPrimary)"
-                    + " systemPrimary=\(session.isSystemPrimary)"
-                )
-            } catch {
-                EnsembleLogger.error("[NowPlaying] System-primary request failed: \(error.localizedDescription)")
+                EnsembleLogger.debug("[NowPlaying] Retrying media session promotion")
             }
         }
     }
@@ -521,6 +551,7 @@ final class PlaybackNowPlayingBridge {
     private var artworkTask: Task<Void, Never>?
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
+    private var latestPlaybackState: PlaybackState = .stopped
 #if os(iOS) && canImport(NowPlaying)
     private let usesMediaSession: Bool
     private var mediaSessionOwner: AnyObject?
@@ -649,18 +680,19 @@ final class PlaybackNowPlayingBridge {
             return .success
         }
 
-        commandCenter.likeCommand.isEnabled = true
+        commandCenter.likeCommand.isEnabled = false
         register(commandCenter.likeCommand) { _ in
             handlers.rateLike()
         }
 
-        commandCenter.dislikeCommand.isEnabled = true
+        commandCenter.dislikeCommand.isEnabled = false
         register(commandCenter.dislikeCommand) { _ in
             handlers.rateDislike()
         }
     }
 
     func updateNowPlayingInfo(_ state: PlaybackNowPlayingState) {
+        latestPlaybackState = state.playbackState
         #if os(iOS) && canImport(NowPlaying)
         if usesMediaSession {
             Task { @MainActor [weak self] in
@@ -723,7 +755,7 @@ final class PlaybackNowPlayingBridge {
             guard let image = await self.resolvedArtworkImage(for: track) else {
                 EnsembleLogger.debug("[NowPlaying] Artwork unavailable for '\(track.title)'; applying generated fallback")
                 await MainActor.run {
-                    self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey, playbackState: state.playbackState)
+                    self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey)
                 }
                 return
             }
@@ -735,7 +767,7 @@ final class PlaybackNowPlayingBridge {
             }
 
             await MainActor.run {
-                self.applyArtwork(artwork, for: nextArtworkRequestKey, playbackState: state.playbackState)
+                self.applyArtwork(artwork, for: nextArtworkRequestKey)
             }
         }
     }
@@ -798,6 +830,7 @@ final class PlaybackNowPlayingBridge {
         guard let nowPlayingCenter, var info = nowPlayingCenter.nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
         nowPlayingCenter.nowPlayingInfo = info
+        latestPlaybackState = .playing
         nowPlayingCenter.playbackState = .playing
     }
 
@@ -814,6 +847,7 @@ final class PlaybackNowPlayingBridge {
         #endif
 
         cancelArtworkLoad(clearArtwork: true)
+        latestPlaybackState = .stopped
         guard let nowPlayingCenter else { return }
         nowPlayingCenter.nowPlayingInfo = nil
         nowPlayingCenter.playbackState = .stopped
@@ -845,8 +879,8 @@ final class PlaybackNowPlayingBridge {
         commandCenter.changePlaybackPositionCommand.isEnabled = state.canSeek
         commandCenter.changeShuffleModeCommand.isEnabled = state.canToggleShuffle
         commandCenter.changeRepeatModeCommand.isEnabled = state.canCycleRepeatMode
-        commandCenter.likeCommand.isEnabled = state.track != nil
-        commandCenter.dislikeCommand.isEnabled = state.track != nil
+        commandCenter.likeCommand.isEnabled = state.canLike
+        commandCenter.dislikeCommand.isEnabled = state.canDislike
         commandCenter.changeShuffleModeCommand.currentShuffleType = Self.shuffleType(for: state.isShuffleEnabled)
         commandCenter.changeRepeatModeCommand.currentRepeatType = Self.repeatType(for: state.repeatMode)
     }
@@ -1005,20 +1039,17 @@ final class PlaybackNowPlayingBridge {
         cancelArtworkLoad(clearArtwork: false)
         artworkRequestKey = requestKey
 
-        let fallbackImage = Self.fallbackArtworkImage(for: track).cgImage
-        if let fallbackImage {
-            mediaSessionOwnerForCurrentOS().updateArtwork(
-                fallbackImage,
-                id: requestKey,
-                onlyIfEmpty: Self.hasArtworkPath(for: track)
-            )
+        guard Self.hasArtworkPath(for: track) else {
+            guard let fallbackImage = Self.fallbackArtworkImage(for: track).cgImage else { return }
+            mediaSessionOwnerForCurrentOS().updateArtwork(fallbackImage, id: requestKey)
+            return
         }
 
         artworkTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let resolvedImage = await resolvedArtworkImage(for: track)
             guard !Task.isCancelled, artworkRequestKey == requestKey else { return }
-            guard let cgImage = resolvedImage?.cgImage ?? fallbackImage else { return }
+            guard let cgImage = resolvedImage?.cgImage ?? Self.fallbackArtworkImage(for: track).cgImage else { return }
             mediaSessionOwnerForCurrentOS().updateArtwork(cgImage, id: requestKey)
         }
     }
@@ -1033,10 +1064,14 @@ final class PlaybackNowPlayingBridge {
     }
 
     private static func artworkRequestKey(for track: Track) -> String {
-        let artworkIdentity = track.thumbPath ?? track.fallbackThumbPath ?? ""
-        let artworkRatingKey = track.thumbPath != nil ? track.id : (track.fallbackRatingKey ?? track.id)
         let source = track.sourceCompositeKey ?? ""
-        return "\(source)|\(artworkRatingKey)|\(artworkIdentity)"
+        if let thumbPath = track.thumbPath, !thumbPath.isEmpty {
+            return "\(source)|\(thumbPath)|\(track.fallbackThumbPath ?? "")"
+        }
+        if let fallbackThumbPath = track.fallbackThumbPath, !fallbackThumbPath.isEmpty {
+            return "\(source)|\(fallbackThumbPath)"
+        }
+        return "\(source)|generated|\(track.id)"
     }
 
     private static func hasArtworkPath(for track: Track) -> Bool {
@@ -1144,8 +1179,7 @@ final class PlaybackNowPlayingBridge {
 
     private func applyArtwork(
         _ artwork: MPMediaItemArtwork,
-        for requestKey: String,
-        playbackState: PlaybackState
+        for requestKey: String
     ) {
         guard let nowPlayingCenter,
               var currentInfo = nowPlayingCenter.nowPlayingInfo,
@@ -1156,13 +1190,12 @@ final class PlaybackNowPlayingBridge {
         self.artwork = artwork
         currentInfo[MPMediaItemPropertyArtwork] = artwork
         nowPlayingCenter.nowPlayingInfo = currentInfo
-        syncNowPlayingPlaybackState(playbackState)
+        syncNowPlayingPlaybackState(latestPlaybackState)
     }
 
     private func applyFallbackArtwork(
         for track: Track,
-        requestKey: String,
-        playbackState: PlaybackState
+        requestKey: String
     ) {
         guard let nowPlayingCenter,
               var currentInfo = nowPlayingCenter.nowPlayingInfo,
@@ -1174,7 +1207,7 @@ final class PlaybackNowPlayingBridge {
         artwork = fallbackArtwork
         currentInfo[MPMediaItemPropertyArtwork] = fallbackArtwork
         nowPlayingCenter.nowPlayingInfo = currentInfo
-        syncNowPlayingPlaybackState(playbackState)
+        syncNowPlayingPlaybackState(latestPlaybackState)
     }
 
     private func syncNowPlayingPlaybackState(_ playbackState: PlaybackState) {
