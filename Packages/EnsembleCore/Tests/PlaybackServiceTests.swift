@@ -1083,6 +1083,39 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
     }
 
+    func testAppleMusicHandoffWarmsOnlyAtFinalNativeBoundary() {
+        XCTAssertFalse(PlaybackService.shouldWarmAppleMusicHandoff(
+            playbackTime: 97.9,
+            duration: 100,
+            hasNativeNextTrack: true,
+            alreadyPrepared: false
+        ))
+        XCTAssertTrue(PlaybackService.shouldWarmAppleMusicHandoff(
+            playbackTime: 98,
+            duration: 100,
+            hasNativeNextTrack: true,
+            alreadyPrepared: false
+        ))
+        XCTAssertFalse(PlaybackService.shouldWarmAppleMusicHandoff(
+            playbackTime: 99,
+            duration: 100,
+            hasNativeNextTrack: false,
+            alreadyPrepared: false
+        ))
+        XCTAssertFalse(PlaybackService.shouldWarmAppleMusicHandoff(
+            playbackTime: 99,
+            duration: 100,
+            hasNativeNextTrack: true,
+            alreadyPrepared: true
+        ))
+        XCTAssertFalse(PlaybackService.shouldPauseAudioEngineBeforeLoading(
+            isProviderHandoffBridgeActive: true
+        ))
+        XCTAssertTrue(PlaybackService.shouldPauseAudioEngineBeforeLoading(
+            isProviderHandoffBridgeActive: false
+        ))
+    }
+
     func testAppleMusicQueueMutationSynchronizationTargetsOnlyActiveApplePlayback() {
         let plex = QueueItem(id: "plex", track: makePlexTrack(id: "plex"))
         let apple = QueueItem(id: "apple", track: makeAppleTrack(id: "apple"))
@@ -1218,6 +1251,72 @@ final class PlaybackServiceTests: XCTestCase {
             playbackTime: 298.9,
             duration: 298.9,
             isFinalEntry: false
+        ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.7,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.7,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.64,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.9,
+            duration: 298.9,
+            isFinalEntry: false,
+            wasPlaying: true
+        ))
+    }
+
+    func testAppleMusicPlaybackEndStallTrackerWaitsForAStationaryPlayhead() {
+        var tracker = AppleMusicPlaybackEndStallTracker()
+
+        XCTAssertFalse(tracker.shouldReportStalledEnd(
+            playbackTime: 16.694,
+            duration: 16.787,
+            isFinalEntry: true
+        ))
+        XCTAssertFalse(tracker.shouldReportStalledEnd(
+            playbackTime: 16.694,
+            duration: 16.787,
+            isFinalEntry: true
+        ))
+        XCTAssertTrue(tracker.shouldReportStalledEnd(
+            playbackTime: 16.694,
+            duration: 16.787,
+            isFinalEntry: true
+        ))
+
+        tracker.reset()
+        XCTAssertFalse(tracker.shouldReportStalledEnd(
+            playbackTime: 16.7,
+            duration: 16.787,
+            isFinalEntry: false
+        ))
+    }
+
+    func testRestoredFinalAppleMusicTrackReportsPausedEnd() {
+        let duration = 270.85061224489795
+        let restoredTime = PlaybackService.restoredPausedSeekTime(
+            savedTime: duration,
+            duration: duration
+        )
+
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: restoredTime,
+            duration: duration,
+            isFinalEntry: true,
+            wasPlaying: true
         ))
     }
 

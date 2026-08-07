@@ -73,10 +73,14 @@ final class PlaybackAudioSessionCoordinator {
         onConfigured: @escaping @MainActor () -> Void
     ) -> Bool {
         #if !os(macOS)
-        guard configuredMixing != mixWithOthers else { return true }
+        let session = sessionProvider()
+        let isCurrentConfiguration = session.category == .playback
+            && session.mode == .default
+            && session.categoryOptions.contains(.mixWithOthers) == mixWithOthers
+            && (mixWithOthers || session.routeSharingPolicy == .longFormAudio)
+        guard configuredMixing != mixWithOthers || !isCurrentConfiguration else { return true }
 
         do {
-            let session = sessionProvider()
             if mixWithOthers {
                 try session.setCategory(
                     .playback,
@@ -110,11 +114,16 @@ final class PlaybackAudioSessionCoordinator {
                 onConfigured()
             }
             EnsembleLogger.debug(
-                "🔊 Audio session category configured (mixWithOthers=\(mixWithOthers))"
+                "🔊 Audio session category configured (mixWithOthers=\(mixWithOthers), "
+                    + "options=\(session.categoryOptions.rawValue), "
+                    + "policy=\(session.routeSharingPolicy.rawValue), route=\(currentRouteDescription()))"
             )
             return true
         } catch {
-            EnsembleLogger.debug("⚠️ Audio session setCategory failed (will retry on next call): \(error)")
+            let nsError = error as NSError
+            EnsembleLogger.debug(
+                "⚠️ Audio session setCategory failed (domain=\(nsError.domain), code=\(nsError.code)): \(error)"
+            )
             return false
         }
         #else
@@ -145,16 +154,26 @@ final class PlaybackAudioSessionCoordinator {
         if shouldStartPlayback {
             do {
                 try session.setActive(true)
+                EnsembleLogger.debug("[AudioSession] Active route=\(currentRouteDescription())")
                 return true
             } catch {
-                EnsembleLogger.debug("⚠️ Audio session setActive failed; retrying once: \(error)")
+                let nsError = error as NSError
+                EnsembleLogger.debug(
+                    "⚠️ Audio session setActive failed; retrying once "
+                        + "(domain=\(nsError.domain), code=\(nsError.code)): \(error)"
+                )
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 guard !Task.isCancelled else { return false }
                 do {
                     try session.setActive(true)
+                    EnsembleLogger.debug("[AudioSession] Active after retry route=\(currentRouteDescription())")
                     return true
                 } catch {
-                    EnsembleLogger.debug("⚠️ Audio session setActive failed after retry: \(error)")
+                    let nsError = error as NSError
+                    EnsembleLogger.debug(
+                        "⚠️ Audio session setActive failed after retry "
+                            + "(domain=\(nsError.domain), code=\(nsError.code)): \(error)"
+                    )
                     return false
                 }
             }
