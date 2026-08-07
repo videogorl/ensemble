@@ -18,6 +18,63 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         )
     }
 
+    func testAppleMusicPlaylistMutationReferencesPreserveCatalogAndLibraryIdentity() throws {
+        let sourceKey = MusicSourceIdentifier.appleMusic.compositeKey
+        let catalog = Track(
+            id: "catalog-id",
+            key: "apple-catalog",
+            title: "Catalog",
+            sourceCompositeKey: sourceKey
+        )
+        let library = Track(
+            id: "library-id",
+            key: "apple-library:library-id",
+            title: "Upload",
+            sourceCompositeKey: sourceKey
+        )
+
+        XCTAssertEqual(
+            try AppleMusicPlaylistMutationPolicy.itemReferences(for: [catalog, library]),
+            [
+                AppleMusicPlaylistItemReference(id: "catalog-id", kind: .catalogSong),
+                AppleMusicPlaylistItemReference(id: "library-id", kind: .librarySong)
+            ]
+        )
+    }
+
+    func testAppleMusicPlaylistMutationBatchesAndRequiresExactOrderedResolution() throws {
+        let catalogReferences = (0..<26).map {
+            AppleMusicPlaylistItemReference(id: "catalog-\($0)", kind: .catalogSong)
+        }
+        let duplicate = AppleMusicPlaylistItemReference(id: "catalog-0", kind: .catalogSong)
+        let references = catalogReferences + [duplicate]
+        let uniqueIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .catalogSong)
+        let batches = AppleMusicPlaylistMutationPolicy.batches(
+            uniqueIDs,
+            limit: AppleMusicPlaylistMutationPolicy.catalogLookupBatchSize
+        )
+
+        XCTAssertEqual(batches.map(\.count), [25, 1])
+        XCTAssertEqual(batches.flatMap { $0 }, (0..<26).map { "catalog-\($0)" })
+
+        let resolved = Dictionary(uniqueKeysWithValues: catalogReferences.map { ($0, "song-\($0.id)") })
+        XCTAssertEqual(
+            try AppleMusicPlaylistMutationPolicy.orderedValues(
+                for: [catalogReferences[1], duplicate, catalogReferences[1]],
+                valuesByReference: resolved
+            ),
+            ["song-catalog-1", "song-catalog-0", "song-catalog-1"]
+        )
+        XCTAssertThrowsError(
+            try AppleMusicPlaylistMutationPolicy.orderedValues(
+                for: references,
+                valuesByReference: [:] as [AppleMusicPlaylistItemReference: String]
+            )
+        ) { error in
+            XCTAssertEqual(error as? PlaylistMutationError, .invalidSource)
+        }
+    }
+
     func testGroupMergesCaseAndDiacriticVariants() {
         let playlists = [
             Playlist(id: "one", key: "/one", title: "Café Mix", sourceCompositeKey: "plex:a:one"),
@@ -31,7 +88,7 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         XCTAssertEqual(displayPlaylists[0].title, "Café Mix")
     }
 
-    func testGroupKeepsAppleMusicNextToMergedPlexPlaylists() {
+    func testGroupMergesAppleMusicAndPlexPlaylistsByTitle() {
         let playlists = [
             Playlist(id: "plex-a", key: "/plex-a", title: "Road Trip", sourceCompositeKey: "plex:a:s:l"),
             Playlist(id: "apple", key: "apple", title: "road trip", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
@@ -41,12 +98,11 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
         let displayPlaylists = DisplayPlaylist.group(playlists, merge: true)
 
-        XCTAssertEqual(displayPlaylists.count, 2)
-        XCTAssertEqual(displayPlaylists[0].playlists.map(\.id), ["plex-a", "plex-b", "plex-c"])
-        XCTAssertEqual(displayPlaylists[1].playlists.map(\.id), ["apple"])
+        XCTAssertEqual(displayPlaylists.count, 1)
+        XCTAssertEqual(displayPlaylists[0].playlists.map(\.id), ["plex-a", "apple", "plex-b", "plex-c"])
     }
 
-    func testGroupKeepsReadOnlyPersonalAppleMusicPlaylistSeparateFromRegularPlexPlaylist() {
+    func testGroupMergesReadOnlyPersonalAppleMusicPlaylistWithRegularPlexPlaylist() {
         let playlists = [
             Playlist(id: "apple", key: "apple", title: "Ambient Electric", isSmart: false, sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
             Playlist(id: "plex", key: "/plex", title: "Ambient Electric", sourceCompositeKey: "plex:a:s:l")
@@ -54,10 +110,10 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
 
         let displayPlaylists = DisplayPlaylist.group(playlists, merge: true)
 
-        XCTAssertEqual(displayPlaylists.count, 2)
-        XCTAssertEqual(displayPlaylists.map { $0.playlists.map(\.id) }, [["apple"], ["plex"]])
-        XCTAssertEqual(displayPlaylists[0].editablePlaylists.map(\.id), [])
-        XCTAssertEqual(displayPlaylists[1].editablePlaylists.map(\.id), ["plex"])
+        XCTAssertEqual(displayPlaylists.count, 1)
+        XCTAssertEqual(displayPlaylists[0].playlists.map(\.id), ["apple", "plex"])
+        XCTAssertFalse(displayPlaylists[0].isSmart)
+        XCTAssertEqual(displayPlaylists[0].editablePlaylists.map(\.id), ["plex"])
     }
 
     func testGroupKeepsCuratedAppleMusicPlaylistSeparateFromRegularPlexPlaylist() {

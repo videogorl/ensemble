@@ -144,7 +144,9 @@ public struct PlaylistPickerSheet: View {
     }
 
     private func playlistRow(for playlist: Playlist) -> some View {
-        Button {
+        let addAvailability = playlist.actionAvailability(for: .addItems)
+
+        return Button {
             addToPlaylist(playlist)
         } label: {
             HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
@@ -156,7 +158,10 @@ public struct PlaylistPickerSheet: View {
 
                 VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                     Text(playlist.title)
-                    Text(playlistContainsSelection(playlist) ? "Already added" : "\(playlist.trackCount) songs")
+                    Text(
+                        addAvailability.reason
+                            ?? (playlistContainsSelection(playlist) ? "Already added" : "\(playlist.trackCount) songs")
+                    )
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }
@@ -167,8 +172,10 @@ public struct PlaylistPickerSheet: View {
         .disabled(
             isSubmitting ||
             playlistContainsSelection(playlist) ||
-            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0
+            nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0 ||
+            !addAvailability.isAvailable
         )
+        .accessibilityHint(addAvailability.reason ?? "")
     }
 
     private var filteredPlaylists: [Playlist] {

@@ -156,8 +156,9 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             return cachedArtwork.data
         }
 
-        let size = CGSize(width: 200, height: 200)
-        guard let data = artwork.image(at: size)?.jpegData(compressionQuality: 0.7) else { return nil }
+        let size = CGSize(width: 96, height: 96)
+        guard let data = artwork.image(at: size)?.jpegData(compressionQuality: 0.3),
+              data.count <= 40_000 else { return nil }
         cachedArtwork = (trackID, artwork, data)
         return data
     }
@@ -166,8 +167,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
         guard let playbackService = deps?.playbackService else {
             return WatchCompanionCommandResponse(
                 accepted: false,
-                errorMessage: "Playback is not ready.",
-                snapshot: makeSnapshot()
+                errorMessage: "Playback is not ready."
             )
         }
 
@@ -192,8 +192,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             guard let time = command.time else {
                 return WatchCompanionCommandResponse(
                     accepted: false,
-                    errorMessage: "Missing seek time.",
-                    snapshot: makeSnapshot()
+                    errorMessage: "Missing seek time."
                 )
             }
             playbackService.seek(to: time)
@@ -206,7 +205,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
         }
 
         publishSnapshot()
-        return WatchCompanionCommandResponse(accepted: true, snapshot: makeSnapshot())
+        return WatchCompanionCommandResponse(accepted: true)
     }
 
     nonisolated func session(
@@ -259,8 +258,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             } catch {
                 let response = WatchCompanionCommandResponse(
                     accepted: false,
-                    errorMessage: error.localizedDescription,
-                    snapshot: makeSnapshot()
+                    errorMessage: error.localizedDescription
                 )
                 let responseData = try? encoder.encode(response)
                 replyHandler(responseData.map { [WatchCompanionPayloadKey.response: $0] } ?? [:])

@@ -29,7 +29,6 @@ struct TrackActionsContextMenu: View {
     var body: some View {
         let isFavorited = nowPlayingVM.isTrackFavorited(track)
         let favoriteAvailability = track.actionAvailability(for: .favorite, isFavorited: isFavorited)
-        let queueAvailability = nowPlayingVM.queueActionAvailability(for: track)
         let editAvailability = track.actionAvailability(for: .editMetadata)
         let deleteAvailability = track.actionAvailability(for: .delete)
         let recentTitle = recentPlaylistTarget.map { target in
@@ -66,8 +65,6 @@ struct TrackActionsContextMenu: View {
                     canRemoveFromPlaylist: onRemoveFromPlaylist != nil,
                     canRemoveFromQueue: onRemoveFromQueue != nil,
                     itemActions: [
-                        .playNext: queueAvailability,
-                        .playLast: queueAvailability,
                         .favorite: favoriteAvailability,
                         .editMetadata: editAvailability,
                         .deleteTrack: deleteAvailability
@@ -186,7 +183,6 @@ struct AlbumActionsContextMenu: View {
         )
         let editAvailability = album.actionAvailability(for: .editMetadata)
         let deleteAvailability = album.actionAvailability(for: .delete)
-        let queueAvailability = nowPlayingVM.queueActionAvailability(for: album.sourceProbeTrack)
         let isPinned = pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
         let recentTarget = nowPlayingVM.lastPlaylistTarget
         let recentPlaylistTitle = recentTarget.flatMap { target in
@@ -222,8 +218,6 @@ struct AlbumActionsContextMenu: View {
                     canEditPlaylist: false,
                     canRemoveFromQueue: false,
                     itemActions: [
-                        .playNext: queueAvailability,
-                        .playLast: queueAvailability,
                         .download: downloadAvailability,
                         .editMetadata: editAvailability,
                         .deleteAlbum: deleteAvailability
@@ -531,7 +525,6 @@ struct PlaylistActionsContextMenu: View {
         let renameAvailability = playlist.actionAvailability(for: .rename)
         let reorderAvailability = playlist.actionAvailability(for: .reorder)
         let deleteAvailability = playlist.actionAvailability(for: .delete)
-        let queueAvailability = nowPlayingVM.queueActionAvailability(for: playlist.sourceProbeTrack)
         let isPinned = pinManager.isPinned(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
@@ -555,8 +548,6 @@ struct PlaylistActionsContextMenu: View {
                     canEditPlaylist: onEdit != nil,
                     canRemoveFromQueue: false,
                     itemActions: [
-                        .playNext: queueAvailability,
-                        .playLast: queueAvailability,
                         .download: downloadAvailability,
                         .rename: renameAvailability,
                         .editPlaylist: reorderAvailability,
@@ -687,9 +678,6 @@ struct MergedPlaylistActionsContextMenu: View {
         let deleteAvailability = MusicItemActionAvailability.combined(
             displayPlaylist.playlists.map { $0.actionAvailability(for: .delete) }
         )
-        let queueAvailability = nowPlayingVM.queueActionAvailability(
-            for: displayPlaylist.playlists.map(\.sourceProbeTrack)
-        )
         let isDownloaded = isAnyConstituentDownloaded
         let removeDownloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
@@ -730,8 +718,6 @@ struct MergedPlaylistActionsContextMenu: View {
                     canEditPlaylist: false,
                     canRemoveFromQueue: false,
                     itemActions: [
-                        .playNext: queueAvailability,
-                        .playLast: queueAvailability,
                         .downloadAll: downloadAvailability,
                         .removeDownloads: removeDownloadAvailability,
                         .renameAll: renameAvailability,
@@ -813,17 +799,6 @@ private extension Album {
             albumRatingKey: id,
             artistRatingKey: artistRatingKey,
             thumbPath: thumbPath,
-            sourceCompositeKey: sourceCompositeKey
-        )
-    }
-}
-
-private extension Playlist {
-    var sourceProbeTrack: Track {
-        Track(
-            id: id,
-            key: key,
-            title: title,
             sourceCompositeKey: sourceCompositeKey
         )
     }

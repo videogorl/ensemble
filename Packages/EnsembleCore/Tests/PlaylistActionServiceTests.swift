@@ -111,6 +111,31 @@ final class PlaylistActionServiceTests: XCTestCase {
         )
     }
 
+    func testPlaylistCreationOptionsIncludeEnabledAppleMusicSource() {
+        let options = NowPlayingViewModel.playlistCreationOptions(
+            plexOptions: [PlaylistServerOption(id: "plex:account:server", name: "Zebra Server")],
+            includesAppleMusic: true
+        )
+
+        XCTAssertEqual(
+            options,
+            [
+                PlaylistServerOption(
+                    id: MusicSourceIdentifier.appleMusic.compositeKey,
+                    name: MusicSourceType.appleMusic.capabilities.displayName
+                ),
+                PlaylistServerOption(id: "plex:account:server", name: "Zebra Server")
+            ]
+        )
+        XCTAssertEqual(
+            NowPlayingViewModel.playlistCreationOptions(
+                plexOptions: options.filter { $0.id != MusicSourceIdentifier.appleMusic.compositeKey },
+                includesAppleMusic: false
+            ).map(\.id),
+            ["plex:account:server"]
+        )
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,

@@ -1401,15 +1401,16 @@ public struct MediaTrackList: UIViewRepresentable {
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> UIMenu? {
             let indexed = indexedTrack(at: indexPath)
+            let canRemove = interactionModel.allowsRemovalFromPlaylist(track)
             return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
-                onRemoveFromPlaylist: indexed.flatMap { indexed in
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: canRemove),
+                onRemoveFromPlaylist: canRemove ? indexed.flatMap { indexed in
                     onRemoveFromPlaylist.map { callback in
                         { callback(indexed.track, indexed.index) }
                     }
-                }
+                } : nil
             )
         }
 

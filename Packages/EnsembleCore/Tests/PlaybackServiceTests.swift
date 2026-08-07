@@ -938,7 +938,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(pruned.queue.map(\.id), ["plex"])
         XCTAssertEqual(pruned.currentIndex, 0)
         XCTAssertEqual(pruned.currentTime, 42)
-        XCTAssertEqual(pruned.incompatibleQueueItemCount, 0)
     }
 
     func testAppleRemovalPromotesFuturePlexItemAndResetsRemovedApplePlayhead() {
@@ -1084,6 +1083,125 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
     }
 
+    func testAppleMusicBackgroundBridgeOnlyRunsDuringActivePlaybackInBackground() {
+        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .playing,
+            currentTrackIsAppleMusic: true
+        ))
+        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .loading,
+            currentTrackIsAppleMusic: true
+        ))
+        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: true,
+            playbackState: .playing,
+            currentTrackIsAppleMusic: true
+        ))
+        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .paused,
+            currentTrackIsAppleMusic: true
+        ))
+        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
+            applicationIsActive: false,
+            playbackState: .playing,
+            currentTrackIsAppleMusic: false
+        ))
+        XCTAssertFalse(PlaybackService.shouldPauseAudioEngineBeforeLoading(
+            isProviderHandoffBridgeActive: true
+        ))
+        XCTAssertTrue(PlaybackService.shouldPauseAudioEngineBeforeLoading(
+            isProviderHandoffBridgeActive: false
+        ))
+    }
+
+    func testNewPlaybackRequestTakesBackgroundTaskOwnership() {
+        var ownership = PlaybackBackgroundTaskOwnership()
+
+        XCTAssertTrue(ownership.begin(for: 1))
+        XCTAssertFalse(ownership.begin(for: 2))
+        XCTAssertFalse(ownership.end(for: 1))
+        XCTAssertEqual(ownership.generation, 2)
+        XCTAssertTrue(ownership.end(for: 2))
+        XCTAssertNil(ownership.generation)
+    }
+
+    func testBackgroundTaskOwnershipCanBeForceEnded() {
+        var ownership = PlaybackBackgroundTaskOwnership()
+
+        XCTAssertFalse(ownership.forceEnd())
+        XCTAssertTrue(ownership.begin(for: 1))
+        XCTAssertFalse(ownership.begin(for: 2))
+        XCTAssertTrue(ownership.forceEnd())
+        XCTAssertNil(ownership.generation)
+    }
+
+    func testSystemFeedbackAvailabilityMatchesProviderCapabilities() {
+        let plex = makePlexTrack(id: "plex")
+        let apple = makeAppleTrack(id: "apple")
+
+        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
+            for: plex,
+            isLiked: true
+        ).canLike)
+        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
+            for: plex,
+            isLiked: false
+        ).canDislike)
+        XCTAssertTrue(PlaybackService.systemFeedbackAvailability(
+            for: apple,
+            isLiked: false
+        ).canLike)
+        XCTAssertFalse(PlaybackService.systemFeedbackAvailability(
+            for: apple,
+            isLiked: false
+        ).canDislike)
+        XCTAssertFalse(PlaybackService.systemFeedbackAvailability(
+            for: apple,
+            isLiked: true
+        ).canLike)
+    }
+
+    func testAppleMusicQueueMutationSynchronizationTargetsOnlyActiveApplePlayback() {
+        let plex = QueueItem(id: "plex", track: makePlexTrack(id: "plex"))
+        let apple = QueueItem(id: "apple", track: makeAppleTrack(id: "apple"))
+        let queue = [plex, apple]
+
+        for state in [
+            PlaybackState.loading,
+            .buffering,
+            .playing,
+            .paused,
+        ] {
+            XCTAssertEqual(
+                PlaybackService.appleMusicQueueItemIDNeedingSynchronization(
+                    queue: queue,
+                    currentQueueIndex: 1,
+                    playbackState: state
+                ),
+                apple.id
+            )
+        }
+
+        XCTAssertNil(PlaybackService.appleMusicQueueItemIDNeedingSynchronization(
+            queue: queue,
+            currentQueueIndex: 0,
+            playbackState: .playing
+        ))
+        XCTAssertNil(PlaybackService.appleMusicQueueItemIDNeedingSynchronization(
+            queue: queue,
+            currentQueueIndex: 1,
+            playbackState: .stopped
+        ))
+        XCTAssertNil(PlaybackService.appleMusicQueueItemIDNeedingSynchronization(
+            queue: queue,
+            currentQueueIndex: 1,
+            playbackState: .failed("test")
+        ))
+    }
+
     func testAppleMusicCallbackAcceptanceRequiresTheCurrentEnabledAppleQueue() {
         for state in [PlaybackState.loading, .buffering, .playing] {
             XCTAssertTrue(PlaybackService.shouldAcceptAppleMusicCallback(
@@ -1167,6 +1285,16 @@ final class PlaybackServiceTests: XCTestCase {
     }
 
     func testAppleMusicPlaybackEndPolicyReportsTheFinalEntryAtItsEnd() {
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            currentMusicID: "final",
+            lastSubmittedMusicID: "final",
+            isStationActive: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            currentMusicID: "final",
+            lastSubmittedMusicID: "final",
+            isStationActive: true
+        ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
             playbackTime: 298.84,
             duration: 298.9,
@@ -1182,9 +1310,90 @@ final class PlaybackServiceTests: XCTestCase {
             duration: 298.9,
             isFinalEntry: false
         ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.7,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.7,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.64,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.9,
+            duration: 298.9,
+            isFinalEntry: false,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.9,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true,
+            isEndSuppressed: true
+        ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+            wasPlaying: true,
+            isEndSuppressed: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+            wasPlaying: true,
+            isEndSuppressed: true
+        ))
     }
 
-    func testQueueEngineAffinityKeepsTheSelectedAppleMusicEngine() {
+    func testAppleMusicPlaybackEndStallTrackerWaitsForAStationaryPlayhead() {
+        var tracker = AppleMusicPlaybackEndStallTracker()
+
+        XCTAssertFalse(tracker.shouldReportStalledEnd(
+            playbackTime: 16.694,
+            duration: 16.787,
+            isFinalEntry: true
+        ))
+        XCTAssertFalse(tracker.shouldReportStalledEnd(
+            playbackTime: 16.694,
+            duration: 16.787,
+            isFinalEntry: true
+        ))
+        XCTAssertTrue(tracker.shouldReportStalledEnd(
+            playbackTime: 16.694,
+            duration: 16.787,
+            isFinalEntry: true
+        ))
+
+        tracker.reset()
+        XCTAssertFalse(tracker.shouldReportStalledEnd(
+            playbackTime: 16.7,
+            duration: 16.787,
+            isFinalEntry: false
+        ))
+    }
+
+    func testRestoredFinalAppleMusicTrackReportsPausedEnd() {
+        let duration = 270.85061224489795
+        let restoredTime = PlaybackService.restoredPausedSeekTime(
+            savedTime: duration,
+            duration: duration
+        )
+
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: restoredTime,
+            duration: duration,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+    }
+
+    func testRestoredSnapshotPreservesMixedPlaybackEnginesAndSelectedIndex() {
         let plexBefore = QueueItem(
             id: "plex-before",
             track: makePlexTrack(id: "plex-before")
@@ -1195,62 +1404,27 @@ final class PlaybackServiceTests: XCTestCase {
             track: makePlexTrack(id: "plex-after")
         )
         let appleAfter = QueueItem(id: "apple-after", track: makeAppleTrack(id: "apple-after"))
-
-        let result = PlaybackService.enforceQueueEngineAffinity(
+        let snapshot = PlaybackQueueSnapshot(
             queue: [plexBefore, apple, plexAfter, appleAfter],
-            currentIndex: 1
+            history: [plexBefore, apple],
+            currentIndex: 1,
+            currentTime: 42
         )
 
-        XCTAssertEqual(result.queue.map(\.id), ["apple", "apple-after"])
-        XCTAssertEqual(result.currentIndex, 0)
-        XCTAssertEqual(result.removedItemCount, 2)
-        XCTAssertEqual(result.engine, .appleMusic)
-    }
-
-    func testQueueEngineAffinityKeepsTheSelectedEnsembleEngineAndIndex() {
-        let plexBefore = QueueItem(
-            id: "plex-before",
-            track: makePlexTrack(id: "plex-before")
-        )
-        let apple = QueueItem(id: "apple", track: makeAppleTrack(id: "apple"))
-        let plexSelected = QueueItem(
-            id: "plex-selected",
-            track: makePlexTrack(id: "plex-selected")
+        let result = PlaybackService.pruningRestoredSnapshot(
+            snapshot,
+            configuration: sourceConfiguration(
+                enabledSourceKeys: [
+                    "plex:account:server:library",
+                    MusicSourceIdentifier.appleMusic.compositeKey,
+                ]
+            )
         )
 
-        let result = PlaybackService.enforceQueueEngineAffinity(
-            queue: [plexBefore, apple, plexSelected],
-            currentIndex: 2
-        )
-
-        XCTAssertEqual(result.queue.map(\.id), ["plex-before", "plex-selected"])
+        XCTAssertEqual(result.queue.map(\.id), ["plex-before", "apple", "plex-after", "apple-after"])
+        XCTAssertEqual(result.history.map(\.id), ["plex-before", "apple"])
         XCTAssertEqual(result.currentIndex, 1)
-        XCTAssertEqual(result.removedItemCount, 1)
-        XCTAssertEqual(result.engine, .ensemble)
-    }
-
-    func testQueueActionAvailabilityRejectsOnlyFullyIncompatibleSelections() {
-        let plex = makePlexTrack(id: "plex")
-        let apple = makeAppleTrack(id: "apple")
-
-        XCTAssertFalse(
-            PlaybackService.queueActionAvailability(
-                for: [apple],
-                activeEngine: .ensemble
-            ).isAvailable
-        )
-        XCTAssertTrue(
-            PlaybackService.queueActionAvailability(
-                for: [apple, plex],
-                activeEngine: .ensemble
-            ).isAvailable
-        )
-        XCTAssertTrue(
-            PlaybackService.queueActionAvailability(
-                for: [apple],
-                activeEngine: nil
-            ).isAvailable
-        )
+        XCTAssertEqual(result.currentTime, 42)
     }
 
     func testAppleMusicUnresolvedPruningPreservesDuplicateOutsideSubmittedSegment() {

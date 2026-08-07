@@ -21,8 +21,6 @@ public struct TrackRowInteractionModel {
         public let isFavorited: Bool
         public let recentPlaylistTitle: String?
         public let favoriteAvailability: MusicItemActionAvailability
-        public let playNextAvailability: MusicItemActionAvailability
-        public let playLastAvailability: MusicItemActionAvailability
         public let editMetadataAvailability: MusicItemActionAvailability
         public let deleteAvailability: MusicItemActionAvailability
 
@@ -60,7 +58,7 @@ public struct TrackRowInteractionModel {
     public let onDeleteTrack: ((Track) -> Void)?
     public let isTrackFavorited: ((Track) -> Bool)?
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
-    public let queueActionAvailability: ((Track) -> MusicItemActionAvailability)?
+    public let canRemoveFromPlaylist: ((Track) -> Bool)?
     public let recentPlaylistTitle: String?
 
     public init(
@@ -80,7 +78,7 @@ public struct TrackRowInteractionModel {
         onDeleteTrack: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
-        queueActionAvailability: ((Track) -> MusicItemActionAvailability)? = nil,
+        canRemoveFromPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil
     ) {
         self.onPlayNext = onPlayNext
@@ -99,12 +97,16 @@ public struct TrackRowInteractionModel {
         self.onDeleteTrack = onDeleteTrack
         self.isTrackFavorited = isTrackFavorited
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
-        self.queueActionAvailability = queueActionAvailability
+        self.canRemoveFromPlaylist = canRemoveFromPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
     }
 
     public func isFavorited(_ track: Track) -> Bool {
         isTrackFavorited?(track) ?? track.isFavorite
+    }
+
+    public func allowsRemovalFromPlaylist(_ track: Track) -> Bool {
+        canRemoveFromPlaylist?(track) ?? true
     }
 
     public func hasContextMenu(for track: Track) -> Bool {
@@ -147,15 +149,12 @@ public struct TrackRowInteractionModel {
                 isFavorited: false,
                 recentPlaylistTitle: nil,
                 favoriteAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
-                playNextAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
-                playLastAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
                 editMetadataAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
                 deleteAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable.")
             )
         }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
         let isFavorited = isFavorited(track)
-        let queueAvailability = queueActionAvailability?(track) ?? .available
 
         return ResolvedActions(
             onPlayNext: onPlayNext.map { callback in { callback(track) } },
@@ -175,8 +174,6 @@ public struct TrackRowInteractionModel {
             isFavorited: isFavorited,
             recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil,
             favoriteAvailability: track.actionAvailability(for: .favorite, isFavorited: isFavorited),
-            playNextAvailability: queueAvailability,
-            playLastAvailability: queueAvailability,
             editMetadataAvailability: track.actionAvailability(for: .editMetadata),
             deleteAvailability: track.actionAvailability(for: .delete)
         )
@@ -258,9 +255,6 @@ extension TrackRowInteractionModel {
             },
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM) != nil
-            },
-            queueActionAvailability: { track in
-                nowPlayingVM.queueActionAvailability(for: track)
             },
             recentPlaylistTitle: recentPlaylistTitle
         )

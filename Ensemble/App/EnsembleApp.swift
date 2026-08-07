@@ -221,6 +221,7 @@ struct EnsembleApp: App {
             switch phase {
             case .active:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "active"])
+                DependencyContainer.shared.playbackService.handleApplicationDidBecomeActive()
                 if #available(iOS 16.0, *) {
                     await EnsembleFocusFilter.refreshCurrent()
                 }
@@ -278,6 +279,7 @@ struct EnsembleApp: App {
             case .background:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                await DependencyContainer.shared.playbackService.handleApplicationDidEnterBackground()
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()
@@ -304,6 +306,7 @@ struct EnsembleApp: App {
             case .inactive:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "inactive"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                await DependencyContainer.shared.playbackService.handleApplicationDidEnterBackground()
                 break
             @unknown default:
                 break

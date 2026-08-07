@@ -723,19 +723,11 @@ public struct SidebarView: View {
         let newSmart = items.filter(\.isSmart)
         let newRegular = items.filter { !$0.isSmart }
 
-        // Never replace a populated cache with empty data. The shared
-        // PlaylistViewModel is also used by PlaylistsView — its .task
-        // reloads with showLoading:true, which briefly sets playlists=[]
-        // and fires this handler. Allowing the clear would wipe the sidebar.
-        if !newSmart.isEmpty || cachedSmartPlaylists.isEmpty {
-            if newSmart != cachedSmartPlaylists {
-                cachedSmartPlaylists = newSmart
-            }
+        if newSmart != cachedSmartPlaylists {
+            cachedSmartPlaylists = newSmart
         }
-        if !newRegular.isEmpty || cachedRegularPlaylists.isEmpty {
-            if newRegular != cachedRegularPlaylists {
-                cachedRegularPlaylists = newRegular
-            }
+        if newRegular != cachedRegularPlaylists {
+            cachedRegularPlaylists = newRegular
         }
     }
 
@@ -811,7 +803,7 @@ public struct SidebarView: View {
     }
 
     private func sidebarDropTargets(for playlists: [Playlist]) -> [PlaylistDropTargetReference] {
-        playlists.map { playlist in
+        playlists.filter(\.supportsPlaylistTrackAdds).map { playlist in
             PlaylistDropTargetReference(
                 id: playlist.id,
                 sourceKey: playlist.sourceCompositeKey,
@@ -971,7 +963,7 @@ public struct SidebarView: View {
                 )
                 if result.outcome == .completed {
                     await playlistsVM.awaitRenamedPlaylistMaterialization(
-                        for: playlist.id,
+                        forPlaylistIdentity: playlist.sourceScopedID,
                         expectedTitle: start.trimmedTitle
                     )
                     deps.pinMutationWorkflow.updateTitle(
@@ -984,7 +976,7 @@ public struct SidebarView: View {
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(result.successToast)
             } catch {
-                playlistsVM.clearOptimisticRename(for: playlist.id)
+                playlistsVM.clearOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID)
                 await playlistsVM.loadPlaylists()
                 deps.toastCenter.dismiss(id: renamingToast.id)
                 deps.toastCenter.show(
@@ -999,9 +991,8 @@ public struct SidebarView: View {
     }
 
     private var mergedPlaylistRenameMessage: String {
-        let count = mergedPlaylistPendingRename?.playlists.count ?? 0
-        let serverLabel = count == 1 ? "server" : "servers"
-        return "This will rename on \(count) \(serverLabel)."
+        let count = mergedPlaylistPendingRename?.editablePlaylists.count ?? 0
+        return "This will rename on \(count) source\(count == 1 ? "" : "s")."
     }
 
     public var body: some View {
@@ -1068,7 +1059,7 @@ public struct SidebarView: View {
                 let title = mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                 mergedPlaylistPendingRename = nil
                 playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: title)
-                for playlist in displayPlaylist.playlists {
+                for playlist in displayPlaylist.editablePlaylists {
                     renamePinnedPlaylist(playlist, to: title)
                 }
             }
@@ -1089,7 +1080,7 @@ public struct SidebarView: View {
                 startPinnedPlaylistDelete(for: playlist)
             }
         } message: {
-            Text("This will permanently delete \"\(playlistPendingDelete?.title ?? "this playlist")\" from Plex.")
+            Text("This will permanently delete \"\(playlistPendingDelete?.title ?? "this playlist")\" from its source.")
         }
         .alert("Delete Merged Playlist?", isPresented: Binding(
             get: { mergedPlaylistPendingDelete != nil },
@@ -1101,17 +1092,18 @@ public struct SidebarView: View {
             Button("Delete All", role: .destructive) {
                 guard let displayPlaylist = mergedPlaylistPendingDelete else { return }
                 mergedPlaylistPendingDelete = nil
+                let deletablePlaylists = displayPlaylist.deletablePlaylists
                 handlePinnedSelectionRemoval(
-                    identities: Set(displayPlaylist.playlists.map(\.sourceScopedID)),
+                    identities: Set(deletablePlaylists.map(\.sourceScopedID)),
                     fallback: .library(.playlists)
                 )
-                for playlist in displayPlaylist.playlists {
+                for playlist in deletablePlaylists {
                     startPinnedPlaylistDelete(for: playlist)
                 }
             }
         } message: {
-            let count = mergedPlaylistPendingDelete?.playlists.count ?? 0
-            Text("This will permanently delete \"\(mergedPlaylistPendingDelete?.title ?? "")\" from \(count) server\(count == 1 ? "" : "s").")
+            let count = mergedPlaylistPendingDelete?.deletablePlaylists.count ?? 0
+            Text("This will permanently delete \"\(mergedPlaylistPendingDelete?.title ?? "")\" from \(count) source\(count == 1 ? "" : "s").")
         }
         .task {
             // Load all sidebar data concurrently so playlists appear

@@ -462,7 +462,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private func pinMenuButton(ratingKey: String, mediaType: PinnedItemType) -> some View {
         let isPinned = isPinnedForHeader
         let sourceKey = headerData.sourceKey
-        let queueAvailability = nowPlayingVM.queueActionAvailability(for: viewModel.filteredTracks)
         return Menu {
             if showFilter {
                 Button {
@@ -486,16 +485,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } label: {
                         MediaActionLabel(kind: .playNext)
                     }
-                    .disabled(!queueAvailability.isAvailable)
-                    .accessibilityHint(queueAvailability.reason ?? "")
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     Button {
                         albumMenuActions.onPlayLast()
                     } label: {
                         MediaActionLabel(kind: .playLast)
                     }
-                    .disabled(!queueAvailability.isAvailable)
-                    .accessibilityHint(queueAvailability.reason ?? "")
+                    .disabled(viewModel.filteredTracks.isEmpty)
 
                     if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
                         for: viewModel.filteredTracks,
@@ -749,16 +746,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     MediaActionLabel(kind: .playNext)
                 }
-                .disabled(!queueAvailability.isAvailable)
-                .accessibilityHint(queueAvailability.reason ?? "")
+                .disabled(viewModel.filteredTracks.isEmpty)
 
                 Button {
                     playlistMenuActions.onPlayLast()
                 } label: {
                     MediaActionLabel(kind: .playLast)
                 }
-                .disabled(!queueAvailability.isAvailable)
-                .accessibilityHint(queueAvailability.reason ?? "")
+                .disabled(viewModel.filteredTracks.isEmpty)
 
                 Divider()
 
@@ -1410,8 +1405,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     nowPlayingVM: nowPlayingVM
                 ) != nil
             },
-            queueActionAvailability: { track in
-                nowPlayingVM.queueActionAvailability(for: track)
+            canRemoveFromPlaylist: { track in
+                guard let merged = viewModel as? MergedPlaylistDetailViewModel else { return true }
+                return merged.canRemoveTrackFromPlaylist(track)
             },
             recentPlaylistTitle: lastPlaylistQuickTarget?.title
         )

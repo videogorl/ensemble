@@ -964,11 +964,18 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let playlistRepository = MockPlaylistRepository()
         let context = CoreDataStack.inMemory().viewContext
         let deletedPlaylist = makePlaylist(id: "playlist-a", title: "Audit")
+        let sameIDApplePlaylist = makePlaylist(
+            id: deletedPlaylist.id,
+            title: "Apple Audit",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
         let remainingPlaylist = makePlaylist(id: "playlist-b", title: "Road")
-        playlistRepository.playlists[playlistRepository.playlistKey(
-            ratingKey: deletedPlaylist.id,
-            sourceCompositeKey: deletedPlaylist.sourceCompositeKey
-        )] = makeCachedPlaylist(deletedPlaylist, tracks: [], context: context)
+        for playlist in [deletedPlaylist, sameIDApplePlaylist] {
+            playlistRepository.playlists[playlistRepository.playlistKey(
+                ratingKey: playlist.id,
+                sourceCompositeKey: playlist.sourceCompositeKey
+            )] = makeCachedPlaylist(playlist, tracks: [], context: context)
+        }
         playlistRepository.playlists[playlistRepository.playlistKey(
             ratingKey: remainingPlaylist.id,
             sourceCompositeKey: remainingPlaylist.sourceCompositeKey
@@ -982,19 +989,73 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         )
 
         await viewModel.loadPlaylists()
-        XCTAssertEqual(viewModel.playlists.map(\.id).sorted(), ["playlist-a", "playlist-b"])
+        XCTAssertEqual(
+            Set(viewModel.playlists.map(\.sourceScopedID)),
+            [deletedPlaylist.sourceScopedID, sameIDApplePlaylist.sourceScopedID, remainingPlaylist.sourceScopedID]
+        )
 
         let didDelete = await viewModel.deletePlaylist(deletedPlaylist)
 
         XCTAssertTrue(didDelete)
-        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-b"])
+        XCTAssertEqual(
+            Set(viewModel.playlists.map(\.sourceScopedID)),
+            [sameIDApplePlaylist.sourceScopedID, remainingPlaylist.sourceScopedID]
+        )
 
         await viewModel.loadPlaylists()
 
-        XCTAssertEqual(viewModel.playlists.map(\.id), ["playlist-b"])
-        XCTAssertEqual(viewModel.displayPlaylists.map(\.primaryPlaylist.id), ["playlist-b"])
+        XCTAssertEqual(
+            Set(viewModel.playlists.map(\.sourceScopedID)),
+            [sameIDApplePlaylist.sourceScopedID, remainingPlaylist.sourceScopedID]
+        )
         let events = await provider.eventsSnapshot()
         XCTAssertEqual(events, [.delete(playlistID: "playlist-a")])
+    }
+
+    func testPlaylistViewModelOptimisticRenameUsesSourceScopedIdentity() async {
+        PlaylistViewModel.resetLastGoodSnapshotForTesting()
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let plexPlaylist = makePlaylist(
+            id: "shared-id",
+            title: "Plex Road",
+            sourceCompositeKey: "plex:account-1:server-1"
+        )
+        let applePlaylist = makePlaylist(
+            id: "shared-id",
+            title: "Apple Road",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let plexCached = makeCachedPlaylist(plexPlaylist, tracks: [], context: context)
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: plexPlaylist.id,
+            sourceCompositeKey: plexPlaylist.sourceCompositeKey
+        )] = plexCached
+        playlistRepository.playlists[playlistRepository.playlistKey(
+            ratingKey: applePlaylist.id,
+            sourceCompositeKey: applePlaylist.sourceCompositeKey
+        )] = makeCachedPlaylist(applePlaylist, tracks: [], context: context)
+        let viewModel = PlaylistViewModel(
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            toastCenter: ToastCenter()
+        )
+
+        await viewModel.loadPlaylists()
+        viewModel.applyOptimisticRename(for: plexPlaylist, newTitle: "Plex Renamed")
+        viewModel.applyOptimisticRename(for: applePlaylist, newTitle: "Apple Renamed")
+        plexCached.title = "Plex Renamed"
+
+        await viewModel.awaitRenamedPlaylistMaterialization(
+            forPlaylistIdentity: plexPlaylist.sourceScopedID,
+            expectedTitle: "Plex Renamed"
+        )
+
+        let titles = Dictionary(uniqueKeysWithValues: viewModel.playlists.map { ($0.sourceScopedID, $0.title) })
+        XCTAssertEqual(titles[plexPlaylist.sourceScopedID], "Plex Renamed")
+        XCTAssertEqual(titles[applePlaylist.sourceScopedID], "Apple Renamed")
     }
 
     func testPlaylistViewModelClearsVisiblePlaylistsWhenAllLibrariesAreDisabled() async throws {
@@ -1069,8 +1130,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         await viewModel.loadPlaylists()
         XCTAssertEqual(Set(viewModel.playlists.map(\.id)), ["apple", "plex"])
-        XCTAssertEqual(viewModel.displayPlaylists.count, 2)
-        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
+        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
 
         SettingsManager.setStoredPlaylistMergeEnabled(false)
@@ -1082,10 +1142,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
 
         SettingsManager.setStoredPlaylistMergeEnabled(true)
         let mergedDeadline = Date().addingTimeInterval(2)
-        while viewModel.displayPlaylists.count != 2 || viewModel.displayPlaylists.contains(where: \.isMerged), Date() < mergedDeadline {
+        while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < mergedDeadline {
             try await Task.sleep(for: .milliseconds(25))
         }
-        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
+        XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
 
         visibilityStore.setSourceVisibility(
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey,
@@ -1113,11 +1173,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             isVisible: true
         )
         let deadline = Date().addingTimeInterval(2)
-        while viewModel.displayPlaylists.count != 2 || viewModel.displayPlaylists.contains(where: \.isMerged), Date() < deadline {
+        while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < deadline {
             try await Task.sleep(for: .milliseconds(25))
         }
-        XCTAssertEqual(Set(viewModel.displayPlaylists.flatMap(\.playlists).map(\.id)), ["apple", "plex"])
-        XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
+        XCTAssertEqual(Set(viewModel.displayPlaylists.first?.playlists.map(\.id) ?? []), ["apple", "plex"])
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
     }
 
@@ -1560,6 +1619,16 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(
             viewModel.editAvailability(for: editorialPlaylist),
             .readOnly(reason: "Smart playlists are read-only.")
+        )
+        XCTAssertFalse(viewModel.canRemoveTrackFromPlaylist(firstTracks[0]))
+        XCTAssertTrue(viewModel.canRemoveTrackFromPlaylist(secondTracks[0]))
+        XCTAssertFalse(
+            viewModel.canRemoveTrackFromPlaylist(
+                makeTrack(
+                    id: "apple-editorial-track",
+                    sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+                )
+            )
         )
 
         let didRemove = await viewModel.removeTrackFromPlaylist(secondTracks[0], displayIndex: 1)

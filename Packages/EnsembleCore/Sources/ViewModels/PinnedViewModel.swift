@@ -49,6 +49,15 @@ public enum ResolvedPin: Identifiable {
     }
 }
 
+extension ResolvedPin: LibraryVisibilitySourceIdentifiable {
+    var sourceCompositeKey: String? {
+        switch self {
+        case .mergedPlaylist: return nil
+        default: return pinnedItem.sourceCompositeKey
+        }
+    }
+}
+
 /// Resolves pin references into domain objects for display
 @MainActor
 public final class PinnedViewModel: ObservableObject {
@@ -61,6 +70,8 @@ public final class PinnedViewModel: ObservableObject {
     private let pinMutationWorkflow: PinMutationWorkflow
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
+    private let accountManager: AccountManager
+    private let visibilityStore: LibraryVisibilityStore
     private var cancellables = Set<AnyCancellable>()
     private var isMoving = false
 
@@ -68,12 +79,16 @@ public final class PinnedViewModel: ObservableObject {
         pinManager: PinManager,
         pinMutationWorkflow: PinMutationWorkflow? = nil,
         libraryRepository: LibraryRepositoryProtocol,
-        playlistRepository: PlaylistRepositoryProtocol
+        playlistRepository: PlaylistRepositoryProtocol,
+        accountManager: AccountManager,
+        visibilityStore: LibraryVisibilityStore
     ) {
         self.pinManager = pinManager
         self.pinMutationWorkflow = pinMutationWorkflow ?? PinMutationWorkflow(pinManager: pinManager)
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
+        self.accountManager = accountManager
+        self.visibilityStore = visibilityStore
 
         // Refresh when pins change (unless we are currently moving/reordering)
         pinManager.objectWillChange
@@ -95,6 +110,22 @@ public final class PinnedViewModel: ObservableObject {
             guard let self, !self.isMoving else { return }
             Task { @MainActor in
                 await self.loadPinnedItems()
+            }
+        }
+        .store(in: &cancellables)
+
+        Publishers.CombineLatest3(
+            visibilityStore.$profiles,
+            visibilityStore.$activeProfileID,
+            visibilityStore.$focusFilter
+        )
+        .dropFirst()
+        .map { _ in () }
+        .merge(with: accountManager.sourceConfigurationPublisher.dropFirst().map { _ in () })
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            Task { @MainActor in
+                await self?.loadPinnedItems()
             }
         }
         .store(in: &cancellables)
@@ -139,6 +170,17 @@ public final class PinnedViewModel: ObservableObject {
             }
         }
 
+        let sourceConfiguration = accountManager.sourceConfigurationSnapshot
+        resolved = LibraryVisibilityFiltering.visibleItems(
+            resolved,
+            hiddenSourceCompositeKeys: visibilityStore.effectiveHiddenSourceCompositeKeys(
+                enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
+            ),
+            sourceConfiguration: sourceConfiguration.hasAnySources || !sourceConfiguration.isAuthoritative
+                ? sourceConfiguration
+                : nil
+        )
+
         // When merge is enabled, group adjacent playlist pins with the same title
         let isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         if isMergeEnabled {
@@ -159,12 +201,12 @@ public final class PinnedViewModel: ObservableObject {
         }
     }
 
-    /// Groups resolved playlist pins with the same (title, isSmart) into merged entries.
+    /// Groups resolved playlist pins with the same normalized title and semantic kind.
     /// Non-playlist pins pass through unchanged. The first occurrence of each group key
     /// determines the merged entry's position in the output.
     private func mergePlaylistPins(_ pins: [ResolvedPin]) -> [ResolvedPin] {
         struct GroupKey: Hashable {
-            let title: String
+            let normalizedTitle: String
             let isSmart: Bool
         }
 
@@ -178,7 +220,10 @@ public final class PinnedViewModel: ObservableObject {
         for pin in pins {
             switch pin {
             case let .playlist(playlist, pinnedItem):
-                let key = GroupKey(title: playlist.title, isSmart: playlist.isSmartForPlaylistGrouping)
+                let key = GroupKey(
+                    normalizedTitle: DisplayPlaylist.normalizedTitle(playlist.title),
+                    isSmart: playlist.isSmartForPlaylistGrouping
+                )
                 if groupIndex[key] == nil {
                     // First occurrence — reserve a slot in the output
                     groupIndex[key] = output.count
@@ -201,7 +246,7 @@ public final class PinnedViewModel: ObservableObject {
             let pinnedItems = groupPins[key] ?? []
             if playlists.count > 1 {
                 let dp = DisplayPlaylist.merged(
-                    title: key.title,
+                    title: playlists[0].title,
                     isSmart: playlists.contains(where: \.isSmart),
                     playlists: playlists
                 )

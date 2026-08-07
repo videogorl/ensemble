@@ -340,7 +340,7 @@ public final class PlaylistMutationWorkflow {
             pendingToast: ToastPayload(
                 style: .info,
                 iconSystemName: Icon.edit,
-                title: "Renaming on \(count) server\(count == 1 ? "" : "s")...",
+                title: "Renaming on \(count) source\(count == 1 ? "" : "s")...",
                 isPersistent: true,
                 dedupeKey: "merged-rename-\(displayPlaylist.id)",
                 showsActivityIndicator: true
@@ -375,7 +375,7 @@ public final class PlaylistMutationWorkflow {
         } else if succeededCount > 0 {
             style = .warning
             icon = Icon.queued
-            title = "Renamed on \(succeededCount)/\(totalCount) servers"
+            title = "Renamed on \(succeededCount)/\(totalCount) sources"
             message = "Some copies could not be renamed."
         } else {
             style = .error
@@ -405,7 +405,7 @@ public final class PlaylistMutationWorkflow {
             pendingToast: ToastPayload(
                 style: .info,
                 iconSystemName: Icon.delete,
-                title: "Deleting from \(count) server\(count == 1 ? "" : "s")...",
+                title: "Deleting from \(count) source\(count == 1 ? "" : "s")...",
                 isPersistent: true,
                 dedupeKey: "merged-delete-\(displayPlaylist.id)",
                 showsActivityIndicator: true

@@ -152,6 +152,8 @@ struct PlaybackNowPlayingState {
     let repeatMode: RepeatMode
     let isLiked: Bool
     let isDisliked: Bool
+    let canLike: Bool
+    let canDislike: Bool
     let canPlay: Bool
     let canPause: Bool
     let canSkipForward: Bool
@@ -169,21 +171,25 @@ final class PlaybackNowPlayingBridge {
     }
 
     private let artworkLoader: ArtworkLoaderProtocol
-    private let nowPlayingCenter: PlaybackNowPlayingInfoCenter
-    private let commandCenter: PlaybackRemoteCommandCenter
+    private let nowPlayingCenter: PlaybackNowPlayingInfoCenter?
+    private let commandCenter: PlaybackRemoteCommandCenter?
     private var commandHandlerTokens: [RemoteCommandHandlerToken] = []
     private var artworkTask: Task<Void, Never>?
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
+    private var latestPlaybackState: PlaybackState = .stopped
+#if os(iOS)
+    private var isDeferringToMusicKit = false
+#endif
 
     init(
         artworkLoader: ArtworkLoaderProtocol,
-        nowPlayingCenter: PlaybackNowPlayingInfoCenter = MPNowPlayingInfoCenter.default(),
-        commandCenter: PlaybackRemoteCommandCenter = LivePlaybackRemoteCommandCenter()
+        nowPlayingCenter: PlaybackNowPlayingInfoCenter? = nil,
+        commandCenter: PlaybackRemoteCommandCenter? = nil
     ) {
         self.artworkLoader = artworkLoader
-        self.nowPlayingCenter = nowPlayingCenter
-        self.commandCenter = commandCenter
+        self.nowPlayingCenter = nowPlayingCenter ?? MPNowPlayingInfoCenter.default()
+        self.commandCenter = commandCenter ?? LivePlaybackRemoteCommandCenter()
     }
 
     deinit {
@@ -192,6 +198,7 @@ final class PlaybackNowPlayingBridge {
     }
 
     func installRemoteCommands(handlers: PlaybackNowPlayingCommandHandlers) {
+        guard let commandCenter else { return }
         removeRemoteCommandHandlers()
 
         register(commandCenter.playCommand) { _ in
@@ -275,23 +282,30 @@ final class PlaybackNowPlayingBridge {
             return .success
         }
 
-        commandCenter.likeCommand.isEnabled = true
+        commandCenter.likeCommand.isEnabled = false
         register(commandCenter.likeCommand) { _ in
             handlers.rateLike()
         }
 
-        commandCenter.dislikeCommand.isEnabled = true
+        commandCenter.dislikeCommand.isEnabled = false
         register(commandCenter.dislikeCommand) { _ in
             handlers.rateDislike()
         }
     }
 
     func updateNowPlayingInfo(_ state: PlaybackNowPlayingState) {
+        latestPlaybackState = state.playbackState
+        #if os(iOS)
+        if deferNowPlayingToMusicKitIfNeeded(for: state) { return }
+        #endif
+
         guard let track = state.track else {
             clearNowPlayingInfo()
             updateCommandAvailability(state)
             return
         }
+
+        guard let nowPlayingCenter else { return }
 
         let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
         let hasArtworkPath = Self.hasArtworkPath(for: track)
@@ -331,7 +345,7 @@ final class PlaybackNowPlayingBridge {
             guard let image = await self.resolvedArtworkImage(for: track) else {
                 EnsembleLogger.debug("[NowPlaying] Artwork unavailable for '\(track.title)'; applying generated fallback")
                 await MainActor.run {
-                    self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey, playbackState: state.playbackState)
+                    self.applyFallbackArtwork(for: track, requestKey: nextArtworkRequestKey)
                 }
                 return
             }
@@ -343,7 +357,7 @@ final class PlaybackNowPlayingBridge {
             }
 
             await MainActor.run {
-                self.applyArtwork(artwork, for: nextArtworkRequestKey, playbackState: state.playbackState)
+                self.applyArtwork(artwork, for: nextArtworkRequestKey)
             }
         }
     }
@@ -384,15 +398,25 @@ final class PlaybackNowPlayingBridge {
     }
 
     func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {
+        #if os(iOS)
+        if deferNowPlayingToMusicKitIfNeeded(for: state) { return }
+        #endif
+
         updateNowPlayingInfo(state)
-        guard var info = nowPlayingCenter.nowPlayingInfo else { return }
+        guard let nowPlayingCenter, var info = nowPlayingCenter.nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
         nowPlayingCenter.nowPlayingInfo = info
+        latestPlaybackState = .playing
         nowPlayingCenter.playbackState = .playing
     }
 
     func clearNowPlayingInfo() {
+        #if os(iOS)
+        isDeferringToMusicKit = false
+        #endif
         cancelArtworkLoad(clearArtwork: true)
+        latestPlaybackState = .stopped
+        guard let nowPlayingCenter else { return }
         nowPlayingCenter.nowPlayingInfo = nil
         nowPlayingCenter.playbackState = .stopped
         updateFeedbackCommandState(isLiked: false, isDisliked: false)
@@ -408,11 +432,13 @@ final class PlaybackNowPlayingBridge {
     }
 
     func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {
+        guard let commandCenter else { return }
         commandCenter.likeCommand.isActive = isLiked
         commandCenter.dislikeCommand.isActive = isDisliked
     }
 
     func updateCommandAvailability(_ state: PlaybackNowPlayingState) {
+        guard let commandCenter else { return }
         commandCenter.playCommand.isEnabled = state.canPlay
         commandCenter.pauseCommand.isEnabled = state.canPause
         commandCenter.togglePlayPauseCommand.isEnabled = state.canPlay || state.canPause
@@ -421,8 +447,8 @@ final class PlaybackNowPlayingBridge {
         commandCenter.changePlaybackPositionCommand.isEnabled = state.canSeek
         commandCenter.changeShuffleModeCommand.isEnabled = state.canToggleShuffle
         commandCenter.changeRepeatModeCommand.isEnabled = state.canCycleRepeatMode
-        commandCenter.likeCommand.isEnabled = state.track != nil
-        commandCenter.dislikeCommand.isEnabled = state.track != nil
+        commandCenter.likeCommand.isEnabled = state.canLike
+        commandCenter.dislikeCommand.isEnabled = state.canDislike
         commandCenter.changeShuffleModeCommand.currentShuffleType = Self.shuffleType(for: state.isShuffleEnabled)
         commandCenter.changeRepeatModeCommand.currentRepeatType = Self.repeatType(for: state.repeatMode)
     }
@@ -561,6 +587,43 @@ final class PlaybackNowPlayingBridge {
         commandHandlerTokens.removeAll()
     }
 
+    #if os(iOS)
+    private func deferNowPlayingToMusicKitIfNeeded(
+        for state: PlaybackNowPlayingState
+    ) -> Bool {
+        guard state.track?.isAppleMusic == true else {
+            if isDeferringToMusicKit {
+                EnsembleLogger.debug("[NowPlaying] Restoring Ensemble system controls for native playback")
+                isDeferringToMusicKit = false
+            }
+            return false
+        }
+
+        cancelArtworkLoad(clearArtwork: true)
+        guard !isDeferringToMusicKit else { return true }
+        EnsembleLogger.debug("[NowPlaying] Deferring Apple Music system controls to MusicKit")
+        isDeferringToMusicKit = true
+        nowPlayingCenter?.nowPlayingInfo = nil
+        nowPlayingCenter?.playbackState = .stopped
+        disableLegacyRemoteCommands()
+        return true
+    }
+
+    private func disableLegacyRemoteCommands() {
+        guard let commandCenter else { return }
+        commandCenter.playCommand.isEnabled = false
+        commandCenter.pauseCommand.isEnabled = false
+        commandCenter.togglePlayPauseCommand.isEnabled = false
+        commandCenter.nextTrackCommand.isEnabled = false
+        commandCenter.previousTrackCommand.isEnabled = false
+        commandCenter.changePlaybackPositionCommand.isEnabled = false
+        commandCenter.changeRepeatModeCommand.isEnabled = false
+        commandCenter.changeShuffleModeCommand.isEnabled = false
+        commandCenter.likeCommand.isEnabled = false
+        commandCenter.dislikeCommand.isEnabled = false
+    }
+    #endif
+
     private static func sourceScopedTrackIdentifier(for track: Track) -> String {
         SystemMediaReference.sourceScopedIdentifier(
             kind: .track,
@@ -570,10 +633,14 @@ final class PlaybackNowPlayingBridge {
     }
 
     private static func artworkRequestKey(for track: Track) -> String {
-        let artworkIdentity = track.thumbPath ?? track.fallbackThumbPath ?? ""
-        let artworkRatingKey = track.thumbPath != nil ? track.id : (track.fallbackRatingKey ?? track.id)
         let source = track.sourceCompositeKey ?? ""
-        return "\(source)|\(artworkRatingKey)|\(artworkIdentity)"
+        if let thumbPath = track.thumbPath, !thumbPath.isEmpty {
+            return "\(source)|\(thumbPath)|\(track.fallbackThumbPath ?? "")"
+        }
+        if let fallbackThumbPath = track.fallbackThumbPath, !fallbackThumbPath.isEmpty {
+            return "\(source)|\(fallbackThumbPath)"
+        }
+        return "\(source)|generated|\(track.id)"
     }
 
     private static func hasArtworkPath(for track: Track) -> Bool {
@@ -681,10 +748,10 @@ final class PlaybackNowPlayingBridge {
 
     private func applyArtwork(
         _ artwork: MPMediaItemArtwork,
-        for requestKey: String,
-        playbackState: PlaybackState
+        for requestKey: String
     ) {
-        guard var currentInfo = nowPlayingCenter.nowPlayingInfo,
+        guard let nowPlayingCenter,
+              var currentInfo = nowPlayingCenter.nowPlayingInfo,
               artworkRequestKey == requestKey else {
             return
         }
@@ -692,15 +759,15 @@ final class PlaybackNowPlayingBridge {
         self.artwork = artwork
         currentInfo[MPMediaItemPropertyArtwork] = artwork
         nowPlayingCenter.nowPlayingInfo = currentInfo
-        syncNowPlayingPlaybackState(playbackState)
+        syncNowPlayingPlaybackState(latestPlaybackState)
     }
 
     private func applyFallbackArtwork(
         for track: Track,
-        requestKey: String,
-        playbackState: PlaybackState
+        requestKey: String
     ) {
-        guard var currentInfo = nowPlayingCenter.nowPlayingInfo,
+        guard let nowPlayingCenter,
+              var currentInfo = nowPlayingCenter.nowPlayingInfo,
               artworkRequestKey == requestKey else {
             return
         }
@@ -709,10 +776,11 @@ final class PlaybackNowPlayingBridge {
         artwork = fallbackArtwork
         currentInfo[MPMediaItemPropertyArtwork] = fallbackArtwork
         nowPlayingCenter.nowPlayingInfo = currentInfo
-        syncNowPlayingPlaybackState(playbackState)
+        syncNowPlayingPlaybackState(latestPlaybackState)
     }
 
     private func syncNowPlayingPlaybackState(_ playbackState: PlaybackState) {
+        guard let nowPlayingCenter else { return }
         let mpState: MPNowPlayingPlaybackState
         switch playbackState {
         case .playing:

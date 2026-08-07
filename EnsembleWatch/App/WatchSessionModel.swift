@@ -9,7 +9,6 @@ final class WatchSessionModel: NSObject, ObservableObject {
     @Published private(set) var snapshot: WatchCompanionSessionSnapshot?
     @Published private(set) var isReachable = false
     @Published private(set) var statusMessage = "Open Ensemble on iPhone to connect."
-    @Published private(set) var isSendingCommand = false
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -81,7 +80,6 @@ final class WatchSessionModel: NSObject, ObservableObject {
         }
 
         let command = WatchCompanionCommand(kind: kind, time: time)
-        isSendingCommand = true
 
         do {
             let payload = try encoder.encode(command)
@@ -94,13 +92,11 @@ final class WatchSessionModel: NSObject, ObservableObject {
                 },
                 errorHandler: { [weak self] error in
                     Task { @MainActor in
-                        self?.isSendingCommand = false
                         self?.statusMessage = error.localizedDescription
                     }
                 }
             )
         } catch {
-            isSendingCommand = false
             statusMessage = error.localizedDescription
         }
     }
@@ -123,15 +119,10 @@ final class WatchSessionModel: NSObject, ObservableObject {
     }
 
     private func handleReply(_ reply: [String: Any]) {
-        isSendingCommand = false
         guard let responseData = reply[WatchCompanionPayloadKey.response] as? Data else { return }
 
         do {
             let response = try decoder.decode(WatchCompanionCommandResponse.self, from: responseData)
-            if let snapshot = response.snapshot {
-                self.snapshot = snapshot
-                updateSystemNowPlayingProxy()
-            }
             if let errorMessage = response.errorMessage, !response.accepted {
                 statusMessage = errorMessage
             }

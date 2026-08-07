@@ -28,8 +28,8 @@ final class PlaybackLaunchCoordinator {
         let isVisualizerEnabled: @Sendable () -> Bool
         let isInstrumentalModeActive: @Sendable () -> Bool
         let enqueueVisualizerLoad: @Sendable (Track, URL, VisualizerPlan) -> Void
-        let loadAndPlay: @MainActor (PlaybackSource, Track) async -> Void
-        let seek: @MainActor (TimeInterval) -> Void
+        let loadAndPlay: @MainActor (PlaybackSource, Track, UInt64) async -> Bool
+        let seek: @MainActor (TimeInterval, UInt64) -> Bool
         let prefetchNext: @Sendable () async -> Void
     }
 
@@ -82,7 +82,8 @@ final class PlaybackLaunchCoordinator {
     func completeLaunch(
         for track: Track,
         source: PlaybackSource,
-        recoverySeekTime: TimeInterval?
+        recoverySeekTime: TimeInterval?,
+        generation: UInt64
     ) async {
         if let fileURL = source.fileURL {
             if let plan = Self.visualizerPlan(
@@ -98,12 +99,10 @@ final class PlaybackLaunchCoordinator {
             EnsembleLogger.debug("[Visualizer] Streaming source uses live PCM until cache analysis completes")
         }
 
-        await dependencies.loadAndPlay(source, track)
+        guard await dependencies.loadAndPlay(source, track, generation) else { return }
 
         if source.fileURL != nil, let recoverySeekTime, recoverySeekTime > 0 {
-            await MainActor.run {
-                dependencies.seek(recoverySeekTime)
-            }
+            guard await dependencies.seek(recoverySeekTime, generation) else { return }
             EnsembleLogger.debug("[playCurrentQueueItem] Recovered position at \(recoverySeekTime)s")
         }
 

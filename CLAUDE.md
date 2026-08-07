@@ -20,6 +20,18 @@ The app is in beta. Handle data and migration edge cases defensively; asking tes
 
 Always use `Ensemble.xcworkspace`, not `Ensemble.xcodeproj`.
 
+Before accepting runtime or UI test results on any simulator or physical
+device, verify that the installed and running app is the build just produced,
+not a stale artifact. Use concrete platform evidence such as the installed
+build version, the running executable path, or a current-build marker. On
+macOS, launch the explicit `.app` path produced by the current build, then
+verify the running PID's executable path and build version; generic
+display-name launches can select stale Periphery or other
+LaunchServices-registered artifacts.
+
+If Device Hub becomes unresponsive, stops updating, or ignores input, restart
+Device Hub before diagnosing an app or device failure.
+
 ## Skill Routing
 
 Load the smallest relevant set of skills before non-trivial work:

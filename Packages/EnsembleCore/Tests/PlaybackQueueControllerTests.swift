@@ -276,6 +276,38 @@ final class PlaybackQueueControllerTests: XCTestCase {
         XCTAssertEqual(originalQueue.map(\.track.id), ["current", "manual", "added-last", "generated"])
     }
 
+    func testQueueInsertionsPreserveTracksFromDifferentPlaybackEngines() {
+        let controller = makeController()
+        let plex = makeItem(id: "plex")
+        let apple = QueueItem(
+            id: "queue-apple",
+            track: makeTrack(
+                id: "apple",
+                sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+            ),
+            source: .upNext
+        )
+        var queue = [plex]
+        var originalQueue = queue
+
+        controller.insertUpNext(
+            [apple],
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: 0,
+            shuffleEnabled: false
+        )
+        controller.insertAtEndOfManualQueue(
+            [makeItem(id: "plex-last")],
+            queue: &queue,
+            originalQueue: &originalQueue,
+            currentQueueIndex: 0,
+            shuffleEnabled: false
+        )
+
+        XCTAssertEqual(queue.map(\.track.id), ["plex", "apple", "plex-last"])
+    }
+
     func testRemoveItemBeforeCurrentAdjustsIndexAndShuffleRestoreQueue() {
         let controller = makeController()
         var queue = [

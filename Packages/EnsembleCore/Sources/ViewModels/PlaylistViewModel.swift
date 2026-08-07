@@ -88,8 +88,8 @@ public final class PlaylistViewModel: ObservableObject {
     private var allPlaylists: [Playlist] = []
     private var coalescedReloadTask: Task<Void, Never>?
     private var optimisticCreatingPlaylists: [Playlist] = []
-    private var optimisticRenamedPlaylistTitlesByID: [String: String] = [:]
-    private var optimisticDeletedPlaylistIDs: Set<String> = []
+    private var optimisticRenamedPlaylistTitlesByIdentity: [String: String] = [:]
+    private var optimisticDeletedPlaylistIdentities: Set<String> = []
     private var lastObservedSourceConfiguration: SourceConfigurationSnapshot?
     /// A settled empty credential read is not proof that cached browse data was deleted.
     /// Once this ViewModel observes an explicit source removal, however, it must not
@@ -288,15 +288,18 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func applyOptimisticDelete(for playlist: Playlist) {
-        optimisticDeletedPlaylistIDs.insert(playlist.id)
-        optimisticCreatingPlaylists.removeAll { $0.id == playlist.id }
-        optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlist.id)
-        publishPlaylistsIfChanged(filterOptimisticallyDeletedPlaylists(allPlaylists))
+        let identity = playlist.sourceScopedID
+        optimisticDeletedPlaylistIdentities.insert(identity)
+        optimisticCreatingPlaylists.removeAll { $0.sourceScopedID == identity }
+        optimisticRenamedPlaylistTitlesByIdentity.removeValue(forKey: identity)
+        publishPlaylistsIfChanged(
+            applyOptimisticRenames(to: filterOptimisticallyDeletedPlaylists(allPlaylists))
+        )
         updateLastGoodSnapshotIfNeeded(allPlaylists)
     }
 
-    public func clearOptimisticDelete(for playlistID: String) {
-        optimisticDeletedPlaylistIDs.remove(playlistID)
+    public func clearOptimisticDelete(forPlaylistIdentity playlistIdentity: String) {
+        optimisticDeletedPlaylistIdentities.remove(playlistIdentity)
     }
 
     public func createPlaylist(title: String, serverSourceKey: String) async -> Bool {
@@ -496,7 +499,7 @@ public final class PlaylistViewModel: ObservableObject {
     /// Applies optimistic rename to all constituents of a merged DisplayPlaylist
     public func applyOptimisticRenameForMerged(_ dp: DisplayPlaylist, newTitle: String) {
         for playlist in dp.editablePlaylists {
-            applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+            applyOptimisticRename(for: playlist, newTitle: newTitle)
         }
     }
 
@@ -591,8 +594,8 @@ public final class PlaylistViewModel: ObservableObject {
         }
         allPlaylists = []
         optimisticCreatingPlaylists = []
-        optimisticRenamedPlaylistTitlesByID = [:]
-        optimisticDeletedPlaylistIDs = []
+        optimisticRenamedPlaylistTitlesByIdentity = [:]
+        optimisticDeletedPlaylistIdentities = []
         publishPlaylistsIfChanged([])
         visibleSnapshot = []
         filteredPlaylists = []
@@ -631,8 +634,8 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     private func filterOptimisticallyDeletedPlaylists(_ playlists: [Playlist]) -> [Playlist] {
-        guard !optimisticDeletedPlaylistIDs.isEmpty else { return playlists }
-        return playlists.filter { !optimisticDeletedPlaylistIDs.contains($0.id) }
+        guard !optimisticDeletedPlaylistIdentities.isEmpty else { return playlists }
+        return playlists.filter { !optimisticDeletedPlaylistIdentities.contains($0.sourceScopedID) }
     }
 
     private func applyDerivedPlaylistSnapshots(_ snapshot: [Playlist]) {
@@ -771,7 +774,7 @@ public final class PlaylistViewModel: ObservableObject {
 
     private func applyOptimisticRenames(to playlists: [Playlist]) -> [Playlist] {
         playlists.map { playlist in
-            guard let optimisticTitle = optimisticRenamedPlaylistTitlesByID[playlist.id] else {
+            guard let optimisticTitle = optimisticRenamedPlaylistTitlesByIdentity[playlist.sourceScopedID] else {
                 return playlist
             }
             return playlist.withTitle(optimisticTitle)
@@ -779,31 +782,37 @@ public final class PlaylistViewModel: ObservableObject {
     }
 
     public func applyOptimisticRename(for playlist: Playlist, newTitle: String) {
-        applyOptimisticRename(forPlaylistID: playlist.id, newTitle: newTitle)
+        applyOptimisticRename(forPlaylistIdentity: playlist.sourceScopedID, newTitle: newTitle)
     }
 
-    public func applyOptimisticRename(forPlaylistID playlistID: String, newTitle: String) {
-        optimisticRenamedPlaylistTitlesByID[playlistID] = newTitle
+    public func applyOptimisticRename(forPlaylistIdentity playlistIdentity: String, newTitle: String) {
+        optimisticRenamedPlaylistTitlesByIdentity[playlistIdentity] = newTitle
         publishPlaylistsIfChanged(applyOptimisticRenames(to: allPlaylists))
     }
 
-    public func clearOptimisticRename(for playlistID: String) {
-        optimisticRenamedPlaylistTitlesByID.removeValue(forKey: playlistID)
+    public func clearOptimisticRename(forPlaylistIdentity playlistIdentity: String) {
+        optimisticRenamedPlaylistTitlesByIdentity.removeValue(forKey: playlistIdentity)
     }
 
-    public func awaitRenamedPlaylistMaterialization(for playlistID: String, expectedTitle: String) async {
+    public func awaitRenamedPlaylistMaterialization(
+        forPlaylistIdentity playlistIdentity: String,
+        expectedTitle: String
+    ) async {
         let normalizedExpectedTitle = normalizedTitle(expectedTitle)
 
         for _ in 0..<20 {
             do {
                 let serverPlaylists = try await fetchCachedPlaylists()
                 let hasMaterializedTitle = serverPlaylists.contains {
-                    $0.id == playlistID && normalizedTitle($0.title) == normalizedExpectedTitle
+                    $0.sourceScopedID == playlistIdentity &&
+                        normalizedTitle($0.title) == normalizedExpectedTitle
                 }
 
                 if hasMaterializedTitle {
-                    clearOptimisticRename(for: playlistID)
-                    publishPlaylistsIfChanged(mergeWithOptimisticCreatingPlaylists(serverPlaylists))
+                    clearOptimisticRename(forPlaylistIdentity: playlistIdentity)
+                    publishPlaylistsIfChanged(
+                        mergeWithOptimisticCreatingPlaylists(applyOptimisticRenames(to: serverPlaylists))
+                    )
                     return
                 }
 
@@ -818,7 +827,7 @@ public final class PlaylistViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000)
         }
 
-        clearOptimisticRename(for: playlistID)
+        clearOptimisticRename(forPlaylistIdentity: playlistIdentity)
         await reloadPlaylists(showLoading: false)
     }
 

@@ -8,6 +8,60 @@ enum AppleMusicPagination {
     }
 }
 
+enum AppleMusicPlaylistItemKind: String, Sendable {
+    case catalogSong = "songs"
+    case librarySong = "library-songs"
+}
+
+struct AppleMusicPlaylistItemReference: Hashable, Sendable {
+    let id: String
+    let kind: AppleMusicPlaylistItemKind
+}
+
+enum AppleMusicPlaylistMutationPolicy {
+    static let catalogLookupBatchSize = 25
+    static let libraryLookupBatchSize = 100
+
+    static func itemReferences(for tracks: [Track]) throws -> [AppleMusicPlaylistItemReference] {
+        try tracks.map { track in
+            if let catalogID = track.appleMusicCatalogID {
+                return AppleMusicPlaylistItemReference(id: catalogID, kind: .catalogSong)
+            }
+            if let libraryID = track.appleMusicLibraryID {
+                return AppleMusicPlaylistItemReference(id: libraryID, kind: .librarySong)
+            }
+            throw PlaylistMutationError.invalidSource
+        }
+    }
+
+    static func uniqueIDs(
+        in references: [AppleMusicPlaylistItemReference],
+        kind: AppleMusicPlaylistItemKind
+    ) -> [String] {
+        var seen = Set<String>()
+        return references.compactMap { reference in
+            guard reference.kind == kind, seen.insert(reference.id).inserted else { return nil }
+            return reference.id
+        }
+    }
+
+    static func batches<T>(_ values: [T], limit: Int) -> [[T]] {
+        guard limit > 0 else { return [] }
+        return stride(from: 0, to: values.count, by: limit).map { start in
+            Array(values[start ..< min(start + limit, values.count)])
+        }
+    }
+
+    static func orderedValues<Value>(
+        for references: [AppleMusicPlaylistItemReference],
+        valuesByReference: [AppleMusicPlaylistItemReference: Value]
+    ) throws -> [Value] {
+        let values = references.compactMap { valuesByReference[$0] }
+        guard values.count == references.count else { throw PlaylistMutationError.invalidSource }
+        return values
+    }
+}
+
 #if os(iOS)
 import EnsemblePersistence
 import MediaPlayer
@@ -628,8 +682,7 @@ public actor AppleMusicSourceProvider:
     }
 
     public func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? {
-        let songs = try await catalogSongs(for: tracks)
-        guard !songs.isEmpty || tracks.isEmpty else { throw PlaylistMutationError.emptySelection }
+        let songs = try await playlistSongs(for: tracks)
         let playlist = try await MusicLibrary.shared.createPlaylist(name: title, items: songs)
         let playlistID = String(describing: playlist.id)
         Playlist.markAppleMusicPlaylistCreated(id: playlistID)
@@ -649,16 +702,15 @@ public actor AppleMusicSourceProvider:
     }
 
     public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
-        let ids = tracks.compactMap(\.appleMusicCatalogID)
-        guard ids.count == tracks.count else { throw PlaylistMutationError.invalidSource }
-        guard !ids.isEmpty else { return 0 }
+        let references = try AppleMusicPlaylistMutationPolicy.itemReferences(for: tracks)
+        guard !references.isEmpty else { return 0 }
         let encodedID = playlistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlistID
         _ = try await request(
             path: "/v1/me/library/playlists/\(encodedID)/tracks",
             method: "POST",
-            body: ["data": ids.map { ["id": $0, "type": "songs"] }]
+            body: ["data": references.map { ["id": $0.id, "type": $0.kind.rawValue] }]
         )
-        return ids.count
+        return references.count
     }
 
     public func renamePlaylist(_ playlistID: String, title: String) async throws {
@@ -671,8 +723,7 @@ public actor AppleMusicSourceProvider:
 
     public func replacePlaylistContents(_ playlistID: String, tracks: [Track]) async throws {
         let playlist = try await libraryPlaylist(id: playlistID)
-        let songs = try await catalogSongs(for: tracks)
-        guard songs.count == tracks.count else { throw PlaylistMutationError.invalidSource }
+        let songs = try await playlistSongs(for: tracks)
         _ = try await MusicLibrary.shared.edit(playlist, items: songs)
     }
 
@@ -771,7 +822,7 @@ public actor AppleMusicSourceProvider:
         -> NativeLibraryMetadataSnapshot
     {
         let startedAt = Date()
-        async let songsFetch = fetchNativeLibraryItems(Song.self) {
+        let songs = try await fetchNativeLibraryItems(Song.self) {
             NativeLibrarySongMetadata(
                 itemID: $0.id.rawValue,
                 dateAdded: $0.libraryAddedDate,
@@ -779,17 +830,10 @@ public actor AppleMusicSourceProvider:
                 playCount: $0.playCount
             )
         }
-        async let albumsFetch = fetchNativeLibraryItems(MusicKit.Album.self) {
-            NativeLibraryDateMetadata(itemID: $0.id.rawValue, dateAdded: $0.libraryAddedDate)
-        }
-        async let artistsFetch = fetchNativeLibraryItems(MusicKit.Artist.self) {
-            NativeLibraryDateMetadata(itemID: $0.id.rawValue, dateAdded: $0.libraryAddedDate)
-        }
-        let (songs, albums, artists) = try await (songsFetch, albumsFetch, artistsFetch)
         return NativeLibraryMetadataSnapshot(
             songs: songs,
-            albums: albums,
-            artists: artists,
+            albums: [],
+            artists: [],
             elapsedMilliseconds: max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
         )
     }
@@ -1205,19 +1249,50 @@ public actor AppleMusicSourceProvider:
         )
     }
 
-    private func catalogSongs(for tracks: [Track]) async throws -> [Song] {
-        let ids = tracks.compactMap(\.appleMusicCatalogID)
-        guard ids.count == tracks.count else { throw PlaylistMutationError.invalidSource }
-        guard !ids.isEmpty else { return [] }
-        let musicItemIDs = ids.map { MusicItemID($0) }
-        let request = MusicCatalogResourceRequest<Song>(
-            matching: \.id,
-            memberOf: musicItemIDs
+    private func playlistSongs(for tracks: [Track]) async throws -> [Song] {
+        let references = try AppleMusicPlaylistMutationPolicy.itemReferences(for: tracks)
+        var songsByReference: [AppleMusicPlaylistItemReference: Song] = [:]
+
+        let catalogIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .catalogSong)
+        for batch in AppleMusicPlaylistMutationPolicy.batches(
+            catalogIDs,
+            limit: AppleMusicPlaylistMutationPolicy.catalogLookupBatchSize
+        ) {
+            var request = MusicCatalogResourceRequest<Song>(
+                matching: \.id,
+                memberOf: batch.map { MusicItemID($0) }
+            )
+            request.limit = batch.count
+            for song in try await request.response().items {
+                let reference = AppleMusicPlaylistItemReference(
+                    id: String(describing: song.id),
+                    kind: .catalogSong
+                )
+                songsByReference[reference] = song
+            }
+        }
+
+        let libraryIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .librarySong)
+        for batch in AppleMusicPlaylistMutationPolicy.batches(
+            libraryIDs,
+            limit: AppleMusicPlaylistMutationPolicy.libraryLookupBatchSize
+        ) {
+            var request = MusicLibraryRequest<Song>()
+            request.limit = batch.count
+            request.filter(matching: \.id, memberOf: batch.map { MusicItemID($0) })
+            for song in try await request.response().items {
+                let reference = AppleMusicPlaylistItemReference(
+                    id: String(describing: song.id),
+                    kind: .librarySong
+                )
+                songsByReference[reference] = song
+            }
+        }
+
+        return try AppleMusicPlaylistMutationPolicy.orderedValues(
+            for: references,
+            valuesByReference: songsByReference
         )
-        let songsByID: [String: Song] = Dictionary(uniqueKeysWithValues: try await request.response().items.map {
-            (String(describing: $0.id), $0)
-        })
-        return ids.compactMap { songsByID[$0] }
     }
 
     private func libraryPlaylist(id: String) async throws -> MusicKit.Playlist {

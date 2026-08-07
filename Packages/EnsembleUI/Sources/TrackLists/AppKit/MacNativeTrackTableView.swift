@@ -513,13 +513,14 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             globalIndex: Int,
             resolvedActions: TrackRowInteractionModel.ResolvedActions
         ) -> NSMenu? {
-            NativeMediaTableActionBuilder.contextMenu(
+            let canRemove = interactionModel.allowsRemovalFromPlaylist(track)
+            return NativeMediaTableActionBuilder.contextMenu(
                 for: track,
                 resolvedActions: resolvedActions,
-                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: true),
-                onRemoveFromPlaylist: onRemoveFromPlaylist.map { handler in
+                context: onRemoveFromPlaylist == nil ? .library : .playlistTrack(canRemove: canRemove),
+                onRemoveFromPlaylist: canRemove ? onRemoveFromPlaylist.map { handler in
                     { handler(track, globalIndex) }
-                }
+                } : nil
             )
         }
 
