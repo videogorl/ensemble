@@ -102,20 +102,20 @@ final class AppleMusicPlaybackOperationCoordinatorTests: XCTestCase {
         XCTAssertFalse(didReassertPause)
     }
 
-    func testQueueReplacementStopsOlderCompletionUntilReplacementStartsPlaying() {
+    func testQueueReplacementIgnoresOlderCompletionOnTheSameBackend() {
         let coordinator = AppleMusicPlaybackOperationCoordinator()
         let first = coordinator.begin()
         let replacement = coordinator.begin(replacingQueue: true)
         var didReassertStop = false
 
-        XCTAssertEqual(coordinator.disposition(for: first), .stopPlayer)
+        XCTAssertEqual(coordinator.disposition(for: first), .ignore)
         XCTAssertEqual(coordinator.disposition(for: replacement), .apply)
         XCTAssertFalse(coordinator.acceptCompletion(
             for: first,
             reassertPause: {},
             reassertStop: { didReassertStop = true }
         ))
-        XCTAssertTrue(didReassertStop)
+        XCTAssertFalse(didReassertStop)
     }
 
     func testPauseCancelsQueueReplacementPreparation() {

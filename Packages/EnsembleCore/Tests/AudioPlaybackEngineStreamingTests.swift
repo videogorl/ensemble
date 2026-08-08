@@ -4,6 +4,14 @@ import Foundation
 import XCTest
 
 final class AudioPlaybackEngineStreamingTests: XCTestCase {
+    func testAdoptPlaybackGenerationUpdatesCompletionToken() {
+        let engine = AudioPlaybackEngine()
+
+        engine.adoptPlaybackGeneration(42)
+
+        XCTAssertEqual(engine.playbackRequestGeneration, 42)
+    }
+
     func testStreamingRenderHealthReportsSustainedStartupStarvationOnce() {
         var health = StreamingRenderHealth(recoveryThresholdFrames: 100)
 

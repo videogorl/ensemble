@@ -62,6 +62,16 @@ enum AppleMusicPlaylistMutationPolicy {
     }
 }
 
+enum AppleMusicTrackKeyPolicy {
+    static func playlistTrackKey(itemID: String, isInLibrary: Bool) -> String {
+        guard isInLibrary else { return "apple-catalog" }
+        if !itemID.isEmpty, itemID.allSatisfy(\.isNumber) {
+            return "apple-catalog-library"
+        }
+        return "apple-library:\(itemID)"
+    }
+}
+
 #if os(iOS)
 import EnsemblePersistence
 import MediaPlayer
@@ -1040,7 +1050,10 @@ public actor AppleMusicSourceProvider:
     }
 
     private static func playlistTrackKey(_ song: Song) -> String {
-        song.libraryAddedDate == nil ? catalogTrackKey(song) : libraryTrackKey(song)
+        AppleMusicTrackKeyPolicy.playlistTrackKey(
+            itemID: String(describing: song.id),
+            isInLibrary: song.libraryAddedDate != nil
+        )
     }
 
     private static func domainAlbum(_ album: MusicKit.Album, artistID: String? = nil) -> Album {

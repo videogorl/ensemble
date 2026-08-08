@@ -35,10 +35,10 @@ enum AppleMusicPlaybackResolutionPolicy {
 enum AppleMusicPlaybackEndPolicy {
     static func isFinalEntry(
         currentMusicID: String,
-        lastSubmittedMusicID: String?,
+        lastSubmittedMusicIDs: Set<String>,
         isStationActive: Bool
     ) -> Bool {
-        !isStationActive && currentMusicID == lastSubmittedMusicID
+        !isStationActive && lastSubmittedMusicIDs.contains(currentMusicID)
     }
 
     static func shouldReportEnd(
@@ -68,7 +68,7 @@ enum AppleMusicPlaybackEndPolicy {
             && !isEndSuppressed
             && isFinalEntry
             && duration > 0
-            && playbackTime >= duration - 0.25
+            && playbackTime >= duration - 0.5
     }
 
     static func shouldConfirmStoppedEnd(
@@ -76,6 +76,54 @@ enum AppleMusicPlaybackEndPolicy {
         isEndSuppressed: Bool
     ) -> Bool {
         wasPlaying && !isEndSuppressed
+    }
+}
+
+enum AppleMusicPlaybackItemMatchingPolicy {
+    static func matches(
+        currentMusicID: String,
+        currentTitle: String,
+        currentArtistName: String,
+        currentDuration: TimeInterval?,
+        submittedMusicIDs: Set<String>,
+        submittedTrack: Track
+    ) -> Bool {
+        if submittedMusicIDs.contains(currentMusicID) { return true }
+        guard DisplayPlaylist.normalizedTitle(currentTitle)
+            == DisplayPlaylist.normalizedTitle(submittedTrack.title) else { return false }
+        if let artistName = submittedTrack.artistName,
+           DisplayPlaylist.normalizedTitle(currentArtistName)
+            != DisplayPlaylist.normalizedTitle(artistName) {
+            return false
+        }
+        if let currentDuration,
+           currentDuration > 0,
+           submittedTrack.duration > 0,
+           abs(currentDuration - submittedTrack.duration) > 1 {
+            return false
+        }
+        return true
+    }
+}
+
+enum AppleMusicPlaybackReleasePolicy {
+    static func hasReleased(
+        isStationActive: Bool,
+        isStopped: Bool,
+        isPaused: Bool,
+        hasCurrentEntry: Bool
+    ) -> Bool {
+        if isStationActive { return isStopped && !hasCurrentEntry }
+        return isStopped || isPaused
+    }
+}
+
+enum AppleMusicSystemPlayerOwnershipPolicy {
+    static func canMutateSharedQueue(
+        hasCurrentEntry: Bool,
+        resolvedOrTransientEntryMatchesSubmission: Bool
+    ) -> Bool {
+        !hasCurrentEntry || resolvedOrTransientEntryMatchesSubmission
     }
 }
 
@@ -231,8 +279,7 @@ final class AppleMusicPlaybackOperationCoordinator: @unchecked Sendable {
         guard self.generation == generation else {
             if self.backend != backend { return .stopPlayer }
             return switch intent {
-            case .preparingQueue: .stopPlayer
-            case .playing: .ignore
+            case .preparingQueue, .playing: .ignore
             case .paused: .pausePlayer
             case .stopped: .stopPlayer
             }
@@ -264,11 +311,18 @@ final class AppleMusicPlaybackOperationCoordinator: @unchecked Sendable {
 #if os(iOS)
 import Combine
 import MusicKit
+import UIKit
 
 extension ApplicationMusicPlayer: AppleMusicStationPlaybackStarting {}
 
 private struct SystemMusicPlayerBox: @unchecked Sendable {
     let player: SystemMusicPlayer
+}
+
+private struct AppleMusicPlaybackEndSnapshot {
+    let playbackTime: TimeInterval
+    let duration: TimeInterval
+    let isFinalEntry: Bool
 }
 
 @MainActor
@@ -307,8 +361,12 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private let finitePlayer: SystemMusicPlayer
     private let stationPlayer = ApplicationMusicPlayer.shared
     private var cancellables = Set<AnyCancellable>()
+    private var endMonitorTask: Task<Void, Never>?
+    private var lastEndMonitorDiagnosticAt = Date.distantPast
+    private var lastPlayingEndSnapshot: AppleMusicPlaybackEndSnapshot?
     private var trackIdentityByMusicID: [String: String] = [:]
     private var trackByMusicID: [String: Track] = [:]
+    private var submittedTracks: [Track] = []
     private var wasPlaying = false
     private var hasReportedEnd = false
     private var endStallTracker = AppleMusicPlaybackEndStallTracker()
@@ -318,7 +376,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private var isPreparingQueue = false
     private var artworkRequestMusicID: String?
     private var enrichedArtwork: (musicID: String, url: String)?
-    private var lastSubmittedMusicID: String?
+    private var lastSubmittedMusicIDs: Set<String> = []
+    private var lastSubmittedTrack: Track?
     private var savedSystemRepeatMode: MusicPlayer.RepeatMode?
     private var savedSystemShuffleMode: MusicPlayer.ShuffleMode?
     private var ownsSystemPlayer = false
@@ -356,44 +415,76 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             queue: stationPlayer.queue.objectWillChange,
             state: stationPlayer.state.objectWillChange
         )
-        Timer.publish(every: 0.25, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                guard let self,
-                      let queueGeneration = self.activeQueueGeneration else { return }
-                let player = self.player
-                guard player.state.playbackStatus == .playing else {
-                    self.endStallTracker.reset()
-                    self.publishState()
+        endMonitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                } catch {
                     return
                 }
-                let playbackTime = player.playbackTime
-                self.onTimeChanged?(playbackTime, queueGeneration)
-                guard !self.hasReportedEnd,
-                      let currentEntry = self.currentEntry,
-                      case let .song(song)? = currentEntry.item,
-                      let duration = song.duration else {
-                    self.endStallTracker.reset()
-                    return
-                }
-                let isFinalEntry = AppleMusicPlaybackEndPolicy.isFinalEntry(
-                    currentMusicID: String(describing: song.id),
-                    lastSubmittedMusicID: self.lastSubmittedMusicID,
-                    isStationActive: self.isStationActive
-                )
-                if AppleMusicPlaybackEndPolicy.shouldReportEnd(
-                    playbackTime: playbackTime,
-                    duration: duration,
-                    isFinalEntry: isFinalEntry
-                ) || self.endStallTracker.shouldReportStalledEnd(
-                    playbackTime: playbackTime,
-                    duration: duration,
-                    isFinalEntry: isFinalEntry
-                ) {
-                    self.reportEnded()
-                }
+                guard let self else { return }
+                self.pollPlaybackEnd()
             }
-            .store(in: &cancellables)
+        }
+    }
+
+    private func pollPlaybackEnd() {
+        guard let queueGeneration = activeQueueGeneration else { return }
+        let activePlayer = player
+        let playbackTime = activePlayer.playbackTime
+        let now = Date()
+        if UIApplication.shared.applicationState != .active,
+           now.timeIntervalSince(lastEndMonitorDiagnosticAt) >= 10 {
+            lastEndMonitorDiagnosticAt = now
+            let currentSong: Song? = if case let .song(song)? = currentEntry?.item {
+                song
+            } else {
+                nil
+            }
+            let currentMusicID = currentSong.map { String(describing: $0.id) } ?? "none"
+            EnsembleLogger.debug(
+                "[MusicKitHeartbeat] generation=\(queueGeneration)"
+                    + " status=\(activePlayer.state.playbackStatus) time=\(playbackTime)"
+                    + " currentID=\(currentMusicID) lastIDs=\(lastSubmittedMusicIDs.sorted())"
+                    + " duration=\(currentSong?.duration ?? 0)"
+                    + " snapshotTime=\(lastPlayingEndSnapshot?.playbackTime ?? 0)"
+                    + " snapshotFinal=\(lastPlayingEndSnapshot?.isFinalEntry == true)"
+            )
+        }
+        guard activePlayer.state.playbackStatus == .playing else {
+            endStallTracker.reset()
+            publishState()
+            return
+        }
+        onTimeChanged?(playbackTime, queueGeneration)
+        guard !hasReportedEnd,
+              let currentEntry,
+              case let .song(song)? = currentEntry.item,
+              let duration = song.duration else {
+            endStallTracker.reset()
+            return
+        }
+        let isFinalEntry = AppleMusicPlaybackEndPolicy.isFinalEntry(
+            currentMusicID: String(describing: song.id),
+            lastSubmittedMusicIDs: lastSubmittedMusicIDs,
+            isStationActive: isStationActive
+        ) || matchesLastSubmittedTrack(song)
+        lastPlayingEndSnapshot = AppleMusicPlaybackEndSnapshot(
+            playbackTime: playbackTime,
+            duration: duration,
+            isFinalEntry: isFinalEntry
+        )
+        if AppleMusicPlaybackEndPolicy.shouldReportEnd(
+            playbackTime: playbackTime,
+            duration: duration,
+            isFinalEntry: isFinalEntry
+        ) || endStallTracker.shouldReportStalledEnd(
+            playbackTime: playbackTime,
+            duration: duration,
+            isFinalEntry: isFinalEntry
+        ) {
+            reportEnded()
+        }
     }
 
     func play(
@@ -436,17 +527,22 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         var identities: [String: String] = [:]
         var tracksByID: [String: Track] = [:]
         for (track, song) in resolvedTracks {
-            let id = String(describing: song.id)
-            identities[id] = track.playbackIdentity
-            tracksByID[id] = track
+            for id in musicIDs(for: track, song: song) {
+                identities[id] = track.playbackIdentity
+                tracksByID[id] = track
+            }
         }
         trackIdentityByMusicID = identities
         trackByMusicID = tracksByID
+        submittedTracks = resolvedTracks.map(\.track)
         isStationActive = false
         artworkRequestMusicID = nil
         enrichedArtwork = nil
         claimSystemPlayer()
-        lastSubmittedMusicID = songs.last.map { String(describing: $0.id) }
+        if let last = resolvedTracks.last {
+            lastSubmittedMusicIDs = musicIDs(for: last.track, song: last.song)
+            lastSubmittedTrack = last.track
+        }
         activeQueueGeneration = generation
         finitePlayer.queue = MusicPlayer.Queue(for: songs, startingAt: first)
         if let current = resolvedTracks.first {
@@ -468,6 +564,29 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         isPreparingQueue = false
         publishCurrentEntry()
         return resolution.unresolvedPlaybackIdentities
+    }
+
+    private func musicIDs(for track: Track, song: Song) -> Set<String> {
+        var ids = Set([String(describing: song.id), track.id])
+        if let catalogID = track.appleMusicCatalogID { ids.insert(catalogID) }
+        if let libraryID = track.appleMusicLibraryID { ids.insert(libraryID) }
+        return ids
+    }
+
+    private func matches(_ song: Song, track: Track, musicIDs: Set<String> = []) -> Bool {
+        AppleMusicPlaybackItemMatchingPolicy.matches(
+            currentMusicID: String(describing: song.id),
+            currentTitle: song.title,
+            currentArtistName: song.artistName,
+            currentDuration: song.duration,
+            submittedMusicIDs: musicIDs,
+            submittedTrack: track
+        )
+    }
+
+    private func matchesLastSubmittedTrack(_ song: Song) -> Bool {
+        guard !isStationActive, let lastSubmittedTrack else { return false }
+        return matches(song, track: lastSubmittedTrack, musicIDs: lastSubmittedMusicIDs)
     }
 
     private func resolveSongs(for tracks: [Track]) async throws -> (
@@ -547,6 +666,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         operations.pause()
         pausedEndTask?.cancel()
         pausedEndTask = nil
+        lastPlayingEndSnapshot = nil
         isPreparingQueue = false
         if wasPreparingQueue {
             activeQueueGeneration = nil
@@ -586,6 +706,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         operations.stop()
         pausedEndTask?.cancel()
         pausedEndTask = nil
+        lastPlayingEndSnapshot = nil
         wasPlaying = false
         hasReportedEnd = true
         endStallTracker.reset()
@@ -600,7 +721,9 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
         trackIdentityByMusicID = [:]
         trackByMusicID = [:]
-        lastSubmittedMusicID = nil
+        submittedTracks = []
+        lastSubmittedMusicIDs = []
+        lastSubmittedTrack = nil
         artworkRequestMusicID = nil
         enrichedArtwork = nil
     }
@@ -616,17 +739,39 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     func stopAndWaitForRelease() async -> Bool {
         let wasStationActive = isStationActive
         let wasSystemOwned = ownsSystemPlayer
-        stop()
-        guard wasStationActive || wasSystemOwned else { return true }
         let releasedPlayer: MusicPlayer = wasStationActive ? stationPlayer : finitePlayer
+        let initialStatus = releasedPlayer.state.playbackStatus
+        let initialHasCurrentEntry = wasStationActive
+            ? stationPlayer.queue.currentEntry != nil
+            : finitePlayer.queue.currentEntry != nil
+        let startedAt = Date()
+        let backend = wasStationActive ? "station" : "finite"
+        EnsembleLogger.debug(
+            "[ProviderHandoff] release begin backend=\(backend)"
+                + " status=\(initialStatus)"
+                + " currentEntry=\(initialHasCurrentEntry)"
+        )
+        stop()
+        guard wasStationActive || wasSystemOwned else {
+            EnsembleLogger.debug("[ProviderHandoff] release complete backend=\(backend) unowned=true")
+            return true
+        }
         for _ in 0..<40 {
             let hasCurrentEntry = wasStationActive
                 ? stationPlayer.queue.currentEntry != nil
                 : finitePlayer.queue.currentEntry != nil
             let status = releasedPlayer.state.playbackStatus
-            if wasStationActive {
-                if status == .stopped, !hasCurrentEntry { return true }
-            } else if status == .stopped || status == .paused || status == .interrupted {
+            if AppleMusicPlaybackReleasePolicy.hasReleased(
+                isStationActive: wasStationActive,
+                isStopped: status == .stopped,
+                isPaused: status == .paused,
+                hasCurrentEntry: hasCurrentEntry
+            ) {
+                EnsembleLogger.debug(
+                    "[ProviderHandoff] release complete backend=\(backend)"
+                        + " status=\(status) currentEntry=\(hasCurrentEntry)"
+                        + " elapsedMs=\(Int(Date().timeIntervalSince(startedAt) * 1_000))"
+                )
                 return true
             }
             do {
@@ -639,9 +784,18 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             ? stationPlayer.queue.currentEntry != nil
             : finitePlayer.queue.currentEntry != nil
         let status = releasedPlayer.state.playbackStatus
-        return wasStationActive
-            ? status == .stopped && !hasCurrentEntry
-            : status == .stopped || status == .paused || status == .interrupted
+        let released = AppleMusicPlaybackReleasePolicy.hasReleased(
+            isStationActive: wasStationActive,
+            isStopped: status == .stopped,
+            isPaused: status == .paused,
+            hasCurrentEntry: hasCurrentEntry
+        )
+        EnsembleLogger.debug(
+            "[ProviderHandoff] release timeout backend=\(backend) result=\(released)"
+                + " status=\(status) currentEntry=\(hasCurrentEntry)"
+                + " elapsedMs=\(Int(Date().timeIntervalSince(startedAt) * 1_000))"
+        )
+        return released
     }
     func seek(to time: TimeInterval) { player.playbackTime = time }
 
@@ -684,6 +838,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         guard let station = detailed.station else { throw AppleMusicSourceError.musicKitPlaybackRequired }
         trackIdentityByMusicID = [:]
         trackByMusicID = [:]
+        submittedTracks = []
         isStationActive = true
         artworkRequestMusicID = nil
         enrichedArtwork = nil
@@ -762,6 +917,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func beginQueuePreparation() {
         pausedEndTask?.cancel()
         pausedEndTask = nil
+        lastPlayingEndSnapshot = nil
         isPreparingQueue = true
         let wasStationActive = isStationActive
         activeQueueGeneration = nil
@@ -774,7 +930,9 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             releaseSystemPlayer()
         }
         isStationActive = false
-        lastSubmittedMusicID = nil
+        submittedTracks = []
+        lastSubmittedMusicIDs = []
+        lastSubmittedTrack = nil
     }
 
     private func failQueuePreparation(
@@ -786,12 +944,16 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask = nil
         if backend == .station {
             stationPlayer.stop()
+            stationPlayer.queue.entries = []
         } else {
             releaseSystemPlayer()
         }
         activeQueueGeneration = nil
         isPreparingQueue = false
         isStationActive = false
+        submittedTracks = []
+        lastSubmittedMusicIDs = []
+        lastSubmittedTrack = nil
         wasPlaying = false
         hasReportedEnd = true
         operations.markStopped(generation)
@@ -828,6 +990,13 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             return
         }
         guard case .song(let song) = item else { return }
+        if let track = submittedTracks.first(where: { matches(song, track: $0) }) {
+            trackIdentityByMusicID[id] = track.playbackIdentity
+            trackByMusicID[id] = track
+            onTrackChanged?(track.playbackIdentity, queueGeneration)
+            publishMetadata(for: song, track: track, queueGeneration: queueGeneration)
+            return
+        }
         let dynamicTrack = track(from: song)
         onDynamicTrack?(dynamicTrack, queueGeneration)
         enrichCurrentArtworkIfNeeded(
@@ -951,24 +1120,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func publishState() {
         guard !isPreparingQueue, activeQueueGeneration != nil else { return }
         let playbackStatus = player.state.playbackStatus
-        let currentEntry = self.currentEntry
-        let reachedFinalEntryEnd: Bool
-        if case let .song(song)? = currentEntry?.item,
-           let duration = song.duration {
-            reachedFinalEntryEnd = AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
-                playbackTime: player.playbackTime,
-                duration: duration,
-                isFinalEntry: AppleMusicPlaybackEndPolicy.isFinalEntry(
-                    currentMusicID: String(describing: song.id),
-                    lastSubmittedMusicID: lastSubmittedMusicID,
-                    isStationActive: isStationActive
-                ),
-                wasPlaying: wasPlaying,
-                isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
-            )
-        } else {
-            reachedFinalEntryEnd = false
-        }
+        let reachedFinalEntryEnd = hasReachedFinalEntryEnd()
         if playbackStatus == .stopped,
            AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
                wasPlaying: wasPlaying,
@@ -1008,22 +1160,37 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 self.reportEnded()
                 return
             }
-            guard
-                  let currentEntry = self.currentEntry,
-                  case let .song(song)? = currentEntry.item,
-                  let duration = song.duration,
-                  AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
-                      playbackTime: player.playbackTime,
-                      duration: duration,
-                      isFinalEntry: AppleMusicPlaybackEndPolicy.isFinalEntry(
-                          currentMusicID: String(describing: song.id),
-                          lastSubmittedMusicID: self.lastSubmittedMusicID,
-                          isStationActive: self.isStationActive
-                      ),
-                      wasPlaying: self.wasPlaying
-                  ) else { return }
+            guard self.hasReachedFinalEntryEnd() else { return }
             self.reportEnded()
         }
+    }
+
+    private func hasReachedFinalEntryEnd() -> Bool {
+        let isEndSuppressed = isInterrupted || suppressPausedEndUntilPlaybackResumes
+        if let currentEntry,
+           case let .song(song)? = currentEntry.item,
+           let duration = song.duration,
+           AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+               playbackTime: player.playbackTime,
+               duration: duration,
+               isFinalEntry: AppleMusicPlaybackEndPolicy.isFinalEntry(
+                   currentMusicID: String(describing: song.id),
+                   lastSubmittedMusicIDs: lastSubmittedMusicIDs,
+                   isStationActive: isStationActive
+               ) || matchesLastSubmittedTrack(song),
+               wasPlaying: wasPlaying,
+               isEndSuppressed: isEndSuppressed
+           ) {
+            return true
+        }
+        guard let snapshot = lastPlayingEndSnapshot else { return false }
+        return AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: snapshot.playbackTime,
+            duration: snapshot.duration,
+            isFinalEntry: snapshot.isFinalEntry,
+            wasPlaying: wasPlaying,
+            isEndSuppressed: isEndSuppressed
+        )
     }
 
     private func reportEnded() {
@@ -1032,6 +1199,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask = nil
         hasReportedEnd = true
         wasPlaying = false
+        lastPlayingEndSnapshot = nil
         endStallTracker.reset()
         onEnded?(queueGeneration)
     }
@@ -1047,6 +1215,21 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
 
     private func releaseSystemPlayer() {
         guard ownsSystemPlayer else { return }
+        let currentEntry = finitePlayer.queue.currentEntry
+        guard AppleMusicSystemPlayerOwnershipPolicy.canMutateSharedQueue(
+            hasCurrentEntry: currentEntry != nil,
+            resolvedOrTransientEntryMatchesSubmission: currentEntry.map(
+                matchesSubmittedSystemEntry
+            ) == true
+        ) else {
+            EnsembleLogger.info(
+                "[MusicKit] Shared System player changed outside Ensemble; preserving its queue"
+            )
+            savedSystemRepeatMode = nil
+            savedSystemShuffleMode = nil
+            ownsSystemPlayer = false
+            return
+        }
         finitePlayer.stop()
         finitePlayer.queue = MusicPlayer.Queue(for: [Song]())
         finitePlayer.state.repeatMode = savedSystemRepeatMode
@@ -1054,6 +1237,20 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         savedSystemRepeatMode = nil
         savedSystemShuffleMode = nil
         ownsSystemPlayer = false
+    }
+
+    private func matchesSubmittedSystemEntry(_ entry: MusicPlayer.Queue.Entry) -> Bool {
+        if case let .song(song)? = entry.item {
+            return matchesSubmittedSystemSong(song)
+        }
+        guard let song = entry.transientItem as? Song else { return false }
+        return matchesSubmittedSystemSong(song)
+    }
+
+    private func matchesSubmittedSystemSong(_ song: Song) -> Bool {
+        let id = String(describing: song.id)
+        return trackIdentityByMusicID[id] != nil
+            || submittedTracks.contains { matches(song, track: $0) }
     }
 
     private func pausePlayer(for backend: AppleMusicPlaybackBackend) {

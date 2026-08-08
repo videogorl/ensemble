@@ -13,11 +13,23 @@ No unresolved critical issues are currently documented.
 
 ## Active Limitations
 
+### Apple Music Background Bridge Is Empirical
+
+- **Area:** `AudioPlaybackEngine`, `PlaybackService`, `SystemMusicPlayer`, iOS/iPadOS 18+.
+- **Status:** The provider bridge keeps Ensemble's output graph running without scheduled PCM while `SystemMusicPlayer` owns a finite Apple Music segment. Locked mixed-provider handoff is physically verified on iOS 27, but Apple does not document an empty graph as a background-execution guarantee; iOS 18–26, energy impact, and App Review acceptance remain unverified.
+- **Rule:** Keep the bridge scoped to real playback and stop it on pause, stop, failure, source removal, station takeover, or native claim. Do not emit intentionally inaudible nonzero PCM or describe this empirical behavior as a guaranteed MusicKit contract.
+
 ### Mixed-Provider Remote Skip Boundaries
 
 - **Area:** `PlaybackService`, `PlaybackNowPlayingBridge`, `AppleMusicPlaybackController`, iOS/iPadOS 18+.
 - **Status:** Finite Apple Music segments use `SystemMusicPlayer`, so system controls and automatic Apple-to-Plex/Plex-to-Apple handoffs continue while Ensemble is inactive or backgrounded. The system player can navigate inside its submitted Apple segment, but it provides no callback for Previous at the first Apple item or Next at the last Apple item, so those remote commands cannot cross a Plex boundary. The full background audio and Control Center handoff is physically verified on iOS 27; iOS 18–26 use the same APIs but still need a physical-device pass.
 - **Rule:** Keep automatic boundary advancement and app-owned cross-provider controls working. Do not claim that Control Center Previous/Next can cross the outer edges of a submitted Apple segment.
+
+### HomePod Music Transfer Does Not Carry the Mixed Queue
+
+- **Area:** `SystemMusicPlayer`, AirPlay/HomePod, mixed Apple Music and Plex queues on iOS/iPadOS 18+.
+- **Status:** On iOS 27, choosing a HomePod from Control Center during a finite Apple Music segment transferred the Music session to the HomePod instead of creating an iPhone `AVAudioSession` AirPlay route. The HomePod continued its remote Music session while Ensemble's System player remained paused, so a later Plex item could not inherit that output. A true iPhone-owned AirPlay route still needs separate physical verification.
+- **Rule:** Do not claim mixed-provider continuity for Music-to-HomePod transfer. Only accept an AirPlay handoff when Ensemble observes an iPhone audio route and both providers remain under the same phone-owned session.
 
 ### Top-Level Navigation Pop-In During Playback
 
