@@ -393,6 +393,41 @@ final class HubRepositorySnapshotTests: XCTestCase {
         XCTAssertEqual(fetched?.sourceScope, HubSourceScope(sourceCompositeKey: sourceKey))
     }
 
+    func testConcurrentReplacementSavesLeaveOneHubGraph() async throws {
+        let stack = CoreDataStack.inMemory()
+        let repository = HubRepository(coreDataStack: stack)
+        let snapshotHubs = [makeHub(id: "snapshot-hub", context: nil)]
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask {
+                    try await repository.saveHomeFeedSnapshot(
+                        HomeFeedCachedSnapshot(
+                            id: "snapshot-\(index)",
+                            sourceScopeKey: nil,
+                            sourceName: "Music",
+                            fetchedAt: Date(),
+                            refreshReason: "test",
+                            freshnessState: .fresh,
+                            isLastGood: true,
+                            hubs: snapshotHubs
+                        )
+                    )
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let counts = try await stack.performViewContext { context in
+            (
+                hubs: try context.count(for: CDHub.fetchRequest()),
+                items: try context.count(for: CDHubItem.fetchRequest())
+            )
+        }
+        XCTAssertEqual(counts.hubs, 1)
+        XCTAssertEqual(counts.items, 1)
+    }
+
     private func makeHub(id: String, context: String?) -> Hub {
         Hub(
             id: id,
