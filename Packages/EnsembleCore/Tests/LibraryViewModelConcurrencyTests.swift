@@ -286,7 +286,7 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
         let libraryRepository: LibraryRepository
     }
 
-    func testLatestSourceSnapshotWinsWhenOlderLoadFinishesLast() async throws {
+    func testQueuedFollowUpLoadUsesLatestSourceSnapshot() async throws {
         let harness = makeHarness()
         let sourceA = "plex:account-1:server-1:lib-a"
         let sourceB = "plex:account-1:server-1:lib-b"
@@ -304,18 +304,18 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
         try await waitForCallStart(1, gate: gate)
 
         harness.accountManager.updatePlexAccount(makeAccount(libraryKey: "lib-b"))
-        try await waitForCallStart(2, gate: gate)
+        try await Task.sleep(nanoseconds: 20_000_000)
 
-        await gate.release(2)
-        try await waitForLoadCompletion(viewModel: viewModel, expectedSourceKey: sourceB)
         await gate.release(1)
+        try await waitForCallStart(2, gate: gate)
+        await gate.release(2)
         await olderLoad.value
 
         XCTAssertEqual(viewModel.tracks.compactMap(\.sourceCompositeKey), [sourceB])
         XCTAssertFalse(viewModel.isLoading)
     }
 
-    func testOlderLoadCannotFinishLoadingWhileLatestLoadIsPending() async throws {
+    func testQueuedFollowUpKeepsLoadingUntilLatestSnapshotPublishes() async throws {
         let harness = makeHarness()
         let sourceA = "plex:account-1:server-1:lib-a"
         let sourceB = "plex:account-1:server-1:lib-b"
@@ -333,15 +333,16 @@ final class LibraryViewModelConcurrencyTests: XCTestCase {
         try await waitForCallStart(1, gate: gate)
 
         harness.accountManager.updatePlexAccount(makeAccount(libraryKey: "lib-b"))
-        try await waitForCallStart(2, gate: gate)
+        try await Task.sleep(nanoseconds: 20_000_000)
 
         await gate.release(1)
-        await olderLoad.value
+        try await waitForCallStart(2, gate: gate)
         XCTAssertTrue(viewModel.isLoading)
         XCTAssertTrue(viewModel.tracks.isEmpty)
 
         await gate.release(2)
-        try await waitForLoadCompletion(viewModel: viewModel, expectedSourceKey: sourceB)
+        await olderLoad.value
+        XCTAssertEqual(viewModel.tracks.compactMap(\.sourceCompositeKey), [sourceB])
         XCTAssertFalse(viewModel.isLoading)
     }
 
