@@ -90,6 +90,20 @@ enum AppleMusicPlaybackEndPolicy {
     ) -> Bool {
         wasPlaying && !isEndSuppressed
     }
+
+    static func shouldReportFinalEntryReset(
+        playbackTime: TimeInterval,
+        lastPlayingTime: TimeInterval?,
+        isFinalEntry: Bool,
+        wasPlaying: Bool,
+        isEndSuppressed: Bool = false
+    ) -> Bool {
+        wasPlaying
+            && !isEndSuppressed
+            && isFinalEntry
+            && playbackTime < 0.5
+            && (lastPlayingTime ?? 0) >= 0.5
+    }
 }
 
 enum AppleMusicPlaybackItemMatchingPolicy {
@@ -1078,14 +1092,14 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func publishState() {
         guard !isPreparingQueue, activeQueueGeneration != nil else { return }
         let playbackStatus = player.state.playbackStatus
-        let reachedFinalEntryEnd = hasReachedFinalEntryEnd()
+        let reachedFinalEntryBoundary = hasReachedFinalEntryBoundary()
         if playbackStatus == .stopped,
            AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
                wasPlaying: wasPlaying,
                isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
            ) {
             scheduleEndConfirmation(forStoppedPlayback: true)
-        } else if playbackStatus == .paused, reachedFinalEntryEnd {
+        } else if playbackStatus == .paused, reachedFinalEntryBoundary {
             scheduleEndConfirmation(forStoppedPlayback: false)
         } else if playbackStatus == .playing {
             pausedEndTask?.cancel()
@@ -1118,9 +1132,21 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 self.reportEnded()
                 return
             }
-            guard self.hasReachedFinalEntryEnd() else { return }
+            guard self.hasReachedFinalEntryBoundary() else { return }
             self.reportEnded()
         }
+    }
+
+    private func hasReachedFinalEntryBoundary() -> Bool {
+        if hasReachedFinalEntryEnd() { return true }
+        let isEndSuppressed = isInterrupted || suppressPausedEndUntilPlaybackResumes
+        return AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: player.playbackTime,
+            lastPlayingTime: lastPlayingEndSnapshot?.playbackTime,
+            isFinalEntry: lastPlayingEndSnapshot?.isFinalEntry == true,
+            wasPlaying: wasPlaying,
+            isEndSuppressed: isEndSuppressed
+        )
     }
 
     private func hasReachedFinalEntryEnd() -> Bool {

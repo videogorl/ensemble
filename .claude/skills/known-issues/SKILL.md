@@ -22,8 +22,8 @@ No unresolved critical issues are currently documented.
 ### Mixed-Provider Remote Skip Boundaries
 
 - **Area:** `PlaybackService`, `PlaybackNowPlayingBridge`, `AppleMusicPlaybackController`, iOS/iPadOS 18+.
-- **Status:** `ApplicationMusicPlayer` can navigate inside its submitted Apple segment, but MusicKit provides no callback for Previous at the first Apple item or Next at the last Apple item, so those remote commands cannot cross a Plex boundary. Automatic boundary advancement and app-owned controls remain available; the physical OS matrix is tracked above.
-- **Rule:** Keep automatic boundary advancement and app-owned cross-provider controls working. Do not claim that Control Center Previous/Next can cross the outer edges of a submitted Apple segment.
+- **Status:** `ApplicationMusicPlayer` navigates inside its submitted Apple segment. At the last entry of a finite segment, remote Next pauses and resets the MusicKit entry; Ensemble recognizes that confirmed state transition and advances into the provider-neutral queue. MusicKit still provides no equivalent signal for Previous at the first Apple entry.
+- **Rule:** Keep automatic advancement and the confirmed finite-segment Next boundary working. Do not claim that Control Center Previous can cross from the first Apple entry to an earlier Plex item.
 
 ### HomePod Music Transfer Does Not Carry the Mixed Queue
 
