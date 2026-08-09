@@ -1328,6 +1328,20 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNil(model.resolve(for: library).onAddToLibrary)
     }
 
+    func testTrackRowInteractionModelHidesAcceptedLibraryAdd() {
+        let source = MusicSourceIdentifier.appleMusic.compositeKey
+        let track = Track(id: "song", key: "apple-catalog", title: "Song", sourceCompositeKey: source)
+        var canAdd = true
+        let model = TrackRowInteractionModel(
+            onAddToLibrary: { _ in },
+            canAddToLibrary: { _ in canAdd }
+        )
+
+        XCTAssertNotNil(model.resolve(for: track).onAddToLibrary)
+        canAdd = false
+        XCTAssertNil(model.resolve(for: track).onAddToLibrary)
+    }
+
     func testTrackRowInteractionModelUsesNormalizedAppleMusicActionAvailability() {
         let track = Track(
             id: "apple-song",

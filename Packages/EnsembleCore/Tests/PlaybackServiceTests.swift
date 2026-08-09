@@ -1083,45 +1083,6 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
     }
 
-    func testAppleMusicBackgroundBridgeSpansActivePlaybackStates() {
-        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            playbackState: .playing,
-            currentTrackIsAppleMusic: true,
-            isStationActive: false
-        ))
-        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            playbackState: .loading,
-            currentTrackIsAppleMusic: true,
-            isStationActive: false
-        ))
-        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            playbackState: .buffering,
-            currentTrackIsAppleMusic: true,
-            isStationActive: false
-        ))
-        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            playbackState: .paused,
-            currentTrackIsAppleMusic: true,
-            isStationActive: false
-        ))
-        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            playbackState: .playing,
-            currentTrackIsAppleMusic: false,
-            isStationActive: false
-        ))
-        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            playbackState: .playing,
-            currentTrackIsAppleMusic: true,
-            isStationActive: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldPauseAudioEngineBeforeLoading(
-            isProviderHandoffBridgeActive: true
-        ))
-        XCTAssertTrue(PlaybackService.shouldPauseAudioEngineBeforeLoading(
-            isProviderHandoffBridgeActive: false
-        ))
-    }
-
     func testAppleMusicPlaylistTrackKeyKeepsNumericItemsCatalogPlayable() {
         XCTAssertEqual(
             AppleMusicTrackKeyPolicy.playlistTrackKey(itemID: "1710109917", isInLibrary: true),
@@ -1218,37 +1179,27 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
-    func testNativeEndTransitionLeaseStartsNearBoundaryAndReleasesAfterSeekBack() {
-        let nearBoundary = PlaybackService.shouldPrepareNativeEndTransitionLease(
+    func testEndTransitionLeaseStartsNearBoundaryAndReleasesAfterSeekBack() {
+        let nearBoundary = PlaybackService.shouldPrepareEndTransitionLease(
             playbackState: .playing,
-            currentTrackIsAppleMusic: false,
             currentTime: 96,
             duration: 100,
-            hasContinuousNativeSuccessor: false
+            hasContinuousProviderSuccessor: false
         )
-        let afterSeekBack = PlaybackService.shouldPrepareNativeEndTransitionLease(
+        let afterSeekBack = PlaybackService.shouldPrepareEndTransitionLease(
             playbackState: .playing,
-            currentTrackIsAppleMusic: false,
             currentTime: 95.9,
             duration: 100,
-            hasContinuousNativeSuccessor: false
+            hasContinuousProviderSuccessor: false
         )
 
         XCTAssertTrue(nearBoundary)
         XCTAssertFalse(afterSeekBack)
-        XCTAssertFalse(PlaybackService.shouldPrepareNativeEndTransitionLease(
+        XCTAssertFalse(PlaybackService.shouldPrepareEndTransitionLease(
             playbackState: .playing,
-            currentTrackIsAppleMusic: false,
             currentTime: 99,
             duration: 100,
-            hasContinuousNativeSuccessor: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldPrepareNativeEndTransitionLease(
-            playbackState: .playing,
-            currentTrackIsAppleMusic: true,
-            currentTime: 99,
-            duration: 100,
-            hasContinuousNativeSuccessor: false
+            hasContinuousProviderSuccessor: true
         ))
     }
 
@@ -1336,18 +1287,15 @@ final class PlaybackServiceTests: XCTestCase {
 
     func testAppleMusicPlaybackEndPolicyReportsTheFinalEntryAtItsEnd() {
         XCTAssertTrue(AppleMusicPlaybackEndPolicy.isFinalEntry(
-            currentMusicID: "final",
-            lastSubmittedMusicIDs: ["final"],
+            hasQueuedSuccessor: false,
             isStationActive: false
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
-            currentMusicID: "final",
-            lastSubmittedMusicIDs: ["final"],
+            hasQueuedSuccessor: false,
             isStationActive: true
         ))
-        XCTAssertTrue(AppleMusicPlaybackEndPolicy.isFinalEntry(
-            currentMusicID: "catalog-final",
-            lastSubmittedMusicIDs: ["library-final", "catalog-final"],
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            hasQueuedSuccessor: true,
             isStationActive: false
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
@@ -1445,60 +1393,6 @@ final class PlaybackServiceTests: XCTestCase {
             currentDuration: 120,
             submittedMusicIDs: ["i.library-daybreak"],
             submittedTrack: libraryTrack
-        ))
-    }
-
-    func testAppleMusicPlaybackReleasePolicyMatrix() {
-        XCTAssertTrue(AppleMusicPlaybackReleasePolicy.hasReleased(
-            isStationActive: false,
-            isStopped: false,
-            isPaused: true,
-            hasCurrentEntry: true
-        ))
-        XCTAssertFalse(AppleMusicPlaybackReleasePolicy.hasReleased(
-            isStationActive: false,
-            isStopped: false,
-            isPaused: false,
-            hasCurrentEntry: true
-        ))
-        XCTAssertTrue(AppleMusicPlaybackReleasePolicy.hasReleased(
-            isStationActive: false,
-            isStopped: true,
-            isPaused: false,
-            hasCurrentEntry: true
-        ))
-        XCTAssertFalse(AppleMusicPlaybackReleasePolicy.hasReleased(
-            isStationActive: true,
-            isStopped: true,
-            isPaused: false,
-            hasCurrentEntry: true
-        ))
-        XCTAssertTrue(AppleMusicPlaybackReleasePolicy.hasReleased(
-            isStationActive: true,
-            isStopped: true,
-            isPaused: false,
-            hasCurrentEntry: false
-        ))
-        XCTAssertFalse(AppleMusicPlaybackReleasePolicy.hasReleased(
-            isStationActive: true,
-            isStopped: false,
-            isPaused: true,
-            hasCurrentEntry: false
-        ))
-    }
-
-    func testAppleMusicSystemPlayerOwnershipPolicyPreservesAnExternalQueue() {
-        XCTAssertTrue(AppleMusicSystemPlayerOwnershipPolicy.canMutateSharedQueue(
-            hasCurrentEntry: false,
-            resolvedOrTransientEntryMatchesSubmission: false
-        ))
-        XCTAssertTrue(AppleMusicSystemPlayerOwnershipPolicy.canMutateSharedQueue(
-            hasCurrentEntry: true,
-            resolvedOrTransientEntryMatchesSubmission: true
-        ))
-        XCTAssertFalse(AppleMusicSystemPlayerOwnershipPolicy.canMutateSharedQueue(
-            hasCurrentEntry: true,
-            resolvedOrTransientEntryMatchesSubmission: false
         ))
     }
 

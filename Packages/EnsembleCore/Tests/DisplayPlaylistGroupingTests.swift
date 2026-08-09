@@ -2,6 +2,84 @@ import XCTest
 @testable import EnsembleCore
 
 final class DisplayPlaylistGroupingTests: XCTestCase {
+    func testAppleMusicOpaqueAddFailureConvergesEquivalentRecordingAcrossCatalogAliases() {
+        let requestedCatalogID = "6793692936"
+        let libraryCatalogID = "6793013038"
+        let requested = AppleMusicLibraryRecording(
+            isrc: "USRC12600001",
+            title: "The Wolf",
+            artistName: "half•alive",
+            duration: 179.096
+        )
+        let libraryCandidate = AppleMusicLibraryRecording(
+            isrc: "usrc12600001",
+            title: "The Wolf",
+            artistName: "half•alive",
+            duration: 179.096
+        )
+
+        XCTAssertNotEqual(requestedCatalogID, libraryCatalogID)
+        XCTAssertTrue(AppleMusicLibraryAddPolicy.containsEquivalentRecording(
+            requested: requested,
+            libraryCandidates: [libraryCandidate]
+        ))
+        XCTAssertTrue(AppleMusicLibraryAddPolicy.containsMatchingISRC(
+            requested: requested,
+            libraryCandidates: [libraryCandidate]
+        ))
+        XCTAssertTrue(AppleMusicLibraryAddPolicy.canConvergeOpaqueFailure(
+            domain: "MPErrorDomain",
+            code: 0,
+            exactCatalogIDPresent: false,
+            requested: requested,
+            libraryCandidates: [libraryCandidate]
+        ))
+        XCTAssertFalse(AppleMusicLibraryAddPolicy.canConvergeOpaqueFailure(
+            domain: "MPErrorDomain",
+            code: 1,
+            exactCatalogIDPresent: true,
+            requested: requested,
+            libraryCandidates: [libraryCandidate]
+        ))
+        XCTAssertFalse(AppleMusicLibraryAddPolicy.canConvergeOpaqueFailure(
+            domain: "MPErrorDomain",
+            code: 0,
+            exactCatalogIDPresent: false,
+            requested: requested,
+            libraryCandidates: [AppleMusicLibraryRecording(
+                isrc: "USRC12600002",
+                title: "The Wolf",
+                artistName: "half•alive",
+                duration: 179.096
+            )]
+        ))
+
+        let metadataOnlyCandidate = AppleMusicLibraryRecording(
+            isrc: nil,
+            title: "The Wolf",
+            artistName: "half•alive",
+            duration: 179.096
+        )
+        XCTAssertFalse(AppleMusicLibraryAddPolicy.containsMatchingISRC(
+            requested: requested,
+            libraryCandidates: [metadataOnlyCandidate]
+        ))
+        XCTAssertTrue(AppleMusicLibraryAddPolicy.canConvergeOpaqueFailure(
+            domain: "MPErrorDomain",
+            code: 0,
+            exactCatalogIDPresent: false,
+            requested: requested,
+            libraryCandidates: [metadataOnlyCandidate]
+        ))
+        XCTAssertTrue(AppleMusicLibraryAddPolicy.canConvergeOpaqueFailure(
+            domain: "MPErrorDomain",
+            code: 0,
+            exactCatalogIDPresent: true,
+            requested: requested,
+            libraryCandidates: []
+        ))
+    }
+
     func testAppleMusicPaginationProgressAdvancesWithoutClaimingCompletion() {
         XCTAssertEqual(
             AppleMusicPagination.progress(fetchedPageCount: 1, hasNextPage: true),

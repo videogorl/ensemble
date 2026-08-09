@@ -1398,6 +1398,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
             },
+            canAddToLibrary: { track in
+                nowPlayingVM.canAddTrackToLibrary(track)
+            },
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(
                     for: [track],

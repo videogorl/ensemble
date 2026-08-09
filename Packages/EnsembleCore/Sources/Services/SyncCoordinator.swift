@@ -85,6 +85,11 @@ public final class SyncCoordinator: ObservableObject {
         let task: Task<MusicSourceSyncOutcome, Never>
     }
 
+    private struct ActiveSourceLibraryAdd {
+        let id: UUID
+        let task: Task<MusicSourceLibraryAddOutcome, Error>
+    }
+
     private struct ActiveSourcePersistenceWork {
         let registration: ConfiguredSourceProvider
         let lease: SourcePersistenceLease
@@ -136,6 +141,7 @@ public final class SyncCoordinator: ObservableObject {
     private var enforcesSourceConfigurationForProviders = true
     private let sourcePersistenceFence = SourcePersistenceFence()
     private var activeSourceSyncs: [String: ActiveSourceSync] = [:]
+    private var activeSourceLibraryAdds: [String: ActiveSourceLibraryAdd] = [:]
     private var providerResolver: SyncProviderResolver {
         SyncProviderResolver(providers: syncProviders)
     }
@@ -183,6 +189,8 @@ public final class SyncCoordinator: ObservableObject {
     public var sourceCacheCleanupService: SourceCacheCleaning?
     internal var healthCheckRunnerForTesting: ((Bool, Set<String>) async -> ServerHealthChecker.CheckSummary)?
     internal var refreshAPIClientConnectionsRunnerForTesting: (() async -> Void)?
+    internal var sourceLibraryAddHandlerForTesting: ((String) async throws -> MusicSourceLibraryAddOutcome)?
+    internal var sourceLibraryAddDidCoalesceForTesting: (() -> Void)?
 
     internal func setSyncProvidersForTesting(
         _ providers: [String: MusicSourceSyncProvider],
@@ -1158,18 +1166,79 @@ public final class SyncCoordinator: ObservableObject {
     }
     #endif
 
-    public func addTrackToLibrary(_ track: Track) async throws {
-        #if os(iOS)
+    @discardableResult
+    public func addTrackToLibrary(_ track: Track) async throws -> MusicSourceLibraryAddOutcome {
         guard track.canAddToSourceLibrary,
-              #available(iOS 18, *),
-              let catalogID = track.appleMusicCatalogID,
-              let provider = syncProviders[MusicSourceIdentifier.appleMusic.compositeKey] as? AppleMusicSourceProvider
-        else { throw PlaylistMutationError.invalidSource }
-        try await provider.addToLibrary(catalogID: catalogID)
-        await sync(source: .appleMusic)
-        #else
-        throw PlaylistMutationError.invalidSource
-        #endif
+              let sourceKey = track.sourceCompositeKey,
+              sourceKey == MusicSourceIdentifier.appleMusic.compositeKey,
+              let catalogID = track.appleMusicCatalogID else {
+            throw PlaylistMutationError.invalidSource
+        }
+
+        let operationKey = "\(sourceKey)|\(catalogID)"
+        if let activeAdd = activeSourceLibraryAdds[operationKey] {
+            sourceLibraryAddDidCoalesceForTesting?()
+            EnsembleLogger.info(
+                "Source library mutation coalesced operation=add source=\(sourceKey) catalogID=\(catalogID)"
+            )
+            return try await activeAdd.task.value
+        }
+
+        let addToLibrary: () async throws -> MusicSourceLibraryAddOutcome
+        if let sourceLibraryAddHandlerForTesting {
+            addToLibrary = { try await sourceLibraryAddHandlerForTesting(catalogID) }
+        } else {
+            #if os(iOS)
+            guard #available(iOS 18, *),
+                  let provider = syncProviders[sourceKey] as? AppleMusicSourceProvider else {
+                throw PlaylistMutationError.invalidSource
+            }
+            addToLibrary = { try await provider.addToLibrary(catalogID: catalogID) }
+            #else
+            throw PlaylistMutationError.invalidSource
+            #endif
+        }
+
+        let id = UUID()
+        let task = Task { try await addToLibrary() }
+        activeSourceLibraryAdds[operationKey] = ActiveSourceLibraryAdd(id: id, task: task)
+
+        do {
+            let outcome = try await task.value
+            if activeSourceLibraryAdds[operationKey]?.id == id {
+                activeSourceLibraryAdds.removeValue(forKey: operationKey)
+                reconcileLibraryAddition(
+                    source: .appleMusic,
+                    catalogID: catalogID
+                )
+            }
+            return outcome
+        } catch {
+            if activeSourceLibraryAdds[operationKey]?.id == id {
+                activeSourceLibraryAdds.removeValue(forKey: operationKey)
+            }
+            throw error
+        }
+    }
+
+    private func reconcileLibraryAddition(
+        source: MusicSourceIdentifier,
+        catalogID: String
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let outcome = await sync(source: source)
+            switch outcome {
+            case .success:
+                EnsembleLogger.info(
+                    "Source library reconciliation completed source=\(source.compositeKey) catalogID=\(catalogID)"
+                )
+            case .failure(let message):
+                EnsembleLogger.error(
+                    "Source library reconciliation failed source=\(source.compositeKey) catalogID=\(catalogID) message=\(message)"
+                )
+            }
+        }
     }
 
     /// Replace playlist contents in the provided order and refresh local cache.

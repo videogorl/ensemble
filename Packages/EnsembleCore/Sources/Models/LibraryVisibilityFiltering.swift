@@ -16,20 +16,28 @@ enum LibraryVisibilityFiltering {
         hiddenSourceCompositeKeys: Set<String>,
         sourceConfiguration: SourceConfigurationSnapshot? = nil
     ) -> [Item] {
+        var visibilityBySourceKey: [String: Bool] = [:]
         return items.filter { item in
-            guard let sourceKey = item.sourceCompositeKey,
-                  MediaSourceIdentity.parse(sourceKey) != nil else {
-                return false
+            guard let sourceKey = item.sourceCompositeKey else { return false }
+            if let isVisible = visibilityBySourceKey[sourceKey] {
+                return isVisible
             }
-            if let sourceConfiguration,
-               !sourceConfiguration.shouldPreserveSourceKey(sourceKey) {
-                return false
+
+            let isVisible: Bool
+            if MediaSourceIdentity.parse(sourceKey) == nil {
+                isVisible = false
+            } else if let sourceConfiguration,
+                      !sourceConfiguration.shouldPreserveSourceKey(sourceKey) {
+                isVisible = false
+            } else {
+                isVisible = !isHiddenSourceKey(
+                    sourceKey,
+                    hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
+                    sourceConfiguration: sourceConfiguration
+                )
             }
-            return !isHiddenSourceKey(
-                sourceKey,
-                hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-                sourceConfiguration: sourceConfiguration
-            )
+            visibilityBySourceKey[sourceKey] = isVisible
+            return isVisible
         }
     }
 

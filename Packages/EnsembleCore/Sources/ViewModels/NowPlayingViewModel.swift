@@ -121,7 +121,8 @@ public final class NowPlayingViewModel: ObservableObject {
     @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
     private var optimisticTrackFavoritesByIdentity: [String: Bool] = [:]
-    @Published private var addedSourceLibraryTrackIdentities = Set<String>()
+    @Published private var acceptedSourceLibraryCatalogIDs = Set<String>()
+    @Published private var sourceLibraryCatalogIDsInFlight = Set<String>()
     /// Mirrors TrackAvailabilityResolver generation to drive isCurrentTrackPlayable re-evaluation
     @Published private var availabilityGeneration: UInt64 = 0
 
@@ -1756,11 +1757,15 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func canAddTrackToLibrary(_ track: Track) -> Bool {
-        track.canAddToSourceLibrary && !addedSourceLibraryTrackIdentities.contains(track.sourceScopedID)
+        guard track.canAddToSourceLibrary, let catalogID = track.appleMusicCatalogID else { return false }
+        return !acceptedSourceLibraryCatalogIDs.contains(catalogID)
+            && !sourceLibraryCatalogIDsInFlight.contains(catalogID)
     }
 
     public func addTrackToLibrary(_ track: Track) async {
-        guard canAddTrackToLibrary(track) else { return }
+        guard canAddTrackToLibrary(track), let catalogID = track.appleMusicCatalogID else { return }
+        sourceLibraryCatalogIDsInFlight.insert(catalogID)
+        defer { sourceLibraryCatalogIDsInFlight.remove(catalogID) }
         let pending = ToastPayload(
             style: .info,
             iconSystemName: "text.badge.plus",
@@ -1774,12 +1779,12 @@ public final class NowPlayingViewModel: ObservableObject {
         defer { toastCenter.dismiss(id: pending.id) }
 
         do {
-            try await syncCoordinator.addTrackToLibrary(track)
-            addedSourceLibraryTrackIdentities.insert(track.sourceScopedID)
+            let outcome = try await syncCoordinator.addTrackToLibrary(track)
+            acceptedSourceLibraryCatalogIDs.insert(catalogID)
             toastCenter.show(ToastPayload(
                 style: .success,
                 iconSystemName: "checkmark.circle.fill",
-                title: "Added to Library",
+                title: outcome == .alreadyPresent ? "Already in Library" : "Added to Library",
                 message: track.title,
                 dedupeKey: "added-to-library-\(track.sourceScopedID)"
             ))

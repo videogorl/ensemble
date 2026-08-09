@@ -82,6 +82,27 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         case unimplemented
     }
 
+    private actor LibraryAddGate {
+        private(set) var invocationCount = 0
+        private var continuations: [CheckedContinuation<Void, Never>] = []
+        private var isReleased = false
+
+        func add() async -> MusicSourceLibraryAddOutcome {
+            invocationCount += 1
+            if !isReleased {
+                await withCheckedContinuation { continuations.append($0) }
+            }
+            return .alreadyPresent
+        }
+
+        func release() {
+            isReleased = true
+            let pending = continuations
+            continuations.removeAll()
+            pending.forEach { $0.resume() }
+        }
+    }
+
     private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating {
         let sourceIdentifier: MusicSourceIdentifier
         private(set) var events: [String] = []
@@ -200,6 +221,39 @@ final class SyncCoordinatorPlaylistMutationTests: XCTestCase {
         }
         coordinator.setLastPlaylistTargetForTesting(nil, serverSourceKey: "plex:account-1:server-1")
         return coordinator
+    }
+
+    func testAddTrackToLibraryCoalescesConcurrentRequests() async throws {
+        let coordinator = makeCoordinator(withServer: false)
+        let gate = LibraryAddGate()
+        let firstAddStarted = expectation(description: "First library add started")
+        let secondAddCoalesced = expectation(description: "Second library add coalesced")
+        coordinator.sourceLibraryAddHandlerForTesting = { _ in
+            firstAddStarted.fulfill()
+            return await gate.add()
+        }
+        coordinator.sourceLibraryAddDidCoalesceForTesting = {
+            secondAddCoalesced.fulfill()
+        }
+        let track = Track(
+            id: "catalog-id",
+            key: "apple-catalog",
+            title: "The Wolf",
+            artistName: "half alive",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        let first = Task { try await coordinator.addTrackToLibrary(track) }
+        await fulfillment(of: [firstAddStarted], timeout: 1)
+        let second = Task { try await coordinator.addTrackToLibrary(track) }
+        await fulfillment(of: [secondAddCoalesced], timeout: 1)
+        await gate.release()
+        let secondOutcome = try await second.value
+        let firstOutcome = try await first.value
+        XCTAssertEqual(firstOutcome, .alreadyPresent)
+        XCTAssertEqual(secondOutcome, .alreadyPresent)
+        let finalInvocationCount = await gate.invocationCount
+        XCTAssertEqual(finalInvocationCount, 1)
     }
 
     func testOptimisticAppleMusicPlaylistAddPersistsMembershipImmediately() async throws {

@@ -240,6 +240,12 @@ public protocol MusicSourceRadioProviding: Sendable {
     func getRecommendedTracks(basedOn track: Track, limit: Int) async -> [Track]?
 }
 
+/// The converged result of adding a catalog item to its source library.
+public enum MusicSourceLibraryAddOutcome: Sendable, Equatable {
+    case added
+    case alreadyPresent
+}
+
 /// Protocol for syncing music from a source (Plex, future Apple Music, etc.)
 public protocol MusicSourceSyncProvider: Sendable {
     var sourceIdentifier: MusicSourceIdentifier { get }
