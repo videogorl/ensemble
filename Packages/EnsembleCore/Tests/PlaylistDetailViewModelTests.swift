@@ -520,6 +520,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         _ playlist: Playlist,
         tracks: [Track],
         serverTrackCount: Int? = nil,
+        includesPlaylistItemIDs: Bool = false,
         context: NSManagedObjectContext
     ) -> CDPlaylist {
         let cdPlaylist = NSEntityDescription.insertNewObject(
@@ -561,6 +562,9 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 into: context
             ) as! CDPlaylistTrack
             playlistTrack.order = Int32(index)
+            if includesPlaylistItemIDs {
+                playlistTrack.playlistItemID = "item-\(playlist.id)-\(index)"
+            }
             playlistTrack.playlist = cdPlaylist
             playlistTrack.track = cdTrack
             return playlistTrack
@@ -1543,7 +1547,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.tracks.map(\.id), ["track-1"])
     }
 
-    func testRemoveTrackFromMergedPlaylistReplacesOnlyMatchingServerPlaylist() async {
+    func testRemoveTrackFromMergedPlaylistUsesMembershipIDsDespiteUnavailableTrackRows() async {
         let firstProvider = makeRecordingPlaylistProvider()
         let secondProvider = makeRecordingPlaylistProvider(
             accountID: "account-2",
@@ -1585,11 +1589,22 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         playlistRepository.playlists[playlistRepository.playlistKey(
             ratingKey: firstPlaylist.id,
             sourceCompositeKey: firstPlaylist.sourceCompositeKey
-        )] = makeCachedPlaylist(firstPlaylist, tracks: firstTracks, serverTrackCount: 3, context: context)
+        )] = makeCachedPlaylist(
+            firstPlaylist,
+            tracks: firstTracks,
+            serverTrackCount: 3,
+            includesPlaylistItemIDs: true,
+            context: context
+        )
         playlistRepository.playlists[playlistRepository.playlistKey(
             ratingKey: secondPlaylist.id,
             sourceCompositeKey: secondPlaylist.sourceCompositeKey
-        )] = makeCachedPlaylist(secondPlaylist, tracks: secondTracks, context: context)
+        )] = makeCachedPlaylist(
+            secondPlaylist,
+            tracks: secondTracks,
+            includesPlaylistItemIDs: true,
+            context: context
+        )
         playlistRepository.playlists[playlistRepository.playlistKey(
             ratingKey: editorialPlaylist.id,
             sourceCompositeKey: editorialPlaylist.sourceCompositeKey
@@ -1611,16 +1626,13 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(playlistRepository.fetchPlaylistBodiesCallCount, 1)
         XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 0)
         XCTAssertTrue(viewModel.hasUnavailableTracks)
-        XCTAssertEqual(
-            viewModel.editAvailability(for: firstPlaylist),
-            .unavailable(reason: "Playlist contents are not available to edit.")
-        )
+        XCTAssertEqual(viewModel.editAvailability(for: firstPlaylist), .available)
         XCTAssertEqual(viewModel.editAvailability(for: secondPlaylist), .available)
         XCTAssertEqual(
             viewModel.editAvailability(for: editorialPlaylist),
             .readOnly(reason: "Smart playlists are read-only.")
         )
-        XCTAssertFalse(viewModel.canRemoveTrackFromPlaylist(firstTracks[0]))
+        XCTAssertTrue(viewModel.canRemoveTrackFromPlaylist(firstTracks[0]))
         XCTAssertTrue(viewModel.canRemoveTrackFromPlaylist(secondTracks[0]))
         XCTAssertFalse(
             viewModel.canRemoveTrackFromPlaylist(
@@ -1631,22 +1643,23 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             )
         )
 
-        let didRemove = await viewModel.removeTrackFromPlaylist(secondTracks[0], displayIndex: 1)
+        let didRemove = await viewModel.removeTrackFromPlaylist(firstTracks[0], displayIndex: 0)
 
         XCTAssertTrue(didRemove)
         let firstEvents = await firstProvider.eventsSnapshot()
         let secondEvents = await secondProvider.eventsSnapshot()
-        XCTAssertTrue(firstEvents.isEmpty)
-        XCTAssertEqual(secondEvents, [
-            .replace(
-                playlistID: "playlist-b",
-                trackIDs: ["server-2-track-2"]
+        XCTAssertEqual(firstEvents, [
+            .edit(
+                playlistID: "playlist-a",
+                originalItemIDs: ["item-playlist-a-0", "item-playlist-a-1"],
+                editedItemIDs: ["item-playlist-a-1"]
             )
         ])
-        XCTAssertEqual(refreshedSourceKey, "plex:account-2:server-2")
+        XCTAssertTrue(secondEvents.isEmpty)
+        XCTAssertEqual(refreshedSourceKey, "plex:account-1:server-1")
         XCTAssertEqual(
             viewModel.tracks.map(\.id),
-            ["server-1-track-1", "server-1-track-2", "server-2-track-2"]
+            ["server-2-track-1", "server-1-track-2", "server-2-track-2"]
         )
     }
 

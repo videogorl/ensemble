@@ -5,6 +5,7 @@ public struct PlaylistPickerSheet: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let tracks: [Track]
     let title: String
+    let createsPlaylistAcrossSources: Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
@@ -15,10 +16,16 @@ public struct PlaylistPickerSheet: View {
     @State private var searchText = ""
     @State private var playlistsContainingSelection = Set<String>()
 
-    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        tracks: [Track],
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         self.nowPlayingVM = nowPlayingVM
         self.tracks = tracks
         self.title = title
+        self.createsPlaylistAcrossSources = createsPlaylistAcrossSources
     }
 
     public var body: some View {
@@ -135,8 +142,7 @@ public struct PlaylistPickerSheet: View {
                     }
                     .disabled(
                         isSubmitting ||
-                        inferredServerSourceKey == nil ||
-                        compatibleTrackCountForSelectedServer == 0
+                        playlistCreationSourceKeys.isEmpty
                     )
                 }
             }
@@ -206,6 +212,15 @@ public struct PlaylistPickerSheet: View {
         // If server source is still unknown, avoid false "no compatible tracks" state.
         guard inferredServerSourceKey != nil else { return tracks.count }
         return nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
+    }
+
+    private var playlistCreationSourceKeys: [String] {
+        if createsPlaylistAcrossSources {
+            return nowPlayingVM.playlistServerOptions()
+                .filter { nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0 }
+                .map(\.id)
+        }
+        return inferredServerSourceKey.map { [$0] } ?? []
     }
 
     private func loadPlaylists() async {
@@ -332,9 +347,8 @@ public struct PlaylistPickerSheet: View {
     }
 
     private func createPlaylist(named name: String) async {
-        guard let inferredServerSourceKey else { return }
-        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: inferredServerSourceKey)
-        guard !compatibleTracks.isEmpty else {
+        let sourceKeys = playlistCreationSourceKeys
+        guard !sourceKeys.isEmpty else {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
@@ -351,11 +365,23 @@ public struct PlaylistPickerSheet: View {
         defer { isSubmitting = false }
 
         do {
-            _ = try await nowPlayingVM.createPlaylist(
-                title: name,
-                tracks: compatibleTracks,
-                serverSourceKey: inferredServerSourceKey
-            )
+            if createsPlaylistAcrossSources {
+                _ = try await nowPlayingVM.createPlaylists(
+                    title: name,
+                    tracks: tracks,
+                    serverSourceKeys: sourceKeys
+                )
+            } else if let sourceKey = sourceKeys.first {
+                let compatibleTracks = nowPlayingVM.tracks(
+                    tracks,
+                    compatibleWithServerSourceKey: sourceKey
+                )
+                _ = try await nowPlayingVM.createPlaylist(
+                    title: name,
+                    tracks: compatibleTracks,
+                    serverSourceKey: sourceKey
+                )
+            }
             dismiss()
         } catch {
             deps.toastCenter.show(

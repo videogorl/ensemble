@@ -1548,6 +1548,26 @@ public final class NowPlayingViewModel: ObservableObject {
         return workflowResult.mutationResult
     }
 
+    public func createPlaylists(
+        title: String,
+        tracks: [Track],
+        serverSourceKeys: [String]
+    ) async throws -> PlaylistBatchMutationWorkflowResult {
+        guard !isPlaylistMutationInProgress else {
+            throw PlaylistActionError.operationInProgress
+        }
+        isPlaylistMutationInProgress = true
+        defer { isPlaylistMutationInProgress = false }
+
+        let result = await playlistMutationWorkflow.createPlaylists(
+            title: title,
+            tracks: tracks,
+            serverSourceKeys: serverSourceKeys
+        )
+        toastCenter.show(result.resultToast)
+        return result
+    }
+
     public func resolveLastPlaylistTarget() async -> Playlist? {
         guard let lastPlaylistTarget else { return nil }
         do {

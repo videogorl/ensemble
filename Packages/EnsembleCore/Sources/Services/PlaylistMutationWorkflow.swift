@@ -209,6 +209,40 @@ public final class PlaylistMutationWorkflow {
         )
     }
 
+    public func createPlaylists(
+        title: String,
+        tracks: [Track],
+        serverSourceKeys: [String]
+    ) async -> PlaylistBatchMutationWorkflowResult {
+        var succeededCount = 0
+        for sourceKey in serverSourceKeys {
+            do {
+                _ = try await mutator.createPlaylist(
+                    title: title,
+                    tracks: tracks,
+                    serverSourceKey: sourceKey
+                )
+                succeededCount += 1
+            } catch {
+                EnsembleLogger.debug("Playlist creation failed for \(sourceKey): \(error.localizedDescription)")
+            }
+        }
+
+        let totalCount = serverSourceKeys.count
+        let completedAll = succeededCount == totalCount
+        return PlaylistBatchMutationWorkflowResult(
+            succeededCount: succeededCount,
+            totalCount: totalCount,
+            resultToast: ToastPayload(
+                style: completedAll ? .success : (succeededCount > 0 ? .warning : .error),
+                iconSystemName: completedAll ? Icon.playlistCreate : Icon.failure,
+                title: completedAll ? "Created \(title)" : "Created on \(succeededCount)/\(totalCount) sources",
+                message: completedAll ? nil : "Some sources could not create this playlist.",
+                dedupeKey: "playlist-create-all-\(title.lowercased())"
+            )
+        )
+    }
+
     public func beginRename(
         playlist: Playlist,
         to proposedTitle: String,

@@ -144,14 +144,18 @@ final class PlaylistMutationControllerTests: XCTestCase {
 
         let result = try await controller.createPlaylist(
             title: " New Playlist ",
-            tracks: [makeTrack(id: "one"), makeTrack(id: "other", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey)],
+            tracks: [
+                makeTrack(id: "one"),
+                makeTrack(id: "other", sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey),
+                makeTrack(id: "two")
+            ],
             sourceKey: "plex:account-1:server-1",
             provider: provider
         )
 
         let events = await provider.recordedEvents()
-        XCTAssertEqual(events, ["create:New Playlist:one"])
-        XCTAssertEqual(result.addedCount, 1)
+        XCTAssertEqual(events, ["create:New Playlist:one,two"])
+        XCTAssertEqual(result.addedCount, 2)
         XCTAssertEqual(result.skippedCount, 1)
         for _ in 0..<20 where target == nil {
             await Task.yield()
