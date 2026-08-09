@@ -71,6 +71,7 @@ Start with `git status --short` and preserve unrelated user changes.
 For implementation work:
 - Make the smallest coherent change that satisfies the request.
 - Commit after each logical step when implementing a plan, and always commit before handing work back for manual testing.
+- Do not add tests by default. Search existing coverage first; add only the smallest focused test for non-trivial logic or a reproduced regression that existing tests do not protect. Skip duplicate, speculative, one-test-per-function, and boilerplate coverage; trivial changes can use targeted build or runtime verification instead.
 - Follow the canonical verification policy in `testing`. Every completed turn with code, UI, behavior, script, or policy changes must include targeted verification before handoff unless a blocker is documented. In short: run affected package tests after non-trivial code changes, and visually validate the changed surface itself with screenshots or equivalent UI inspection. Opening the app or landing on an unrelated/default tab is not sufficient; for example, an Albums view fix on iOS must navigate to Albums and verify the changed Albums behavior.
 
 For bug reports:
