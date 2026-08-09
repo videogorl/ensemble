@@ -108,7 +108,7 @@ public final class ArtistDetailViewModel: ObservableObject {
 
         guard let sourceKey = artist.sourceCompositeKey,
               MediaSourceIdentity.parse(sourceKey) != nil else {
-            albums = []
+            if !albums.isEmpty { albums = [] }
             isLoading = false
             return
         }
@@ -119,7 +119,8 @@ public final class ArtistDetailViewModel: ObservableObject {
                 sourceCompositeKey: sourceKey
             )
             if !cachedAlbums.isEmpty {
-                albums = ArtistDetailAlbumCollections.sorted(cachedAlbums.map { Album(from: $0) })
+                let nextAlbums = ArtistDetailAlbumCollections.sorted(cachedAlbums.map { Album(from: $0) })
+                if albums != nextAlbums { albums = nextAlbums }
             }
 
             if !syncCoordinator.isOffline {
@@ -148,7 +149,7 @@ public final class ArtistDetailViewModel: ObservableObject {
     public func loadTracks() async {
         guard let sourceKey = artist.sourceCompositeKey,
               MediaSourceIdentity.parse(sourceKey) != nil else {
-            tracks = []
+            if !tracks.isEmpty { tracks = [] }
             return
         }
 
@@ -158,11 +159,12 @@ public final class ArtistDetailViewModel: ObservableObject {
                 sourceCompositeKey: sourceKey
             )
             if !cachedTracks.isEmpty {
-                tracks = cachedTracks.map { Track(from: $0) }
+                let nextTracks = cachedTracks.map { Track(from: $0) }
+                if tracks != nextTracks { tracks = nextTracks }
             } else {
                 EnsembleLogger.debug("ArtistDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 let apiTracks = try await syncCoordinator.getArtistTracks(artistId: artist.id, sourceKey: sourceKey)
-                tracks = apiTracks
+                if tracks != apiTracks { tracks = apiTracks }
             }
         } catch {
             EnsembleLogger.debug("ArtistDetailViewModel.loadTracks error: \(error.localizedDescription)")

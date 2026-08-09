@@ -990,11 +990,13 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                 let loadedItems = cachedPlaylist.playlistItemsArray.map(PlaylistItem.init(from:))
                 let nextPlaylist = Playlist(from: cachedPlaylist)
                 let nextTracks = loadedItems.map(\.track)
-                playlist = nextPlaylist
-                hasUnavailableTracks = cachedPlaylist.hasUnavailableTracks
+                if playlist != nextPlaylist { playlist = nextPlaylist }
+                if hasUnavailableTracks != cachedPlaylist.hasUnavailableTracks {
+                    hasUnavailableTracks = cachedPlaylist.hasUnavailableTracks
+                }
                 if shouldPublishTrackSnapshot(nextTracks, cachedTrackCount: Int(cachedPlaylist.trackCount)) {
-                    playlistItems = loadedItems
-                    tracks = nextTracks
+                    if playlistItems != loadedItems { playlistItems = loadedItems }
+                    if tracks != nextTracks { tracks = nextTracks }
                 } else {
                     EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks during empty intermediate reload")
                 }
@@ -1007,13 +1009,12 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
                     let catalogTracks = try await syncCoordinator.getAppleMusicCatalogPlaylistTracks(
                         playlistID: playlist.id
                     )
-                    playlistItems = catalogTracks.enumerated().map { index, track in
+                    let catalogItems = catalogTracks.enumerated().map { index, track in
                         PlaylistItem(id: "catalog:\(index):\(track.sourceScopedID)", playlistItemID: nil, track: track)
                     }
-                    tracks = catalogTracks
-                } else if tracks.isEmpty {
-                    tracks = []
-                } else {
+                    if playlistItems != catalogItems { playlistItems = catalogItems }
+                    if tracks != catalogTracks { tracks = catalogTracks }
+                } else if !tracks.isEmpty {
                     EnsembleLogger.debug("📋 PlaylistDetailVM.loadTracks '\(playlist.title)': preserving \(self.tracks.count) tracks while cached playlist is temporarily unavailable")
                 }
                 #else

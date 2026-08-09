@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import EnsembleAPI
 import EnsemblePersistence
 @testable import EnsembleCore
@@ -46,6 +47,30 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         func getArtworkCacheSize() async throws -> Int64 {
             0
         }
+    }
+
+    func testConcurrentLibraryLoadsCoalesce() async throws {
+        let harness = makeHarness()
+        let sourceKey = "plex:account-1:server-1:lib-1"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [("lib-1", "Library One", true)])
+        )
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: sourceKey)
+        let viewModel = makeViewModel(harness: harness)
+        var loadingPasses = 0
+        let cancellable = viewModel.$isLoading.dropFirst().sink { isLoading in
+            if isLoading { loadingPasses += 1 }
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<20 {
+                group.addTask { await viewModel.loadLibrary() }
+            }
+        }
+
+        XCTAssertEqual(viewModel.tracks.map(\.sourceCompositeKey), [sourceKey])
+        XCTAssertLessThanOrEqual(loadingPasses, 2)
+        withExtendedLifetime(cancellable) {}
     }
 
     func testLoadLibraryPreservesCachedLibraryDataWhenNoAccountsExist() async throws {

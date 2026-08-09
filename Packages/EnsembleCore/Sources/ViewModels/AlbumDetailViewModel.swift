@@ -74,7 +74,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         guard let sourceKey = album.sourceCompositeKey,
               MediaSourceIdentity.parse(sourceKey) != nil else {
-            tracks = []
+            if !tracks.isEmpty { tracks = [] }
             hasLoadedTracks = true
             isLoading = false
             return
@@ -94,12 +94,12 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
                 if unknownCount > 0 {
                     EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
                 }
-                tracks = mapped
+                if tracks != mapped { tracks = mapped }
             } else {
                 // If not found and we have a source key, try to fetch from API
                 EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
                 let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
-                tracks = apiTracks
+                if tracks != apiTracks { tracks = apiTracks }
             }
         } catch {
             EnsembleLogger.debug("AlbumDetailViewModel error: \(error.localizedDescription)")
@@ -131,7 +131,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         guard let artistId = album.artistRatingKey,
               let sourceKey = album.sourceCompositeKey,
               MediaSourceIdentity.parse(sourceKey) != nil else {
-            relatedAlbums = []
+            if !relatedAlbums.isEmpty { relatedAlbums = [] }
             return
         }
 
@@ -141,14 +141,16 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
                 sourceCompositeKey: sourceKey
             )
             if !cachedAlbums.isEmpty {
-                relatedAlbums = cachedAlbums
+                let nextAlbums = cachedAlbums
                     .map { Album(from: $0) }
                     .filter { $0.sourceScopedID != album.sourceScopedID }
+                if relatedAlbums != nextAlbums { relatedAlbums = nextAlbums }
             } else {
                 // Fallback to API if not found locally
                 EnsembleLogger.debug("AlbumDetailViewModel: Related albums not found locally, fetching from API")
                 let apiAlbums = try await syncCoordinator.getArtistAlbums(artistId: artistId, sourceKey: sourceKey)
-                relatedAlbums = apiAlbums.filter { $0.id != album.id }
+                let nextAlbums = apiAlbums.filter { $0.id != album.id }
+                if relatedAlbums != nextAlbums { relatedAlbums = nextAlbums }
             }
         } catch {
             EnsembleLogger.debug("AlbumDetailViewModel.loadRelatedAlbums error: \(error.localizedDescription)")
@@ -161,7 +163,8 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         do {
             let albums = try await syncCoordinator.getSimilarAlbums(albumId: album.id, sourceKey: sourceKey)
-            similarAlbums = albums.filter { $0.id != album.id }
+            let nextAlbums = albums.filter { $0.id != album.id }
+            if similarAlbums != nextAlbums { similarAlbums = nextAlbums }
         } catch {
             EnsembleLogger.debug("AlbumDetailViewModel.loadSimilarAlbums error: \(error.localizedDescription)")
         }
