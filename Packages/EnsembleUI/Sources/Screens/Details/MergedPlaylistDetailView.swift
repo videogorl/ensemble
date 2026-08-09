@@ -57,11 +57,7 @@ public struct MergedPlaylistDetailView: View {
                     selectedGenres: $viewModel.filterOptions.selectedGenres,
                     excludedGenres: $viewModel.filterOptions.excludedGenres,
                     reservesEmptySpace: true
-                ) {
-                    if !viewModel.sourceNames.isEmpty {
-                        sourceChips
-                    }
-                }
+                )
             ),
             playlistMenuActions: PlaylistDetailMenuActions(
                 downloadAvailability: resolvedMergedDownloadMenuAvailability(
@@ -209,7 +205,7 @@ public struct MergedPlaylistDetailView: View {
             metadataParts.append("Smart Playlist")
         }
 
-        let sourceCount = viewModel.sourceNames.count
+        let sourceCount = viewModel.displayPlaylist.playlists.count
         metadataParts.append("Merged from \(sourceCount) source\(sourceCount == 1 ? "" : "s")")
 
         if !viewModel.tracks.isEmpty {
@@ -225,28 +221,6 @@ public struct MergedPlaylistDetailView: View {
             ratingKey: dp.primaryPlaylist.id,
             artworkPlaylists: dp.isMerged ? dp.playlists : nil
         )
-    }
-
-    // MARK: - Source Chips
-
-    /// Horizontal row of capsule chips showing each source this merge pulls from.
-    private var sourceChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: EnsembleScaffold.Chip.rowSpacing) {
-                ForEach(viewModel.sourceNames, id: \.sourceKey) { source in
-                    Text(displaySourceName(source.name))
-                        .font(EnsembleDesign.Typography.cardSubtitle)
-                        .foregroundColor(EnsembleDesign.Color.accent)
-                        .padding(.horizontal, EnsembleScaffold.Chip.horizontalPadding)
-                        .padding(.vertical, EnsembleScaffold.Chip.badgeVerticalPadding)
-                        .background(
-                            Capsule()
-                                .fill(EnsembleDesign.Color.accentBadge)
-                        )
-                }
-            }
-            .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
-        }
     }
 
     // MARK: - Edit Picker

@@ -449,10 +449,12 @@ public extension PlaylistRepositoryProtocol {
 
 public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
+    private let membershipWriteContext: NSManagedObjectContext
     private let artworkInvalidations = ArtworkInvalidationBuffer()
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+        self.membershipWriteContext = coreDataStack.newBackgroundContext()
     }
 
     public func drainArtworkInvalidationInfo() -> [ArtworkInvalidationInfo] {
@@ -1076,7 +1078,8 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
         sourceCompositeKey: String? = nil
     ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            self.coreDataStack.performBackgroundTask { context in
+            self.membershipWriteContext.perform {
+                let context = self.membershipWriteContext
                 do {
                     let playlistRequest = CDPlaylist.fetchRequest()
                     playlistRequest.predicate = RepositoryPredicates.ratingKey(playlistRatingKey, sourceCompositeKey: sourceCompositeKey)
@@ -1160,9 +1163,11 @@ public final class PlaylistRepository: PlaylistRepositoryProtocol, @unchecked Se
                     playlist.fallbackArtworkSourceCompositeKey = fallbackArtworkSourceCompositeKey
 
                     try context.save()
+                    context.reset()
                     EnsembleLogger.debug("✅ Saved \(foundCount) cached tracks for playlist \(playlistRatingKey) (out of \(snapshots.count) server tracks)")
                     continuation.resume()
                 } catch {
+                    context.rollback()
                     EnsembleLogger.debug("❌ Error saving playlist tracks: \(error)")
                     continuation.resume(throwing: error)
                 }

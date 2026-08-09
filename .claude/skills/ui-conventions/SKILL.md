@@ -227,7 +227,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Playlist menu (Search screen): `Play`, `Shuffle`, `Play Next`, `Play Last`, `Pin/Unpin` (non-destructive only)
 
 ### Genre Filters
-- Use `GenreFilterHeader` for browse and detail genre filter rows. Do not place `GenreChipBar` directly in screens; the header owns the shared spacing and optional supplementary content such as merged-playlist source chips.
+- Use `GenreFilterHeader` for browse and detail genre filter rows. Do not place `GenreChipBar` directly in screens; the header owns the shared spacing and optional supplementary content.
 - Genre chip rows should scroll as ordinary content or native table header content. Do not pin genre chips with `pinnedViews`, sticky overlays, or scroll-offset/safe-area shims.
 - Liquid Glass genre chips should keep material/shadow clearance inside the `GlassEffectContainer` content, not as padding outside the container, so the glass material is not clipped by the container or native table header. Do not add `clipShape` before `glassEffect`; pass the intended shape to `glassEffect(_:in:)` and let the native effect own its rendering bounds.
 
@@ -260,7 +260,7 @@ Use the actual ellipsis character `…` (U+2026), not three dots `...`.
 - Reusable utility metrics should live under the matching `EnsembleScaffold` family (`Sidebar`, `ScrollIndex`, `BrowseSplit`, `TrackSwipe`, `Waveform`, `Marquee`, `LogViewer`, `Toast`, etc.) instead of local raw sizes.
 - StageFlow geometry, animation, mask, and transform constants are intentionally local unless a future pass explicitly retunes StageFlow as a whole; do not silently normalize those values during broad token sweeps.
 - The 2026 design-token sweep re-checked StageFlow and Now Playing literals: Now Playing's remaining strict spacing hits are structural zero-spacings, while StageFlow's remaining nonzero values are panel, footer, reflection, and dismissal-control tuning. Treat a future StageFlow namespace as a dedicated visual retune, not as part of routine utility/card token cleanup.
-- Shared card/chip geometry should use `EnsembleScaffold.MediaCard` and `EnsembleScaffold.Chip`; hub cards, playlist chips, merged-source chips, and download status chips should avoid local padding/font/radius literals unless the component has a documented one-off layout reason.
+- Shared card/chip geometry should use `EnsembleScaffold.MediaCard` and `EnsembleScaffold.Chip`; hub cards, playlist chips, and download status chips should avoid local padding/font/radius literals unless the component has a documented one-off layout reason.
 - Liquid Glass and fallback material stacks should go through `EnsembleDesign.Material.Role` or a documented local composition when the surface is too specialized, such as artwork-reactive mini-player backgrounds.
 - UIKit/AppKit chrome fallbacks, auxiliary window backgrounds, and specialized compositions should still pull blur style, fallback material, background color, stroke, and shadow values from `EnsembleDesign.Material.Role` so the semantic material policy stays centralized.
 - Mini-player and mini-player-adjacent popovers should use the `EnsembleScaffold.MiniPlayer` material role and corner-radius tokens. Keep separate semantic roles for mini-player and popover, but keep their fallback glass values aligned unless a deliberate material retune is requested.

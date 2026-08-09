@@ -1602,7 +1602,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 playlists: [editorialPlaylist, firstPlaylist, secondPlaylist]
             ),
             playlistRepository: playlistRepository,
-            accountManager: AccountManager(keychain: TestKeychain()),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -1669,7 +1668,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 ]
             ),
             playlistRepository: MockPlaylistRepository(),
-            accountManager: AccountManager(keychain: TestKeychain()),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
