@@ -140,7 +140,6 @@ enum AppleMusicLibraryAddPolicy {
 
 #if os(iOS)
 import EnsemblePersistence
-import MediaPlayer
 import MusicKit
 
 @available(iOS 18, *)
@@ -156,7 +155,6 @@ public actor AppleMusicSourceProvider:
     static let librarySongsPath = "/v1/me/library/songs?limit=100&extend=inFavorites&include=albums,artists,catalog"
     static let libraryPlaylistsPath = "/v1/me/library/playlists?limit=100&include=catalog"
     static let authoritativeLibraryInventoryInterval: TimeInterval = 24 * 60 * 60
-    private static let deviceLibraryRevisionKey = "sources.appleMusic.libraryInventory.deviceRevision"
     private static let authoritativeLibraryInventoryDateKey = "sources.appleMusic.libraryInventory.authoritativeDate"
     private var catalogIDsByLibraryID: [String: String] = [:]
     private var pendingFavoriteCatalogIDs = Set<String>()
@@ -277,10 +275,7 @@ public actor AppleMusicSourceProvider:
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumKeys, forSource: sourceKey)
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
-        Self.recordAuthoritativeLibraryInventory(
-            observedDeviceRevision: Self.currentDeviceLibraryRevision(),
-            completedAt: Date()
-        )
+        Self.recordAuthoritativeLibraryInventory(completedAt: Date())
         progressHandler(1)
 
         return LibrarySyncResult(
@@ -364,18 +359,15 @@ public actor AppleMusicSourceProvider:
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
-        let observedDeviceRevision = Self.currentDeviceLibraryRevision()
-        let state = Self.libraryInventoryState()
         let plan = Self.libraryInventoryPlan(
-            observedDeviceRevision: observedDeviceRevision,
-            state: state,
+            authoritativeInventoryDate: Self.authoritativeLibraryInventoryDate(),
             now: Date()
         )
 
         switch plan {
         case .reuseAuthoritativeInventory:
             EnsembleLogger.debug(
-                "🎵 Apple Music device library revision unchanged; reusing the recent authoritative inventory"
+                "🎵 Apple Music authoritative library inventory is recent; reusing it"
             )
             try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceIdentifier.compositeKey)
             progressHandler(1)
@@ -393,9 +385,6 @@ public actor AppleMusicSourceProvider:
 
     enum LibraryInventoryRefreshReason: String, Equatable {
         case noTrustedBaseline
-        case deviceRevisionUnavailable
-        case deviceRevisionChanged
-        case deviceRevisionRegressed
         case localClockRegressed
         case periodicReconciliationDue
     }
@@ -405,32 +394,16 @@ public actor AppleMusicSourceProvider:
         case fetchAuthoritativeInventory(reason: LibraryInventoryRefreshReason)
     }
 
-    struct LibraryInventoryState: Equatable {
-        let deviceRevision: Date?
-        let authoritativeInventoryDate: Date?
-    }
-
     static func libraryInventoryPlan(
-        observedDeviceRevision: Date?,
-        state: LibraryInventoryState,
+        authoritativeInventoryDate: Date?,
         now: Date,
         reconciliationInterval: TimeInterval = authoritativeLibraryInventoryInterval
     ) -> LibraryInventoryPlan {
-        guard let observedDeviceRevision else {
-            return .fetchAuthoritativeInventory(reason: .deviceRevisionUnavailable)
-        }
-        guard let savedRevision = state.deviceRevision,
-              let inventoryDate = state.authoritativeInventoryDate else {
+        guard let authoritativeInventoryDate else {
             return .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
         }
-        guard observedDeviceRevision >= savedRevision else {
-            return .fetchAuthoritativeInventory(reason: .deviceRevisionRegressed)
-        }
-        guard observedDeviceRevision == savedRevision else {
-            return .fetchAuthoritativeInventory(reason: .deviceRevisionChanged)
-        }
 
-        let inventoryAge = now.timeIntervalSince(inventoryDate)
+        let inventoryAge = now.timeIntervalSince(authoritativeInventoryDate)
         guard inventoryAge >= 0 else {
             return .fetchAuthoritativeInventory(reason: .localClockRegressed)
         }
@@ -440,36 +413,21 @@ public actor AppleMusicSourceProvider:
         return .reuseAuthoritativeInventory
     }
 
-    static func libraryInventoryState(
+    static func authoritativeLibraryInventoryDate(
         defaults: UserDefaults = .standard
-    ) -> LibraryInventoryState {
-        LibraryInventoryState(
-            deviceRevision: defaults.object(forKey: deviceLibraryRevisionKey) as? Date,
-            authoritativeInventoryDate: defaults.object(forKey: authoritativeLibraryInventoryDateKey) as? Date
-        )
+    ) -> Date? {
+        defaults.object(forKey: authoritativeLibraryInventoryDateKey) as? Date
     }
 
     static func recordAuthoritativeLibraryInventory(
-        observedDeviceRevision: Date?,
         completedAt: Date,
         defaults: UserDefaults = .standard
     ) {
-        if let observedDeviceRevision {
-            defaults.set(observedDeviceRevision, forKey: deviceLibraryRevisionKey)
-        } else {
-            defaults.removeObject(forKey: deviceLibraryRevisionKey)
-        }
         defaults.set(completedAt, forKey: authoritativeLibraryInventoryDateKey)
     }
 
     static func clearLibraryInventoryState(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: deviceLibraryRevisionKey)
         defaults.removeObject(forKey: authoritativeLibraryInventoryDateKey)
-    }
-
-    private static func currentDeviceLibraryRevision() -> Date? {
-        let revision = MPMediaLibrary.default().lastModifiedDate
-        return revision.timeIntervalSince1970 > 0 ? revision : nil
     }
 
     public func syncPlaylists(
@@ -715,7 +673,7 @@ public actor AppleMusicSourceProvider:
         rating: Int?
     ) async throws -> MusicSourceRatingMutationEffects {
         guard let rating, rating > 0 else { throw AppleMusicSourceError.favoriteRemovalUnsupported }
-        guard let catalogID = track.appleMusicCatalogID ?? catalogIDsByLibraryID[track.id] else {
+        guard let catalogID = try await catalogID(for: track) else {
             throw MusicSourceRoutingError.capabilityUnavailable(
                 sourceKey: track.sourceCompositeKey ?? sourceIdentifier.compositeKey,
                 capability: "favorites for this library-only song"
@@ -723,6 +681,33 @@ public actor AppleMusicSourceProvider:
         }
         try await favorite(catalogID: catalogID)
         return .none
+    }
+
+    private func catalogID(for track: Track) async throws -> String? {
+        if let catalogID = track.appleMusicCatalogID ?? catalogIDsByLibraryID[track.id] {
+            return catalogID
+        }
+        guard let libraryID = track.appleMusicLibraryID else { return nil }
+
+        let response = try await request(path: try Self.librarySongPath(libraryID: libraryID))
+        let catalogID = try Self.catalogID(in: response, libraryID: libraryID)
+        if let catalogID {
+            catalogIDsByLibraryID[libraryID] = catalogID
+        }
+        return catalogID
+    }
+
+    static func librarySongPath(libraryID: String) throws -> String {
+        var components = URLComponents()
+        components.path = "/v1/me/library/songs/\(libraryID)"
+        components.queryItems = [URLQueryItem(name: "include", value: "catalog")]
+        guard let path = components.string else { throw URLError(.badURL) }
+        return path
+    }
+
+    static func catalogID(in librarySongResponse: Data, libraryID: String) throws -> String? {
+        try JSONDecoder().decode(Page<LibrarySong>.self, from: librarySongResponse)
+            .data.first(where: { $0.id == libraryID })?.catalogID
     }
 
     public func favorite(catalogID: String) async throws {

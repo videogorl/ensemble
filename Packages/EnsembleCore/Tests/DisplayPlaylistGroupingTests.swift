@@ -317,6 +317,34 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     }
 
     @available(iOS 18, *)
+    func testAppleMusicFavoriteResolvesCatalogIDFromLibrarySong() throws {
+        let data = Data(#"""
+        {
+            "data": [{
+                "id": "i.library-song",
+                "attributes": {
+                    "name": "The Wolf",
+                    "playParams": { "catalogId": "6793692936" }
+                },
+                "relationships": {
+                    "catalog": { "data": [{ "id": "6793692936" }] }
+                }
+            }]
+        }
+        """#.utf8)
+
+        XCTAssertEqual(
+            try AppleMusicSourceProvider.librarySongPath(libraryID: "i.library-song"),
+            "/v1/me/library/songs/i.library-song?include=catalog"
+        )
+        XCTAssertEqual(
+            try AppleMusicSourceProvider.catalogID(in: data, libraryID: "i.library-song"),
+            "6793692936"
+        )
+        XCTAssertNil(try AppleMusicSourceProvider.catalogID(in: data, libraryID: "i.other-song"))
+    }
+
+    @available(iOS 18, *)
     func testAppleMusicPaginationPreservesRequestedExtensions() {
         XCTAssertEqual(
             AppleMusicSourceProvider.continuationPath(
@@ -842,18 +870,12 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     }
 
     @available(iOS 18, *)
-    func testAppleMusicIncrementalLibraryInventoryReusesOnlyARecentMatchingDeviceRevision() {
-        let revision = Date(timeIntervalSince1970: 1_000)
+    func testAppleMusicIncrementalLibraryInventoryReusesRecentAuthoritativeInventory() {
         let inventoryDate = Date(timeIntervalSince1970: 2_000)
-        let state = AppleMusicSourceProvider.LibraryInventoryState(
-            deviceRevision: revision,
-            authoritativeInventoryDate: inventoryDate
-        )
 
         XCTAssertEqual(
             AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: revision,
-                state: state,
+                authoritativeInventoryDate: inventoryDate,
                 now: inventoryDate.addingTimeInterval(60)
             ),
             .reuseAuthoritativeInventory
@@ -861,58 +883,26 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
     }
 
     @available(iOS 18, *)
-    func testAppleMusicIncrementalLibraryInventoryFetchesWhenSignalIsChangedOrInconclusive() {
-        let revision = Date(timeIntervalSince1970: 1_000)
+    func testAppleMusicIncrementalLibraryInventoryFetchesAtCadenceBoundary() {
         let inventoryDate = Date(timeIntervalSince1970: 2_000)
-        let state = AppleMusicSourceProvider.LibraryInventoryState(
-            deviceRevision: revision,
-            authoritativeInventoryDate: inventoryDate
-        )
 
         XCTAssertEqual(
             AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: nil,
-                state: state,
-                now: inventoryDate
-            ),
-            .fetchAuthoritativeInventory(reason: .deviceRevisionUnavailable)
-        )
-        XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: revision,
-                state: .init(deviceRevision: nil, authoritativeInventoryDate: inventoryDate),
+                authoritativeInventoryDate: nil,
                 now: inventoryDate
             ),
             .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
         )
         XCTAssertEqual(
             AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: revision.addingTimeInterval(1),
-                state: state,
-                now: inventoryDate
-            ),
-            .fetchAuthoritativeInventory(reason: .deviceRevisionChanged)
-        )
-        XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: revision.addingTimeInterval(-1),
-                state: state,
-                now: inventoryDate
-            ),
-            .fetchAuthoritativeInventory(reason: .deviceRevisionRegressed)
-        )
-        XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: revision,
-                state: state,
+                authoritativeInventoryDate: inventoryDate,
                 now: inventoryDate.addingTimeInterval(-1)
             ),
             .fetchAuthoritativeInventory(reason: .localClockRegressed)
         )
         XCTAssertEqual(
             AppleMusicSourceProvider.libraryInventoryPlan(
-                observedDeviceRevision: revision,
-                state: state,
+                authoritativeInventoryDate: inventoryDate,
                 now: inventoryDate.addingTimeInterval(
                     AppleMusicSourceProvider.authoritativeLibraryInventoryInterval
                 )
@@ -926,24 +916,19 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         let suiteName = "DisplayPlaylistGroupingTests.apple-inventory.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let revision = Date(timeIntervalSince1970: 1_000)
         let inventoryDate = Date(timeIntervalSince1970: 2_000)
 
         AppleMusicSourceProvider.recordAuthoritativeLibraryInventory(
-            observedDeviceRevision: revision,
             completedAt: inventoryDate,
             defaults: defaults
         )
         XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryState(defaults: defaults),
-            .init(deviceRevision: revision, authoritativeInventoryDate: inventoryDate)
+            AppleMusicSourceProvider.authoritativeLibraryInventoryDate(defaults: defaults),
+            inventoryDate
         )
 
         AppleMusicSourceProvider.clearLibraryInventoryState(defaults: defaults)
-        XCTAssertEqual(
-            AppleMusicSourceProvider.libraryInventoryState(defaults: defaults),
-            .init(deviceRevision: nil, authoritativeInventoryDate: nil)
-        )
+        XCTAssertNil(AppleMusicSourceProvider.authoritativeLibraryInventoryDate(defaults: defaults))
     }
 
     @available(iOS 18, *)
