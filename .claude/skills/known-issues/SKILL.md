@@ -96,6 +96,12 @@ No unresolved critical issues are currently documented.
 
 ## Watchlist
 
+### Cross-Source Snapshot Amplification
+
+- **Area:** `PlaylistRepository`, `HubRepository`, `DownloadManager`, `LibraryViewModel`, playlist/album/artist detail view models, `MediaTrackList`.
+- **Status:** A TestFlight iPhone SE 2 froze while opening a merged playlist only after a second music source became visible. Concurrent delete-and-replace playlist membership saves had created exact duplicate rows and doubled the rendered body; `PlaylistRepository` now serializes those writes and deduplicates legacy reads. The affected simulator store also exposed 2,840 legacy duplicate membership groups across the merged playlist and `All Music`. Independently-contexted replacement/create writes and unchanged large-snapshot publications in the other listed owners remain watchlist risks, not confirmed failures.
+- **Rule:** When implementing or testing cross-source, merged, download, Feed, or large-detail behavior, use at least two visible sources and exercise the largest available collection. Inspect persistent child-row counts when content unexpectedly doubles, and check for overlapping fetch-then-insert or delete-and-replace saves before blaming device performance. Serialize replacement writes or enforce suitable persistent uniqueness; do not assume a pre-insert fetch is atomic across contexts. Publish large value snapshots only when they change, and keep full-library loads single-flight. During debugging, distinguish legacy stored duplication, repeated view-model publication, and track-list rendering cost with store queries and current-build runtime evidence.
+
 ### AirPlay Glitch During Health Probes
 
 - **Area:** `ServerHealthChecker`, AirPlay playback.
