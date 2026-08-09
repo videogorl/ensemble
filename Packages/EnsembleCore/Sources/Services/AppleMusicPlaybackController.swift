@@ -14,21 +14,35 @@ struct AppleMusicPlaybackResolution: Equatable, Sendable {
 enum AppleMusicPlaybackResolutionPolicy {
     static func select(
         requestedTracks: [Track],
-        resolvedPlaybackIdentities: Set<String>
+        resolvedPlaybackIdentities: Set<String>,
+        indeterminatePlaybackIdentities: Set<String> = []
     ) -> AppleMusicPlaybackResolution? {
-        guard let first = requestedTracks.first,
+        let retryIndex = requestedTracks.firstIndex {
+            indeterminatePlaybackIdentities.contains($0.playbackIdentity)
+        } ?? requestedTracks.endIndex
+        let decidableTracks = requestedTracks[..<retryIndex]
+        guard let first = decidableTracks.first,
               resolvedPlaybackIdentities.contains(first.playbackIdentity) else {
             return nil
         }
 
-        let resolvedTracks = requestedTracks.filter {
+        let resolvedTracks = decidableTracks.filter {
             resolvedPlaybackIdentities.contains($0.playbackIdentity)
         }
         return AppleMusicPlaybackResolution(
-            resolvedTracks: resolvedTracks,
-            unresolvedPlaybackIdentities: Set(requestedTracks.map(\.playbackIdentity))
+            resolvedTracks: Array(resolvedTracks),
+            unresolvedPlaybackIdentities: Set(decidableTracks.map(\.playbackIdentity))
                 .subtracting(resolvedPlaybackIdentities)
         )
+    }
+
+    static func libraryFallbackID(
+        for track: Track,
+        resolvedCatalogIDs: Set<String>
+    ) -> String? {
+        guard let libraryID = track.appleMusicLibraryID else { return nil }
+        guard let catalogID = track.appleMusicCatalogID else { return libraryID }
+        return resolvedCatalogIDs.contains(catalogID) ? nil : libraryID
     }
 }
 
@@ -307,6 +321,7 @@ protocol AppleMusicPlaybackControlling: AnyObject {
     func setInterruptionActive(_ isActive: Bool)
     func startStation(seed: Track, smartMixEnabled: Bool) async throws
     func skipToNextEntry() async throws
+    func discardUpcomingEntries() -> Bool
     func removeFirstUpcomingEntry(catalogID: String) -> Bool
 }
 
@@ -529,48 +544,104 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             return id
         }
         var catalogSongs: [String: Song] = [:]
+        var catalogLookupErrors: [String: Error] = [:]
         for start in stride(from: 0, to: catalogIDs.count, by: 25) {
             let end = min(start + 25, catalogIDs.count)
-            var request = MusicCatalogResourceRequest<Song>(
-                matching: \.id,
-                memberOf: catalogIDs[start..<end].map { MusicItemID($0) }
-            )
-            request.limit = end - start
-            let response = try await request.response()
-            try Task.checkCancellation()
-            for song in response.items {
-                catalogSongs[String(describing: song.id)] = song
+            let batch = Array(catalogIDs[start..<end])
+            do {
+                var request = MusicCatalogResourceRequest<Song>(
+                    matching: \.id,
+                    memberOf: batch.map { MusicItemID($0) }
+                )
+                request.limit = batch.count
+                let response = try await request.response()
+                try Task.checkCancellation()
+                for song in response.items {
+                    catalogSongs[String(describing: song.id)] = song
+                }
+            } catch {
+                try Task.checkCancellation()
+                guard batch.count > 1 else {
+                    if let id = batch.first { catalogLookupErrors[id] = error }
+                    continue
+                }
+                for id in batch {
+                    do {
+                        let request = MusicCatalogResourceRequest<Song>(
+                            matching: \.id,
+                            equalTo: MusicItemID(id)
+                        )
+                        if let song = try await request.response().items.first {
+                            catalogSongs[id] = song
+                        }
+                    } catch {
+                        try Task.checkCancellation()
+                        catalogLookupErrors[id] = error
+                    }
+                    try Task.checkCancellation()
+                }
             }
         }
 
         var librarySongs: [String: Song] = [:]
+        var libraryLookupErrors: [String: Error] = [:]
         for track in tracks {
-            guard case .library(let id) = track.appleMusicPlaybackIdentifier,
+            guard let id = AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+                for: track,
+                resolvedCatalogIDs: Set(catalogSongs.keys)
+            ),
                   librarySongs[id] == nil else { continue }
-            var request = MusicLibraryRequest<Song>()
-            request.limit = 1
-            request.filter(matching: \.id, equalTo: MusicItemID(id))
-            let response = try await request.response()
-            try Task.checkCancellation()
-            librarySongs[id] = response.items.first
+            do {
+                var request = MusicLibraryRequest<Song>()
+                request.limit = 1
+                request.filter(matching: \.id, equalTo: MusicItemID(id))
+                let response = try await request.response()
+                try Task.checkCancellation()
+                if let song = response.items.first {
+                    librarySongs[id] = song
+                    if track.appleMusicCatalogID != nil {
+                        EnsembleLogger.debug(
+                            "[MusicKitQueue] Resolved '\(track.title)' through library fallback"
+                        )
+                    }
+                }
+            } catch {
+                try Task.checkCancellation()
+                libraryLookupErrors[id] = error
+            }
         }
 
         var resolvedByPlaybackIdentity: [String: (track: Track, song: Song)] = [:]
         for track in tracks {
-            let song: Song? = switch track.appleMusicPlaybackIdentifier {
-            case .catalog(let id): catalogSongs[id]
-            case .library(let id): librarySongs[id]
-            case nil: nil
-            }
+            let song = track.appleMusicCatalogID.flatMap { catalogSongs[$0] }
+                ?? track.appleMusicLibraryID.flatMap { librarySongs[$0] }
             if let song {
                 resolvedByPlaybackIdentity[track.playbackIdentity] = (track, song)
             }
         }
 
+        let indeterminatePlaybackIdentities = Set(tracks.compactMap { track -> String? in
+            guard resolvedByPlaybackIdentity[track.playbackIdentity] == nil else { return nil }
+            let catalogFailed = track.appleMusicCatalogID.map {
+                catalogLookupErrors[$0] != nil
+            } == true
+            let libraryFailed = track.appleMusicLibraryID.map {
+                libraryLookupErrors[$0] != nil
+            } == true
+            return catalogFailed || libraryFailed ? track.playbackIdentity : nil
+        })
+
         guard let resolution = AppleMusicPlaybackResolutionPolicy.select(
             requestedTracks: tracks,
-            resolvedPlaybackIdentities: Set(resolvedByPlaybackIdentity.keys)
+            resolvedPlaybackIdentities: Set(resolvedByPlaybackIdentity.keys),
+            indeterminatePlaybackIdentities: indeterminatePlaybackIdentities
         ) else {
+            if let first = tracks.first,
+               indeterminatePlaybackIdentities.contains(first.playbackIdentity),
+               let lookupError = first.appleMusicCatalogID.flatMap({ catalogLookupErrors[$0] })
+                   ?? first.appleMusicLibraryID.flatMap({ libraryLookupErrors[$0] }) {
+                throw lookupError
+            }
             throw AppleMusicSourceError.musicKitPlaybackRequired
         }
         if !resolution.unresolvedPlaybackIdentities.isEmpty {
@@ -723,6 +794,27 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             try Task.checkCancellation()
             guard self.acceptCompletion(for: generation) else { return }
         }
+    }
+
+    func discardUpcomingEntries() -> Bool {
+        guard !isPreparingQueue,
+              !isStationActive,
+              let currentEntry else { return false }
+        var entries = player.queue.entries
+        guard let currentIndex = entries.firstIndex(where: { $0.id == currentEntry.id }) else {
+            return false
+        }
+        let futureStart = entries.index(after: currentIndex)
+        if futureStart < entries.endIndex {
+            entries.removeSubrange(futureStart...)
+            player.queue.entries = entries
+        }
+        if let song = resolvedOrTransientSong(from: currentEntry),
+           let currentTrack = trackByMusicID[String(describing: song.id)]
+            ?? submittedTracks.first(where: { matches(song, track: $0) }) {
+            submittedTracks = [currentTrack]
+        }
+        return true
     }
 
     func removeFirstUpcomingEntry(catalogID: String) -> Bool {

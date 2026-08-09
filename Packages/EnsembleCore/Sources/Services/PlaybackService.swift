@@ -4082,8 +4082,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   ) else { return }
 
             appleMusicQueueMutationGeneration &+= 1
-            playbackGenerationCounter &+= 1
-            isSynchronizingAppleMusicQueueMutation = true
             let mutationGeneration = appleMusicQueueMutationGeneration
 
             Task { @MainActor [weak self] in
@@ -4093,11 +4091,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                       self.queue[self.currentQueueIndex].id == queueItemID,
                       self.currentTrack?.isAppleMusic == true else { return }
 
+                if self.appleMusicPlaybackController?.discardUpcomingEntries() == true {
+                    EnsembleLogger.debug(
+                        "[MusicKitQueue] Discarded stale upcoming entries after logical queue mutation"
+                    )
+                    return
+                }
+
+                self.playbackGenerationCounter &+= 1
+                self.isSynchronizingAppleMusicQueueMutation = true
                 self.appleMusicPlaybackController?.stop()
                 self.isSynchronizingAppleMusicQueueMutation = false
                 switch self.playbackState {
                 case .loading, .buffering, .playing:
-                    // ponytail: Rebuild at the current playhead with a brief gap; edit native MusicKit entries only if measured UX requires gapless mutation.
                     await self.playCurrentQueueItem(
                         seekTo: self.currentTime,
                         caller: "queueMutation"
@@ -5523,6 +5529,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
             }
+            #if os(iOS)
+                if #available(iOS 18, *),
+                   !ensureAudioSessionConfigured(mixWithOthers: false) {
+                    await Task.yield()
+                    guard generation == playbackGenerationCounter else {
+                        endTrackTransitionBackgroundTask(for: generation)
+                        return false
+                    }
+                    guard ensureAudioSessionConfigured(mixWithOthers: false) else {
+                        EnsembleLogger.error(
+                            "[ProviderHandoff] Could not restore nonmixable audio session"
+                        )
+                        engine.stop()
+                        playbackState = .failed("Audio output is unavailable. Try playback again.")
+                        updateNowPlayingInfo()
+                        endTrackTransitionBackgroundTask(for: generation)
+                        return false
+                    }
+                }
+            #endif
         #endif
 
         if let fileURL = source.fileURL {

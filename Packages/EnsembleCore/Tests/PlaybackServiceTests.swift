@@ -1285,6 +1285,66 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testAppleMusicResolutionStopsBeforeAnIndeterminateLookupWithoutPruningIt() throws {
+        let first = makeAppleTrack(id: "first")
+        let missing = makeAppleTrack(id: "missing")
+        let resolvedLater = makeAppleTrack(id: "resolved-later")
+        let retryLater = makeAppleTrack(id: "retry-later")
+        let resolvedAfterRetry = makeAppleTrack(id: "resolved-after-retry")
+
+        let resolution = try XCTUnwrap(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [first, missing, resolvedLater, retryLater, resolvedAfterRetry],
+            resolvedPlaybackIdentities: [
+                first.playbackIdentity,
+                resolvedLater.playbackIdentity,
+                resolvedAfterRetry.playbackIdentity,
+            ],
+            indeterminatePlaybackIdentities: [retryLater.playbackIdentity]
+        ))
+
+        XCTAssertEqual(resolution.resolvedTracks, [first, resolvedLater])
+        XCTAssertEqual(resolution.unresolvedPlaybackIdentities, [missing.playbackIdentity])
+        XCTAssertNil(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [retryLater, resolvedAfterRetry],
+            resolvedPlaybackIdentities: [resolvedAfterRetry.playbackIdentity],
+            indeterminatePlaybackIdentities: [retryLater.playbackIdentity]
+        ))
+    }
+
+    func testAppleMusicResolutionFallsBackToLibraryWhenCatalogRelationshipIsStale() {
+        let matchedLibraryTrack = Track(
+            id: "library-id",
+            key: "apple-library-catalog:stale-catalog-id",
+            title: "Matched",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let libraryOnlyTrack = Track(
+            id: "uploaded-id",
+            key: "apple-library:uploaded-id",
+            title: "Uploaded",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertEqual(
+            AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+                for: matchedLibraryTrack,
+                resolvedCatalogIDs: []
+            ),
+            "library-id"
+        )
+        XCTAssertNil(AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+            for: matchedLibraryTrack,
+            resolvedCatalogIDs: ["stale-catalog-id"]
+        ))
+        XCTAssertEqual(
+            AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+                for: libraryOnlyTrack,
+                resolvedCatalogIDs: []
+            ),
+            "uploaded-id"
+        )
+    }
+
     func testAppleMusicPlaybackEndPolicyReportsTheFinalEntryAtItsEnd() {
         XCTAssertTrue(AppleMusicPlaybackEndPolicy.isFinalEntry(
             hasQueuedSuccessor: false,
