@@ -1179,6 +1179,21 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testAppleMusicPreviousInferenceOnlyAcceptsNearStartRewind() {
+        XCTAssertTrue(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 1.2,
+            currentTime: 0
+        ))
+        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 30,
+            currentTime: 0
+        ))
+        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 1.2,
+            currentTime: 1.1
+        ))
+    }
+
     func testEndTransitionLeaseStartsNearBoundaryAndReleasesAfterSeekBack() {
         let nearBoundary = PlaybackService.shouldPrepareEndTransitionLease(
             playbackState: .playing,

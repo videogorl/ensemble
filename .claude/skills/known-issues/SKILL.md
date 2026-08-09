@@ -22,8 +22,8 @@ No unresolved critical issues are currently documented.
 ### Mixed-Provider Remote Skip Boundaries
 
 - **Area:** `PlaybackService`, `PlaybackNowPlayingBridge`, `AppleMusicPlaybackController`, iOS/iPadOS 18+.
-- **Status:** `ApplicationMusicPlayer` navigates inside its submitted Apple segment. At the last entry of a finite segment, remote Next pauses and resets the MusicKit entry; Ensemble recognizes that confirmed state transition and advances into the provider-neutral queue. MusicKit still provides no equivalent signal for Previous at the first Apple entry.
-- **Rule:** Keep automatic advancement and the confirmed finite-segment Next boundary working. Do not claim that Control Center Previous can cross from the first Apple entry to an earlier Plex item.
+- **Status:** Finite playback now submits one Apple item at a time. Locked iOS 27 testing verified exactly-once Next across Plex-to-Apple, Apple-to-Apple, and Apple-to-Plex boundaries, plus standard two-tap Previous across Apple-to-Apple and Apple-to-Plex boundaries. MusicKit still consumes the raw Previous command, so Ensemble infers only the near-start rewind that represents the navigate-back gesture. iOS 18–26 remain unverified.
+- **Rule:** Keep each finite MusicKit queue disposable and one-item, preserve the three-second Previous restart threshold, and require locked physical verification before expanding the supported OS matrix.
 
 ### HomePod Music Transfer Does Not Carry the Mixed Queue
 
@@ -104,7 +104,7 @@ No unresolved critical issues are currently documented.
 - **Area:** `ArtworkLoader.predownloadArtwork`
 - **Status:** Artwork is pre-cached only for items that pass through sync. Browsing an uncached item may still require network.
 - **Now Playing effect:** Metadata can update before different uncached artwork finishes cache lookup, decode, or fetch. Keep the prior artwork during that bounded interval; do not flash a generated placeholder. Consecutive tracks sharing the same source-scoped artwork resolution identity should reuse the resolved image immediately.
-- **Apple Music effect:** During `ApplicationMusicPlayer` playback, MusicKit owns Control Center artwork and may publish it shortly after the title and transport state. Ensemble cannot force the exact timing of that system-owned artwork update.
+- **Apple Music effect:** During `ApplicationMusicPlayer` playback, Ensemble publishes Control Center metadata; an uncached or transient MusicKit artwork lookup may still complete shortly after title and transport state. Keep the prior matching artwork until the resolved artwork is available.
 
 ## Watchlist
 

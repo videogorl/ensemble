@@ -52,6 +52,16 @@ enum AppleMusicPlaylistMutationPolicy {
         }
     }
 
+    static func libraryFallbackID(
+        for track: Track,
+        resolvedCatalogIDs: Set<String>
+    ) -> String? {
+        guard let catalogID = track.appleMusicCatalogID,
+              !resolvedCatalogIDs.contains(catalogID)
+        else { return nil }
+        return track.appleMusicLibraryID
+    }
+
     static func orderedValues<Value>(
         for references: [AppleMusicPlaylistItemReference],
         valuesByReference: [AppleMusicPlaylistItemReference: Value]
@@ -1458,7 +1468,20 @@ public actor AppleMusicSourceProvider:
             }
         }
 
-        let libraryIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .librarySong)
+        var fallbackCatalogReferencesByLibraryID: [String: Set<AppleMusicPlaylistItemReference>] = [:]
+        let resolvedCatalogIDs = Set(songsByReference.keys.compactMap { reference in
+            reference.kind == .catalogSong ? reference.id : nil
+        })
+        for (track, reference) in zip(tracks, references) {
+            guard let libraryID = AppleMusicPlaylistMutationPolicy.libraryFallbackID(
+                for: track,
+                resolvedCatalogIDs: resolvedCatalogIDs
+            ) else { continue }
+            fallbackCatalogReferencesByLibraryID[libraryID, default: []].insert(reference)
+        }
+
+        var libraryIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .librarySong)
+        libraryIDs.append(contentsOf: fallbackCatalogReferencesByLibraryID.keys.filter { !libraryIDs.contains($0) })
         for batch in AppleMusicPlaylistMutationPolicy.batches(
             libraryIDs,
             limit: AppleMusicPlaylistMutationPolicy.libraryLookupBatchSize
@@ -1472,6 +1495,9 @@ public actor AppleMusicSourceProvider:
                     kind: .librarySong
                 )
                 songsByReference[reference] = song
+                for catalogReference in fallbackCatalogReferencesByLibraryID[reference.id] ?? [] {
+                    songsByReference[catalogReference] = song
+                }
             }
         }
 

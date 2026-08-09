@@ -285,6 +285,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let previousRestartThreshold: TimeInterval = 3
     private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
 
+    static func shouldInferAppleMusicPrevious(
+        previousTime: TimeInterval,
+        currentTime: TimeInterval
+    ) -> Bool {
+        previousTime <= previousRestartThreshold
+            && currentTime <= 0.75
+            && previousTime - currentTime >= 0.25
+    }
+
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
         hasBluetooth: Bool,
@@ -457,10 +466,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     static func appleMusicSegment(from tracks: [Track]) -> [Track] {
-        var identities = Set<String>()
-        return Array(tracks.prefix {
-            $0.isAppleMusic && identities.insert($0.playbackIdentity).inserted
-        })
+        guard let first = tracks.first, first.isAppleMusic else { return [] }
+        return [first]
     }
 
     static func shouldPrepareEndTransitionLease(
@@ -6142,9 +6149,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queueGeneration: UInt64
         ) {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
-            updatePlaybackTimes(rawTime: time)
             let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
                 || appleMusicPlaybackController?.hasQueuedSuccessor == true
+            if !hasContinuousAppleMusicSuccessor,
+               Self.shouldInferAppleMusicPrevious(previousTime: currentTime, currentTime: time) {
+                EnsembleLogger.debug("[Handoff] inferred Apple Music previous command")
+                previous()
+                return
+            }
+            updatePlaybackTimes(rawTime: time)
             updateEndTransitionLease(shouldHold: Self.shouldPrepareEndTransitionLease(
                 playbackState: playbackState,
                 currentTime: time,

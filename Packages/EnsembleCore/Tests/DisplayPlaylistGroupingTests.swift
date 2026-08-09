@@ -153,6 +153,29 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
         }
     }
 
+    func testAppleMusicPlaylistMutationUsesLibraryFallbackForMissingCatalogSong() {
+        let track = Track(
+            id: "library-id",
+            key: "apple-library:catalog-id",
+            title: "Tiny Cities",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertEqual(
+            AppleMusicPlaylistMutationPolicy.libraryFallbackID(
+                for: track,
+                resolvedCatalogIDs: []
+            ),
+            "library-id"
+        )
+        XCTAssertNil(
+            AppleMusicPlaylistMutationPolicy.libraryFallbackID(
+                for: track,
+                resolvedCatalogIDs: ["catalog-id"]
+            )
+        )
+    }
+
     func testGroupMergesCaseAndDiacriticVariants() {
         let playlists = [
             Playlist(id: "one", key: "/one", title: "Café Mix", sourceCompositeKey: "plex:a:one"),

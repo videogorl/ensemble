@@ -1562,7 +1562,16 @@ public final class NowPlayingViewModel: ObservableObject {
         let result = await playlistMutationWorkflow.createPlaylists(
             title: title,
             tracks: tracks,
-            serverSourceKeys: serverSourceKeys
+            serverSourceKeys: serverSourceKeys,
+            retryHandler: { [weak self] failedSourceKeys in
+                Task { @MainActor [weak self] in
+                    _ = try? await self?.createPlaylists(
+                        title: title,
+                        tracks: tracks,
+                        serverSourceKeys: failedSourceKeys
+                    )
+                }
+            }
         )
         toastCenter.show(result.resultToast)
         return result

@@ -112,15 +112,22 @@ public struct PlaylistDeleteWorkflowResult {
 public struct PlaylistBatchMutationWorkflowResult {
     public let succeededCount: Int
     public let totalCount: Int
+    public let failedSourceKeys: [String]
     public let resultToast: ToastPayload
 
     public var completedAll: Bool {
         succeededCount == totalCount
     }
 
-    public init(succeededCount: Int, totalCount: Int, resultToast: ToastPayload) {
+    public init(
+        succeededCount: Int,
+        totalCount: Int,
+        failedSourceKeys: [String] = [],
+        resultToast: ToastPayload
+    ) {
         self.succeededCount = succeededCount
         self.totalCount = totalCount
+        self.failedSourceKeys = failedSourceKeys
         self.resultToast = resultToast
     }
 }
@@ -212,9 +219,11 @@ public final class PlaylistMutationWorkflow {
     public func createPlaylists(
         title: String,
         tracks: [Track],
-        serverSourceKeys: [String]
+        serverSourceKeys: [String],
+        retryHandler: (([String]) -> Void)? = nil
     ) async -> PlaylistBatchMutationWorkflowResult {
         var succeededCount = 0
+        var failedSourceKeys: [String] = []
         for sourceKey in serverSourceKeys {
             do {
                 _ = try await mutator.createPlaylist(
@@ -224,6 +233,7 @@ public final class PlaylistMutationWorkflow {
                 )
                 succeededCount += 1
             } catch {
+                failedSourceKeys.append(sourceKey)
                 EnsembleLogger.debug("Playlist creation failed for \(sourceKey): \(error.localizedDescription)")
             }
         }
@@ -233,11 +243,16 @@ public final class PlaylistMutationWorkflow {
         return PlaylistBatchMutationWorkflowResult(
             succeededCount: succeededCount,
             totalCount: totalCount,
+            failedSourceKeys: failedSourceKeys,
             resultToast: ToastPayload(
                 style: completedAll ? .success : (succeededCount > 0 ? .warning : .error),
                 iconSystemName: completedAll ? Icon.playlistCreate : Icon.failure,
                 title: completedAll ? "Created \(title)" : "Created on \(succeededCount)/\(totalCount) sources",
                 message: completedAll ? nil : "Some sources could not create this playlist.",
+                action: failedSourceKeys.isEmpty ? nil : ToastAction(title: "Retry") {
+                    retryHandler?(failedSourceKeys)
+                },
+                isPersistent: !completedAll,
                 dedupeKey: "playlist-create-all-\(title.lowercased())"
             )
         )

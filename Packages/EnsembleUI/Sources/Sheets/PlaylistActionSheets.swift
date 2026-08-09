@@ -239,7 +239,9 @@ public struct PlaylistPickerSheet: View {
                 by: sortOption,
                 ascending: filters.sortDirection == .ascending
             )
-            await loadCachedPlaylistMembership()
+            if !createsPlaylistAcrossSources {
+                await loadCachedPlaylistMembership()
+            }
         } catch {
             deps.toastCenter.show(
                 ToastPayload(
