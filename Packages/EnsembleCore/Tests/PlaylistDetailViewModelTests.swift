@@ -1,5 +1,6 @@
 import XCTest
 @testable import EnsembleCore
+import Combine
 import EnsembleAPI
 import CoreData
 import EnsemblePersistence
@@ -1397,6 +1398,37 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(playlistRepository.fetchPlaylistCallCount, 1)
     }
 
+    func testPlaylistDetailDoesNotRepublishUnchangedTracks() async {
+        let syncCoordinator = makeSyncCoordinator()
+        let playlistRepository = MockPlaylistRepository()
+        let context = CoreDataStack.inMemory().viewContext
+        let playlist = makePlaylist(id: "playlist-a", title: "Road")
+        let key = playlistRepository.playlistKey(
+            ratingKey: playlist.id,
+            sourceCompositeKey: playlist.sourceCompositeKey
+        )
+        playlistRepository.playlists[key] = makeCachedPlaylist(
+            playlist,
+            tracks: [makeTrack(id: "track-1"), makeTrack(id: "track-2")],
+            context: context
+        )
+        let viewModel = PlaylistDetailViewModel(
+            playlist: playlist,
+            playlistRepository: playlistRepository,
+            syncCoordinator: syncCoordinator,
+            mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator),
+            observesExternalChanges: false
+        )
+        await viewModel.loadTracks()
+
+        var publications = 0
+        let cancellable = viewModel.$tracks.dropFirst().sink { _ in publications += 1 }
+        await viewModel.loadTracks()
+
+        XCTAssertEqual(publications, 0)
+        withExtendedLifetime(cancellable) {}
+    }
+
     func testPlaylistDetailCanOptOutOfExternalReloads() async throws {
         let syncCoordinator = makeSyncCoordinator()
         let playlistRepository = MockPlaylistRepository()
@@ -1617,7 +1649,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 playlists: [editorialPlaylist, firstPlaylist, secondPlaylist]
             ),
             playlistRepository: playlistRepository,
-            accountManager: AccountManager(keychain: TestKeychain()),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )
@@ -1682,7 +1713,6 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 ]
             ),
             playlistRepository: MockPlaylistRepository(),
-            accountManager: AccountManager(keychain: TestKeychain()),
             syncCoordinator: syncCoordinator,
             mutationCoordinator: makeMutationCoordinator(syncCoordinator: syncCoordinator)
         )

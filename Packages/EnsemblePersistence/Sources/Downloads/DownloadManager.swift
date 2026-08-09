@@ -123,9 +123,11 @@ public extension DownloadManagerProtocol {
 
 public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
+    private let creationContext: NSManagedObjectContext
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+        self.creationContext = coreDataStack.newBackgroundContext()
     }
 
     /// Directory for storing downloaded tracks
@@ -448,7 +450,8 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         quality: String
     ) async throws -> CDDownload {
         try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
+            creationContext.perform {
+                let context = self.creationContext
                 let trackRequest = CDTrack.fetchRequest()
                 trackRequest.predicate = Self.trackPredicate(
                     trackRatingKey: trackRatingKey,
@@ -458,6 +461,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
 
                 do {
                     guard let track = try context.fetch(trackRequest).first else {
+                        context.reset()
                         continuation.resume(throwing: DownloadError.trackNotFound)
                         return
                     }
@@ -493,6 +497,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         }
 
                         let existingObjectID = existing.objectID
+                        context.reset()
                         let mainContext = self.coreDataStack.viewContext
                         mainContext.perform {
                             if let mainDownload = try? mainContext.existingObject(with: existingObjectID) as? CDDownload {
@@ -518,6 +523,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                     try context.save()
 
                     let downloadObjectID = download.objectID
+                    context.reset()
                     let mainContext = self.coreDataStack.viewContext
                     mainContext.perform {
                         if let mainDownload = try? mainContext.existingObject(with: downloadObjectID) as? CDDownload {
@@ -527,6 +533,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         }
                     }
                 } catch {
+                    context.rollback()
                     continuation.resume(throwing: error)
                 }
             }
@@ -540,7 +547,8 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
         guard !references.isEmpty else { return 0 }
 
         return try await withCheckedThrowingContinuation { continuation in
-            coreDataStack.performBackgroundTask { context in
+            creationContext.perform {
+                let context = self.creationContext
                 do {
                     let normalizedQuality = Self.normalizedQuality(quality)
 
@@ -603,6 +611,7 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                             download.startedAt = now
                             download.quality = normalizedQuality
                             download.track = track
+                            downloadLookup[lookupKey] = download
                             newlyCreated += 1
                         }
                     }
@@ -612,8 +621,10 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
                         try context.save()
                     }
 
+                    context.reset()
                     continuation.resume(returning: newlyCreated)
                 } catch {
+                    context.rollback()
                     continuation.resume(throwing: error)
                 }
             }

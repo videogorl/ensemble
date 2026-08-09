@@ -124,7 +124,6 @@ public extension DependencyContainer {
         MergedPlaylistDetailViewModel(
             displayPlaylist: displayPlaylist,
             playlistRepository: playlistRepository,
-            accountManager: accountManager,
             syncCoordinator: syncCoordinator,
             mutationCoordinator: mutationCoordinator
         )

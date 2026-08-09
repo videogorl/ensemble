@@ -93,7 +93,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
                 ))
             }
 
-            sourceSections = sections
+            if sourceSections != sections { sourceSections = sections }
         } catch {
             self.error = error.localizedDescription
         }

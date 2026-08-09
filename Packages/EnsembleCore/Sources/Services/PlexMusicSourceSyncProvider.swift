@@ -929,7 +929,7 @@ public final class PlexMusicSourceSyncProvider:
         localMembershipCount: Int?
     ) -> Bool {
         guard let serverTrackCount, serverTrackCount > 0 else { return false }
-        return localMembershipCount.map { $0 == 0 } ?? true
+        return localMembershipCount.map { $0 == 0 || $0 > serverTrackCount } ?? true
     }
 
     static func shouldCheckPlaylistOrphans(

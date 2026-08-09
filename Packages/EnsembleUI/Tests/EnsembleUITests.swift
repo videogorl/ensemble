@@ -1290,6 +1290,27 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertFalse(trackIdentityOrderMatches([subscriberTrack], [freeAccountTrack]))
     }
 
+    func testMediaTrackListStateComparisonFindsDownloadChangesInOnePass() {
+        let remoteTrack = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            sourceCompositeKey: "plex:subscriber:server:music"
+        )
+        let downloadedTrack = Track(
+            id: "7551",
+            key: "/tracks/7551",
+            title: "Techno Jeep",
+            localFilePath: "/tmp/7551.flac",
+            sourceCompositeKey: "plex:subscriber:server:music"
+        )
+
+        let comparison = compareTrackListState([remoteTrack], [downloadedTrack])
+
+        XCTAssertTrue(comparison.identityOrderMatches)
+        XCTAssertTrue(comparison.downloadStateChanged)
+    }
+
     func testMediaMenuCatalogTrackLibraryContextIncludesBaseAndEditingActions() {
         let sections = MediaMenuCatalog.sections(
             for: .track,

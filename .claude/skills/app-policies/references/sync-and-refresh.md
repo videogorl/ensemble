@@ -55,9 +55,10 @@ Load this reference for Feed/library freshness, stale-while-revalidate behavior,
 ## Implementation Hooks
 
 - Use `HomeHubLoader` or `BackgroundRefreshCoordinator` for Feed refresh. Do not create `HomeViewModel` only to refresh background data.
+- Route Hub replacement, freshness, and deletion writes through `HubRepository`'s serial write context so overlapping refreshes cannot leave duplicate snapshot graphs.
 - Keep cached rows visible during refresh after a screen has shown content; mark stale/loading locally rather than blanking the surface.
 - Feed, playlist, artist, album, track, genre, and library browse refreshes should publish committed snapshots atomically. Degraded empty/partial reloads should preserve the current visible snapshot until bootstrap is settled and the repository confirms the empty state is authoritative.
-- Concurrent `LibraryViewModel` loads are generation-scoped. Only the latest load may publish a source-filtered browse snapshot, error, or terminal loading phase; an older load completing first or last must not overwrite or finalize the newer source configuration.
+- `LibraryViewModel` loads are single-flight and generation-scoped. Triggers during an active load coalesce into one follow-up pass using the latest source configuration; an older pass must not overwrite or finalize the newer source-filtered browse snapshot.
 - Playlist root, search, Feed, and Pinned lookups fetch persisted headers and fallback artwork without realizing `playlistTracks`; only playlist detail, body, and sync-state operations fetch memberships. Legacy fallback-artwork repair runs from root/reference header loads and remains bounded to 20 one-row membership lookups per pass.
 - Library browse must not realize per-album track relationships to calculate counts. Map counts from the already-fetched source-scoped track inventory in one pass; sync should persist an authoritative provider or inventory-derived count when available, and a missing provider count must not overwrite a known cached count.
 - Genre browse rows are normalized display categories keyed by title and must be backed by at least one visible album genre match. Duplicate genre titles across visible enabled sources should merge for display, and genre detail should resolve albums from cached album genre metadata across those visible sources without requiring a live Plex refetch.

@@ -160,6 +160,8 @@ public final class LibraryViewModel: ObservableObject {
     private var allTracks: [Track] = []
     private var allGenres: [Genre] = []
     private var loadGeneration: UInt64 = 0
+    private var libraryLoadTask: Task<Void, Never>?
+    private var libraryLoadRequestedAgain = false
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
@@ -512,6 +514,25 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     public func loadLibrary() async {
+        if let libraryLoadTask {
+            libraryLoadRequestedAgain = true
+            await libraryLoadTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            repeat {
+                self.libraryLoadRequestedAgain = false
+                await self.performLibraryLoad()
+            } while self.libraryLoadRequestedAgain
+            self.libraryLoadTask = nil
+        }
+        libraryLoadTask = task
+        await task.value
+    }
+
+    private func performLibraryLoad() async {
         loadGeneration += 1
         let generation = loadGeneration
         setBrowsePhase(hasAnyVisibleBrowseSnapshot ? .refreshing : .loading)

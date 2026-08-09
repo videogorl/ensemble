@@ -60,9 +60,11 @@ public protocol HubRepositoryProtocol: Sendable {
 
 public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
     private let coreDataStack: CoreDataStack
+    private let writeContext: NSManagedObjectContext
 
     public init(coreDataStack: CoreDataStack = .shared) {
         self.coreDataStack = coreDataStack
+        self.writeContext = coreDataStack.newBackgroundContext()
     }
 
     public func fetchHubs() async throws -> [Hub] {
@@ -77,8 +79,8 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
 
                     let cdHubs = try Self.fetchLegacyHubs(in: context)
                     var seen = Set<String>()
-                    // Deduplicate by hub ID — concurrent saveHubs calls can race and
-                    // insert the same hubs twice via separate background contexts.
+                    // Preserve recovery for legacy duplicate rows written before hub
+                    // replacement saves were serialized.
                     let hubs = cdHubs.compactMap { cdHub -> Hub? in
                         let hub = Hub(from: cdHub)
                         guard seen.insert(hub.id).inserted else { return nil }
@@ -93,72 +95,42 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
     }
 
     public func saveHubs(_ hubs: [Hub]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    try Self.deleteSnapshots(in: context, sourceScopeKey: nil)
-                    try Self.deleteLegacyHubs(in: context)
+        try await performWrite { context in
+            try Self.deleteSnapshots(in: context, sourceScopeKey: nil)
+            try Self.deleteLegacyHubs(in: context)
 
-                    // Deduplicate by ID before inserting — guards against the caller
-                    // accidentally passing duplicate hubs and against concurrent saves
-                    // writing the same hubs via separate background contexts.
-                    var seen = Set<String>()
-                    let uniqueHubs = hubs.filter { seen.insert($0.id).inserted }
-
-                    // Add new hubs
-                    for (hubIndex, hub) in uniqueHubs.enumerated() {
-                        _ = Self.insertHub(hub, order: hubIndex, in: context)
-                    }
-                    
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            var seen = Set<String>()
+            let uniqueHubs = hubs.filter { seen.insert($0.id).inserted }
+            for (hubIndex, hub) in uniqueHubs.enumerated() {
+                _ = Self.insertHub(hub, order: hubIndex, in: context)
             }
         }
     }
 
     public func deleteAllHubs() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    try Self.deleteSnapshots(in: context, sourceScopeKey: nil)
-                    try Self.deleteLegacyHubs(in: context)
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        try await performWrite { context in
+            try Self.deleteSnapshots(in: context, sourceScopeKey: nil)
+            try Self.deleteLegacyHubs(in: context)
         }
     }
 
     public func deleteHubs(forSourceCompositeKey sourceKey: String) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let hubs = try context.fetch(CDHub.fetchRequest())
-                    for hub in hubs {
-                        let items = hub.itemsArray
-                        let sourceItems = items.filter { $0.sourceCompositeKey == sourceKey }
-                        for item in sourceItems {
-                            context.delete(item)
-                        }
-                        if sourceItems.count == items.count {
-                            context.delete(hub)
-                        }
-                    }
-                    context.processPendingChanges()
-                    let snapshots = try context.fetch(CDHomeFeedSnapshot.fetchRequest())
-                    for snapshot in snapshots where snapshot.hubsArray.isEmpty {
-                        context.delete(snapshot)
-                    }
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
+        try await performWrite { context in
+            let hubs = try context.fetch(CDHub.fetchRequest())
+            for hub in hubs {
+                let items = hub.itemsArray
+                let sourceItems = items.filter { $0.sourceCompositeKey == sourceKey }
+                for item in sourceItems {
+                    context.delete(item)
                 }
+                if sourceItems.count == items.count {
+                    context.delete(hub)
+                }
+            }
+            context.processPendingChanges()
+            let snapshots = try context.fetch(CDHomeFeedSnapshot.fetchRequest())
+            for snapshot in snapshots where snapshot.hubsArray.isEmpty {
+                context.delete(snapshot)
             }
         }
     }
@@ -177,73 +149,62 @@ public final class HubRepository: HubRepositoryProtocol, @unchecked Sendable {
     }
 
     public func saveHomeFeedSnapshot(_ snapshot: HomeFeedCachedSnapshot) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    try Self.deleteSnapshots(in: context, sourceScopeKey: snapshot.sourceScopeKey)
+        try await performWrite { context in
+            try Self.deleteSnapshots(in: context, sourceScopeKey: snapshot.sourceScopeKey)
 
-                    let cdSnapshot = CDHomeFeedSnapshot(context: context)
-                    cdSnapshot.id = snapshot.id
-                    cdSnapshot.sourceScopeKey = snapshot.sourceScopeKey
-                    cdSnapshot.sourceName = snapshot.sourceName
-                    cdSnapshot.createdAt = snapshot.createdAt
-                    cdSnapshot.fetchedAt = snapshot.fetchedAt
-                    cdSnapshot.refreshReason = snapshot.refreshReason
-                    cdSnapshot.freshnessState = snapshot.freshnessState.rawValue
-                    cdSnapshot.schemaVersion = snapshot.schemaVersion
-                    cdSnapshot.isLastGood = snapshot.isLastGood
+            let cdSnapshot = CDHomeFeedSnapshot(context: context)
+            cdSnapshot.id = snapshot.id
+            cdSnapshot.sourceScopeKey = snapshot.sourceScopeKey
+            cdSnapshot.sourceName = snapshot.sourceName
+            cdSnapshot.createdAt = snapshot.createdAt
+            cdSnapshot.fetchedAt = snapshot.fetchedAt
+            cdSnapshot.refreshReason = snapshot.refreshReason
+            cdSnapshot.freshnessState = snapshot.freshnessState.rawValue
+            cdSnapshot.schemaVersion = snapshot.schemaVersion
+            cdSnapshot.isLastGood = snapshot.isLastGood
 
-                    var seen = Set<String>()
-                    let uniqueHubs = snapshot.hubs.filter { seen.insert($0.id).inserted }
-                    let hubsSet = NSMutableOrderedSet()
-                    for (hubIndex, hub) in uniqueHubs.enumerated() {
-                        let cdHub = Self.insertHub(hub, order: hubIndex, in: context)
-                        cdHub.snapshot = cdSnapshot
-                        hubsSet.add(cdHub)
-                    }
-                    cdSnapshot.hubs = hubsSet
-
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
+            var seen = Set<String>()
+            let uniqueHubs = snapshot.hubs.filter { seen.insert($0.id).inserted }
+            let hubsSet = NSMutableOrderedSet()
+            for (hubIndex, hub) in uniqueHubs.enumerated() {
+                let cdHub = Self.insertHub(hub, order: hubIndex, in: context)
+                cdHub.snapshot = cdSnapshot
+                hubsSet.add(cdHub)
             }
+            cdSnapshot.hubs = hubsSet
         }
     }
 
     public func markHomeFeedSnapshotLastGood(id: String, freshnessState: HomeFeedSnapshotFreshnessState) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
-                do {
-                    let request = CDHomeFeedSnapshot.fetchRequest()
-                    request.fetchLimit = 1
-                    request.predicate = NSPredicate(format: "id == %@", id)
+        try await performWrite { context in
+            let request = CDHomeFeedSnapshot.fetchRequest()
+            request.fetchLimit = 1
+            request.predicate = NSPredicate(format: "id == %@", id)
 
-                    guard let snapshot = try context.fetch(request).first else {
-                        continuation.resume()
-                        return
-                    }
-
-                    snapshot.isLastGood = true
-                    snapshot.freshnessState = freshnessState.rawValue
-                    try context.save()
-                    continuation.resume()
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            guard let snapshot = try context.fetch(request).first else { return }
+            snapshot.isLastGood = true
+            snapshot.freshnessState = freshnessState.rawValue
         }
     }
 
     public func deleteHomeFeedSnapshots(sourceScopeKey: String?) async throws {
+        try await performWrite { context in
+            try Self.deleteSnapshots(in: context, sourceScopeKey: sourceScopeKey)
+        }
+    }
+
+    private func performWrite(_ operation: @escaping (NSManagedObjectContext) throws -> Void) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            coreDataStack.performBackgroundTask { context in
+            writeContext.perform {
                 do {
-                    try Self.deleteSnapshots(in: context, sourceScopeKey: sourceScopeKey)
-                    try context.save()
+                    try operation(self.writeContext)
+                    if self.writeContext.hasChanges {
+                        try self.writeContext.save()
+                    }
+                    self.writeContext.reset()
                     continuation.resume()
                 } catch {
+                    self.writeContext.rollback()
                     continuation.resume(throwing: error)
                 }
             }

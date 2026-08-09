@@ -21,11 +21,7 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         didSet { updateDerivedTrackState() }
     }
 
-    /// Resolved display names for each constituent playlist source.
-    @Published public private(set) var sourceNames: [(sourceKey: String, name: String)] = []
-
     private let playlistRepository: PlaylistRepositoryProtocol
-    private let accountManager: AccountManager
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
     private var cancellables = Set<AnyCancellable>()
@@ -37,20 +33,17 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     public init(
         displayPlaylist: DisplayPlaylist,
         playlistRepository: PlaylistRepositoryProtocol,
-        accountManager: AccountManager,
         syncCoordinator: SyncCoordinator,
         mutationCoordinator: MutationCoordinator
     ) {
         self.displayPlaylist = displayPlaylist
         self.playlistRepository = playlistRepository
-        self.accountManager = accountManager
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
         self.filterOptions = FilterPersistence.load(for: "MergedPlaylistDetail-\(displayPlaylist.title)")
         updateDerivedTrackState()
 
         setupFilterPersistence()
-        resolveSourceNames()
         observeReloadTriggers()
         observePlaylistRefresh()
     }
@@ -60,15 +53,6 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     private func setupFilterPersistence() {
         let title = displayPlaylist.title
         FilterPersistence.observe($filterOptions, key: "MergedPlaylistDetail-\(title)", storingIn: &cancellables)
-    }
-
-    /// Resolves each provider's human-readable source name.
-    private func resolveSourceNames() {
-        sourceNames = displayPlaylist.playlists.compactMap { playlist in
-            guard let sourceKey = playlist.sourceCompositeKey else { return nil }
-            let name = accountManager.serverName(for: sourceKey) ?? "Unknown Source"
-            return (sourceKey: sourceKey, name: name)
-        }
     }
 
     private func observePlaylistRefresh() {
@@ -96,7 +80,10 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         error = nil
 
         do {
-            tracks = DisplayPlaylist.interleave(try await loadConstituentTrackSets())
+            let loadedTracks = DisplayPlaylist.interleave(try await loadConstituentTrackSets())
+            if tracks != loadedTracks {
+                tracks = loadedTracks
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -365,6 +352,5 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
     /// Updates the display playlist (e.g., when merge state changes and constituents are refreshed)
     public func updateDisplayPlaylist(_ dp: DisplayPlaylist) {
         displayPlaylist = dp
-        resolveSourceNames()
     }
 }

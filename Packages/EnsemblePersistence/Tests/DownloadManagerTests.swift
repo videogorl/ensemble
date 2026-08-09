@@ -40,6 +40,42 @@ final class DownloadManagerTests: XCTestCase {
         XCTAssertNotEqual(downloadA?.track?.sourceCompositeKey, downloadB?.track?.sourceCompositeKey)
     }
 
+    func testConcurrentSingleAndBatchCreationLeaveOneDownload() async throws {
+        let stack = CoreDataStack.inMemory()
+        let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let downloadManager = DownloadManager(coreDataStack: stack)
+        try await seedTrack(ratingKey: "concurrent", sourceCompositeKey: sourceA, repository: libraryRepository)
+        let reference = OfflineTrackReference(
+            trackRatingKey: "concurrent",
+            trackSourceCompositeKey: sourceA
+        )
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask {
+                    if index.isMultiple(of: 2) {
+                        _ = try await downloadManager.createDownload(
+                            forTrackRatingKey: reference.trackRatingKey,
+                            sourceCompositeKey: reference.trackSourceCompositeKey,
+                            quality: "high"
+                        )
+                    } else {
+                        _ = try await downloadManager.batchCreateDownloads(
+                            references: [reference, reference],
+                            quality: "high"
+                        )
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let count = try await stack.performViewContext { context in
+            try context.count(for: CDDownload.fetchRequest())
+        }
+        XCTAssertEqual(count, 1)
+    }
+
     func testDeleteDownloadRemovesOnlyMatchingSource() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)

@@ -39,6 +39,7 @@ Load this reference for offline download targets, download queue behavior, trans
 - Keep FFT, artwork, and lyrics sidecar work background priority and serialized where needed so downloads do not starve playback or low-RAM devices. On A9/iOS 15-class devices, sidecar/analysis work should pause during startup sync, share sheets, Now Playing interaction, and audio-critical sections.
 - Include chord stream pre-cache in the same best-effort sidecar path as lyrics downloads; retry or cache-clearing actions for a track/source should evict both normal lyric and chord caches.
 - Do not instantiate download workers when there are no pending downloads.
+- Route single and batch download-record creation through `DownloadManager`'s serial creation context so overlapping requests for one source-scoped track converge to one record.
 
 ## Verification
 
