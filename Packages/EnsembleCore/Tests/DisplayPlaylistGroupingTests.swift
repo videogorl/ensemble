@@ -118,6 +118,14 @@ final class DisplayPlaylistGroupingTests: XCTestCase {
                 AppleMusicPlaylistItemReference(id: "library-id", kind: .librarySong)
             ]
         )
+        XCTAssertEqual(
+            AppleMusicPlaylistMutationPolicy.itemReference(forResolvedID: "12345"),
+            AppleMusicPlaylistItemReference(id: "12345", kind: .catalogSong)
+        )
+        XCTAssertEqual(
+            AppleMusicPlaylistMutationPolicy.itemReference(forResolvedID: "i.library-id"),
+            AppleMusicPlaylistItemReference(id: "i.library-id", kind: .librarySong)
+        )
     }
 
     func testAppleMusicPlaylistMutationBatchesAndRequiresExactOrderedResolution() throws {

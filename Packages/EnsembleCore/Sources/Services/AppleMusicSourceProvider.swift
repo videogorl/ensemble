@@ -34,6 +34,13 @@ enum AppleMusicPlaylistMutationPolicy {
         }
     }
 
+    static func itemReference(forResolvedID id: String) -> AppleMusicPlaylistItemReference {
+        AppleMusicPlaylistItemReference(
+            id: id,
+            kind: id.allSatisfy(\.isNumber) ? .catalogSong : .librarySong
+        )
+    }
+
     static func uniqueIDs(
         in references: [AppleMusicPlaylistItemReference],
         kind: AppleMusicPlaylistItemKind
@@ -895,7 +902,9 @@ public actor AppleMusicSourceProvider:
     }
 
     public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
-        let references = try AppleMusicPlaylistMutationPolicy.itemReferences(for: tracks)
+        let references = try await playlistSongs(for: tracks).map {
+            AppleMusicPlaylistMutationPolicy.itemReference(forResolvedID: String(describing: $0.id))
+        }
         guard !references.isEmpty else { return 0 }
         let encodedID = playlistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlistID
         _ = try await request(
