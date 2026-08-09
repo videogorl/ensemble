@@ -1,8 +1,19 @@
 import EnsembleCore
 import SwiftUI
 
+func compareTrackListState(_ lhs: [Track], _ rhs: [Track]) -> (identityOrderMatches: Bool, downloadStateChanged: Bool) {
+    guard lhs.count == rhs.count else { return (false, false) }
+
+    var downloadStateChanged = false
+    for (oldTrack, newTrack) in zip(lhs, rhs) {
+        guard oldTrack.sourceScopedID == newTrack.sourceScopedID else { return (false, false) }
+        downloadStateChanged = downloadStateChanged || oldTrack.isDownloaded != newTrack.isDownloaded
+    }
+    return (true, downloadStateChanged)
+}
+
 func trackIdentityOrderMatches(_ lhs: [Track], _ rhs: [Track]) -> Bool {
-    lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { $0.sourceScopedID == $1.sourceScopedID }
+    compareTrackListState(lhs, rhs).identityOrderMatches
 }
 
 #if canImport(UIKit)
@@ -855,13 +866,13 @@ public struct MediaTrackList: UIViewRepresentable {
         
         // Check if track list structure changed (additions/removals/reordering)
         let newGroupSignature = newGroupedTracks.map(\.signature)
-        let dataChanged = !trackIdentityOrderMatches(context.coordinator.tracks, tracks) ||
+        let trackState = compareTrackListState(context.coordinator.tracks, tracks)
+        let dataChanged = !trackState.identityOrderMatches ||
             context.coordinator.groupSignature != newGroupSignature ||
             (context.coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
 
         // Check if any track's download state changed (localFilePath set or cleared)
-        let downloadStateChanged = !dataChanged &&
-            !zip(context.coordinator.tracks, tracks).allSatisfy { $0.isDownloaded == $1.isDownloaded }
+        let downloadStateChanged = !dataChanged && trackState.downloadStateChanged
 
         let currentTrackChanged = context.coordinator.currentTrackId != currentTrackId
         // Read network state from DependencyContainer (not observed — parent drives re-renders)
@@ -871,8 +882,10 @@ public struct MediaTrackList: UIViewRepresentable {
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
         let displayRatingsChanged = context.coordinator.lastDisplayRatingsRevision != displayRatingsRevision
-        let newFavoriteStateSignature = favoriteStateSignature(for: tracks)
-        let favoriteStateChanged = !dataChanged && (displayRatingsChanged || context.coordinator.favoriteStateSignature != newFavoriteStateSignature)
+        let newFavoriteStateSignature = !trackState.identityOrderMatches || displayRatingsChanged
+            ? favoriteStateSignature(for: tracks)
+            : context.coordinator.favoriteStateSignature
+        let favoriteStateChanged = !dataChanged && context.coordinator.favoriteStateSignature != newFavoriteStateSignature
 
         // Update coordinator state
         context.coordinator.tracks = tracks
