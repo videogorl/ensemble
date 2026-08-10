@@ -146,7 +146,9 @@ final class PlaybackTransportCoordinator {
 
         let prefersStreaming = AudioQualityPreference.prefersStreaming(
             qualityString,
-            overDownloadQuality: downloadQuality()
+            overDownloadQuality: track.localFilePath
+                .flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) }
+                ?? downloadQuality()
         )
         if let localSource, isDefinitelyOffline || !prefersStreaming {
             return localSource

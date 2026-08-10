@@ -18,6 +18,15 @@ public enum AudioQualityPreference {
         qualityRank(streamingQuality) > qualityRank(downloadQuality)
     }
 
+    static func fileQuality(at fileURL: URL) -> String? {
+        let token = fileURL.deletingPathExtension().lastPathComponent
+            .split(separator: "_").last?.lowercased()
+        return switch token {
+        case "original", "high", "medium", "low": token
+        default: nil
+        }
+    }
+
     private static func qualityRank(_ quality: String) -> Int {
         switch quality {
         case "original": 3

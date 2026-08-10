@@ -54,6 +54,15 @@ public struct AudioFileInfo: Sendable, Equatable {
     }
 }
 
+/// Facts about the payload currently loaded by Ensemble's audio engine.
+public struct PlaybackFileInfo: Sendable, Equatable {
+    public let codec: String?
+    public let fileSize: Int64?
+    public let isDownloaded: Bool
+    public let quality: String?
+    public let sampleRate: Int?
+}
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {

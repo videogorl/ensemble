@@ -118,7 +118,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
 
     func testHigherStreamingQualityPrefersAvailableStreamAndFallsBackToDownload() async throws {
         let localURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("transport-quality-\(UUID().uuidString).mp3")
+            .appendingPathComponent("transport-quality-\(UUID().uuidString)_medium.mp3")
         try Data(repeating: 0x41, count: 512).write(to: localURL)
         defer { try? FileManager.default.removeItem(at: localURL) }
         let remoteURL = try XCTUnwrap(URL(string: "https://example.test/library/parts/quality/file.mp3"))
@@ -151,7 +151,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                     mapToPlaybackError: { .unknown($0) }
                 ),
                 streamingQuality: { "high" },
-                downloadQuality: { "medium" }
+                downloadQuality: { "high" }
             )
         }
 

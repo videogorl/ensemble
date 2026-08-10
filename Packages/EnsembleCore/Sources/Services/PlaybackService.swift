@@ -203,8 +203,8 @@ public protocol PlaybackServiceProtocol: AnyObject {
     /// Register whether an aurora surface is currently onscreen.
     @MainActor func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool)
 
-    /// Returns codec and file size of the file currently being decoded by AVPlayer
-    func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?)
+    /// Returns facts about the payload currently loaded by the audio engine.
+    func currentPlaybackFileInfo() -> PlaybackFileInfo?
 
     // MARK: - Instrumental Mode
 
@@ -2631,14 +2631,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     // MARK: - Queue Quality Stamping
 
-    /// Returns the current streaming quality setting for stamping on new queue items.
-    /// Downloaded tracks get nil (quality is determined by the file itself).
+    /// Returns the streaming quality to stamp on a new queue item, if it will stream.
     private func currentQueueQuality(for track: Track) -> String? {
-        // If the track has a local file, it plays from disk — quality is file-determined
+        let streamingQuality = AudioQualityPreference.storedStreamingQuality()
         if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
-            return nil
+            let downloadQuality = AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: path))
+                ?? AudioQualityPreference.storedDownloadQuality()
+            return AudioQualityPreference.prefersStreaming(
+                streamingQuality,
+                overDownloadQuality: downloadQuality
+            ) ? streamingQuality : nil
         }
-        return AudioQualityPreference.storedStreamingQuality()
+        return streamingQuality
     }
 
     /// Creates a QueueItem stamped with the current streaming quality
@@ -5123,52 +5127,42 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     // Detect whether the currently active playback item is local-file backed.
     // Local playback should avoid streaming-oriented stall recovery.
 
-    /// Returns codec and file size of the file currently being decoded by AVPlayer.
-    /// For local/downloaded files: codec from format description, size from disk.
-    /// For progressive transcodes: codec from format description, size from loader.
-    /// For direct streams: codec from format description, size unavailable.
-    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
-        guard let currentTrack else { return (nil, nil) }
+    public func currentPlaybackFileInfo() -> PlaybackFileInfo? {
+        guard let currentTrack,
+              let engine = audioEngine,
+              engine.currentTrackId == currentTrack.playbackIdentity,
+              let fileURL = engine.currentPlaybackFileURL else { return nil }
         let trackId = currentTrack.playbackIdentity
-
-        // Determine codec from file extension
         let codec: String? = {
-            guard let url = resolvedFileCache.cachedFileURL(for: trackId) else { return nil }
-            switch url.pathExtension.lowercased() {
+            switch fileURL.pathExtension.lowercased() {
             case "mp3": return "mp3"
             case "m4a", "aac": return "aac"
             case "flac": return "flac"
             case "wav": return "pcm"
             case "alac": return "alac"
-            default: return url.pathExtension.lowercased()
+            case "": return nil
+            default: return fileURL.pathExtension.lowercased()
             }
         }()
+        let standardizedURL = fileURL.standardizedFileURL
+        let isDownloaded = standardizedURL.deletingLastPathComponent()
+            == DownloadManager.downloadsDirectory.standardizedFileURL
+        let fileSize = engine.currentPlaybackFileIsComplete
+            ? (try? standardizedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
+            : nil
+        let quality = isDownloaded
+            ? AudioQualityPreference.fileQuality(at: standardizedURL)
+            : queue.indices.contains(currentQueueIndex) && queue[currentQueueIndex].track.playbackIdentity == trackId
+                ? queue[currentQueueIndex].streamingQuality ?? AudioQualityPreference.storedStreamingQuality()
+                : AudioQualityPreference.storedStreamingQuality()
 
-        // Determine file size
-        let fileSize: Int64? = {
-            // Local downloaded file
-            if let localPath = currentTrack.localFilePath,
-               FileManager.default.fileExists(atPath: localPath),
-               let attrs = try? FileManager.default.attributesOfItem(atPath: localPath),
-               let size = attrs[.size] as? Int64
-            {
-                return size
-            }
-            // Progressive transcode — get size from the loader's temp file
-            if let size = transportCoordinator.activeLoaderFileSize(for: trackId) {
-                return size
-            }
-            // Resolved file URL
-            if let url = resolvedFileCache.cachedFileURL(for: trackId),
-               let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let size = attrs[.size] as? Int64
-            {
-                return size
-            }
-            return nil
-        }()
-
-        return (codec, fileSize)
+        return PlaybackFileInfo(
+            codec: codec,
+            fileSize: fileSize,
+            isDownloaded: isDownloaded,
+            quality: quality,
+            sampleRate: engine.currentPlaybackSampleRate.map { Int($0.rounded()) }
+        )
     }
 
     /// Evict a truncated audio file — clears stream cache and, if the file came from an

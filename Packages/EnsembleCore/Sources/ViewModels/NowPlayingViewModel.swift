@@ -1184,8 +1184,8 @@ public final class NowPlayingViewModel: ObservableObject {
         return nil
     }
 
-    /// Returns codec and file size of what AVPlayer is actually decoding right now
-    public func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
+    /// Returns facts about the payload currently loaded by the audio engine.
+    public func currentPlaybackFileInfo() -> PlaybackFileInfo? {
         playbackService.currentPlaybackFileInfo()
     }
 
