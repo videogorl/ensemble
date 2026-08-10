@@ -136,6 +136,35 @@ final class PlaylistActionServiceTests: XCTestCase {
         )
     }
 
+    func testMatchingPlaylistUsesNormalizedTitleAndExactSource() {
+        let apple = makePlaylist(
+            id: "apple",
+            title: "  Mixed Queue ",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let plex = makePlaylist(
+            id: "plex",
+            title: "Mixed Queue",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+
+        XCTAssertEqual(
+            service.playlist(
+                named: "mixed queue",
+                forServerSourceKey: "plex:account:server",
+                in: [apple, plex]
+            )?.id,
+            "plex"
+        )
+        XCTAssertNil(
+            service.playlist(
+                named: "Mixed Queue",
+                forServerSourceKey: "plex:account:other",
+                in: [apple, plex]
+            )
+        )
+    }
+
     private func makeTrack(id: String, sourceCompositeKey: String?) -> Track {
         Track(
             id: id,
@@ -145,11 +174,15 @@ final class PlaylistActionServiceTests: XCTestCase {
         )
     }
 
-    private func makePlaylist(sourceCompositeKey: String?) -> Playlist {
+    private func makePlaylist(
+        id: String = "playlist",
+        title: String = "Playlist",
+        sourceCompositeKey: String?
+    ) -> Playlist {
         Playlist(
-            id: "playlist",
-            key: "/playlists/playlist",
-            title: "Playlist",
+            id: id,
+            key: "/playlists/\(id)",
+            title: title,
             sourceCompositeKey: sourceCompositeKey
         )
     }

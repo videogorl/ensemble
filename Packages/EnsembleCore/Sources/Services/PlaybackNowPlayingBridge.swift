@@ -178,9 +178,6 @@ final class PlaybackNowPlayingBridge {
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
     private var latestPlaybackState: PlaybackState = .stopped
-#if os(iOS)
-    private var isDeferringToMusicKit = false
-#endif
 
     init(
         artworkLoader: ArtworkLoaderProtocol,
@@ -295,10 +292,6 @@ final class PlaybackNowPlayingBridge {
 
     func updateNowPlayingInfo(_ state: PlaybackNowPlayingState) {
         latestPlaybackState = state.playbackState
-        #if os(iOS)
-        if deferNowPlayingToMusicKitIfNeeded(for: state) { return }
-        #endif
-
         guard let track = state.track else {
             clearNowPlayingInfo()
             updateCommandAvailability(state)
@@ -398,10 +391,6 @@ final class PlaybackNowPlayingBridge {
     }
 
     func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {
-        #if os(iOS)
-        if deferNowPlayingToMusicKitIfNeeded(for: state) { return }
-        #endif
-
         updateNowPlayingInfo(state)
         guard let nowPlayingCenter, var info = nowPlayingCenter.nowPlayingInfo else { return }
         info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
@@ -411,9 +400,6 @@ final class PlaybackNowPlayingBridge {
     }
 
     func clearNowPlayingInfo() {
-        #if os(iOS)
-        isDeferringToMusicKit = false
-        #endif
         cancelArtworkLoad(clearArtwork: true)
         latestPlaybackState = .stopped
         guard let nowPlayingCenter else { return }
@@ -586,43 +572,6 @@ final class PlaybackNowPlayingBridge {
         }
         commandHandlerTokens.removeAll()
     }
-
-    #if os(iOS)
-    private func deferNowPlayingToMusicKitIfNeeded(
-        for state: PlaybackNowPlayingState
-    ) -> Bool {
-        guard state.track?.isAppleMusic == true else {
-            if isDeferringToMusicKit {
-                EnsembleLogger.debug("[NowPlaying] Restoring Ensemble system controls for native playback")
-                isDeferringToMusicKit = false
-            }
-            return false
-        }
-
-        cancelArtworkLoad(clearArtwork: true)
-        guard !isDeferringToMusicKit else { return true }
-        EnsembleLogger.debug("[NowPlaying] Deferring Apple Music system controls to MusicKit")
-        isDeferringToMusicKit = true
-        nowPlayingCenter?.nowPlayingInfo = nil
-        nowPlayingCenter?.playbackState = .stopped
-        disableLegacyRemoteCommands()
-        return true
-    }
-
-    private func disableLegacyRemoteCommands() {
-        guard let commandCenter else { return }
-        commandCenter.playCommand.isEnabled = false
-        commandCenter.pauseCommand.isEnabled = false
-        commandCenter.togglePlayPauseCommand.isEnabled = false
-        commandCenter.nextTrackCommand.isEnabled = false
-        commandCenter.previousTrackCommand.isEnabled = false
-        commandCenter.changePlaybackPositionCommand.isEnabled = false
-        commandCenter.changeRepeatModeCommand.isEnabled = false
-        commandCenter.changeShuffleModeCommand.isEnabled = false
-        commandCenter.likeCommand.isEnabled = false
-        commandCenter.dislikeCommand.isEnabled = false
-    }
-    #endif
 
     private static func sourceScopedTrackIdentifier(for track: Track) -> String {
         SystemMediaReference.sourceScopedIdentifier(

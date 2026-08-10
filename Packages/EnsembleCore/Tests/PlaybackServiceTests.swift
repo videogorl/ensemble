@@ -1083,38 +1083,15 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertEqual(PlaybackService.appleMusicSegment(from: [apple, apple]).count, 1)
     }
 
-    func testAppleMusicBackgroundBridgeOnlyRunsDuringActivePlaybackInBackground() {
-        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            applicationIsActive: false,
-            playbackState: .playing,
-            currentTrackIsAppleMusic: true
-        ))
-        XCTAssertTrue(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            applicationIsActive: false,
-            playbackState: .loading,
-            currentTrackIsAppleMusic: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            applicationIsActive: true,
-            playbackState: .playing,
-            currentTrackIsAppleMusic: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            applicationIsActive: false,
-            playbackState: .paused,
-            currentTrackIsAppleMusic: true
-        ))
-        XCTAssertFalse(PlaybackService.shouldMaintainAppleMusicBackgroundBridge(
-            applicationIsActive: false,
-            playbackState: .playing,
-            currentTrackIsAppleMusic: false
-        ))
-        XCTAssertFalse(PlaybackService.shouldPauseAudioEngineBeforeLoading(
-            isProviderHandoffBridgeActive: true
-        ))
-        XCTAssertTrue(PlaybackService.shouldPauseAudioEngineBeforeLoading(
-            isProviderHandoffBridgeActive: false
-        ))
+    func testAppleMusicPlaylistTrackKeyKeepsNumericItemsCatalogPlayable() {
+        XCTAssertEqual(
+            AppleMusicTrackKeyPolicy.playlistTrackKey(itemID: "1710109917", isInLibrary: true),
+            "apple-catalog-library"
+        )
+        XCTAssertEqual(
+            AppleMusicTrackKeyPolicy.playlistTrackKey(itemID: "i.MoxqzErIeW3JVG", isInLibrary: true),
+            "apple-library:i.MoxqzErIeW3JVG"
+        )
     }
 
     func testNewPlaybackRequestTakesBackgroundTaskOwnership() {
@@ -1202,6 +1179,45 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testAppleMusicPreviousInferenceOnlyAcceptsNearStartRewind() {
+        XCTAssertTrue(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 1.2,
+            currentTime: 0
+        ))
+        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 30,
+            currentTime: 0
+        ))
+        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 1.2,
+            currentTime: 1.1
+        ))
+    }
+
+    func testEndTransitionLeaseStartsNearBoundaryAndReleasesAfterSeekBack() {
+        let nearBoundary = PlaybackService.shouldPrepareEndTransitionLease(
+            playbackState: .playing,
+            currentTime: 96,
+            duration: 100,
+            hasContinuousProviderSuccessor: false
+        )
+        let afterSeekBack = PlaybackService.shouldPrepareEndTransitionLease(
+            playbackState: .playing,
+            currentTime: 95.9,
+            duration: 100,
+            hasContinuousProviderSuccessor: false
+        )
+
+        XCTAssertTrue(nearBoundary)
+        XCTAssertFalse(afterSeekBack)
+        XCTAssertFalse(PlaybackService.shouldPrepareEndTransitionLease(
+            playbackState: .playing,
+            currentTime: 99,
+            duration: 100,
+            hasContinuousProviderSuccessor: true
+        ))
+    }
+
     func testAppleMusicCallbackAcceptanceRequiresTheCurrentEnabledAppleQueue() {
         for state in [PlaybackState.loading, .buffering, .playing] {
             XCTAssertTrue(PlaybackService.shouldAcceptAppleMusicCallback(
@@ -1284,16 +1300,78 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testAppleMusicResolutionStopsBeforeAnIndeterminateLookupWithoutPruningIt() throws {
+        let first = makeAppleTrack(id: "first")
+        let missing = makeAppleTrack(id: "missing")
+        let resolvedLater = makeAppleTrack(id: "resolved-later")
+        let retryLater = makeAppleTrack(id: "retry-later")
+        let resolvedAfterRetry = makeAppleTrack(id: "resolved-after-retry")
+
+        let resolution = try XCTUnwrap(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [first, missing, resolvedLater, retryLater, resolvedAfterRetry],
+            resolvedPlaybackIdentities: [
+                first.playbackIdentity,
+                resolvedLater.playbackIdentity,
+                resolvedAfterRetry.playbackIdentity,
+            ],
+            indeterminatePlaybackIdentities: [retryLater.playbackIdentity]
+        ))
+
+        XCTAssertEqual(resolution.resolvedTracks, [first, resolvedLater])
+        XCTAssertEqual(resolution.unresolvedPlaybackIdentities, [missing.playbackIdentity])
+        XCTAssertNil(AppleMusicPlaybackResolutionPolicy.select(
+            requestedTracks: [retryLater, resolvedAfterRetry],
+            resolvedPlaybackIdentities: [resolvedAfterRetry.playbackIdentity],
+            indeterminatePlaybackIdentities: [retryLater.playbackIdentity]
+        ))
+    }
+
+    func testAppleMusicResolutionFallsBackToLibraryWhenCatalogRelationshipIsStale() {
+        let matchedLibraryTrack = Track(
+            id: "library-id",
+            key: "apple-library-catalog:stale-catalog-id",
+            title: "Matched",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let libraryOnlyTrack = Track(
+            id: "uploaded-id",
+            key: "apple-library:uploaded-id",
+            title: "Uploaded",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertEqual(
+            AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+                for: matchedLibraryTrack,
+                resolvedCatalogIDs: []
+            ),
+            "library-id"
+        )
+        XCTAssertNil(AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+            for: matchedLibraryTrack,
+            resolvedCatalogIDs: ["stale-catalog-id"]
+        ))
+        XCTAssertEqual(
+            AppleMusicPlaybackResolutionPolicy.libraryFallbackID(
+                for: libraryOnlyTrack,
+                resolvedCatalogIDs: []
+            ),
+            "uploaded-id"
+        )
+    }
+
     func testAppleMusicPlaybackEndPolicyReportsTheFinalEntryAtItsEnd() {
         XCTAssertTrue(AppleMusicPlaybackEndPolicy.isFinalEntry(
-            currentMusicID: "final",
-            lastSubmittedMusicID: "final",
+            hasQueuedSuccessor: false,
             isStationActive: false
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
-            currentMusicID: "final",
-            lastSubmittedMusicID: "final",
+            hasQueuedSuccessor: false,
             isStationActive: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            hasQueuedSuccessor: true,
+            isStationActive: false
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
             playbackTime: 298.84,
@@ -1323,6 +1401,12 @@ final class PlaybackServiceTests: XCTestCase {
             wasPlaying: false
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
+            playbackTime: 298.39,
+            duration: 298.9,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportPausedAtEnd(
             playbackTime: 298.64,
             duration: 298.9,
             isFinalEntry: true,
@@ -1348,6 +1432,60 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
             wasPlaying: true,
             isEndSuppressed: true
+        ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: 0,
+            lastPlayingTime: 267.6,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: 0,
+            lastPlayingTime: 267.6,
+            isFinalEntry: false,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: 0,
+            lastPlayingTime: 0.1,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+    }
+
+    func testAppleMusicPlaybackItemMatchingAcceptsSystemCatalogNormalization() {
+        let libraryTrack = Track(
+            id: "i.library-daybreak",
+            key: "apple-library:i.library-daybreak",
+            title: "Daybreak",
+            artistName: "MICHAEL HAGGINS",
+            duration: 329.52,
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+
+        XCTAssertTrue(AppleMusicPlaybackItemMatchingPolicy.matches(
+            currentMusicID: "62990350",
+            currentTitle: "Daybreak",
+            currentArtistName: "MICHAEL HAGGINS",
+            currentDuration: 329.52,
+            submittedMusicIDs: ["i.library-daybreak"],
+            submittedTrack: libraryTrack
+        ))
+        XCTAssertFalse(AppleMusicPlaybackItemMatchingPolicy.matches(
+            currentMusicID: "other",
+            currentTitle: "Daybreak",
+            currentArtistName: "Other Artist",
+            currentDuration: 329.52,
+            submittedMusicIDs: ["i.library-daybreak"],
+            submittedTrack: libraryTrack
+        ))
+        XCTAssertFalse(AppleMusicPlaybackItemMatchingPolicy.matches(
+            currentMusicID: "other",
+            currentTitle: "Daybreak",
+            currentArtistName: "MICHAEL HAGGINS",
+            currentDuration: 120,
+            submittedMusicIDs: ["i.library-daybreak"],
+            submittedTrack: libraryTrack
         ))
     }
 

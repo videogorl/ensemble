@@ -34,6 +34,13 @@ enum AppleMusicPlaylistMutationPolicy {
         }
     }
 
+    static func itemReference(forResolvedID id: String) -> AppleMusicPlaylistItemReference {
+        AppleMusicPlaylistItemReference(
+            id: id,
+            kind: id.allSatisfy(\.isNumber) ? .catalogSong : .librarySong
+        )
+    }
+
     static func uniqueIDs(
         in references: [AppleMusicPlaylistItemReference],
         kind: AppleMusicPlaylistItemKind
@@ -52,6 +59,16 @@ enum AppleMusicPlaylistMutationPolicy {
         }
     }
 
+    static func libraryFallbackID(
+        for track: Track,
+        resolvedCatalogIDs: Set<String>
+    ) -> String? {
+        guard let catalogID = track.appleMusicCatalogID,
+              !resolvedCatalogIDs.contains(catalogID)
+        else { return nil }
+        return track.appleMusicLibraryID
+    }
+
     static func orderedValues<Value>(
         for references: [AppleMusicPlaylistItemReference],
         valuesByReference: [AppleMusicPlaylistItemReference: Value]
@@ -62,9 +79,84 @@ enum AppleMusicPlaylistMutationPolicy {
     }
 }
 
+enum AppleMusicTrackKeyPolicy {
+    static func playlistTrackKey(itemID: String, isInLibrary: Bool) -> String {
+        guard isInLibrary else { return "apple-catalog" }
+        if !itemID.isEmpty, itemID.allSatisfy(\.isNumber) {
+            return "apple-catalog-library"
+        }
+        return "apple-library:\(itemID)"
+    }
+}
+
+struct AppleMusicLibraryRecording: Sendable {
+    let isrc: String?
+    let title: String
+    let artistName: String
+    let duration: TimeInterval?
+}
+
+enum AppleMusicLibraryAddPolicy {
+    static func containsMatchingISRC(
+        requested: AppleMusicLibraryRecording,
+        libraryCandidates: [AppleMusicLibraryRecording]
+    ) -> Bool {
+        guard let requestedISRC = normalizedISRC(requested.isrc) else { return false }
+        return libraryCandidates.contains {
+            normalizedISRC($0.isrc) == requestedISRC
+        }
+    }
+
+    static func containsEquivalentRecording(
+        requested: AppleMusicLibraryRecording,
+        libraryCandidates: [AppleMusicLibraryRecording]
+    ) -> Bool {
+        if containsMatchingISRC(requested: requested, libraryCandidates: libraryCandidates) {
+            return true
+        }
+        if normalizedISRC(requested.isrc) != nil {
+            let libraryISRCs = libraryCandidates.compactMap { normalizedISRC($0.isrc) }
+            if !libraryISRCs.isEmpty { return false }
+        }
+
+        return libraryCandidates.filter { candidate in
+            DisplayPlaylist.normalizedTitle(candidate.title)
+                == DisplayPlaylist.normalizedTitle(requested.title)
+                && DisplayPlaylist.normalizedTitle(candidate.artistName)
+                == DisplayPlaylist.normalizedTitle(requested.artistName)
+                && durationsMatch(candidate.duration, requested.duration)
+        }.count == 1
+    }
+
+    static func canConvergeOpaqueFailure(
+        domain: String,
+        code: Int,
+        exactCatalogIDPresent: Bool,
+        requested: AppleMusicLibraryRecording,
+        libraryCandidates: [AppleMusicLibraryRecording]
+    ) -> Bool {
+        guard domain == "MPErrorDomain", code == 0 else { return false }
+        return exactCatalogIDPresent || containsEquivalentRecording(
+            requested: requested,
+            libraryCandidates: libraryCandidates
+        )
+    }
+
+    private static func normalizedISRC(_ value: String?) -> String? {
+        let normalized = value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        return normalized?.isEmpty == false ? normalized : nil
+    }
+
+    private static func durationsMatch(_ first: TimeInterval?, _ second: TimeInterval?) -> Bool {
+        guard let first, let second, first > 0, second > 0 else { return false }
+        return abs(first - second) < 1
+    }
+}
+
 #if os(iOS)
 import EnsemblePersistence
-import MediaPlayer
 import MusicKit
 
 @available(iOS 18, *)
@@ -80,7 +172,6 @@ public actor AppleMusicSourceProvider:
     static let librarySongsPath = "/v1/me/library/songs?limit=100&extend=inFavorites&include=albums,artists,catalog"
     static let libraryPlaylistsPath = "/v1/me/library/playlists?limit=100&include=catalog"
     static let authoritativeLibraryInventoryInterval: TimeInterval = 24 * 60 * 60
-    private static let deviceLibraryRevisionKey = "sources.appleMusic.libraryInventory.deviceRevision"
     private static let authoritativeLibraryInventoryDateKey = "sources.appleMusic.libraryInventory.authoritativeDate"
     private var catalogIDsByLibraryID: [String: String] = [:]
     private var pendingFavoriteCatalogIDs = Set<String>()
@@ -201,10 +292,7 @@ public actor AppleMusicSourceProvider:
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumKeys, forSource: sourceKey)
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
-        Self.recordAuthoritativeLibraryInventory(
-            observedDeviceRevision: Self.currentDeviceLibraryRevision(),
-            completedAt: Date()
-        )
+        Self.recordAuthoritativeLibraryInventory(completedAt: Date())
         progressHandler(1)
 
         return LibrarySyncResult(
@@ -288,18 +376,15 @@ public actor AppleMusicSourceProvider:
         to repository: LibraryRepositoryProtocol,
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
-        let observedDeviceRevision = Self.currentDeviceLibraryRevision()
-        let state = Self.libraryInventoryState()
         let plan = Self.libraryInventoryPlan(
-            observedDeviceRevision: observedDeviceRevision,
-            state: state,
+            authoritativeInventoryDate: Self.authoritativeLibraryInventoryDate(),
             now: Date()
         )
 
         switch plan {
         case .reuseAuthoritativeInventory:
             EnsembleLogger.debug(
-                "🎵 Apple Music device library revision unchanged; reusing the recent authoritative inventory"
+                "🎵 Apple Music authoritative library inventory is recent; reusing it"
             )
             try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceIdentifier.compositeKey)
             progressHandler(1)
@@ -317,9 +402,6 @@ public actor AppleMusicSourceProvider:
 
     enum LibraryInventoryRefreshReason: String, Equatable {
         case noTrustedBaseline
-        case deviceRevisionUnavailable
-        case deviceRevisionChanged
-        case deviceRevisionRegressed
         case localClockRegressed
         case periodicReconciliationDue
     }
@@ -329,32 +411,16 @@ public actor AppleMusicSourceProvider:
         case fetchAuthoritativeInventory(reason: LibraryInventoryRefreshReason)
     }
 
-    struct LibraryInventoryState: Equatable {
-        let deviceRevision: Date?
-        let authoritativeInventoryDate: Date?
-    }
-
     static func libraryInventoryPlan(
-        observedDeviceRevision: Date?,
-        state: LibraryInventoryState,
+        authoritativeInventoryDate: Date?,
         now: Date,
         reconciliationInterval: TimeInterval = authoritativeLibraryInventoryInterval
     ) -> LibraryInventoryPlan {
-        guard let observedDeviceRevision else {
-            return .fetchAuthoritativeInventory(reason: .deviceRevisionUnavailable)
-        }
-        guard let savedRevision = state.deviceRevision,
-              let inventoryDate = state.authoritativeInventoryDate else {
+        guard let authoritativeInventoryDate else {
             return .fetchAuthoritativeInventory(reason: .noTrustedBaseline)
         }
-        guard observedDeviceRevision >= savedRevision else {
-            return .fetchAuthoritativeInventory(reason: .deviceRevisionRegressed)
-        }
-        guard observedDeviceRevision == savedRevision else {
-            return .fetchAuthoritativeInventory(reason: .deviceRevisionChanged)
-        }
 
-        let inventoryAge = now.timeIntervalSince(inventoryDate)
+        let inventoryAge = now.timeIntervalSince(authoritativeInventoryDate)
         guard inventoryAge >= 0 else {
             return .fetchAuthoritativeInventory(reason: .localClockRegressed)
         }
@@ -364,36 +430,21 @@ public actor AppleMusicSourceProvider:
         return .reuseAuthoritativeInventory
     }
 
-    static func libraryInventoryState(
+    static func authoritativeLibraryInventoryDate(
         defaults: UserDefaults = .standard
-    ) -> LibraryInventoryState {
-        LibraryInventoryState(
-            deviceRevision: defaults.object(forKey: deviceLibraryRevisionKey) as? Date,
-            authoritativeInventoryDate: defaults.object(forKey: authoritativeLibraryInventoryDateKey) as? Date
-        )
+    ) -> Date? {
+        defaults.object(forKey: authoritativeLibraryInventoryDateKey) as? Date
     }
 
     static func recordAuthoritativeLibraryInventory(
-        observedDeviceRevision: Date?,
         completedAt: Date,
         defaults: UserDefaults = .standard
     ) {
-        if let observedDeviceRevision {
-            defaults.set(observedDeviceRevision, forKey: deviceLibraryRevisionKey)
-        } else {
-            defaults.removeObject(forKey: deviceLibraryRevisionKey)
-        }
         defaults.set(completedAt, forKey: authoritativeLibraryInventoryDateKey)
     }
 
     static func clearLibraryInventoryState(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: deviceLibraryRevisionKey)
         defaults.removeObject(forKey: authoritativeLibraryInventoryDateKey)
-    }
-
-    private static func currentDeviceLibraryRevision() -> Date? {
-        let revision = MPMediaLibrary.default().lastModifiedDate
-        return revision.timeIntervalSince1970 > 0 ? revision : nil
     }
 
     public func syncPlaylists(
@@ -639,7 +690,7 @@ public actor AppleMusicSourceProvider:
         rating: Int?
     ) async throws -> MusicSourceRatingMutationEffects {
         guard let rating, rating > 0 else { throw AppleMusicSourceError.favoriteRemovalUnsupported }
-        guard let catalogID = track.appleMusicCatalogID ?? catalogIDsByLibraryID[track.id] else {
+        guard let catalogID = try await catalogID(for: track) else {
             throw MusicSourceRoutingError.capabilityUnavailable(
                 sourceKey: track.sourceCompositeKey ?? sourceIdentifier.compositeKey,
                 capability: "favorites for this library-only song"
@@ -647,6 +698,33 @@ public actor AppleMusicSourceProvider:
         }
         try await favorite(catalogID: catalogID)
         return .none
+    }
+
+    private func catalogID(for track: Track) async throws -> String? {
+        if let catalogID = track.appleMusicCatalogID ?? catalogIDsByLibraryID[track.id] {
+            return catalogID
+        }
+        guard let libraryID = track.appleMusicLibraryID else { return nil }
+
+        let response = try await request(path: try Self.librarySongPath(libraryID: libraryID))
+        let catalogID = try Self.catalogID(in: response, libraryID: libraryID)
+        if let catalogID {
+            catalogIDsByLibraryID[libraryID] = catalogID
+        }
+        return catalogID
+    }
+
+    static func librarySongPath(libraryID: String) throws -> String {
+        var components = URLComponents()
+        components.path = "/v1/me/library/songs/\(libraryID)"
+        components.queryItems = [URLQueryItem(name: "include", value: "catalog")]
+        guard let path = components.string else { throw URLError(.badURL) }
+        return path
+    }
+
+    static func catalogID(in librarySongResponse: Data, libraryID: String) throws -> String? {
+        try JSONDecoder().decode(Page<LibrarySong>.self, from: librarySongResponse)
+            .data.first(where: { $0.id == libraryID })?.catalogID
     }
 
     public func favorite(catalogID: String) async throws {
@@ -670,15 +748,137 @@ public actor AppleMusicSourceProvider:
         return components.string ?? next
     }
 
-    public func addToLibrary(catalogID: String) async throws {
-        let request = MusicCatalogResourceRequest<Song>(
-            matching: \.id,
-            equalTo: MusicItemID(catalogID)
-        )
-        guard let song = try await request.response().items.first else {
-            throw AppleMusicSourceError.catalogSongNotFound
+    public func addToLibrary(catalogID: String) async throws -> MusicSourceLibraryAddOutcome {
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        EnsembleLogger.info("Apple Music library mutation started operation=add catalogID=\(catalogID)")
+
+        do {
+            let request = MusicCatalogResourceRequest<Song>(
+                matching: \.id,
+                equalTo: MusicItemID(catalogID)
+            )
+            guard let song = try await request.response().items.first else {
+                throw AppleMusicSourceError.catalogSongNotFound
+            }
+
+            let outcome = try await addToLibrary(song)
+            EnsembleLogger.info(
+                "Apple Music library mutation accepted operation=add catalogID=\(catalogID) outcome=\(outcome) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
+            return outcome
+        } catch {
+            let nsError = error as NSError
+            EnsembleLogger.error(
+                "Apple Music library mutation failed operation=add catalogID=\(catalogID) domain=\(nsError.domain) code=\(nsError.code) authorization=\(MusicAuthorization.currentStatus.rawValue) elapsedMs=\(Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000))"
+            )
+            throw error
         }
-        try await MusicLibrary.shared.add(song)
+    }
+
+    private func addToLibrary(_ song: Song) async throws
+        -> MusicSourceLibraryAddOutcome
+    {
+        if song.libraryAddedDate != nil {
+            EnsembleLogger.info(
+                "Apple Music library mutation converged operation=add catalogID=\(song.id.rawValue) evidence=libraryAddedDate"
+            )
+            return .alreadyPresent
+        }
+
+        let requested = AppleMusicLibraryRecording(
+            isrc: song.isrc,
+            title: song.title,
+            artistName: song.artistName,
+            duration: song.duration
+        )
+        let initialCandidates = (try? await Self.libraryRecordings(titled: song.title)) ?? []
+        if AppleMusicLibraryAddPolicy.containsMatchingISRC(
+            requested: requested,
+            libraryCandidates: initialCandidates
+        ) {
+            EnsembleLogger.info(
+                "Apple Music library mutation converged operation=add catalogID=\(song.id.rawValue) evidence=preflightISRC"
+            )
+            return .alreadyPresent
+        }
+
+        do {
+            try await MusicLibrary.shared.add(song)
+            return .added
+        } catch let error as MusicLibrary.Error where error == .itemAlreadyAdded {
+            EnsembleLogger.info(
+                "Apple Music library mutation converged operation=add catalogID=\(song.id.rawValue) evidence=documentedAlreadyAdded"
+            )
+            return .alreadyPresent
+        } catch {
+            let nsError = error as NSError
+            guard nsError.domain == "MPErrorDomain", nsError.code == 0 else { throw error }
+            let exactCatalogIDPresent = (try? await catalogSongIsInLibrary(
+                catalogID: song.id.rawValue
+            )) == true
+            let candidates = exactCatalogIDPresent
+                ? []
+                : (try? await Self.libraryRecordings(titled: song.title)) ?? []
+            guard AppleMusicLibraryAddPolicy.canConvergeOpaqueFailure(
+                domain: nsError.domain,
+                code: nsError.code,
+                exactCatalogIDPresent: exactCatalogIDPresent,
+                requested: requested,
+                libraryCandidates: candidates
+            ) else { throw error }
+            let evidence: String
+            if exactCatalogIDPresent {
+                evidence = "postFailureCatalogID"
+            } else if AppleMusicLibraryAddPolicy.containsMatchingISRC(
+                requested: requested,
+                libraryCandidates: candidates
+            ) {
+                evidence = "postFailureISRC"
+            } else {
+                evidence = "postFailureMetadata"
+            }
+            EnsembleLogger.info(
+                "Apple Music library mutation converged operation=add catalogID=\(song.id.rawValue) evidence=\(evidence)"
+            )
+            return .alreadyPresent
+        }
+    }
+
+    private func catalogSongIsInLibrary(catalogID: String) async throws -> Bool {
+        let storefront = try await MusicDataRequest.currentCountryCode
+        let encodedID = catalogID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            ?? catalogID
+        let response = try JSONDecoder().decode(
+            Page<LibrarySong.LibraryReference>.self,
+            from: try await request(
+                path: "/v1/catalog/\(storefront.lowercased())/songs/\(encodedID)/library"
+            )
+        )
+        return !response.data.isEmpty
+    }
+
+    private nonisolated static func libraryRecordings(titled title: String) async throws
+        -> [AppleMusicLibraryRecording]
+    {
+        var recordings: [AppleMusicLibraryRecording] = []
+        var offset = 0
+        while true {
+            var request = MusicLibraryRequest<Song>()
+            request.limit = 100
+            request.offset = offset
+            request.filter(matching: \.title, equalTo: title)
+            let songs = Array(try await request.response().items)
+            recordings.append(contentsOf: songs.map {
+                AppleMusicLibraryRecording(
+                    isrc: $0.isrc,
+                    title: $0.title,
+                    artistName: $0.artistName,
+                    duration: $0.duration
+                )
+            })
+            guard songs.count == request.limit else { return recordings }
+            offset += songs.count
+        }
     }
 
     public func createPlaylist(title: String, tracks: [Track]) async throws -> Playlist? {
@@ -702,7 +902,9 @@ public actor AppleMusicSourceProvider:
     }
 
     public func addTracks(_ tracks: [Track], to playlistID: String) async throws -> Int {
-        let references = try AppleMusicPlaylistMutationPolicy.itemReferences(for: tracks)
+        let references = try await playlistSongs(for: tracks).map {
+            AppleMusicPlaylistMutationPolicy.itemReference(forResolvedID: String(describing: $0.id))
+        }
         guard !references.isEmpty else { return 0 }
         let encodedID = playlistID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? playlistID
         _ = try await request(
@@ -1040,7 +1242,10 @@ public actor AppleMusicSourceProvider:
     }
 
     private static func playlistTrackKey(_ song: Song) -> String {
-        song.libraryAddedDate == nil ? catalogTrackKey(song) : libraryTrackKey(song)
+        AppleMusicTrackKeyPolicy.playlistTrackKey(
+            itemID: String(describing: song.id),
+            isInLibrary: song.libraryAddedDate != nil
+        )
     }
 
     private static func domainAlbum(_ album: MusicKit.Album, artistID: String? = nil) -> Album {
@@ -1272,7 +1477,20 @@ public actor AppleMusicSourceProvider:
             }
         }
 
-        let libraryIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .librarySong)
+        var fallbackCatalogReferencesByLibraryID: [String: Set<AppleMusicPlaylistItemReference>] = [:]
+        let resolvedCatalogIDs = Set(songsByReference.keys.compactMap { reference in
+            reference.kind == .catalogSong ? reference.id : nil
+        })
+        for (track, reference) in zip(tracks, references) {
+            guard let libraryID = AppleMusicPlaylistMutationPolicy.libraryFallbackID(
+                for: track,
+                resolvedCatalogIDs: resolvedCatalogIDs
+            ) else { continue }
+            fallbackCatalogReferencesByLibraryID[libraryID, default: []].insert(reference)
+        }
+
+        var libraryIDs = AppleMusicPlaylistMutationPolicy.uniqueIDs(in: references, kind: .librarySong)
+        libraryIDs.append(contentsOf: fallbackCatalogReferencesByLibraryID.keys.filter { !libraryIDs.contains($0) })
         for batch in AppleMusicPlaylistMutationPolicy.batches(
             libraryIDs,
             limit: AppleMusicPlaylistMutationPolicy.libraryLookupBatchSize
@@ -1286,6 +1504,9 @@ public actor AppleMusicSourceProvider:
                     kind: .librarySong
                 )
                 songsByReference[reference] = song
+                for catalogReference in fallbackCatalogReferencesByLibraryID[reference.id] ?? [] {
+                    songsByReference[catalogReference] = song
+                }
             }
         }
 

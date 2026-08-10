@@ -148,7 +148,11 @@ public struct QueueCard: View {
                 Menu {
                     Button {
                         let snapshot = viewModel.queueSnapshotForPlaylistSave()
-                        presentPlaylistPicker(with: snapshot, title: "Save Queue as Playlist")
+                        presentPlaylistPicker(
+                            with: snapshot,
+                            title: "Save Queue as Playlist",
+                            createsPlaylistAcrossSources: true
+                        )
                     } label: {
                         Label("Save Queue as Playlist", systemImage: EnsembleDesign.Icon.saveQueue)
                     }
@@ -193,6 +197,9 @@ public struct QueueCard: View {
                         },
                         onAddToLibrary: { track in
                             Task { await viewModel.addTrackToLibrary(track) }
+                        },
+                        canAddToLibrary: { track in
+                            viewModel.canAddTrackToLibrary(track)
                         },
                         onAddToPlaylist: { track in
                             presentPlaylistPicker(with: [track], title: "Add to Playlist")
@@ -569,7 +576,11 @@ public struct QueueCard: View {
 
     // MARK: - Helper Methods
 
-    private func presentPlaylistPicker(with tracks: [Track], title: String) {
+    private func presentPlaylistPicker(
+        with tracks: [Track],
+        title: String,
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         guard !tracks.isEmpty else {
             deps.toastCenter.show(
                 ToastPayload(
@@ -582,7 +593,11 @@ public struct QueueCard: View {
             )
             return
         }
-        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+        playlistActionRequest = PlaylistActionPresentationHost.request(
+            for: tracks,
+            title: title,
+            createsPlaylistAcrossSources: createsPlaylistAcrossSources
+        )
     }
 
     private func navigateFromNowPlaying(to destination: NavigationCoordinator.Destination) {

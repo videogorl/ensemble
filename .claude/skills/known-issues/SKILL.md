@@ -13,11 +13,23 @@ No unresolved critical issues are currently documented.
 
 ## Active Limitations
 
+### Application Music Player Mixed-Provider OS Matrix
+
+- **Area:** `AppleMusicPlaybackController`, `PlaybackService`, `ApplicationMusicPlayer`, iOS/iPadOS 18+.
+- **Status:** Ensemble now uses the app-scoped MusicKit player, a mixable session for background Apple-to-native activation, and a finite UIKit transition lease. These are public APIs, but locked mixed-provider continuity, energy impact, AirPlay, and system-control behavior still require physical passes on iOS 18–27.
+- **Rule:** Do not add silent PCM, an empty audio graph, a second media session, or `SystemMusicPlayer` as a keepalive. Treat a failed physical OS/route combination as an active platform limitation and preserve a recoverable paused boundary rather than adding another undocumented background mechanism.
+
 ### Mixed-Provider Remote Skip Boundaries
 
 - **Area:** `PlaybackService`, `PlaybackNowPlayingBridge`, `AppleMusicPlaybackController`, iOS/iPadOS 18+.
-- **Status:** Finite Apple Music segments use `SystemMusicPlayer`, so system controls and automatic Apple-to-Plex/Plex-to-Apple handoffs continue while Ensemble is inactive or backgrounded. The system player can navigate inside its submitted Apple segment, but it provides no callback for Previous at the first Apple item or Next at the last Apple item, so those remote commands cannot cross a Plex boundary. The full background audio and Control Center handoff is physically verified on iOS 27; iOS 18–26 use the same APIs but still need a physical-device pass.
-- **Rule:** Keep automatic boundary advancement and app-owned cross-provider controls working. Do not claim that Control Center Previous/Next can cross the outer edges of a submitted Apple segment.
+- **Status:** Finite playback now submits one Apple item at a time. Locked iOS 27 testing verified exactly-once Next across Plex-to-Apple, Apple-to-Apple, and Apple-to-Plex boundaries, plus standard two-tap Previous across Apple-to-Apple and Apple-to-Plex boundaries. MusicKit still consumes the raw Previous command, so Ensemble infers only the near-start rewind that represents the navigate-back gesture. iOS 18–26 remain unverified.
+- **Rule:** Keep each finite MusicKit queue disposable and one-item, preserve the three-second Previous restart threshold, and require locked physical verification before expanding the supported OS matrix.
+
+### HomePod Music Transfer Does Not Carry the Mixed Queue
+
+- **Area:** `ApplicationMusicPlayer`, AirPlay/HomePod, mixed Apple Music and Plex queues on iOS/iPadOS 18+.
+- **Status:** The prior `SystemMusicPlayer` transport transferred its Music session to HomePod instead of creating an iPhone `AVAudioSession` AirPlay route. The replacement app-scoped transport still needs separate physical verification for true iPhone-owned AirPlay and HomePod transfer.
+- **Rule:** Do not claim mixed-provider continuity for Music-to-HomePod transfer. Only accept an AirPlay handoff when Ensemble observes an iPhone audio route and both providers remain under the same phone-owned session.
 
 ### Top-Level Navigation Pop-In During Playback
 
@@ -92,7 +104,7 @@ No unresolved critical issues are currently documented.
 - **Area:** `ArtworkLoader.predownloadArtwork`
 - **Status:** Artwork is pre-cached only for items that pass through sync. Browsing an uncached item may still require network.
 - **Now Playing effect:** Metadata can update before different uncached artwork finishes cache lookup, decode, or fetch. Keep the prior artwork during that bounded interval; do not flash a generated placeholder. Consecutive tracks sharing the same source-scoped artwork resolution identity should reuse the resolved image immediately.
-- **Apple Music effect:** During `SystemMusicPlayer` playback, MusicKit owns Control Center artwork and may publish it shortly after the title and transport state. Ensemble cannot force that system-owned artwork update.
+- **Apple Music effect:** During `ApplicationMusicPlayer` playback, Ensemble publishes Control Center metadata; an uncached or transient MusicKit artwork lookup may still complete shortly after title and transport state. Keep the prior matching artwork until the resolved artwork is available.
 
 ## Watchlist
 

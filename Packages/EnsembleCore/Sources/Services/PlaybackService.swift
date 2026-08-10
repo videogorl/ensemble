@@ -285,6 +285,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     static let previousRestartThreshold: TimeInterval = 3
     private static let audioCriticalInteractionHoldNs: UInt64 = 3_000_000_000
 
+    static func shouldInferAppleMusicPrevious(
+        previousTime: TimeInterval,
+        currentTime: TimeInterval
+    ) -> Bool {
+        previousTime <= previousRestartThreshold
+            && currentTime <= 0.75
+            && previousTime - currentTime >= 0.25
+    }
+
     static func inferPresentationRouteKind(
         hasAirPlay: Bool,
         hasBluetooth: Bool,
@@ -457,25 +466,24 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     static func appleMusicSegment(from tracks: [Track]) -> [Track] {
-        var identities = Set<String>()
-        return Array(tracks.prefix {
-            $0.isAppleMusic && identities.insert($0.playbackIdentity).inserted
-        })
+        guard let first = tracks.first, first.isAppleMusic else { return [] }
+        return [first]
     }
 
-    static func shouldMaintainAppleMusicBackgroundBridge(
-        applicationIsActive: Bool,
+    static func shouldPrepareEndTransitionLease(
         playbackState: PlaybackState,
-        currentTrackIsAppleMusic: Bool
+        currentTime: TimeInterval,
+        duration: TimeInterval,
+        hasContinuousProviderSuccessor: Bool,
+        leadTime: TimeInterval = 4
     ) -> Bool {
-        guard !applicationIsActive, currentTrackIsAppleMusic else { return false }
-        return playbackState == .loading
-            || playbackState == .buffering
-            || playbackState == .playing
-    }
-
-    static func shouldPauseAudioEngineBeforeLoading(isProviderHandoffBridgeActive: Bool) -> Bool {
-        !isProviderHandoffBridgeActive
+        guard playbackState == .playing,
+              !hasContinuousProviderSuccessor,
+              currentTime.isFinite,
+              duration.isFinite,
+              duration > 0,
+              leadTime > 0 else { return false }
+        return currentTime >= max(0, duration - leadTime)
     }
 
     static func appleMusicQueueItemIDNeedingSynchronization(
@@ -1022,6 +1030,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     #if canImport(UIKit)
         private var trackTransitionBackgroundTask: UIBackgroundTaskIdentifier = .invalid
         private var trackTransitionBackgroundTaskOwnership = PlaybackBackgroundTaskOwnership()
+        private var endTransitionLeaseGeneration: UInt64?
     #endif
 
     /// Resolve the latest reachability value on the main actor for transport work
@@ -1101,7 +1110,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var playbackGenerationCounter: UInt64 = 0 // Incremented on each new playback request to cancel stale completions
     private var appleMusicQueueMutationGeneration: UInt64 = 0
     private var isSynchronizingAppleMusicQueueMutation = false
-    private var appleMusicBackgroundBridgeTrackID: String?
     /// Timestamps of recent handleQueueExhausted calls for rapid-advance rate limiting
     private var queueExhaustedTimestamps: [Date] = []
     /// Safety timer to force-reset isSkipTransitionInProgress if it gets stuck
@@ -1350,8 +1358,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Wire engine callbacks for queue management
         engine.onPlaybackComplete = { [weak self] generation in
-            Task { @MainActor [weak self] in
-                guard let self, generation == self.playbackGenerationCounter else { return }
+            guard let self else { return }
+            guard generation == self.playbackGenerationCounter else {
+                EnsembleLogger.debug(
+                    "[AudioEngine] Ignoring stale completion generation=\(generation)"
+                        + " current=\(self.playbackGenerationCounter)"
+                )
+                return
+            }
+            #if canImport(UIKit)
+                self.endTransitionLeaseGeneration = nil
+            #endif
+            self.beginTrackTransitionBackgroundTask(for: generation)
+            Task { @MainActor [self] in
+                defer { self.endTrackTransitionBackgroundTask(for: generation) }
+                guard generation == self.playbackGenerationCounter else { return }
                 await self.handleQueueExhausted()
             }
         }
@@ -1427,6 +1448,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.playback("ENGINE: error -- \(error.localizedDescription)")
                     if self.playbackState == .playing || self.playbackState == .loading {
                         self.playbackState = .failed(error.localizedDescription)
+                        self.endTrackTransitionBackgroundTask(for: generation)
                     }
                 }
             }
@@ -1451,6 +1473,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 self.updatePlaybackTimes(rawTime: time)
                 self.reconcileEngineTrackStateIfNeeded()
                 self.scheduleGaplessIfNeeded()
+                self.updateEndTransitionLease(shouldHold: Self.shouldPrepareEndTransitionLease(
+                    playbackState: self.playbackState,
+                    currentTime: time,
+                    duration: self.duration,
+                    hasContinuousProviderSuccessor: !(engine.scheduledTrackIdsInOrder.isEmpty)
+                        || engine.isSmartMixTransitionActive
+                ))
                 self.persistPlaybackSnapshotIfNeeded(forObservedTime: time)
                 MainActor.assumeIsolated {
                     self.audioAnalyzer.updatePlaybackPosition(self.presentationTime)
@@ -1879,22 +1908,63 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// actively playing), preventing the next track from loading and starting.
     private func beginTrackTransitionBackgroundTask(for generation: UInt64) {
         #if canImport(UIKit)
+            if endTransitionLeaseGeneration != generation {
+                endTransitionLeaseGeneration = nil
+            }
             guard trackTransitionBackgroundTaskOwnership.begin(for: generation) else { return }
-            trackTransitionBackgroundTask = UIApplication.shared.beginBackgroundTask(
+            let identifier = UIApplication.shared.beginBackgroundTask(
                 withName: "TrackTransition"
             ) { [weak self] in
-                Task { @MainActor [weak self] in
-                    self?.stopAppleMusicBackgroundBridge()
-                    self?.endTrackTransitionBackgroundTask()
-                }
+                self?.expireTrackTransitionBackgroundTask()
             }
+            guard identifier != .invalid else {
+                _ = trackTransitionBackgroundTaskOwnership.end(for: generation)
+                EnsembleLogger.error(
+                    "Background task denied for track transition"
+                        + " appState=\(UIApplication.shared.applicationState.rawValue)"
+                        + " remaining=\(UIApplication.shared.backgroundTimeRemaining)"
+                )
+                return
+            }
+            trackTransitionBackgroundTask = identifier
             EnsembleLogger.debug("🔒 Background task started for track transition")
+        #endif
+    }
+
+    /// Holds a finite task only while playback is close enough to an
+    /// unscheduled provider boundary to need one.
+    private func updateEndTransitionLease(shouldHold: Bool) {
+        #if canImport(UIKit)
+            guard shouldHold else {
+                releaseEndTransitionLease()
+                return
+            }
+
+            let generation = playbackGenerationCounter
+            if let leaseGeneration = endTransitionLeaseGeneration {
+                guard leaseGeneration != generation else { return }
+                releaseEndTransitionLease()
+            }
+            guard trackTransitionBackgroundTaskOwnership.generation == nil else { return }
+            endTransitionLeaseGeneration = generation
+            beginTrackTransitionBackgroundTask(for: generation)
+        #endif
+    }
+
+    private func releaseEndTransitionLease() {
+        #if canImport(UIKit)
+            guard let generation = endTransitionLeaseGeneration else { return }
+            endTransitionLeaseGeneration = nil
+            endTrackTransitionBackgroundTask(for: generation)
         #endif
     }
 
     /// Ends the background task only for the request that currently owns it.
     private func endTrackTransitionBackgroundTask(for generation: UInt64) {
         #if canImport(UIKit)
+            if endTransitionLeaseGeneration == generation {
+                endTransitionLeaseGeneration = nil
+            }
             guard trackTransitionBackgroundTaskOwnership.end(for: generation) else { return }
             endTrackTransitionBackgroundTaskToken()
         #endif
@@ -1903,8 +1973,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// Ends whichever transition owns the task during stop, pause, or expiration.
     private func endTrackTransitionBackgroundTask() {
         #if canImport(UIKit)
+            endTransitionLeaseGeneration = nil
             guard trackTransitionBackgroundTaskOwnership.forceEnd() else { return }
             endTrackTransitionBackgroundTaskToken()
+        #endif
+    }
+
+    /// Prevents an expired near-end lease from immediately chaining another
+    /// UIKit task for the same playback generation.
+    private func expireTrackTransitionBackgroundTask() {
+        #if canImport(UIKit)
+            let endGeneration = endTransitionLeaseGeneration
+            endTrackTransitionBackgroundTask()
+            endTransitionLeaseGeneration = endGeneration
         #endif
     }
 
@@ -1916,27 +1997,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             trackTransitionBackgroundTask = .invalid
         #endif
     }
-
-    #if os(iOS)
-        @MainActor
-        public func handleApplicationDidEnterBackground() async {
-            guard #available(iOS 18, *),
-                  let track = currentTrack,
-                  Self.shouldMaintainAppleMusicBackgroundBridge(
-                      applicationIsActive: false,
-                      playbackState: playbackState,
-                      currentTrackIsAppleMusic: track.isAppleMusic
-                  ) else { return }
-            let generation = playbackGenerationCounter
-            _ = await startAppleMusicBackgroundBridge(for: track, generation: generation)
-        }
-
-        @MainActor
-        public func handleApplicationDidBecomeActive() {
-            guard #available(iOS 18, *), currentTrack?.isAppleMusic == true else { return }
-            stopAppleMusicBackgroundBridge()
-        }
-    #endif
 
     // MARK: - Audio Session
 
@@ -2273,7 +2333,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         #if os(iOS)
             if #available(iOS 18, *), currentTrack?.isAppleMusic == true {
                 appleMusicPlaybackController?.pause()
-                stopAppleMusicBackgroundBridge()
             } else {
                 audioEngine?.pause()
             }
@@ -2341,7 +2400,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             #if os(iOS)
                 if #available(iOS 18, *) {
                     appleMusicPlaybackController?.setInterruptionActive(type == .began)
-                    if currentTrack?.isAppleMusic == true { return }
+                    if currentTrack?.isAppleMusic == true {
+                        EnsembleLogger.debug(
+                            "[Playback] MusicKit owns interruption type=\(type.rawValue)"
+                                + " route=\(currentAudioRouteDescription())"
+                        )
+                        return
+                    }
                 }
             #endif
 
@@ -2377,6 +2442,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             else {
                 return
             }
+
+            #if os(iOS)
+                if #available(iOS 18, *),
+                   currentTrack?.isAppleMusic == true,
+                   appleMusicPlaybackController?.activeQueueGeneration != nil
+                {
+                    refreshPresentationLatencyEstimate()
+                    EnsembleLogger.debug(
+                        "[Playback] MusicKit owns route change \(routeChangeReasonDescription(reason))"
+                            + " queueGeneration=\(appleMusicPlaybackController?.activeQueueGeneration ?? 0)"
+                            + " route=\(currentAudioRouteDescription())"
+                    )
+                    return
+                }
+            #endif
 
             audioEngine?.prepareForRouteChange()
 
@@ -3124,16 +3204,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     }
                     let generation = playbackGenerationCounter
                     do {
-                        if let track = currentTrack,
-                           Self.shouldMaintainAppleMusicBackgroundBridge(
-                               applicationIsActive: UIApplication.shared.applicationState == .active,
-                               playbackState: playbackState,
-                               currentTrackIsAppleMusic: track.isAppleMusic
-                           ) {
-                            _ = await startAppleMusicBackgroundBridge(
-                                for: track,
-                                generation: generation
-                            )
+                        guard ensureAudioSessionConfigured(mixWithOthers: true) else {
+                            throw AppleMusicSourceError.musicKitPlaybackRequired
                         }
                         try await appleMusicPlaybackController?.resume()
                         guard generation == playbackGenerationCounter,
@@ -3168,6 +3240,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     self.preBufferTask = nil
                     if self.audioEngine?.currentTrackId == self.currentTrack?.playbackIdentity {
                         do {
+                            self.audioEngine?.adoptPlaybackGeneration(self.playbackGenerationCounter)
                             try self.audioEngine?.resume()
                             self.refreshPresentationLatencyEstimate()
                             self.playbackState = .playing
@@ -3200,21 +3273,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             return
         }
 
-        // Resume frequency analysis (pre-computed timeline display)
-        Task { @MainActor in
-            audioAnalyzer.resumeUpdates()
-        }
-
         #if !os(macOS)
             // Ensure session is active before resuming
             try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
         #endif
 
         do {
-            try audioEngine?.resume()
+            guard let audioEngine else {
+                playbackState = .failed("Audio engine not initialized")
+                updateNowPlayingInfo()
+                endTrackTransitionBackgroundTask()
+                return
+            }
+            audioEngine.adoptPlaybackGeneration(playbackGenerationCounter)
+            try audioEngine.resume()
         } catch {
             EnsembleLogger.playback("ENGINE: resume failed -- \(error.localizedDescription)")
+            audioEngine?.stop()
+            playbackState = .failed(error.localizedDescription)
+            updateNowPlayingInfo()
+            endTrackTransitionBackgroundTask()
+            return
         }
+        endTrackTransitionBackgroundTask()
+        audioAnalyzer.resumeUpdates()
         refreshPresentationLatencyEstimate()
         playbackState = .playing
         updateNowPlayingInfo()
@@ -3723,7 +3805,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if #available(iOS 18, *) {
                 appleMusicPlaybackController?.stop()
                 isSynchronizingAppleMusicQueueMutation = false
-                stopAppleMusicBackgroundBridge()
             }
         #endif
         audioEngine?.clearScheduledFiles()
@@ -4008,8 +4089,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   ) else { return }
 
             appleMusicQueueMutationGeneration &+= 1
-            playbackGenerationCounter &+= 1
-            isSynchronizingAppleMusicQueueMutation = true
             let mutationGeneration = appleMusicQueueMutationGeneration
 
             Task { @MainActor [weak self] in
@@ -4019,11 +4098,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                       self.queue[self.currentQueueIndex].id == queueItemID,
                       self.currentTrack?.isAppleMusic == true else { return }
 
+                if self.appleMusicPlaybackController?.discardUpcomingEntries() == true {
+                    EnsembleLogger.debug(
+                        "[MusicKitQueue] Discarded stale upcoming entries after logical queue mutation"
+                    )
+                    return
+                }
+
+                self.playbackGenerationCounter &+= 1
+                self.isSynchronizingAppleMusicQueueMutation = true
                 self.appleMusicPlaybackController?.stop()
                 self.isSynchronizingAppleMusicQueueMutation = false
                 switch self.playbackState {
                 case .loading, .buffering, .playing:
-                    // ponytail: Rebuild at the current playhead with a brief gap; edit native MusicKit entries only if measured UX requires gapless mutation.
                     await self.playCurrentQueueItem(
                         seekTo: self.currentTime,
                         caller: "queueMutation"
@@ -4608,7 +4695,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         #if os(iOS)
             if #available(iOS 18, *), queue[currentQueueIndex].track.isAppleMusic {
-                ensureAudioSessionConfigured(mixWithOthers: true)
+                audioEngine?.stop()
+                guard ensureAudioSessionConfigured(mixWithOthers: true) else {
+                    playbackState = .failed("Audio output is unavailable. Try playback again.")
+                    updateNowPlayingInfo()
+                    endTrackTransitionBackgroundTask(for: requestGeneration)
+                    return
+                }
                 await playCurrentAppleMusicSegment(
                     startTime: startTime,
                     generation: requestGeneration
@@ -4618,49 +4711,30 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             if #available(iOS 18, *) {
                 let wasAppleMusicActive = appleMusicPlaybackController?.activeQueueGeneration != nil
-                let didRelease: Bool
-                if wasAppleMusicActive {
-                    didRelease = await appleMusicPlaybackController?.stopAndWaitForRelease() ?? true
-                    guard requestGeneration == playbackGenerationCounter else {
-                        endTrackTransitionBackgroundTask(for: requestGeneration)
-                        return
-                    }
-                    appleMusicBackgroundBridgeTrackID = nil
-                    audioEngine?.stop()
-                } else {
-                    appleMusicPlaybackController?.stop()
-                    didRelease = true
-                }
-                EnsembleLogger.debug("[ProviderHandoff] MusicKit released=\(didRelease)")
+                appleMusicPlaybackController?.stop()
+                EnsembleLogger.debug(
+                    "[ProviderHandoff] ApplicationMusicPlayer stopped=\(wasAppleMusicActive)"
+                        + " running=\(audioEngine?.isRunningForDiagnostics == true)"
+                )
                 isSynchronizingAppleMusicQueueMutation = false
-                guard didRelease else {
-                    audioEngine?.stop()
-                    playbackState = .failed("Apple Music did not release audio output. Try playback again.")
+                if wasAppleMusicActive,
+                   queue.indices.contains(currentQueueIndex) {
+                    currentTrack = queue[currentQueueIndex].track
+                    updatePlaybackTimes(rawTime: 0)
+                    bufferedProgress = 0
+                    waveformHeights = []
+                    frequencyBands = []
+                    playbackState = .loading
                     updateNowPlayingInfo()
-                    endTrackTransitionBackgroundTask(for: requestGeneration)
-                    return
                 }
-                guard ensureAudioSessionConfigured(mixWithOthers: false) else {
+                guard ensureAudioSessionConfigured(
+                    mixWithOthers: wasAppleMusicActive
+                ) else {
+                    audioEngine?.stop()
                     playbackState = .failed("Audio output is unavailable. Try playback again.")
                     updateNowPlayingInfo()
                     endTrackTransitionBackgroundTask(for: requestGeneration)
                     return
-                }
-                if wasAppleMusicActive,
-                   audioEngine?.isProviderHandoffBridgeActive != true {
-                    let activated = await audioSessionCoordinator.activateForPlayback(
-                        shouldStartPlayback: true
-                    )
-                    guard requestGeneration == playbackGenerationCounter else {
-                        endTrackTransitionBackgroundTask(for: requestGeneration)
-                        return
-                    }
-                    guard activated else {
-                        playbackState = .failed("Audio output is unavailable. Try playback again.")
-                        updateNowPlayingInfo()
-                        endTrackTransitionBackgroundTask(for: requestGeneration)
-                        return
-                    }
                 }
             } else {
                 ensureAudioSessionConfigured()
@@ -4714,11 +4788,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             self.updateNowPlayingInfo()
             isSkipTransitionInProgress = true
             armSkipTransitionSafety()
-            if Self.shouldPauseAudioEngineBeforeLoading(
-                isProviderHandoffBridgeActive: audioEngine?.isProviderHandoffBridgeActive == true
-            ) {
-                audioEngine?.pause()
-            }
+            audioEngine?.pause()
             audioAnalyzer.pauseUpdates()
             playbackState = .loading
         }
@@ -4931,13 +5001,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         defer { isHandlingTLSFailure = false }
 
         guard let track = currentTrack else {
-            playbackState = .failed("TLS connection error")
+            failTLSPlayback("TLS connection error")
             return
         }
 
         // If playing local file, TLS shouldn't apply
         guard track.localFilePath == nil else {
-            playbackState = .failed("TLS connection error")
+            failTLSPlayback("TLS connection error")
             return
         }
 
@@ -4947,7 +5017,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         consecutivePlaybackFailures += 1
         if consecutivePlaybackFailures >= maxConsecutiveFailuresBeforeStop {
             EnsembleLogger.debug("🔒 TLS retry limit reached (\(consecutivePlaybackFailures) failures) — stopping")
-            playbackState = .failed("Unable to establish secure connection to server")
+            failTLSPlayback("Unable to establish secure connection to server")
             return
         }
 
@@ -4959,7 +5029,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         } catch {
             guard generation == playbackGenerationCounter else { return }
             EnsembleLogger.debug("⚠️ Failed to refresh connection after TLS error: \(error.localizedDescription)")
-            playbackState = .failed("TLS connection error - no working server found")
+            failTLSPlayback("TLS connection error - no working server found")
             return
         }
         guard generation == playbackGenerationCounter else { return }
@@ -4971,6 +5041,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         // Retry the current track with fresh connection
         EnsembleLogger.debug("🔄 Retrying current track with refreshed connection")
         await playCurrentQueueItem(forcingFreshItem: true, seekTo: nil, caller: "handleTLSPlaybackFailure")
+    }
+
+    @MainActor
+    private func failTLSPlayback(_ message: String) {
+        isSkipTransitionInProgress = false
+        disarmSkipTransitionSafety()
+        audioEngine?.pause()
+        playbackState = .failed(message)
+        updateNowPlayingInfo()
     }
 
     /// Resolve a playable source for a track. File-backed sources are cached;
@@ -5435,6 +5514,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             endTrackTransitionBackgroundTask(for: generation)
             return false
         }
+        EnsembleLogger.debug(
+            "[ProviderHandoff] phase=nativeLoad generation=\(generation)"
+                + " track=\(track.playbackIdentity)"
+                + " running=\(engine.isRunningForDiagnostics)"
+                + " route=\(currentAudioRouteDescription())"
+        )
         let trackIdentity = track.playbackIdentity
 
         #if !os(macOS)
@@ -5446,10 +5531,31 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return false
             }
             guard activated else {
+                engine.stop()
                 playbackState = .failed("Audio output is unavailable. Try playback again.")
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
             }
+            #if os(iOS)
+                if #available(iOS 18, *),
+                   !ensureAudioSessionConfigured(mixWithOthers: false) {
+                    await Task.yield()
+                    guard generation == playbackGenerationCounter else {
+                        endTrackTransitionBackgroundTask(for: generation)
+                        return false
+                    }
+                    guard ensureAudioSessionConfigured(mixWithOthers: false) else {
+                        EnsembleLogger.error(
+                            "[ProviderHandoff] Could not restore nonmixable audio session"
+                        )
+                        engine.stop()
+                        playbackState = .failed("Audio output is unavailable. Try playback again.")
+                        updateNowPlayingInfo()
+                        endTrackTransitionBackgroundTask(for: generation)
+                        return false
+                    }
+                }
+            #endif
         #endif
 
         if let fileURL = source.fileURL {
@@ -5496,6 +5602,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     return false
                 }
                 EnsembleLogger.playback("ENGINE: load failed -- \(error.localizedDescription)")
+                engine.stop()
                 playbackState = .failed(error.localizedDescription)
                 endTrackTransitionBackgroundTask(for: generation)
                 return false
@@ -5552,6 +5659,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             PlaybackJourneyLogger.mark("engineLoadFailed", trackId: trackIdentity, detail: error.localizedDescription)
             EnsembleLogger.playback("ENGINE: load/play failed -- \(error.localizedDescription)")
+            engine.stop()
             isSkipTransitionInProgress = false
             disarmSkipTransitionSafety()
             consecutivePlaybackFailures += 1
@@ -5781,27 +5889,23 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
-    private func setupAppleMusicPlayback() async {
+    private func setupAppleMusicPlayback() {
         #if os(iOS)
             guard #available(iOS 18, *) else { return }
             guard appleMusicPlaybackController == nil else { return }
-            let controller = await AppleMusicPlaybackController.make()
+            let controller = AppleMusicPlaybackController()
             guard appleMusicPlaybackController == nil else { return }
             controller.onTrackChanged = { [weak self] identity, queueGeneration in
-                Task { @MainActor in
-                    self?.handleAppleMusicTrackChanged(
-                        identity,
-                        queueGeneration: queueGeneration
-                    )
-                }
+                self?.handleAppleMusicTrackChanged(
+                    identity,
+                    queueGeneration: queueGeneration
+                )
             }
             controller.onTimeChanged = { [weak self] time, queueGeneration in
-                Task { @MainActor in
-                    self?.handleAppleMusicTimeChanged(
-                        time,
-                        queueGeneration: queueGeneration
-                    )
-                }
+                self?.handleAppleMusicTimeChanged(
+                    time,
+                    queueGeneration: queueGeneration
+                )
             }
             controller.onEnded = { [weak self] queueGeneration in
                 Task { @MainActor in
@@ -5811,28 +5915,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
             controller.onDynamicTrack = { [weak self] track, queueGeneration in
-                Task { @MainActor in
-                    self?.handleAppleMusicRadioTrack(
-                        track,
-                        queueGeneration: queueGeneration
-                    )
-                }
+                self?.handleAppleMusicRadioTrack(
+                    track,
+                    queueGeneration: queueGeneration
+                )
             }
             controller.onTrackMetadataChanged = { [weak self] track, queueGeneration in
-                Task { @MainActor in
-                    self?.handleAppleMusicTrackMetadata(
-                        track,
-                        queueGeneration: queueGeneration
-                    )
-                }
+                self?.handleAppleMusicTrackMetadata(
+                    track,
+                    queueGeneration: queueGeneration
+                )
             }
             controller.onDynamicQueueChanged = { [weak self] tracks, queueGeneration in
-                Task { @MainActor in
-                    self?.handleAppleMusicRadioQueue(
-                        tracks,
-                        queueGeneration: queueGeneration
-                    )
-                }
+                self?.handleAppleMusicRadioQueue(
+                    tracks,
+                    queueGeneration: queueGeneration
+                )
             }
             appleMusicPlaybackController = controller
         #endif
@@ -5859,42 +5957,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             updateNowPlayingInfo()
 
             do {
-                await setupAppleMusicPlayback()
+                setupAppleMusicPlayback()
                 guard let controller = appleMusicPlaybackController else {
                     throw AppleMusicSourceError.musicKitPlaybackRequired
                 }
                 controller.stop()
                 isSynchronizingAppleMusicQueueMutation = false
 
-                if Self.shouldMaintainAppleMusicBackgroundBridge(
-                    applicationIsActive: UIApplication.shared.applicationState == .active,
-                    playbackState: playbackState,
-                    currentTrackIsAppleMusic: true
-                ) {
-                    guard await startAppleMusicBackgroundBridge(
-                        for: segment[0],
-                        generation: generation
-                    ) else {
-                        throw AppleMusicSourceError.musicKitPlaybackRequired
-                    }
-                } else {
-                    audioEngine?.stop()
-                    appleMusicBackgroundBridgeTrackID = nil
-                }
-                #if canImport(NowPlaying)
-                    if #available(iOS 27.0, *) {
-                        let activated = await audioSessionCoordinator.activateForPlayback(
-                            shouldStartPlayback: true
-                        )
-                        guard generation == playbackGenerationCounter else { return }
-                        guard activated else {
-                            stopAppleMusicBackgroundBridge()
-                            playbackState = .failed("Audio output is unavailable. Try playback again.")
-                            updateNowPlayingInfo()
-                            return
-                        }
-                    }
-                #endif
+                EnsembleLogger.debug(
+                    "[ProviderHandoff] phase=beforeApplicationPlay generation=\(generation)"
+                        + " track=\(segment[0].playbackIdentity)"
+                        + " route=\(currentAudioRouteDescription())"
+                )
                 let unresolvedPlaybackIdentities = try await controller.play(
                     tracks: segment,
                     smartMixEnabled: isSmartMixEnabled,
@@ -5918,12 +5992,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 playbackState = .playing
                 updateNowPlayingInfo()
             } catch is CancellationError {
+                guard generation == playbackGenerationCounter else { return }
+                appleMusicPlaybackController?.stop()
+                audioEngine?.stop()
+                playbackState = .failed("Apple Music playback was cancelled. Try again.")
+                updateNowPlayingInfo()
+                endTrackTransitionBackgroundTask(for: generation)
                 return
             } catch {
                 guard generation == playbackGenerationCounter else { return }
-                stopAppleMusicBackgroundBridge()
+                appleMusicPlaybackController?.stop()
+                audioEngine?.stop()
                 playbackState = .failed(error.localizedDescription)
                 updateNowPlayingInfo()
+                endTrackTransitionBackgroundTask(for: generation)
             }
         }
 
@@ -5936,15 +6018,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
             guard currentTrack?.playbackIdentity != identity,
                   let index = Self.queueIndexForAdvance(
-                      matching: identity,
-                      in: queue,
-                      after: currentQueueIndex
-                  ),
+                matching: identity,
+                in: queue,
+                after: currentQueueIndex
+            ),
                   index != currentQueueIndex else { return }
+            updateEndTransitionLease(shouldHold: false)
             if queue.indices.contains(currentQueueIndex) { recordToHistory(queue[currentQueueIndex]) }
             currentQueueIndex = index
             currentTrack = queue[index].track
-            appleMusicBackgroundBridgeTrackID = nil
+            EnsembleLogger.debug(
+                "[MusicKitTrack] generation=\(queueGeneration)"
+                    + " identity=\(identity) queueIndex=\(index)"
+            )
             updatePlaybackTimes(rawTime: 0)
             playbackState = .playing
             updateNowPlayingInfo()
@@ -5958,6 +6044,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                   playbackState == .playing || playbackState == .buffering else { return }
             let nextIndex = currentQueueIndex + 1
             let nextItem = queue.indices.contains(nextIndex) ? queue[nextIndex] : nil
+            EnsembleLogger.debug(
+                "[ProviderHandoff] phase=appleBoundary queueGeneration=\(queueGeneration)"
+                    + " current=\(currentTrack?.playbackIdentity ?? "none")"
+                    + " next=\(nextItem?.track.playbackIdentity ?? "none")"
+                    + " nextAppleMusic=\(nextItem?.track.isAppleMusic == true)"
+                    + " appState=\(UIApplication.shared.applicationState)"
+            )
             if Self.shouldStartAppleMusicAutoplay(nextItem: nextItem, isEnabled: isAutoplayEnabled),
                let seed = currentTrack {
                 if nextIndex < queue.count { queue.removeSubrange(nextIndex...) }
@@ -6049,60 +6142,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             savePlaybackState()
         }
 
-        @MainActor
-        private func stopAppleMusicBackgroundBridge() {
-            guard appleMusicBackgroundBridgeTrackID != nil
-                    || audioEngine?.isProviderHandoffBridgeActive == true else { return }
-            appleMusicBackgroundBridgeTrackID = nil
-            audioEngine?.stop()
-            endTrackTransitionBackgroundTask()
-            EnsembleLogger.debug("[ProviderHandoff] Apple Music background bridge stopped")
-        }
-
-        @MainActor
-        private func startAppleMusicBackgroundBridge(
-            for track: Track,
-            generation: UInt64
-        ) async -> Bool {
-            guard generation == playbackGenerationCounter,
-                  currentTrack?.playbackIdentity == track.playbackIdentity,
-                  Self.shouldMaintainAppleMusicBackgroundBridge(
-                      applicationIsActive: UIApplication.shared.applicationState == .active,
-                      playbackState: playbackState,
-                      currentTrackIsAppleMusic: track.isAppleMusic
-                  ) else { return false }
-            if audioEngine?.isProviderHandoffBridgeActive == true {
-                appleMusicBackgroundBridgeTrackID = track.playbackIdentity
-                return true
-            }
-            guard prepareAudioEngineForPlaybackIfNeeded(),
-                  ensureAudioSessionConfigured(mixWithOthers: true),
-                  await audioSessionCoordinator.activateForPlayback(shouldStartPlayback: true),
-                  generation == playbackGenerationCounter,
-                  currentTrack?.playbackIdentity == track.playbackIdentity,
-                  Self.shouldMaintainAppleMusicBackgroundBridge(
-                      applicationIsActive: UIApplication.shared.applicationState == .active,
-                      playbackState: playbackState,
-                      currentTrackIsAppleMusic: track.isAppleMusic
-                  ),
-                  let audioEngine else { return false }
-            if audioEngine.isProviderHandoffBridgeActive {
-                appleMusicBackgroundBridgeTrackID = track.playbackIdentity
-                return true
-            }
-            do {
-                try audioEngine.startProviderHandoffBridge()
-                appleMusicBackgroundBridgeTrackID = track.playbackIdentity
-                EnsembleLogger.debug("[ProviderHandoff] Apple Music background bridge started")
-                return true
-            } catch {
-                EnsembleLogger.error(
-                    "[ProviderHandoff] Apple Music background bridge failed: \(error.localizedDescription)"
-                )
-                return false
-            }
-        }
-
         @available(iOS 18, *)
         @MainActor
         private func handleAppleMusicTimeChanged(
@@ -6110,7 +6149,21 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queueGeneration: UInt64
         ) {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
+            let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
+                || appleMusicPlaybackController?.hasQueuedSuccessor == true
+            if !hasContinuousAppleMusicSuccessor,
+               Self.shouldInferAppleMusicPrevious(previousTime: currentTime, currentTime: time) {
+                EnsembleLogger.debug("[Handoff] inferred Apple Music previous command")
+                previous()
+                return
+            }
             updatePlaybackTimes(rawTime: time)
+            updateEndTransitionLease(shouldHold: Self.shouldPrepareEndTransitionLease(
+                playbackState: playbackState,
+                currentTime: time,
+                duration: duration,
+                hasContinuousProviderSuccessor: hasContinuousAppleMusicSuccessor
+            ))
             updateNowPlayingInfo()
         }
 
@@ -6161,6 +6214,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         if isInstrumentalModeActive { return }
 
         let track = queue[currentQueueIndex].track
+
+        // MusicKit playback is independent of Plex streaming quality.
+        if track.isAppleMusic { return }
 
         // Only reload if actively playing or paused
         let wasPaused: Bool
@@ -6471,7 +6527,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     private func clearPlaybackAfterSourcePrune() {
         playbackGenerationCounter &+= 1
-        appleMusicBackgroundBridgeTrackID = nil
         endTrackTransitionBackgroundTask()
         #if os(iOS)
             if #available(iOS 18, *) {
@@ -6525,6 +6580,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 return
             } else if playbackState == .buffering {
                 EnsembleLogger.debug("🔄 Network back - attempting to resume buffering")
+                audioEngine?.adoptPlaybackGeneration(playbackGenerationCounter)
                 try? audioEngine?.resume()
             }
         } else if decision.shouldHandleDisconnect {
@@ -6574,7 +6630,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func cleanup() {
-        appleMusicBackgroundBridgeTrackID = nil
         handoffSettleTask?.cancel()
         handoffSettleTask = nil
 

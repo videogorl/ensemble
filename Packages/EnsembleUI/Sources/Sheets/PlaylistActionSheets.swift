@@ -5,6 +5,7 @@ public struct PlaylistPickerSheet: View {
     @ObservedObject var nowPlayingVM: NowPlayingViewModel
     let tracks: [Track]
     let title: String
+    let createsPlaylistAcrossSources: Bool
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
@@ -15,10 +16,16 @@ public struct PlaylistPickerSheet: View {
     @State private var searchText = ""
     @State private var playlistsContainingSelection = Set<String>()
 
-    public init(nowPlayingVM: NowPlayingViewModel, tracks: [Track], title: String = "Add to Playlist") {
+    public init(
+        nowPlayingVM: NowPlayingViewModel,
+        tracks: [Track],
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         self.nowPlayingVM = nowPlayingVM
         self.tracks = tracks
         self.title = title
+        self.createsPlaylistAcrossSources = createsPlaylistAcrossSources
     }
 
     public var body: some View {
@@ -135,8 +142,7 @@ public struct PlaylistPickerSheet: View {
                     }
                     .disabled(
                         isSubmitting ||
-                        inferredServerSourceKey == nil ||
-                        compatibleTrackCountForSelectedServer == 0
+                        playlistCreationSourceKeys.isEmpty
                     )
                 }
             }
@@ -160,7 +166,9 @@ public struct PlaylistPickerSheet: View {
                     Text(playlist.title)
                     Text(
                         addAvailability.reason
-                            ?? (playlistContainsSelection(playlist) ? "Already added" : "\(playlist.trackCount) songs")
+                            ?? (playlistContainsSelection(playlist) && !createsPlaylistAcrossSources
+                                ? "Already added"
+                                : "\(playlist.trackCount) songs")
                     )
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -171,7 +179,7 @@ public struct PlaylistPickerSheet: View {
         }
         .disabled(
             isSubmitting ||
-            playlistContainsSelection(playlist) ||
+            (playlistContainsSelection(playlist) && !createsPlaylistAcrossSources) ||
             nowPlayingVM.compatibleTrackCount(tracks, for: playlist) == 0 ||
             !addAvailability.isAvailable
         )
@@ -208,6 +216,15 @@ public struct PlaylistPickerSheet: View {
         return nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: inferredServerSourceKey)
     }
 
+    private var playlistCreationSourceKeys: [String] {
+        if createsPlaylistAcrossSources {
+            return nowPlayingVM.playlistServerOptions()
+                .filter { nowPlayingVM.compatibleTrackCount(tracks, forServerSourceKey: $0.id) > 0 }
+                .map(\.id)
+        }
+        return inferredServerSourceKey.map { [$0] } ?? []
+    }
+
     private func loadPlaylists() async {
         isLoading = true
         playlistsContainingSelection = []
@@ -222,7 +239,9 @@ public struct PlaylistPickerSheet: View {
                 by: sortOption,
                 ascending: filters.sortDirection == .ascending
             )
-            await loadCachedPlaylistMembership()
+            if !createsPlaylistAcrossSources {
+                await loadCachedPlaylistMembership()
+            }
         } catch {
             deps.toastCenter.show(
                 ToastPayload(
@@ -277,6 +296,11 @@ public struct PlaylistPickerSheet: View {
     }
 
     private func addToPlaylist(_ playlist: Playlist) {
+        if createsPlaylistAcrossSources {
+            Task { await addAcrossSources(toNamedPlaylist: playlist) }
+            return
+        }
+
         let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: playlist.sourceCompositeKey)
         guard !compatibleTracks.isEmpty else {
             deps.toastCenter.show(
@@ -331,10 +355,86 @@ public struct PlaylistPickerSheet: View {
         }
     }
 
+    private func addAcrossSources(toNamedPlaylist selectedPlaylist: Playlist) async {
+        guard !isSubmitting, !nowPlayingVM.isPlaylistMutationInProgress else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+
+        let actionService = PlaylistActionService()
+        var changedSourceCount = 0
+        var failedSourceCount = 0
+
+        for sourceKey in playlistCreationSourceKeys {
+            let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: sourceKey)
+            guard !compatibleTracks.isEmpty else { continue }
+
+            do {
+                let targetPlaylist: Playlist?
+                if actionService.playlist(
+                    named: selectedPlaylist.title,
+                    forServerSourceKey: sourceKey,
+                    in: [selectedPlaylist]
+                ) != nil {
+                    targetPlaylist = selectedPlaylist
+                } else {
+                    let sourcePlaylists = try await nowPlayingVM.loadPlaylists(forServerSourceKey: sourceKey)
+                    targetPlaylist = actionService.playlist(
+                        named: selectedPlaylist.title,
+                        forServerSourceKey: sourceKey,
+                        in: sourcePlaylists
+                    )
+                }
+
+                if let targetPlaylist {
+                    let existingTracks = try await deps.playlistRepository.fetchPlaylist(
+                        ratingKey: targetPlaylist.id,
+                        sourceCompositeKey: targetPlaylist.sourceCompositeKey
+                    )?.playlistItemsArray.map { PlaylistItem(from: $0).track } ?? []
+                    let tracksToAdd = actionService.tracks(compatibleTracks, excluding: existingTracks)
+                    guard !tracksToAdd.isEmpty else { continue }
+                    _ = try await nowPlayingVM.addTracksOptimistically(tracksToAdd, to: targetPlaylist)
+                } else {
+                    _ = try await nowPlayingVM.createPlaylist(
+                        title: selectedPlaylist.title,
+                        tracks: compatibleTracks,
+                        serverSourceKey: sourceKey
+                    )
+                }
+                changedSourceCount += 1
+            } catch {
+                failedSourceCount += 1
+                EnsembleLogger.debug("Playlist update failed for \(sourceKey): \(error.localizedDescription)")
+            }
+        }
+
+        if failedSourceCount > 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: changedSourceCount > 0 ? .warning : .error,
+                    iconSystemName: "xmark.octagon.fill",
+                    title: "Updated on \(changedSourceCount) sources",
+                    message: "\(failedSourceCount) sources could not be updated.",
+                    isPersistent: true,
+                    dedupeKey: "playlist-add-all-\(selectedPlaylist.title.lowercased())"
+                )
+            )
+        } else if changedSourceCount == 0 {
+            deps.toastCenter.show(
+                ToastPayload(
+                    style: .warning,
+                    iconSystemName: "exclamationmark.triangle.fill",
+                    title: "Already in \(selectedPlaylist.title)",
+                    message: "Queue tracks are already in every matching playlist.",
+                    dedupeKey: "playlist-add-all-duplicate-\(selectedPlaylist.title.lowercased())"
+                )
+            )
+        }
+        dismiss()
+    }
+
     private func createPlaylist(named name: String) async {
-        guard let inferredServerSourceKey else { return }
-        let compatibleTracks = nowPlayingVM.tracks(tracks, compatibleWithServerSourceKey: inferredServerSourceKey)
-        guard !compatibleTracks.isEmpty else {
+        let sourceKeys = playlistCreationSourceKeys
+        guard !sourceKeys.isEmpty else {
             deps.toastCenter.show(
                 ToastPayload(
                     style: .warning,
@@ -351,11 +451,23 @@ public struct PlaylistPickerSheet: View {
         defer { isSubmitting = false }
 
         do {
-            _ = try await nowPlayingVM.createPlaylist(
-                title: name,
-                tracks: compatibleTracks,
-                serverSourceKey: inferredServerSourceKey
-            )
+            if createsPlaylistAcrossSources {
+                _ = try await nowPlayingVM.createPlaylists(
+                    title: name,
+                    tracks: tracks,
+                    serverSourceKeys: sourceKeys
+                )
+            } else if let sourceKey = sourceKeys.first {
+                let compatibleTracks = nowPlayingVM.tracks(
+                    tracks,
+                    compatibleWithServerSourceKey: sourceKey
+                )
+                _ = try await nowPlayingVM.createPlaylist(
+                    title: name,
+                    tracks: compatibleTracks,
+                    serverSourceKey: sourceKey
+                )
+            }
             dismiss()
         } catch {
             deps.toastCenter.show(

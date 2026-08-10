@@ -105,7 +105,7 @@ public final class AudioPlaybackEngine {
     private var sampleRate: Double = 44100
     /// Whether the engine was playing when last paused (for resume logic)
     private var wasPlaying = false
-    private(set) var isProviderHandoffBridgeActive = false
+    var isRunningForDiagnostics: Bool { engine.isRunning }
     private var streamingPipeline: StreamingAudioPipeline?
     var isStreamingSourceActive: Bool { streamingPipeline != nil }
     private var streamingStartTime: TimeInterval = 0
@@ -511,18 +511,6 @@ public final class AudioPlaybackEngine {
 
         // Re-apply isolation parameters (reconnection can reset AU state)
         applyIsolationParameters()
-
-        if isProviderHandoffBridgeActive {
-            do {
-                if !engine.isRunning { try engine.start() }
-                EnsembleLogger.debug("[AudioEngine] Provider handoff bridge survived configuration change")
-            } catch {
-                isProviderHandoffBridgeActive = false
-                EnsembleLogger.error("[AudioEngine] Provider handoff bridge restart failed: \(error.localizedDescription)")
-                onError?(error, nil, playbackRequestGeneration)
-            }
-            return
-        }
 
         // Reschedule from the current position if we have a file
         guard let file = currentFile else { return }
@@ -1751,28 +1739,12 @@ public final class AudioPlaybackEngine {
 
     // MARK: - Playback Control
 
-    /// Starts the output graph without a player node so an already-active,
-    /// mixable session can span a short MusicKit-to-native provider boundary.
-    func startProviderHandoffBridge() throws {
-        stop()
-        currentFile = nil
-        currentTrackId = nil
-        fileDuration = 0
-        buildGraph(format: nil)
-        applyIsolationParameters()
-        isProviderHandoffBridgeActive = true
-        do {
-            try engine.start()
-        } catch {
-            isProviderHandoffBridgeActive = false
-            throw error
-        }
-        EnsembleLogger.debug("[AudioEngine] Provider handoff bridge started")
+    func adoptPlaybackGeneration(_ playbackGeneration: UInt64) {
+        playbackRequestGeneration = playbackGeneration
     }
 
     /// Schedule and start playback from the given time offset (in user-visible seconds).
     func play(from time: TimeInterval = 0) throws {
-        isProviderHandoffBridgeActive = false
         cancelSmartMixTransition()
         if streamingPipeline != nil {
             pendingRouteRecoveryPosition = nil
@@ -1851,7 +1823,6 @@ public final class AudioPlaybackEngine {
     /// without rebuilding released engine resources. File playback retains the full
     /// stop used by its player-node resume path.
     func pause() {
-        isProviderHandoffBridgeActive = false
         cancelSmartMixTransition(continueIncoming: hasPromotedSmartMixTransition)
         let position = snapshotPlaybackPositionBeforeStopping()
         playerNode.pause()
@@ -1906,7 +1877,6 @@ public final class AudioPlaybackEngine {
 
     /// Stop playback, reset position, and stop the engine.
     func stop() {
-        isProviderHandoffBridgeActive = false
         cancelSmartMixTransition()
         scheduleGeneration &+= 1
         stopTimeUpdates()

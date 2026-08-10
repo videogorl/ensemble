@@ -1431,7 +1431,7 @@ public struct MediaTrackList: UIViewRepresentable {
             guard interactionModel.hasContextMenu(for: track) || onRemoveFromPlaylist != nil else { return nil }
 
             return UIMenu(children: [
-                UIDeferredMenuElement { [weak self] completion in
+                UIDeferredMenuElement.uncached { [weak self] completion in
                     guard let self else {
                         completion([])
                         return

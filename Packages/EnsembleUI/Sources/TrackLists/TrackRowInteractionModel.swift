@@ -57,6 +57,7 @@ public struct TrackRowInteractionModel {
     public let onShareFile: ((Track) -> Void)?
     public let onDeleteTrack: ((Track) -> Void)?
     public let isTrackFavorited: ((Track) -> Bool)?
+    public let canAddToLibrary: ((Track) -> Bool)?
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
     public let canRemoveFromPlaylist: ((Track) -> Bool)?
     public let recentPlaylistTitle: String?
@@ -77,6 +78,7 @@ public struct TrackRowInteractionModel {
         onShareFile: ((Track) -> Void)? = nil,
         onDeleteTrack: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
+        canAddToLibrary: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         canRemoveFromPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil
@@ -96,6 +98,7 @@ public struct TrackRowInteractionModel {
         self.onShareFile = onShareFile
         self.onDeleteTrack = onDeleteTrack
         self.isTrackFavorited = isTrackFavorited
+        self.canAddToLibrary = canAddToLibrary
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.canRemoveFromPlaylist = canRemoveFromPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
@@ -109,13 +112,17 @@ public struct TrackRowInteractionModel {
         canRemoveFromPlaylist?(track) ?? true
     }
 
+    public func canAddTrackToLibrary(_ track: Track) -> Bool {
+        track.canAddToSourceLibrary && (canAddToLibrary?(track) ?? true)
+    }
+
     public func hasContextMenu(for track: Track) -> Bool {
         guard track.isLibraryAvailable else { return false }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
 
         return onPlayNext != nil ||
             onPlayLast != nil ||
-            (track.canAddToSourceLibrary && onAddToLibrary != nil) ||
+            (canAddTrackToLibrary(track) && onAddToLibrary != nil) ||
             onAddToPlaylist != nil ||
             allowRecentPlaylist ||
             onToggleFavorite != nil ||
@@ -159,7 +166,7 @@ public struct TrackRowInteractionModel {
         return ResolvedActions(
             onPlayNext: onPlayNext.map { callback in { callback(track) } },
             onPlayLast: onPlayLast.map { callback in { callback(track) } },
-            onAddToLibrary: track.canAddToSourceLibrary ? onAddToLibrary.map { callback in { callback(track) } } : nil,
+            onAddToLibrary: canAddTrackToLibrary(track) ? onAddToLibrary.map { callback in { callback(track) } } : nil,
             onAddToPlaylist: onAddToPlaylist.map { callback in { callback(track) } },
             onAddToRecentPlaylist: allowRecentPlaylist ? onAddToRecentPlaylist.map { callback in { callback(track) } } : nil,
             onToggleFavorite: onToggleFavorite.map { callback in { callback(track) } },
@@ -252,6 +259,9 @@ extension TrackRowInteractionModel {
             },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
+            },
+            canAddToLibrary: { track in
+                nowPlayingVM.canAddTrackToLibrary(track)
             },
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM) != nil

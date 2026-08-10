@@ -102,20 +102,20 @@ final class AppleMusicPlaybackOperationCoordinatorTests: XCTestCase {
         XCTAssertFalse(didReassertPause)
     }
 
-    func testQueueReplacementStopsOlderCompletionUntilReplacementStartsPlaying() {
+    func testQueueReplacementIgnoresOlderCompletionOnTheSameBackend() {
         let coordinator = AppleMusicPlaybackOperationCoordinator()
         let first = coordinator.begin()
         let replacement = coordinator.begin(replacingQueue: true)
         var didReassertStop = false
 
-        XCTAssertEqual(coordinator.disposition(for: first), .stopPlayer)
+        XCTAssertEqual(coordinator.disposition(for: first), .ignore)
         XCTAssertEqual(coordinator.disposition(for: replacement), .apply)
         XCTAssertFalse(coordinator.acceptCompletion(
             for: first,
             reassertPause: {},
             reassertStop: { didReassertStop = true }
         ))
-        XCTAssertTrue(didReassertStop)
+        XCTAssertFalse(didReassertStop)
     }
 
     func testPauseCancelsQueueReplacementPreparation() {
@@ -161,22 +161,21 @@ final class AppleMusicPlaybackOperationCoordinatorTests: XCTestCase {
         XCTAssertFalse(didReassertStop)
     }
 
-    func testDifferentBackendReplacementStopsOlderCompletion() {
+    func testTransportModeReplacementDoesNotStopTheSharedPlayer() {
         let coordinator = AppleMusicPlaybackOperationCoordinator()
-        let finite = coordinator.begin(backend: .finite)
-        let station = coordinator.begin(replacingQueue: true, backend: .station)
+        let finite = coordinator.begin()
+        let station = coordinator.begin(replacingQueue: true)
         coordinator.markPlaying(station)
-        var didStopFinite = false
+        var didStopSharedPlayer = false
 
-        XCTAssertEqual(coordinator.disposition(for: finite, backend: .finite), .stopPlayer)
+        XCTAssertEqual(coordinator.disposition(for: finite), .ignore)
         XCTAssertFalse(coordinator.acceptCompletion(
             for: finite,
-            backend: .finite,
             reassertPause: {},
-            reassertStop: { didStopFinite = true }
+            reassertStop: { didStopSharedPlayer = true }
         ))
-        XCTAssertTrue(didStopFinite)
-        XCTAssertEqual(coordinator.disposition(for: station, backend: .station), .apply)
+        XCTAssertFalse(didStopSharedPlayer)
+        XCTAssertEqual(coordinator.disposition(for: station), .apply)
     }
 
     func testStaleCompletionReassertsLatestStopIntent() {

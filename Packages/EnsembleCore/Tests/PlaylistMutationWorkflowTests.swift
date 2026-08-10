@@ -14,6 +14,7 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         var deleteError: Error?
         var renameErrorIDs: Set<String> = []
         var deleteErrorIDs: Set<String> = []
+        var createErrorSourceKeys: Set<String> = []
         private(set) var renamedPlaylistID: String?
         private(set) var renamedPlaylistIDs: [String] = []
         private(set) var renamedTitle: String?
@@ -24,6 +25,7 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         private(set) var optimisticAddedPlaylistID: String?
         private(set) var createdPlaylistTitle: String?
         private(set) var createdPlaylistServerSourceKey: String?
+        private(set) var createdPlaylistServerSourceKeys: [String] = []
 
         func addTracksToPlaylist(
             _ tracks: [Track],
@@ -48,8 +50,12 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
             tracks: [Track],
             serverSourceKey: String
         ) async throws -> PlaylistMutationResult {
+            if createErrorSourceKeys.contains(serverSourceKey) {
+                throw TestError.failed
+            }
             createdPlaylistTitle = title
             createdPlaylistServerSourceKey = serverSourceKey
+            createdPlaylistServerSourceKeys.append(serverSourceKey)
             addedTrackIDs = tracks.map(\.id)
             return createResult
         }
@@ -187,6 +193,37 @@ final class PlaylistMutationWorkflowTests: XCTestCase {
         XCTAssertEqual(result.toast.style, .warning)
         XCTAssertEqual(result.toast.title, "Created New Mix")
         XCTAssertEqual(result.toast.message, "Added 3, skipped 1.")
+    }
+
+    func testCreatePlaylistsRunsEverySourceAndReportsPartialSuccess() async {
+        let stub = StubMutator()
+        stub.createErrorSourceKeys = ["plex:account:offline"]
+        let workflow = PlaylistMutationWorkflow(mutator: stub)
+        var retriedSourceKeys: [String] = []
+
+        let result = await workflow.createPlaylists(
+            title: "Mixed Queue",
+            tracks: [makeTrack(id: "one"), makeTrack(id: "two")],
+            serverSourceKeys: [
+                "plex:account:server",
+                "plex:account:offline",
+                MusicSourceIdentifier.appleMusic.compositeKey
+            ],
+            retryHandler: { retriedSourceKeys = $0 }
+        )
+
+        XCTAssertEqual(stub.createdPlaylistServerSourceKeys, [
+            "plex:account:server",
+            MusicSourceIdentifier.appleMusic.compositeKey
+        ])
+        XCTAssertEqual(result.succeededCount, 2)
+        XCTAssertEqual(result.totalCount, 3)
+        XCTAssertEqual(result.failedSourceKeys, ["plex:account:offline"])
+        XCTAssertEqual(result.resultToast.style, .warning)
+        XCTAssertEqual(result.resultToast.action?.title, "Retry")
+        XCTAssertTrue(result.resultToast.isPersistent)
+        result.resultToast.action?.handler()
+        XCTAssertEqual(retriedSourceKeys, ["plex:account:offline"])
     }
 
     func testBeginRenameRejectsEmptyTitle() {

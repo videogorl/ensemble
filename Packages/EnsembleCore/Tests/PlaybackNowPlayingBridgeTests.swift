@@ -73,8 +73,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(commandCenter.changeRepeat.currentRepeatType, .one)
     }
 
-    #if os(iOS)
-    func testAppleMusicDeferralClearsSystemStateUntilPlexRestoresIt() {
+    func testAppleMusicPublishesEnsembleSystemState() {
         let nowPlayingCenter = FakeNowPlayingInfoCenter()
         let commandCenter = FakeRemoteCommandCenter()
         let bridge = PlaybackNowPlayingBridge(
@@ -82,38 +81,25 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             nowPlayingCenter: nowPlayingCenter,
             commandCenter: commandCenter
         )
-        let plexState = makeState(track: makeTrack(), playbackState: .playing)
         let appleState = makeState(track: makeTrack(
             id: "apple-track",
             sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
         ))
 
-        bridge.updateNowPlayingInfo(plexState)
         bridge.updateNowPlayingInfo(appleState)
-
-        XCTAssertNil(nowPlayingCenter.nowPlayingInfo)
-        XCTAssertEqual(nowPlayingCenter.playbackState, .stopped)
-        XCTAssertFalse(commandCenter.play.isEnabled)
-        XCTAssertFalse(commandCenter.pause.isEnabled)
-        XCTAssertFalse(commandCenter.togglePlayPause.isEnabled)
-        XCTAssertFalse(commandCenter.nextTrack.isEnabled)
-        XCTAssertFalse(commandCenter.previousTrack.isEnabled)
-        XCTAssertFalse(commandCenter.changePlaybackPosition.isEnabled)
-        XCTAssertFalse(commandCenter.changeRepeat.isEnabled)
-        XCTAssertFalse(commandCenter.changeShuffle.isEnabled)
-        XCTAssertFalse(commandCenter.like.isEnabled)
-        XCTAssertFalse(commandCenter.dislike.isEnabled)
-
-        bridge.updateNowPlayingInfo(plexState)
 
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Name")
         XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
+        XCTAssertFalse(commandCenter.play.isEnabled)
         XCTAssertTrue(commandCenter.pause.isEnabled)
+        XCTAssertTrue(commandCenter.togglePlayPause.isEnabled)
         XCTAssertTrue(commandCenter.nextTrack.isEnabled)
         XCTAssertTrue(commandCenter.previousTrack.isEnabled)
+        XCTAssertTrue(commandCenter.changePlaybackPosition.isEnabled)
     }
 
-    func testAppleMusicDeferralRejectsStalePlexArtworkCompletion() async throws {
+    #if os(iOS)
+    func testAppleMusicUpdateRejectsStalePlexArtworkCompletion() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
         let nowPlayingCenter = FakeNowPlayingInfoCenter()
@@ -133,8 +119,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         )))
         try await Task.sleep(nanoseconds: 300_000_000)
 
-        XCTAssertNil(nowPlayingCenter.nowPlayingInfo)
-        XCTAssertEqual(nowPlayingCenter.playbackState, .stopped)
+        XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Name")
+        XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
     }
     #endif
 

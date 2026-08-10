@@ -49,6 +49,20 @@ public struct PlaylistActionService {
         }
     }
 
+    public func playlist(
+        named title: String,
+        forServerSourceKey serverSourceKey: String,
+        in playlists: [Playlist]
+    ) -> Playlist? {
+        let normalizedTitle = DisplayPlaylist.normalizedTitle(title)
+        let sourceKey = MediaSourceIdentity.playlistScopeKey(from: serverSourceKey)
+        return playlists.first {
+            !$0.isSmart &&
+                DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle &&
+                MediaSourceIdentity.playlistScopeKey(from: $0.sourceCompositeKey) == sourceKey
+        }
+    }
+
     private func tracksMatch(_ first: Track, _ second: Track) -> Bool {
         if first.sourceScopedID == second.sourceScopedID { return true }
         guard first.isAppleMusic, second.isAppleMusic else { return false }

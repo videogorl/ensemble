@@ -6,11 +6,17 @@ public struct PlaylistActionPresentationRequest: Identifiable {
     public let id = UUID()
     public let tracks: [Track]
     public let title: String
+    public let createsPlaylistAcrossSources: Bool
 
-    public init?(tracks: [Track], title: String = "Add to Playlist") {
+    public init?(
+        tracks: [Track],
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
+    ) {
         guard !tracks.isEmpty else { return nil }
         self.tracks = tracks
         self.title = title
+        self.createsPlaylistAcrossSources = createsPlaylistAcrossSources
     }
 }
 
@@ -19,9 +25,14 @@ public struct PlaylistActionPresentationRequest: Identifiable {
 public enum PlaylistActionPresentationHost {
     public static func request(
         for tracks: [Track],
-        title: String = "Add to Playlist"
+        title: String = "Add to Playlist",
+        createsPlaylistAcrossSources: Bool = false
     ) -> PlaylistActionPresentationRequest? {
-        PlaylistActionPresentationRequest(tracks: tracks, title: title)
+        PlaylistActionPresentationRequest(
+            tracks: tracks,
+            title: title,
+            createsPlaylistAcrossSources: createsPlaylistAcrossSources
+        )
     }
 
     public static func recentPlaylistTitle(
@@ -85,7 +96,8 @@ private struct PlaylistActionPresentationModifier: ViewModifier {
                 PlaylistPickerSheet(
                     nowPlayingVM: nowPlayingVM,
                     tracks: request.tracks,
-                    title: request.title
+                    title: request.title,
+                    createsPlaylistAcrossSources: request.createsPlaylistAcrossSources
                 )
             }
     }
