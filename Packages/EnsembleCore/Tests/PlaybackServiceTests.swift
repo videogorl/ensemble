@@ -1544,6 +1544,19 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
+    func testAppleMusicUnexpectedPauseIsNotMistakenForTrackEnd() {
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportUnexpectedPause(
+            wasPlaying: true,
+            isEndSuppressed: false,
+            reachedFinalEntryBoundary: false
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportUnexpectedPause(
+            wasPlaying: true,
+            isEndSuppressed: false,
+            reachedFinalEntryBoundary: true
+        ))
+    }
+
     func testRestoredSnapshotPreservesMixedPlaybackEnginesAndSelectedIndex() {
         let plexBefore = QueueItem(
             id: "plex-before",

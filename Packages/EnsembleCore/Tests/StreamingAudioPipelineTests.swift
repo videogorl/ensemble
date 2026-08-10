@@ -92,6 +92,37 @@ final class StreamingAudioPipelineTests: XCTestCase {
         let attrs = try FileManager.default.attributesOfItem(atPath: cacheURL.path)
         XCTAssertEqual(attrs[.size] as? Int64, Int64(data.count))
     }
+
+    func testPipelineFailsWhenStartupNeverProducesAudioFormat() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StalledAudioURLProtocol.self]
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("streaming-timeout-\(UUID().uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let pipeline = StreamingAudioPipeline(configuration: .init(
+            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/stalled.m4a"))),
+            fileExtension: "m4a",
+            cacheURL: cacheURL,
+            startupTimeout: 0.05,
+            sessionConfiguration: config
+        ))
+        let failed = expectation(description: "startup timed out")
+        pipeline.onFailure = { error in
+            XCTAssertEqual((error as NSError).code, NSURLErrorTimedOut)
+            failed.fulfill()
+        }
+
+        pipeline.start()
+
+        await fulfillment(of: [failed], timeout: 1)
+    }
+}
+
+private final class StalledAudioURLProtocol: URLProtocol {
+    override class func canInit(with _: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {}
+    override func stopLoading() {}
 }
 
 private final class DelayedAudioURLProtocol: URLProtocol {

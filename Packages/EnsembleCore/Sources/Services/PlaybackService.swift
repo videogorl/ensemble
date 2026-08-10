@@ -5954,6 +5954,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     )
                 }
             }
+            controller.onPaused = { [weak self] queueGeneration in
+                guard let self,
+                      self.isCurrentAppleMusicQueue(queueGeneration),
+                      self.playbackState == .playing || self.playbackState == .buffering else { return }
+                self.applyPauseForHandoff(reason: .system)
+            }
             controller.onDynamicTrack = { [weak self] track, queueGeneration in
                 self?.handleAppleMusicRadioTrack(
                     track,
@@ -5983,6 +5989,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             startTime: TimeInterval?,
             generation: UInt64
         ) async {
+            let preservesNowPlayingContinuity = isSkipTransitionInProgress
+            defer {
+                if preservesNowPlayingContinuity {
+                    isSkipTransitionInProgress = false
+                    disarmSkipTransitionSafety()
+                }
+            }
             pendingPreBufferTime = nil
             let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
@@ -5994,7 +6007,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             waveformHeights = []
             frequencyBands = []
             playbackState = .loading
-            updateNowPlayingInfo()
+            if preservesNowPlayingContinuity {
+                pushNowPlayingForSkipTransition()
+            } else {
+                updateNowPlayingInfo()
+            }
 
             do {
                 setupAppleMusicPlayback()
@@ -6103,6 +6120,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             recordToHistory(queue[currentQueueIndex])
             currentQueueIndex = nextIndex
+            currentTrack = nextItem?.track
+            updatePlaybackTimes(rawTime: 0)
+            playbackState = .loading
+            isSkipTransitionInProgress = true
+            armSkipTransitionSafety()
+            pushNowPlayingForSkipTransition()
             await playCurrentQueueItem(caller: "appleMusicSegmentEnded")
             savePlaybackState()
         }
