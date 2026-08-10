@@ -163,7 +163,8 @@ final class PlaybackTransportCoordinator {
 
         let prefersStreaming = AudioQualityPreference.prefersStreaming(
             qualityString,
-            overDownloadQuality: track.localFilePath
+            overDownloadQuality: track.downloadedQuality
+                ?? track.localFilePath
                 .flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) }
                 ?? downloadQuality()
         )

@@ -1021,6 +1021,7 @@ public final class NowPlayingViewModel: ObservableObject {
             streamKey: track.streamKey,
             streamId: track.streamId,
             localFilePath: track.localFilePath,
+            downloadedQuality: track.downloadedQuality,
             dateAdded: track.dateAdded,
             dateModified: track.dateModified,
             lastPlayed: track.lastPlayed,

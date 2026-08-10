@@ -104,6 +104,17 @@ public extension Track {
             }
             return FileManager.default.fileExists(atPath: absolute) ? absolute : nil
         }
+        let downloadedQuality: String? = resolvedLocalFilePath.flatMap { path in
+            if let quality = AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: path)) {
+                return quality
+            }
+            if let download = cd.download,
+               download.downloadStatus == .completed,
+               let quality = AudioQualityPreference.normalizedQuality(download.quality) {
+                return quality
+            }
+            return nil
+        }
 
         // Parse genre names: stored as comma-separated string, fall back to album's genres
         let genreString = cd.genreNames ?? cd.album?.genreNames
@@ -127,6 +138,7 @@ public extension Track {
             streamKey: cd.streamKey,
             streamId: cd.streamId > 0 ? Int(cd.streamId) : nil,
             localFilePath: resolvedLocalFilePath,
+            downloadedQuality: downloadedQuality,
             dateAdded: cd.dateAdded,
             dateModified: cd.dateModified,
             lastPlayed: cd.lastPlayed,
@@ -441,6 +453,9 @@ public extension Download {
                 streamKey: mappedTrack.streamKey,
                 streamId: mappedTrack.streamId,
                 localFilePath: resolvedFilePath,
+                downloadedQuality: cd.downloadStatus == .completed
+                    ? AudioQualityPreference.normalizedQuality(cd.quality)
+                    : AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: resolvedFilePath)),
                 dateAdded: mappedTrack.dateAdded,
                 dateModified: mappedTrack.dateModified,
                 lastPlayed: mappedTrack.lastPlayed,

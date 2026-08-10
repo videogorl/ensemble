@@ -2658,7 +2658,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func currentQueueQuality(for track: Track) -> String? {
         let streamingQuality = AudioQualityPreference.storedStreamingQuality()
         if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
-            let downloadQuality = AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: path))
+            let downloadQuality = track.downloadedQuality
+                ?? AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: path))
                 ?? AudioQualityPreference.storedDownloadQuality()
             return AudioQualityPreference.prefersStreaming(
                 streamingQuality,
@@ -5193,7 +5194,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             ? (try? standardizedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init)
             : nil
         let quality = isDownloaded
-            ? AudioQualityPreference.fileQuality(at: standardizedURL)
+            ? currentTrack.downloadedQuality ?? AudioQualityPreference.fileQuality(at: standardizedURL)
             : queue.indices.contains(currentQueueIndex) && queue[currentQueueIndex].track.playbackIdentity == trackId
                 ? queue[currentQueueIndex].streamingQuality ?? AudioQualityPreference.storedStreamingQuality()
                 : AudioQualityPreference.storedStreamingQuality()

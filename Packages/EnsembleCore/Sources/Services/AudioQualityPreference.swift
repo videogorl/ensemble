@@ -33,8 +33,12 @@ public enum AudioQualityPreference {
     static func fileQuality(at fileURL: URL) -> String? {
         let token = fileURL.deletingPathExtension().lastPathComponent
             .split(separator: "_").last?.lowercased()
-        return switch token {
-        case "original", "high", "medium", "low": token
+        return normalizedQuality(token)
+    }
+
+    static func normalizedQuality(_ quality: String?) -> String? {
+        switch quality?.lowercased() {
+        case "original", "high", "medium", "low": quality?.lowercased()
         default: nil
         }
     }
