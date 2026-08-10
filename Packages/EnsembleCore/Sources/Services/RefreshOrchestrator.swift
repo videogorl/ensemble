@@ -192,6 +192,10 @@ final class RefreshOrchestrator {
     }
 
     internal func awaitHealthRefreshForTesting() async {
+        await waitForActiveHealthRefresh()
+    }
+
+    func waitForActiveHealthRefresh() async {
         await activeHealthRefreshTask?.value
     }
 

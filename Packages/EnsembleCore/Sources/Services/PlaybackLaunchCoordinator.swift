@@ -106,8 +106,7 @@ final class PlaybackLaunchCoordinator {
             EnsembleLogger.debug("[playCurrentQueueItem] Recovered position at \(recoverySeekTime)s")
         }
 
-        Task {
-            await dependencies.prefetchNext()
-        }
+        guard source.fileURL != nil else { return }
+        Task { await dependencies.prefetchNext() }
     }
 }

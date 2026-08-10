@@ -417,6 +417,55 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(healthRefreshCount, 1)
     }
 
+    func testNewlyEnabledServerGetsFollowupAfterInflightHealthRefresh() async {
+        let (coordinator, networkMonitor) = makeCoordinator()
+        networkMonitor.injectNetworkStateForTesting(.online(.wifi), debounced: false)
+
+        var invocations: [Set<String>] = []
+        coordinator.healthCheckRunnerForTesting = { _, keys in
+            invocations.append(keys)
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            return ServerHealthChecker.CheckSummary(checkedCount: keys.count, skippedCount: 0)
+        }
+        coordinator.refreshAPIClientConnectionsRunnerForTesting = {}
+
+        await coordinator.handleAppWillEnterForeground()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+
+        coordinator.accountManager.updatePlexAccount(PlexAccountConfig(
+            id: "account-1",
+            displayTitle: "tester",
+            authToken: "auth",
+            servers: [
+                PlexServerConfig(
+                    id: "server-1",
+                    name: "Server",
+                    url: "https://example.com",
+                    token: "token",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-1", key: "1", title: "Music", isEnabled: true)
+                    ]
+                ),
+                PlexServerConfig(
+                    id: "server-2",
+                    name: "Restored Server",
+                    url: "https://restored.example.com",
+                    token: "token",
+                    libraries: [
+                        PlexLibraryConfig(id: "lib-2", key: "2", title: "Music", isEnabled: true)
+                    ]
+                )
+            ]
+        ))
+
+        await coordinator.awaitSourceConfigurationHealthRefreshForTesting()
+
+        XCTAssertEqual(invocations, [
+            Set(["account-1:server-1"]),
+            Set(["account-1:server-1", "account-1:server-2"])
+        ])
+    }
+
     func testPossiblyAvailableTreatsUnknownHealthAsPlayable() {
         let (coordinator, networkMonitor) = makeCoordinator()
         let sourceKey = "plex:account-1:server-1:lib-1"

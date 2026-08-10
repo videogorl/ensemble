@@ -147,6 +147,8 @@ public final class SyncCoordinator: ObservableObject {
     }
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
+    private var enabledServerKeysSnapshot = Set<String>()
+    private var sourceConfigurationHealthRefreshTask: Task<Void, Never>?
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
     /// @Published updates during sync so SwiftUI doesn't re-render on every item.
     private var lastProgressUpdateTime: [MusicSourceIdentifier: CFAbsoluteTime] = [:]
@@ -252,6 +254,8 @@ public final class SyncCoordinator: ObservableObject {
 
         // Observe network state changes
         setupNetworkMonitoring()
+        enabledServerKeysSnapshot = enabledServerKeysForHealthChecks()
+        setupSourceConfigurationMonitoring()
 
         serverConnectionController.start()
     }
@@ -2355,6 +2359,35 @@ public final class SyncCoordinator: ObservableObject {
             .store(in: &cancellables)
     }
 
+    private func setupSourceConfigurationMonitoring() {
+        accountManager.sourceConfigurationPublisher
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.refreshHealthForNewlyEnabledServers()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func refreshHealthForNewlyEnabledServers() {
+        let enabledServerKeys = enabledServerKeysForHealthChecks()
+        let newlyEnabledServerKeys = enabledServerKeys.subtracting(enabledServerKeysSnapshot)
+        enabledServerKeysSnapshot = enabledServerKeys
+
+        sourceConfigurationHealthRefreshTask?.cancel()
+        sourceConfigurationHealthRefreshTask = nil
+        guard !newlyEnabledServerKeys.isEmpty else { return }
+
+        serverHealthChecker.prepopulateUnknownStates()
+        sourceConfigurationHealthRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshOrchestrator.waitForActiveHealthRefresh()
+            guard !Task.isCancelled else { return }
+            self.scheduleHealthRefresh(reason: .accountInventoryRefresh, forceServerRefresh: true)
+        }
+    }
+
     /// Foreground hook used by app lifecycle to coalesce network health updates.
     /// Triggers a fresh server health check and updates published sourceStatuses.
     /// Called from account detail views after inventory refresh to reflect real connectivity.
@@ -2586,6 +2619,12 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     internal func awaitHealthRefreshForTesting() async {
+        await refreshOrchestrator.awaitHealthRefreshForTesting()
+    }
+
+    internal func awaitSourceConfigurationHealthRefreshForTesting() async {
+        await Task.yield()
+        await sourceConfigurationHealthRefreshTask?.value
         await refreshOrchestrator.awaitHealthRefreshForTesting()
     }
 
