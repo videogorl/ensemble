@@ -420,9 +420,9 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                     + " snapshotFinal=\(lastPlayingEndSnapshot?.isFinalEntry == true)"
             )
         }
+        publishState()
         guard player.state.playbackStatus == .playing else {
             endStallTracker.reset()
-            publishState()
             return
         }
         onTimeChanged?(playbackTime, queueGeneration)
@@ -516,7 +516,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         try await player.prepareToPlay()
         try Task.checkCancellation()
         guard acceptCompletion(for: generation) else { return [] }
-        if let startTime { player.playbackTime = startTime }
+        player.playbackTime = startTime ?? 0
         try await player.play()
         try Task.checkCancellation()
         guard acceptCompletion(for: generation) else { return [] }
@@ -1105,6 +1105,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             pausedEndTask?.cancel()
             pausedEndTask = nil
             wasPlaying = true
+            isInterrupted = false
             suppressPausedEndUntilPlaybackResumes = false
         } else {
             pausedEndTask?.cancel()

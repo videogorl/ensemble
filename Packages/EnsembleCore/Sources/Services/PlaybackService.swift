@@ -287,9 +287,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func shouldInferAppleMusicPrevious(
         previousTime: TimeInterval,
-        currentTime: TimeInterval
+        currentTime: TimeInterval,
+        restartWasObserved: Bool
     ) -> Bool {
-        previousTime <= previousRestartThreshold
+        (restartWasObserved || previousTime >= 1)
+            && previousTime <= previousRestartThreshold
             && currentTime <= 0.75
             && previousTime - currentTime >= 0.25
     }
@@ -1097,6 +1099,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let maxQueueLookahead = 5 // Max number of future tracks to keep queued
     #if os(iOS)
         private var appleMusicPlaybackController: AppleMusicPlaybackControlling?
+        private var appleMusicPreviousRestartGeneration: UInt64?
     #endif
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
@@ -6151,8 +6154,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
             let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
                 || appleMusicPlaybackController?.hasQueuedSuccessor == true
+            if currentTime > Self.previousRestartThreshold, time <= 0.75 {
+                appleMusicPreviousRestartGeneration = queueGeneration
+            }
             if !hasContinuousAppleMusicSuccessor,
-               Self.shouldInferAppleMusicPrevious(previousTime: currentTime, currentTime: time) {
+               Self.shouldInferAppleMusicPrevious(
+                   previousTime: currentTime,
+                   currentTime: time,
+                   restartWasObserved: appleMusicPreviousRestartGeneration == queueGeneration
+               ) {
+                appleMusicPreviousRestartGeneration = nil
                 EnsembleLogger.debug("[Handoff] inferred Apple Music previous command")
                 previous()
                 return

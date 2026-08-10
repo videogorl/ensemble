@@ -1179,18 +1179,31 @@ final class PlaybackServiceTests: XCTestCase {
         ))
     }
 
-    func testAppleMusicPreviousInferenceOnlyAcceptsNearStartRewind() {
+    func testAppleMusicPreviousInferenceRejectsSubsecondStartupJitter() {
         XCTAssertTrue(PlaybackService.shouldInferAppleMusicPrevious(
             previousTime: 1.2,
-            currentTime: 0
+            currentTime: 0,
+            restartWasObserved: true
+        ))
+        XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 0.7,
+            currentTime: 0,
+            restartWasObserved: false
+        ))
+        XCTAssertTrue(PlaybackService.shouldInferAppleMusicPrevious(
+            previousTime: 1.2,
+            currentTime: 0,
+            restartWasObserved: false
         ))
         XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
             previousTime: 30,
-            currentTime: 0
+            currentTime: 0,
+            restartWasObserved: true
         ))
         XCTAssertFalse(PlaybackService.shouldInferAppleMusicPrevious(
             previousTime: 1.2,
-            currentTime: 1.1
+            currentTime: 1.1,
+            restartWasObserved: true
         ))
     }
 
