@@ -18,13 +18,21 @@ final class PlaybackTransportCoordinator {
     }
 
     private let dependencies: Dependencies
+    private let streamingQuality: @Sendable () -> String
+    private let downloadQuality: @Sendable () -> String
     private let lock = NSLock()
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     private var sourceResolutionTasks: [String: Task<PlaybackSource, Error>] = [:]
     private var streamLoaders: [String: ProgressiveStreamLoader] = [:]
 
-    init(dependencies: Dependencies) {
+    init(
+        dependencies: Dependencies,
+        streamingQuality: @escaping @Sendable () -> String = { AudioQualityPreference.storedStreamingQuality() },
+        downloadQuality: @escaping @Sendable () -> String = { AudioQualityPreference.storedDownloadQuality() }
+    ) {
         self.dependencies = dependencies
+        self.streamingQuality = streamingQuality
+        self.downloadQuality = downloadQuality
     }
 
     func resolvePlaybackSource(for track: Track, startTime: TimeInterval = 0) async throws -> PlaybackSource {
@@ -108,27 +116,27 @@ final class PlaybackTransportCoordinator {
     }
 
     private func resolvePlaybackSourceImpl(for track: Track, startTime: TimeInterval) async throws -> PlaybackSource {
-        let qualityString = AudioQualityPreference.storedStreamingQuality()
+        let qualityString = streamingQuality()
         let quality = StreamingQuality(rawValue: qualityString) ?? .high
         let normalizedStartTime = normalizedStartTime(startTime)
 
         let networkState = await dependencies.networkState()
         let isDefinitelyOffline = networkState == .offline || networkState == .limited
 
+        var localSource: PlaybackSource?
         if let localPath = track.localFilePath {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = dependencies.preparedLocalPlaybackURL(localPath)
                 if !dependencies.isClearlyInvalidLocalPayload(localPlaybackURL) {
-                    return .localFile(localPlaybackURL)
-                }
-                if localPlaybackURL.path != localPath {
+                    localSource = .localFile(localPlaybackURL)
+                } else if localPlaybackURL.path != localPath {
                     try? FileManager.default.removeItem(at: localPlaybackURL)
                     let originalURL = URL(fileURLWithPath: localPath)
                     if !dependencies.isClearlyInvalidLocalPayload(originalURL) {
-                        return .localFile(originalURL)
+                        localSource = .localFile(originalURL)
                     }
                 }
-                if isDefinitelyOffline { throw PlaybackError.corruptLocalFile }
+                if localSource == nil, isDefinitelyOffline { throw PlaybackError.corruptLocalFile }
             } else if isDefinitelyOffline {
                 throw PlaybackError.offline
             }
@@ -136,34 +144,47 @@ final class PlaybackTransportCoordinator {
             throw PlaybackError.offline
         }
 
-        if normalizedStartTime == 0, let completedURL = completedLoaderURLIfAvailable(for: track) {
-            return .cachedFile(completedURL, origin: .transcodeCache)
+        let prefersStreaming = AudioQualityPreference.prefersStreaming(
+            qualityString,
+            overDownloadQuality: downloadQuality()
+        )
+        if let localSource, isDefinitelyOffline || !prefersStreaming {
+            return localSource
         }
 
         do {
-            try await dependencies.ensureServerConnection(track)
-        } catch {
-            let failureMessage = await dependencies.serverFailureMessage(track)
-            throw PlaybackError.serverUnavailable(message: failureMessage)
-        }
+            if normalizedStartTime == 0, let completedURL = completedLoaderURLIfAvailable(for: track) {
+                return .cachedFile(completedURL, origin: .transcodeCache)
+            }
 
-        let decision = try await streamDecision(for: track, quality: quality, startTime: normalizedStartTime)
-        let resolution: StreamResolution
-        do {
-            resolution = try await dependencies.assembleStreamResolution(track, decision)
-        } catch {
-            throw dependencies.mapToPlaybackError(error)
-        }
+            do {
+                try await dependencies.ensureServerConnection(track)
+            } catch {
+                let failureMessage = await dependencies.serverFailureMessage(track)
+                throw PlaybackError.serverUnavailable(message: failureMessage)
+            }
 
-        do {
-            return try await handleStreamResolution(resolution, for: track, startTime: normalizedStartTime)
-        } catch {
-            guard dependencies.shouldRetryStreamURLRequest(error) else {
+            let decision = try await streamDecision(for: track, quality: quality, startTime: normalizedStartTime)
+            let resolution: StreamResolution
+            do {
+                resolution = try await dependencies.assembleStreamResolution(track, decision)
+            } catch {
                 throw dependencies.mapToPlaybackError(error)
             }
-            try await dependencies.refreshConnection()
-            let freshResolution = try await dependencies.assembleStreamResolution(track, decision)
-            return try await handleStreamResolution(freshResolution, for: track, startTime: normalizedStartTime)
+
+            do {
+                return try await handleStreamResolution(resolution, for: track, startTime: normalizedStartTime)
+            } catch {
+                guard dependencies.shouldRetryStreamURLRequest(error) else {
+                    throw dependencies.mapToPlaybackError(error)
+                }
+                try await dependencies.refreshConnection()
+                let freshResolution = try await dependencies.assembleStreamResolution(track, decision)
+                return try await handleStreamResolution(freshResolution, for: track, startTime: normalizedStartTime)
+            }
+        } catch {
+            if let localSource { return localSource }
+            throw error
         }
     }
 

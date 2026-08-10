@@ -6162,11 +6162,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         let track = queue[currentQueueIndex].track
 
-        // Only reload streaming tracks (not downloaded)
-        if let path = track.localFilePath, FileManager.default.fileExists(atPath: path) {
-            return
-        }
-
         // Only reload if actively playing or paused
         let wasPaused: Bool
         switch playbackState {

@@ -63,7 +63,9 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 refreshConnection: { XCTFail("should not refresh connection") },
                 shouldRetryStreamURLRequest: { _ in false },
                 mapToPlaybackError: { .unknown($0) }
-            )
+            ),
+            streamingQuality: { "medium" },
+            downloadQuality: { "high" }
         )
 
         let resolved = try await coordinator.resolveAudioFile(for: track)
@@ -100,7 +102,9 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                 refreshConnection: { XCTFail("should not refresh connection") },
                 shouldRetryStreamURLRequest: { _ in false },
                 mapToPlaybackError: { .unknown($0) }
-            )
+            ),
+            streamingQuality: { "high" },
+            downloadQuality: { "high" }
         )
 
         let source = try await coordinator.resolvePlaybackSource(for: track)
@@ -110,6 +114,58 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
         }
         XCTAssertEqual(resolvedURL.path, localURL.path)
         XCTAssertEqual(ensureCalls.value, 0)
+    }
+
+    func testHigherStreamingQualityPrefersAvailableStreamAndFallsBackToDownload() async throws {
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transport-quality-\(UUID().uuidString).mp3")
+        try Data(repeating: 0x41, count: 512).write(to: localURL)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+        let remoteURL = try XCTUnwrap(URL(string: "https://example.test/library/parts/quality/file.mp3"))
+        let track = Track(
+            id: "track-quality",
+            key: "/library/metadata/quality",
+            title: "Quality",
+            duration: 180,
+            localFilePath: localURL.path,
+            sourceCompositeKey: "plex:test"
+        )
+
+        func coordinator(streamAvailable: Bool) -> PlaybackTransportCoordinator {
+            PlaybackTransportCoordinator(
+                dependencies: .init(
+                    networkState: { .online(.wifi) },
+                    preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                    isClearlyInvalidLocalPayload: { _ in false },
+                    ensureServerConnection: { _ in
+                        if !streamAvailable { throw PlexAPIError.invalidURL }
+                    },
+                    serverFailureMessage: { _ in nil },
+                    makeStreamDecision: { _, quality, _ in
+                        XCTAssertEqual(quality, .high)
+                        return .directStream(partKey: "/library/parts/quality/file.mp3")
+                    },
+                    assembleStreamResolution: { _, _ in .directStream(remoteURL) },
+                    refreshConnection: {},
+                    shouldRetryStreamURLRequest: { _ in false },
+                    mapToPlaybackError: { .unknown($0) }
+                ),
+                streamingQuality: { "high" },
+                downloadQuality: { "medium" }
+            )
+        }
+
+        let streamed = try await coordinator(streamAvailable: true).resolvePlaybackSource(for: track)
+        let fallback = try await coordinator(streamAvailable: false).resolvePlaybackSource(for: track)
+
+        guard case let .directHTTP(request, _) = streamed else {
+            return XCTFail("expected higher-quality stream")
+        }
+        XCTAssertEqual(request.url, remoteURL)
+        guard case let .localFile(fallbackURL) = fallback else {
+            return XCTFail("expected local fallback")
+        }
+        XCTAssertEqual(fallbackURL.path, localURL.path)
     }
 
     func testResolvePlaybackSourceReturnsDirectHTTPWithoutDownloading() async throws {
