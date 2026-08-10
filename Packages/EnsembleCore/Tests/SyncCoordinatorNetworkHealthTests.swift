@@ -457,6 +457,8 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
                 )
             ]
         ))
+        await Task.yield()
+        coordinator.accountManager.setAwaitingCloudSources(true)
 
         await coordinator.awaitSourceConfigurationHealthRefreshForTesting()
 

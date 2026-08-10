@@ -61,6 +61,19 @@ final class PlaybackPrefetchController {
         return max(0, duration - currentTime) <= leadTime
     }
 
+    static func shouldMaterializeUpcomingTrack(
+        activeSourceIsStreaming: Bool,
+        currentTime: TimeInterval,
+        duration: TimeInterval,
+        playbackState: PlaybackState
+    ) -> Bool {
+        !activeSourceIsStreaming || shouldScheduleGaplessNow(
+            currentTime: currentTime,
+            duration: duration,
+            playbackState: playbackState
+        )
+    }
+
     static func shouldUseSmartMix(
         outgoingTrack: Track,
         incomingTrack: Track,

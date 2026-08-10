@@ -2375,9 +2375,9 @@ public final class SyncCoordinator: ObservableObject {
         let newlyEnabledServerKeys = enabledServerKeys.subtracting(enabledServerKeysSnapshot)
         enabledServerKeysSnapshot = enabledServerKeys
 
+        guard !newlyEnabledServerKeys.isEmpty else { return }
         sourceConfigurationHealthRefreshTask?.cancel()
         sourceConfigurationHealthRefreshTask = nil
-        guard !newlyEnabledServerKeys.isEmpty else { return }
 
         serverHealthChecker.prepopulateUnknownStates()
         sourceConfigurationHealthRefreshTask = Task { @MainActor [weak self] in

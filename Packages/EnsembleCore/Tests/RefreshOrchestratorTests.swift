@@ -172,6 +172,35 @@ final class RefreshOrchestratorTests: XCTestCase {
         XCTAssertEqual(events.filter { $0.hasSuffix("-returned") }.count, 2)
     }
 
+    func testStartupHealthChecksWaitForActiveScheduledRefresh() async {
+        let orchestrator = RefreshOrchestrator()
+        let now = Date(timeIntervalSince1970: 60_000)
+        var runCount = 0
+
+        XCTAssertTrue(orchestrator.scheduleHealthRefresh(
+            request: .init(reason: .accountInventoryRefresh, forceServerRefresh: true),
+            now: { now },
+            shouldDeferForegroundHealthRefresh: nil,
+            eligibleServerKeysProvider: { Set(["account-1:server-1"]) },
+            runRefresh: { _, _, _ in
+                runCount += 1
+                try? await Task.sleep(nanoseconds: 80_000_000)
+            },
+            didComplete: { _ in }
+        ))
+
+        let didRunStartupRefresh = await orchestrator.runStartupHealthChecksIfNeeded(
+            now: { now },
+            runRefresh: {
+                runCount += 1
+            },
+            didComplete: { _ in }
+        )
+
+        XCTAssertFalse(didRunStartupRefresh)
+        XCTAssertEqual(runCount, 1)
+    }
+
     func testPostRatingPlaylistSyncCoalescesByServer() async {
         let orchestrator = RefreshOrchestrator(
             postRatingPlaylistDebounceNanoseconds: 10_000_000,

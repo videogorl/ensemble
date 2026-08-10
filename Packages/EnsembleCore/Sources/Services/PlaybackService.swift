@@ -5282,6 +5282,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Don't prefetch when playback has failed
         if case .failed = playbackState { return }
+        guard PlaybackPrefetchController.shouldMaterializeUpcomingTrack(
+            activeSourceIsStreaming: engine.isStreamingSourceActive,
+            currentTime: currentTime,
+            duration: duration,
+            playbackState: playbackState
+        ) else {
+            EnsembleLogger.debug("[prefetch] Deferring full-file materialization while the active stream is outside its transition window")
+            return
+        }
 
         let prefetchSnapshot: (track: Track?, shouldClearSchedule: Bool, shouldDefer: Bool) = await MainActor.run { [weak self] in
             guard let self else { return (track: nil, shouldClearSchedule: false, shouldDefer: false) }

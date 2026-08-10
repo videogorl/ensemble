@@ -190,7 +190,7 @@ final class PlaybackLaunchCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(loadedTrackID.withValue { $0 }, "1")
         XCTAssertNil(soughtTime.withValue { $0 })
-        XCTAssertEqual(prefetchCount.withValue { $0 }, 0)
+        XCTAssertEqual(prefetchCount.withValue { $0 }, 1)
     }
 
     func testSupersededLaunchDoesNotSeekOrPrefetch() async {

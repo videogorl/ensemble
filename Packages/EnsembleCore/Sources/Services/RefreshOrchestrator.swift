@@ -73,13 +73,12 @@ final class RefreshOrchestrator {
         runRefresh: @escaping @MainActor () async -> Void,
         didComplete: @escaping CompletionHandler
     ) async -> Bool {
-        guard beginStartupHealthChecksIfNeeded() else {
-            if let activeHealthRefreshTask {
-                EnsembleLogger.debug("🌐 RefreshOrchestrator: Awaiting in-flight startup health checks")
-                await activeHealthRefreshTask.value
-            }
+        if let activeHealthRefreshTask {
+            EnsembleLogger.debug("🌐 RefreshOrchestrator: Awaiting in-flight health refresh before startup")
+            await activeHealthRefreshTask.value
             return false
         }
+        guard beginStartupHealthChecksIfNeeded() else { return false }
 
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -196,7 +195,9 @@ final class RefreshOrchestrator {
     }
 
     func waitForActiveHealthRefresh() async {
-        await activeHealthRefreshTask?.value
+        while let activeHealthRefreshTask {
+            await activeHealthRefreshTask.value
+        }
     }
 
     internal func setLastHealthRefreshForTesting(_ date: Date?) {
