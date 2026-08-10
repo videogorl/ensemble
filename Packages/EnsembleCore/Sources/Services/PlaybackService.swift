@@ -28,6 +28,7 @@ public enum PlaybackState: Equatable, Sendable {
 
 public enum PlaybackError: Error, LocalizedError {
     case offline
+    case cellularStreamingDisabled
     case corruptLocalFile
     case serverUnavailable(message: String?)
     case streamURLUnavailable
@@ -38,6 +39,8 @@ public enum PlaybackError: Error, LocalizedError {
         switch self {
         case .offline:
             return "No internet connection"
+        case .cellularStreamingDisabled:
+            return "Streaming on cellular is disabled"
         case .corruptLocalFile:
             return "Downloaded file is corrupt"
         case let .serverUnavailable(message):
@@ -461,8 +464,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         configuration.shouldPreserveSourceKey(track.sourceCompositeKey)
     }
 
-    static func isQueueTrackPlayable(_ track: Track, serverPossiblyAvailable: Bool) -> Bool {
-        track.isAppleMusic || track.isDownloaded || serverPossiblyAvailable
+    static func isQueueTrackPlayable(
+        _ track: Track,
+        serverPossiblyAvailable: Bool,
+        plexStreamingAllowed: Bool = true
+    ) -> Bool {
+        track.isAppleMusic || track.isDownloaded || (plexStreamingAllowed && serverPossiblyAvailable)
     }
 
     static func appleMusicSegment(from tracks: [Track]) -> [Track] {
@@ -1040,6 +1047,19 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         networkMonitor.networkState
     }
 
+    @MainActor
+    private func isTransportNetworkConstrained() -> Bool {
+        networkMonitor.isConstrained
+    }
+
+    @MainActor
+    private func isPlexStreamingAllowedOnCurrentNetwork() -> Bool {
+        if case .online(.cellular) = networkMonitor.networkState {
+            return AudioQualityPreference.storedAllowStreamingOnCellular()
+        }
+        return networkMonitor.networkState != .offline && networkMonitor.networkState != .limited
+    }
+
     /// True while rate-based fast-seeking (long-press skip) is active.
     private var isFastSeeking = false
     private var fastSeekForward = true
@@ -1159,7 +1179,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             mapToPlaybackError: { [weak self] error in
                 self?.mapToPlaybackError(error) ?? .unknown(error)
             }
-        )
+        ),
+        isNetworkConstrained: { [weak self] in
+            await self?.isTransportNetworkConstrained() ?? false
+        }
     )
     private lazy var launchCoordinator = PlaybackLaunchCoordinator(
         dependencies: .init(
@@ -2712,7 +2735,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let isDeviceOffline = await MainActor.run {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
-            playbackState = .failed(Self.noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
+            let isCellularStreamingDisabled = await MainActor.run {
+                !isDeviceOffline && !isPlexStreamingAllowedOnCurrentNetwork()
+            }
+            playbackState = .failed(Self.noPlayableTracksMessage(
+                isDeviceOffline: isDeviceOffline,
+                isCellularStreamingDisabled: isCellularStreamingDisabled
+            ))
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -2851,7 +2880,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let isDeviceOffline = await MainActor.run {
                 !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
             }
-            playbackState = .failed(Self.noPlayableTracksMessage(isDeviceOffline: isDeviceOffline))
+            let isCellularStreamingDisabled = await MainActor.run {
+                !isDeviceOffline && !isPlexStreamingAllowedOnCurrentNetwork()
+            }
+            playbackState = .failed(Self.noPlayableTracksMessage(
+                isDeviceOffline: isDeviceOffline,
+                isCellularStreamingDisabled: isCellularStreamingDisabled
+            ))
             let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1_000)
             UserJourneyLogger.log(
                 context: "playback",
@@ -2963,28 +2998,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) async -> (tracks: [Track], startIndex: Int, skippedCount: Int)? {
         guard !tracks.isEmpty else { return nil }
         let clampedStartIndex = min(max(preferredStartIndex, 0), tracks.count - 1)
-        let isDeviceOffline = await MainActor.run {
-            !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+        let (isDeviceOffline, plexStreamingAllowed) = await MainActor.run {
+            (
+                !networkMonitor.networkState.isConnected || syncCoordinator.isOffline,
+                isPlexStreamingAllowedOnCurrentNetwork()
+            )
         }
+        let requiresDownloadedPlexTrack = isDeviceOffline || !plexStreamingAllowed
 
         // Check per-server availability for the tracks in the queue.
         // Even when the device has network, individual servers may be offline.
         let hasUnavailableTracks: Bool
-        if isDeviceOffline {
+        if requiresDownloadedPlexTrack {
             hasUnavailableTracks = false
         } else {
             hasUnavailableTracks = await MainActor.run {
                 tracks.contains { track in
                     !Self.isQueueTrackPlayable(
                         track,
-                        serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                        serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
+                        plexStreamingAllowed: plexStreamingAllowed
                     )
                 }
             }
         }
 
         // When all servers are available and device is online, keep queue unchanged.
-        guard isDeviceOffline || hasUnavailableTracks else {
+        guard requiresDownloadedPlexTrack || hasUnavailableTracks else {
             return (tracks: tracks, startIndex: clampedStartIndex, skippedCount: 0)
         }
 
@@ -2997,8 +3037,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             if track.isAppleMusic {
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
-            } else if isDeviceOffline {
-                // Device is fully offline — only downloaded tracks
+            } else if requiresDownloadedPlexTrack {
+                // Plex streaming is unavailable under the current network policy.
                 if let offlineTrack = await resolveOfflinePlayableTrack(track) {
                     playableTracks.append(offlineTrack)
                     originalPlayableIndices.append(index)
@@ -3010,7 +3050,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             } else if await MainActor.run(body: {
                 Self.isQueueTrackPlayable(
                     track,
-                    serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                    serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
+                    plexStreamingAllowed: plexStreamingAllowed
                 )
             }) {
                 // Track's server is online — can stream
@@ -3077,7 +3118,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let isUnavailable = await MainActor.run {
             !Self.isQueueTrackPlayable(
                 track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
+                plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork()
             )
         }
         if isUnavailable { return }
@@ -6353,9 +6395,15 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     /// Returns an appropriate error message when no tracks are playable.
     /// Distinguishes between device-offline and server-offline scenarios.
-    static func noPlayableTracksMessage(isDeviceOffline: Bool) -> String {
+    static func noPlayableTracksMessage(
+        isDeviceOffline: Bool,
+        isCellularStreamingDisabled: Bool = false
+    ) -> String {
         if isDeviceOffline {
             return "No downloaded tracks available offline"
+        }
+        if isCellularStreamingDisabled {
+            return "No downloaded tracks available while cellular streaming is disabled"
         }
         return "No playable tracks available — server is unreachable"
     }
@@ -6369,15 +6417,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let hasKnownUnavailableNextTrack = queue[nextIndex...].contains { item in
             !Self.isQueueTrackPlayable(
                 item.track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: item.track.sourceCompositeKey)
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: item.track.sourceCompositeKey),
+                plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork()
             )
         }
         guard hasKnownUnavailableNextTrack else { return false }
 
         let isDeviceOffline = !networkMonitor.networkState.isConnected || syncCoordinator.isOffline
+        let isCellularStreamingDisabled = !isDeviceOffline && !isPlexStreamingAllowedOnCurrentNetwork()
         let message = isDeviceOffline
             ? "Next item is not available offline"
-            : Self.noPlayableTracksMessage(isDeviceOffline: false)
+            : Self.noPlayableTracksMessage(
+                isDeviceOffline: false,
+                isCellularStreamingDisabled: isCellularStreamingDisabled
+            )
         playbackState = .failed(message)
         isSkipTransitionInProgress = false
         disarmSkipTransitionSafety()
@@ -6406,7 +6459,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         queueController.nextPlayableIndex(in: queue, after: startIndex) { track in
             Self.isQueueTrackPlayable(
                 track,
-                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey)
+                serverPossiblyAvailable: syncCoordinator.isServerPossiblyAvailable(sourceKey: track.sourceCompositeKey),
+                plexStreamingAllowed: isPlexStreamingAllowedOnCurrentNetwork()
             )
         }
     }

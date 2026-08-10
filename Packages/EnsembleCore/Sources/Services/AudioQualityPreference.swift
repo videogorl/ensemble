@@ -3,6 +3,11 @@ import Foundation
 public enum AudioQualityPreference {
     public static let streamingQualityKey = "streamingQuality"
     public static let defaultStreamingQuality = "high"
+    public static let allowStreamingOnCellularKey = "allowStreamingOnCellular"
+    public static let defaultAllowStreamingOnCellular = true
+    public static let cellularStreamingPolicyDidChange = Notification.Name(
+        "AudioQualityPreference.cellularStreamingPolicyDidChange"
+    )
     public static let downloadQualityKey = "downloadQuality"
     public static let defaultDownloadQuality = "high"
 
@@ -12,6 +17,13 @@ public enum AudioQualityPreference {
 
     public static func storedDownloadQuality(in defaults: UserDefaults = .standard) -> String {
         defaults.string(forKey: downloadQualityKey) ?? defaultDownloadQuality
+    }
+
+    public static func storedAllowStreamingOnCellular(in defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: allowStreamingOnCellularKey) != nil else {
+            return defaultAllowStreamingOnCellular
+        }
+        return defaults.bool(forKey: allowStreamingOnCellularKey)
     }
 
     static func prefersStreaming(_ streamingQuality: String, overDownloadQuality downloadQuality: String) -> Bool {

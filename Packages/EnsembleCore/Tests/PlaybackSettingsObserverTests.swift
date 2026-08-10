@@ -48,6 +48,12 @@ final class PlaybackSettingsObserverTests: XCTestCase {
         )
     }
 
+    func testCellularStreamingDefaultsToEnabledWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertTrue(AudioQualityPreference.storedAllowStreamingOnCellular(in: defaults))
+    }
+
     func testStoredDownloadQualityDefaultsToHighWhenUnset() {
         let defaults = makeDefaults()
 

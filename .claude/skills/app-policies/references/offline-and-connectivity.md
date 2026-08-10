@@ -5,6 +5,7 @@ Load this reference for changes involving device connectivity, per-server health
 ## Policies
 
 - Downloaded tracks are playable even when the device or the track's Plex server is unavailable. Non-downloaded tracks require device connectivity and an available source server.
+- Plex streaming on cellular is user-controlled and defaults on. When disabled, non-downloaded Plex tracks are unavailable and queue playback skips them; Apple Music remains governed by MusicKit and the system's media settings. Low Data Mode keeps streaming available when no local payload exists but prefers a valid download when one is available.
 - Device offline and server offline are distinct states. UI should report "not available offline" for device-level offline misses and use classified server failure messages for per-server failures.
 - Playback queues should filter or skip unavailable, non-downloaded tracks instead of attempting known-unavailable streams.
 - Unknown or connecting health is not confirmed unavailability. Queue and row preflight checks should allow the real request to run; only a confirmed offline state should suppress it.
