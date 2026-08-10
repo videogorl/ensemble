@@ -128,6 +128,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
             title: "Quality",
             duration: 180,
             localFilePath: localURL.path,
+            downloadedQuality: "medium",
             sourceCompositeKey: "plex:test"
         )
 
@@ -151,7 +152,7 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
                     mapToPlaybackError: { .unknown($0) }
                 ),
                 streamingQuality: { "high" },
-                downloadQuality: { "medium" }
+                downloadQuality: { "high" }
             )
         }
 
@@ -166,6 +167,72 @@ final class PlaybackTransportCoordinatorTests: XCTestCase {
             return XCTFail("expected local fallback")
         }
         XCTAssertEqual(fallbackURL.path, localURL.path)
+    }
+
+    func testCellularAndLowDataPoliciesPreferAvailableDownload() async throws {
+        let localURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("transport-data-policy-\(UUID().uuidString)_medium.mp3")
+        try Data(repeating: 0x41, count: 512).write(to: localURL)
+        defer { try? FileManager.default.removeItem(at: localURL) }
+        let track = Track(
+            id: "track-data-policy",
+            key: "/library/metadata/data-policy",
+            title: "Data Policy",
+            duration: 180,
+            localFilePath: localURL.path,
+            sourceCompositeKey: "plex:test"
+        )
+        let ensureCalls = LockedCounter()
+
+        func coordinator(
+            networkState: NetworkState,
+            isConstrained: Bool,
+            allowStreamingOnCellular: Bool
+        ) -> PlaybackTransportCoordinator {
+            PlaybackTransportCoordinator(
+                dependencies: .init(
+                    networkState: { networkState },
+                    preparedLocalPlaybackURL: { URL(fileURLWithPath: $0) },
+                    isClearlyInvalidLocalPayload: { _ in false },
+                    ensureServerConnection: { _ in _ = ensureCalls.increment() },
+                    serverFailureMessage: { _ in nil },
+                    makeStreamDecision: { _, _, _ in
+                        XCTFail("should not request stream decision")
+                        throw PlexAPIError.invalidURL
+                    },
+                    assembleStreamResolution: { _, _ in
+                        XCTFail("should not assemble resolution")
+                        throw PlexAPIError.invalidURL
+                    },
+                    refreshConnection: { XCTFail("should not refresh connection") },
+                    shouldRetryStreamURLRequest: { _ in false },
+                    mapToPlaybackError: { .unknown($0) }
+                ),
+                streamingQuality: { "high" },
+                downloadQuality: { "medium" },
+                isNetworkConstrained: { isConstrained },
+                allowStreamingOnCellular: { allowStreamingOnCellular }
+            )
+        }
+
+        let cellularSource = try await coordinator(
+            networkState: .online(.cellular),
+            isConstrained: false,
+            allowStreamingOnCellular: false
+        ).resolvePlaybackSource(for: track)
+        let lowDataSource = try await coordinator(
+            networkState: .online(.wifi),
+            isConstrained: true,
+            allowStreamingOnCellular: true
+        ).resolvePlaybackSource(for: track)
+
+        guard case let .localFile(cellularURL) = cellularSource,
+              case let .localFile(lowDataURL) = lowDataSource else {
+            return XCTFail("expected local files")
+        }
+        XCTAssertEqual(cellularURL.path, localURL.path)
+        XCTAssertEqual(lowDataURL.path, localURL.path)
+        XCTAssertEqual(ensureCalls.value, 0)
     }
 
     func testResolvePlaybackSourceReturnsDirectHTTPWithoutDownloading() async throws {

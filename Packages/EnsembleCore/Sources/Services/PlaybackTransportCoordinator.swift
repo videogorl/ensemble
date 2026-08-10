@@ -20,6 +20,8 @@ final class PlaybackTransportCoordinator {
     private let dependencies: Dependencies
     private let streamingQuality: @Sendable () -> String
     private let downloadQuality: @Sendable () -> String
+    private let isNetworkConstrained: @Sendable () async -> Bool
+    private let allowStreamingOnCellular: @Sendable () -> Bool
     private let lock = NSLock()
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     private var sourceResolutionTasks: [String: Task<PlaybackSource, Error>] = [:]
@@ -28,11 +30,17 @@ final class PlaybackTransportCoordinator {
     init(
         dependencies: Dependencies,
         streamingQuality: @escaping @Sendable () -> String = { AudioQualityPreference.storedStreamingQuality() },
-        downloadQuality: @escaping @Sendable () -> String = { AudioQualityPreference.storedDownloadQuality() }
+        downloadQuality: @escaping @Sendable () -> String = { AudioQualityPreference.storedDownloadQuality() },
+        isNetworkConstrained: @escaping @Sendable () async -> Bool = { false },
+        allowStreamingOnCellular: @escaping @Sendable () -> Bool = {
+            AudioQualityPreference.storedAllowStreamingOnCellular()
+        }
     ) {
         self.dependencies = dependencies
         self.streamingQuality = streamingQuality
         self.downloadQuality = downloadQuality
+        self.isNetworkConstrained = isNetworkConstrained
+        self.allowStreamingOnCellular = allowStreamingOnCellular
     }
 
     func resolvePlaybackSource(for track: Track, startTime: TimeInterval = 0) async throws -> PlaybackSource {
@@ -122,8 +130,16 @@ final class PlaybackTransportCoordinator {
 
         let networkState = await dependencies.networkState()
         let isDefinitelyOffline = networkState == .offline || networkState == .limited
+        let canStream = !isDefinitelyOffline && {
+            if case .online(.cellular) = networkState {
+                return allowStreamingOnCellular()
+            }
+            return true
+        }()
+        let shouldPreferLocalForDataPolicy = await isNetworkConstrained()
 
         var localSource: PlaybackSource?
+        var hasInvalidLocalPayload = false
         if let localPath = track.localFilePath {
             if FileManager.default.fileExists(atPath: localPath) {
                 let localPlaybackURL = dependencies.preparedLocalPlaybackURL(localPath)
@@ -136,6 +152,7 @@ final class PlaybackTransportCoordinator {
                         localSource = .localFile(originalURL)
                     }
                 }
+                hasInvalidLocalPayload = localSource == nil
                 if localSource == nil, isDefinitelyOffline { throw PlaybackError.corruptLocalFile }
             } else if isDefinitelyOffline {
                 throw PlaybackError.offline
@@ -146,10 +163,20 @@ final class PlaybackTransportCoordinator {
 
         let prefersStreaming = AudioQualityPreference.prefersStreaming(
             qualityString,
-            overDownloadQuality: downloadQuality()
+            overDownloadQuality: track.downloadedQuality
+                ?? track.localFilePath
+                .flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) }
+                ?? downloadQuality()
         )
-        if let localSource, isDefinitelyOffline || !prefersStreaming {
+        if let localSource, !canStream || shouldPreferLocalForDataPolicy || !prefersStreaming {
             return localSource
+        }
+        guard canStream else {
+            if hasInvalidLocalPayload { throw PlaybackError.corruptLocalFile }
+            if case .online(.cellular) = networkState {
+                throw PlaybackError.cellularStreamingDisabled
+            }
+            throw PlaybackError.offline
         }
 
         do {

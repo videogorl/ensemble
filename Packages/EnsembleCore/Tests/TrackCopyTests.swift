@@ -24,6 +24,7 @@ final class TrackCopyTests: XCTestCase {
             streamKey: "/stream",
             streamId: 7,
             localFilePath: "/old.mp3",
+            downloadedQuality: "high",
             dateAdded: Date(timeIntervalSince1970: 1),
             dateModified: Date(timeIntervalSince1970: 2),
             lastPlayed: Date(timeIntervalSince1970: 3),
@@ -40,10 +41,12 @@ final class TrackCopyTests: XCTestCase {
         XCTAssertEqual(rated.albumArtistName, original.albumArtistName)
         XCTAssertEqual(rated.genres, original.genres)
         XCTAssertEqual(rated.localFilePath, original.localFilePath)
+        XCTAssertEqual(rated.downloadedQuality, "high")
         XCTAssertEqual(rated.actionCapabilities, actionCapabilities)
 
         let downloaded = rated.withLocalFilePath("/new.mp3")
         XCTAssertEqual(downloaded.localFilePath, "/new.mp3")
+        XCTAssertNil(downloaded.downloadedQuality)
         XCTAssertEqual(downloaded.rating, rated.rating)
         XCTAssertEqual(downloaded.albumArtistName, original.albumArtistName)
         XCTAssertEqual(downloaded.genres, original.genres)

@@ -31,47 +31,74 @@ struct MusicSourceAccountRow: View {
 // MARK: - Audio Quality Settings
 
 struct AudioQualitySettingsView: View {
+    @Environment(\.dependencies) private var deps
     @AppStorage(AudioQualityPreference.streamingQualityKey)
     private var streamingQuality = AudioQualityPreference.defaultStreamingQuality
+    @AppStorage(AudioQualityPreference.allowStreamingOnCellularKey)
+    private var allowStreamingOnCellular = AudioQualityPreference.defaultAllowStreamingOnCellular
     @AppStorage(AudioQualityPreference.downloadQualityKey)
     private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
+    @AppStorage(DownloadSettingsPreference.allowCellularDownloadsKey)
+    private var allowCellularDownloads = DownloadSettingsPreference.defaultAllowCellularDownloads
 
     var body: some View {
         EnsembleAdaptiveUtilityScaffold(title: "Audio Quality") {
             List {
                 Section {
                     streamingQualityPicker
+                    Toggle("Allow Streaming on Cellular", isOn: $allowStreamingOnCellular)
                 } header: {
                     EnsembleUtilitySectionHeader("Streaming")
                 } footer: {
-                    Text("Lower quality uses less data when streaming over cellular.")
+                    Text("On Low Data Mode, downloaded Plex audio is preferred when available. Apple Music follows System Settings.")
                 }
 
                 Section {
                     downloadQualityPicker
+                    Toggle("Allow Downloading on Cellular", isOn: $allowCellularDownloads)
                 } header: {
                     EnsembleUtilitySectionHeader("Downloads")
                 } footer: {
-                    Text("Higher quality downloads use more storage space.")
+                    Text("Higher quality downloads use more storage space and cellular data.")
                 }
             }
         } regularContent: {
             EnsembleUtilityCardSection(
                 "Streaming",
-                footer: "Lower quality uses less data when streaming over cellular."
+                footer: "On Low Data Mode, downloaded Plex audio is preferred when available. Apple Music follows System Settings."
             ) {
                 EnsembleUtilityCardRow {
                     streamingQualityPicker
+                }
+
+                EnsembleUtilityCardDivider()
+
+                EnsembleUtilityCardRow {
+                    Toggle("Allow Streaming on Cellular", isOn: $allowStreamingOnCellular)
                 }
             }
 
             EnsembleUtilityCardSection(
                 "Downloads",
-                footer: "Higher quality downloads use more storage space."
+                footer: "Higher quality downloads use more storage space and cellular data."
             ) {
                 EnsembleUtilityCardRow {
                     downloadQualityPicker
                 }
+
+                EnsembleUtilityCardDivider()
+
+                EnsembleUtilityCardRow {
+                    Toggle("Allow Downloading on Cellular", isOn: $allowCellularDownloads)
+                }
+            }
+        }
+        .onChange(of: allowStreamingOnCellular) { _ in
+            NotificationCenter.default.post(name: AudioQualityPreference.cellularStreamingPolicyDidChange, object: nil)
+        }
+        .onChange(of: allowCellularDownloads) { _ in
+            Task {
+                await deps.offlineDownloadService.reevaluateQueuePolicy()
             }
         }
     }

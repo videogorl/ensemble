@@ -54,6 +54,15 @@ public struct AudioFileInfo: Sendable, Equatable {
     }
 }
 
+/// Facts about the payload currently loaded by Ensemble's audio engine.
+public struct PlaybackFileInfo: Sendable, Equatable {
+    public let codec: String?
+    public let fileSize: Int64?
+    public let isDownloaded: Bool
+    public let quality: String?
+    public let sampleRate: Int?
+}
+
 // MARK: - Track
 
 public struct Track: Identifiable, Hashable, Sendable, Codable {
@@ -74,6 +83,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     public let streamKey: String?
     public let streamId: Int? // Audio stream ID for fetching loudness timeline data
     public let localFilePath: String?
+    public let downloadedQuality: String?
     public let dateAdded: Date?
     public let dateModified: Date?
     public let lastPlayed: Date?
@@ -104,6 +114,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         streamKey: String? = nil,
         streamId: Int? = nil,
         localFilePath: String? = nil,
+        downloadedQuality: String? = nil,
         dateAdded: Date? = nil,
         dateModified: Date? = nil,
         lastPlayed: Date? = nil,
@@ -137,6 +148,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         self.streamKey = streamKey
         self.streamId = streamId
         self.localFilePath = localFilePath
+        self.downloadedQuality = downloadedQuality
         self.dateAdded = dateAdded
         self.dateModified = dateModified
         self.lastPlayed = lastPlayed
@@ -176,7 +188,14 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
     }
 
     public func withLocalFilePath(_ localFilePath: String?) -> Track {
-        copy(localFilePath: localFilePath, useLocalFilePathOverride: true)
+        copy(
+            localFilePath: localFilePath,
+            useLocalFilePathOverride: true,
+            downloadedQuality: localFilePath.flatMap {
+                AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0))
+            },
+            useDownloadedQualityOverride: true
+        )
     }
 
     public func withThumbPath(_ thumbPath: String?) -> Track {
@@ -242,7 +261,9 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
         thumbPath: String? = nil,
         useThumbPathOverride: Bool = false,
         localFilePath: String? = nil,
-        useLocalFilePathOverride: Bool = false
+        useLocalFilePathOverride: Bool = false,
+        downloadedQuality: String? = nil,
+        useDownloadedQualityOverride: Bool = false
     ) -> Track {
         Track(
             id: id,
@@ -262,6 +283,7 @@ public struct Track: Identifiable, Hashable, Sendable, Codable {
             streamKey: streamKey,
             streamId: streamId,
             localFilePath: useLocalFilePathOverride ? localFilePath : self.localFilePath,
+            downloadedQuality: useDownloadedQualityOverride ? downloadedQuality : self.downloadedQuality,
             dateAdded: dateAdded,
             dateModified: dateModified,
             lastPlayed: lastPlayed,

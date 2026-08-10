@@ -38,6 +38,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 
 **Playback Experience:**
 - **Now Playing** — Full-screen player with dynamic artwork gradients, waveform visualization, and mini player overlay
+- **Quality-Aware Playback** — Chooses the highest-quality playable Plex payload, prefers downloads under Low Data Mode, falls back locally when a higher-quality stream fails, and provides separate cellular controls for streaming and downloading
 - **Playback Tracking** — Automatic timeline reporting (every 10s) and scrobbling (at 90% completion) to Plex for accurate play counts and listening history
 - **Waveform Visualization** — Real-time audio waveforms using Plex sonic analysis data (via `/library/streams/{streamId}/levels`) with intelligent deterministic fallback generation
 - **Route-Aware Lyrics + Aurora Sync** — Automatically compensates AirPlay and Bluetooth output delay for lyric highlighting and the Aurora visualization

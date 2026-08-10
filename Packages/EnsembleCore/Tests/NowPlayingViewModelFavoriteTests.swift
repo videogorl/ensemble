@@ -343,9 +343,7 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
 
         func updateVisualizerPosition(_: TimeInterval) {}
         func setVisualizationConsumer(_: VisualizationConsumer, isVisible _: Bool) {}
-        func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) {
-            (nil, nil)
-        }
+        func currentPlaybackFileInfo() -> PlaybackFileInfo? { nil }
     }
 
     private enum MockError: Error {

@@ -12,6 +12,8 @@ public enum TrackAvailability: Sendable, Equatable {
     case unavailableServerOffline(reason: ServerConnectionFailureReason)
     /// Not downloaded and the device has no network connectivity.
     case unavailableNetworkOffline
+    /// Not downloaded and the user has disabled Plex streaming over cellular.
+    case unavailableCellularStreamingDisabled
     /// Playlist membership exists, but its source library is not synced locally.
     case unavailableLibraryNotSynced
 
@@ -20,7 +22,8 @@ public enum TrackAvailability: Sendable, Equatable {
         switch self {
         case .available, .availableDownloadedOnly:
             return true
-        case .unavailableServerOffline, .unavailableNetworkOffline, .unavailableLibraryNotSynced:
+        case .unavailableServerOffline, .unavailableNetworkOffline,
+             .unavailableCellularStreamingDisabled, .unavailableLibraryNotSynced:
             return false
         }
     }
@@ -35,6 +38,8 @@ public enum TrackAvailability: Sendable, Equatable {
             return nil
         case .unavailableNetworkOffline:
             return "Not available offline"
+        case .unavailableCellularStreamingDisabled:
+            return "Streaming on cellular is disabled"
         case .unavailableLibraryNotSynced:
             return "Library not synced"
         case .unavailableServerOffline(let reason):
@@ -92,6 +97,13 @@ public final class TrackAvailabilityResolver: ObservableObject {
             return .unavailableNetworkOffline
         }
 
+        if !track.isAppleMusic,
+           case .online(.cellular) = networkMonitor.networkState,
+           !AudioQualityPreference.storedAllowStreamingOnCellular()
+        {
+            return .unavailableCellularStreamingDisabled
+        }
+
         // Device is online — check per-server health
         let serverKey = extractServerKey(from: track.sourceCompositeKey)
         if let serverKey,
@@ -111,6 +123,12 @@ public final class TrackAvailabilityResolver: ObservableObject {
         // Network state changes
         networkMonitor.$networkState
             .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.bumpGeneration()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: AudioQualityPreference.cellularStreamingPolicyDidChange)
             .sink { [weak self] _ in
                 self?.bumpGeneration()
             }

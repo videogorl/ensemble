@@ -92,6 +92,37 @@ final class ModelMappersTests: XCTestCase {
         XCTAssertEqual(track.streamId, 789)
     }
 
+    func testTrackMapperUsesCompletedQualityAndPlayableQualityDuringUpgrade() throws {
+        let stack = CoreDataStack.inMemory()
+        let context = stack.viewContext
+
+        let completedTrack = CDTrack(context: context)
+        completedTrack.ratingKey = "completed"
+        completedTrack.key = "/completed"
+        completedTrack.title = "Completed"
+        completedTrack.localFilePath = "legacy.mp3"
+        let completedDownload = CDDownload(context: context)
+        completedDownload.status = CDDownload.Status.completed.rawValue
+        completedDownload.quality = "medium"
+        completedDownload.track = completedTrack
+
+        let upgradingTrack = CDTrack(context: context)
+        upgradingTrack.ratingKey = "upgrading"
+        upgradingTrack.key = "/upgrading"
+        upgradingTrack.title = "Upgrading"
+        upgradingTrack.localFilePath = "upgrading_low.mp3"
+        let upgradingDownload = CDDownload(context: context)
+        upgradingDownload.status = CDDownload.Status.pending.rawValue
+        upgradingDownload.quality = "high"
+        upgradingDownload.track = upgradingTrack
+
+        let completed = Track(from: completedTrack, downloadedFilenames: ["legacy.mp3"])
+        let upgrading = Track(from: upgradingTrack, downloadedFilenames: ["upgrading_low.mp3"])
+
+        XCTAssertEqual(completed.downloadedQuality, "medium")
+        XCTAssertEqual(upgrading.downloadedQuality, "low")
+    }
+
     func testAlbumMapperUsesPersistedTrackCountWithoutRealizingTracks() async throws {
         let stack = CoreDataStack.inMemory()
         let sourceKey = "plex/account/server/library"

@@ -139,7 +139,7 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         func applyRatingLocally(track: Track, rating: Int) async {}
         func updateVisualizerPosition(_ time: TimeInterval) {}
         func setVisualizationConsumer(_ consumer: VisualizationConsumer, isVisible: Bool) {}
-        func currentPlaybackFileInfo() -> (codec: String?, fileSize: Int64?) { (nil, nil) }
+        func currentPlaybackFileInfo() -> PlaybackFileInfo? { nil }
     }
 
     private struct Fixture {

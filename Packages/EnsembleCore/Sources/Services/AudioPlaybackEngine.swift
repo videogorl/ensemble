@@ -108,6 +108,9 @@ public final class AudioPlaybackEngine {
     var isRunningForDiagnostics: Bool { engine.isRunning }
     private var streamingPipeline: StreamingAudioPipeline?
     var isStreamingSourceActive: Bool { streamingPipeline != nil }
+    var currentPlaybackFileURL: URL? { currentFile?.url ?? streamingPipeline?.cacheURL }
+    var currentPlaybackFileIsComplete: Bool { streamingPipeline?.isComplete ?? (currentFile != nil) }
+    var currentPlaybackSampleRate: Double? { currentTrackId == nil ? nil : sampleRate }
     private var streamingStartTime: TimeInterval = 0
     private var streamingCompletionGeneration: UInt64 = 0
     private var streamingCompletionNotified = false

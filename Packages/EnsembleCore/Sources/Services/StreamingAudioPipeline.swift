@@ -93,6 +93,8 @@ final class StreamingAudioPipeline: NSObject {
     private var decodedFrameCount: AVAudioFramePosition = 0
     private var decodedFrameTarget: AVAudioFramePosition?
 
+    var cacheURL: URL { configuration.cacheURL }
+
     init(configuration: Configuration) {
         self.configuration = configuration
         super.init()

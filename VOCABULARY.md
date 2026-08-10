@@ -611,6 +611,24 @@ Generic detail view used by Album, Playlist, merged playlist, and similar media-
 
 ---
 
+## AudioQualitySettingsView
+
+- **View name:** `AudioQualitySettingsView`
+- **Canonical name:** Audio Quality
+- **Area:** Settings
+- **Platform:** iOS, iPadOS, macOS
+
+### Elements
+
+| Element name | Type | Description | Synonyms / code refs |
+|--------------|------|-------------|---------------------|
+| Streaming quality selector | control | Selects Original/High/Medium/Low quality for Plex streams | `Picker("Streaming Quality")` |
+| Cellular streaming toggle | control | Allows or blocks Plex streaming over cellular; defaults on | `Toggle("Allow Streaming on Cellular")`, `allowStreamingOnCellular` |
+| Download quality selector | control | Selects Original/High/Medium/Low quality for offline files | `Picker("Download Quality")` |
+| Cellular download toggle | control | Mirrors the Manage Downloads cellular preference | `Toggle("Allow Downloading on Cellular")`, `allowCellularDownloads` |
+
+---
+
 ## SyncSettingsView
 
 - **View name:** `SyncSettingsView`
