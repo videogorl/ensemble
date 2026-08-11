@@ -187,6 +187,42 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         XCTAssertEqual(clearedLyrics, [removed])
     }
 
+    func testReconcileUnchangedTargetSkipsMembershipReplacementAndCleanup() async throws {
+        let libraryRepository = LibraryRepositoryMock()
+        let playlistRepository = PlaylistRepositoryMock()
+        let downloadManager = DownloadManagerMock()
+        let targetRepository = TargetRepositoryMock()
+        let sourceKey = "plex:account:server:library"
+        let reference = OfflineTrackReference(
+            trackRatingKey: "track",
+            trackSourceCompositeKey: sourceKey
+        )
+        libraryRepository.tracksBySource[sourceKey] = [
+            makeTrack(ratingKey: reference.trackRatingKey, sourceCompositeKey: sourceKey)
+        ]
+        targetRepository.previousReferencesByTarget["target"] = [reference]
+
+        let reconciler = DownloadTargetReconciler(
+            dependencies: .init(
+                targetRepository: targetRepository,
+                libraryRepository: libraryRepository,
+                playlistRepository: playlistRepository,
+                downloadManager: downloadManager,
+                currentDownloadQuality: { "high" },
+                clearLyricsCaches: { _ in }
+            )
+        )
+
+        let result = try await reconciler.reconcileTarget(
+            .init(key: "target", kind: .library, ratingKey: nil, sourceCompositeKey: sourceKey)
+        )
+
+        XCTAssertEqual(result, .init(trackReferenceCount: 1, newPendingCount: 1, downloadQuality: "high"))
+        XCTAssertTrue(targetRepository.replacedMemberships.isEmpty)
+        XCTAssertEqual(downloadManager.batchCreateCalls.first?.0, [reference])
+        XCTAssertTrue(downloadManager.deletedReferences.isEmpty)
+    }
+
     func testReconcilePlaylistTargetUsesPlaylistTracks() async throws {
         let libraryRepository = LibraryRepositoryMock()
         let playlistRepository = PlaylistRepositoryMock()

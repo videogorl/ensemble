@@ -80,6 +80,9 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         private var _fetchCompletedDownloadsCount = 0
         private var _deletedReferences: [OfflineTrackReference] = []
         private var _deleteBatches: [[OfflineTrackReference]] = []
+        private var _pendingCount = 0
+        private var _nextPendingDelayNanoseconds: UInt64 = 0
+        private var _statusUpdateDelayNanoseconds: UInt64 = 0
 
         var statusUpdates: [([CDDownload.Status], CDDownload.Status)] {
             lock.withLock { _statusUpdates }
@@ -101,6 +104,21 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             lock.withLock { _deleteBatches }
         }
 
+        var pendingCount: Int {
+            get { lock.withLock { _pendingCount } }
+            set { lock.withLock { _pendingCount = newValue } }
+        }
+
+        var nextPendingDelayNanoseconds: UInt64 {
+            get { lock.withLock { _nextPendingDelayNanoseconds } }
+            set { lock.withLock { _nextPendingDelayNanoseconds = newValue } }
+        }
+
+        var statusUpdateDelayNanoseconds: UInt64 {
+            get { lock.withLock { _statusUpdateDelayNanoseconds } }
+            set { lock.withLock { _statusUpdateDelayNanoseconds = newValue } }
+        }
+
         func resetStatusUpdates() {
             lock.withLock {
                 _statusUpdates.removeAll()
@@ -112,7 +130,11 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             return []
         }
         func fetchPendingDownloads() async throws -> [CDDownload] { [] }
-        func fetchNextPendingDownload() async throws -> CDDownload? { nil }
+        func countPendingDownloads() async throws -> Int { pendingCount }
+        func fetchNextPendingDownload() async throws -> CDDownload? {
+            try? await Task.sleep(nanoseconds: nextPendingDelayNanoseconds)
+            return nil
+        }
         func fetchCompletedDownloads() async throws -> [CDDownload] {
             lock.withLock { _fetchCompletedDownloadsCount += 1 }
             return []
@@ -125,6 +147,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func updateDownloadProgress(_ downloadId: NSManagedObjectID, progress: Float) async throws {}
         func updateDownloadStatus(_ downloadId: NSManagedObjectID, status: CDDownload.Status, quality: String?) async throws {}
         func updateDownloads(withStatuses statuses: [CDDownload.Status], to status: CDDownload.Status) async throws {
+            try? await Task.sleep(nanoseconds: statusUpdateDelayNanoseconds)
             lock.withLock {
                 _statusUpdates.append((statuses, status))
             }
@@ -560,6 +583,49 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
             "Backgrounding should request an execution window and leave active downloads running until expiration."
         )
         XCTAssertEqual(backgroundCoordinator.continuedProcessingRequests.count, 1)
+    }
+
+    func testForegroundRecoveryRunsAfterBackgroundExpirationRecovery() async {
+        let downloadManager = MockDownloadManager()
+        let backgroundCoordinator = MockBackgroundExecutionCoordinator()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            backgroundCoordinator: backgroundCoordinator,
+            launchRecoveryStartedAt: Date().addingTimeInterval(-60)
+        )
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        await service.handleAppDidEnterBackground()
+        downloadManager.resetStatusUpdates()
+        downloadManager.statusUpdateDelayNanoseconds = 100_000_000
+
+        backgroundCoordinator.onExpiration?()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        await service.handleAppWillEnterForeground()
+        try? await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertEqual(downloadManager.statusUpdates.last?.0, [.downloading])
+        XCTAssertEqual(downloadManager.statusUpdates.last?.1, .pending)
+    }
+
+    func testForegroundRecoveryDoesNotRequeueRecordsOwnedByLiveQueue() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(
+            downloadManager: downloadManager,
+            launchRecoveryStartedAt: Date().addingTimeInterval(-60)
+        )
+        try? await Task.sleep(nanoseconds: 30_000_000)
+        downloadManager.pendingCount = 1
+        downloadManager.nextPendingDelayNanoseconds = 250_000_000
+        await service.resumeQueue()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        downloadManager.resetStatusUpdates()
+
+        await service.handleAppWillEnterForeground()
+
+        XCTAssertFalse(
+            downloadManager.statusUpdates.contains { $0.0 == [.downloading] },
+            "Foreground recovery must not make a live worker's claimed record pending again."
+        )
     }
 
     func testSystemSleepMarksDownloadingRecordsPaused() async {

@@ -37,20 +37,28 @@ final class DownloadTargetReconciler {
     func reconcileTarget(_ target: TargetDescriptor) async throws -> ReconcileResult {
         let previousReferences = try await dependencies.targetRepository.fetchTrackReferences(targetKey: target.key)
         let trackReferences = try await resolveTrackReferences(for: target)
-        try await dependencies.targetRepository.replaceMemberships(targetKey: target.key, trackReferences: trackReferences)
-
         let downloadQuality = dependencies.currentDownloadQuality()
+        let membershipsChanged = previousReferences != trackReferences
+        if membershipsChanged {
+            try await dependencies.targetRepository.replaceMemberships(
+                targetKey: target.key,
+                trackReferences: trackReferences
+            )
+        }
+
         let newPendingCount = try await dependencies.downloadManager.batchCreateDownloads(
             references: trackReferences,
             quality: downloadQuality
         )
 
-        let removedReferences = Array(Set(previousReferences).subtracting(Set(trackReferences)))
-        let unreferenced = try await dependencies.targetRepository.unreferencedTrackReferences(
-            from: removedReferences
-        )
-        try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
-        await dependencies.clearLyricsCaches(unreferenced)
+        if membershipsChanged {
+            let removedReferences = Array(Set(previousReferences).subtracting(Set(trackReferences)))
+            let unreferenced = try await dependencies.targetRepository.unreferencedTrackReferences(
+                from: removedReferences
+            )
+            try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
+            await dependencies.clearLyricsCaches(unreferenced)
+        }
 
         return ReconcileResult(
             trackReferenceCount: trackReferences.count,
