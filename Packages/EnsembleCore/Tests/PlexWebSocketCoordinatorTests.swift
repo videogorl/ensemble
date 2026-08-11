@@ -57,4 +57,22 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(values, [true, false])
     }
+
+    func testDownloadCompletionEventsAreDebounced() async throws {
+        let (coordinator, _) = makeCoordinator()
+        var callbackCount = 0
+        coordinator.onDownloadQueueCompleted = {
+            callbackCount += 1
+        }
+
+        for progress in [98, 99, 100] {
+            await coordinator.handleEventForTesting(
+                .activityUpdate(event: "ended", type: "media.download", progress: progress),
+                from: "account:server"
+            )
+        }
+
+        try await Task.sleep(nanoseconds: 3_100_000_000)
+        XCTAssertEqual(callbackCount, 1)
+    }
 }

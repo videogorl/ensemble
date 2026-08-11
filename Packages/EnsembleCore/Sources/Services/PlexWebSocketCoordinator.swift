@@ -62,8 +62,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
     // Debounce library/playlist update triggers to avoid spamming sync for batch updates
     private let pendingLibraryUpdates = DebouncedTaskRegistry<String>()
     private let pendingPlaylistUpdates = DebouncedTaskRegistry<String>()
+    private let pendingDownloadCompletions = DebouncedTaskRegistry<String>()
     private let libraryUpdateDebounce: TimeInterval = 3.0
     private let playlistUpdateDebounce: TimeInterval = 5.0
+    private let downloadCompletionDebounce: TimeInterval = 3.0
     private let recentLibrarySyncCooldown: TimeInterval = 10.0
     private var activeLibrarySyncs: Set<String> = []
     private var lastLibrarySyncCompletion: [String: Date] = [:]
@@ -140,6 +142,7 @@ public final class PlexWebSocketCoordinator: ObservableObject {
         activeLibrarySyncs.removeAll()
         lastLibrarySyncCompletion.removeAll()
         pendingPlaylistUpdates.cancelAll()
+        pendingDownloadCompletions.cancelAll()
         pendingSettingsUpdates.cancelAll()
     }
 
@@ -309,10 +312,11 @@ public final class PlexWebSocketCoordinator: ObservableObject {
             }
 
             // PMS download queue item finished — notify the download service
-            // so it can restart its queue if workers have exited.
+            // after the activity burst so it can restart idle workers once.
             if type.contains("media.download") && event == "ended" {
-                EnsembleLogger.debug("🔌 WebSocketCoordinator: Download queue completed for \(serverKey) (progress=\(progress))")
-                await onDownloadQueueCompleted?()
+                pendingDownloadCompletions.schedule(key: serverKey, delay: downloadCompletionDebounce) { [weak self] in
+                    await self?.onDownloadQueueCompleted?()
+                }
             }
 
         case .serverShutdown:
@@ -446,6 +450,10 @@ public final class PlexWebSocketCoordinator: ObservableObject {
 
     internal func setConnectedStateForTesting(_ serverKeys: Set<String>) {
         applyConnectedState(serverKeys)
+    }
+
+    internal func handleEventForTesting(_ event: PlexServerEvent, from serverKey: String) async {
+        await handleEvent(event, from: serverKey)
     }
 
     private func applyConnectedState(_ newValue: Set<String>) {
