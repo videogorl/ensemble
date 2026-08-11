@@ -274,6 +274,16 @@ public final class OfflineDownloadService: ObservableObject {
                     sourceCompositeKey: sourceCompositeKey
                 )
             },
+            waitUntilPostCompletionWorkAllowed: { [weak self] in
+                while !Task.isCancelled {
+                    guard let foregroundWorkScheduler = self?.foregroundWorkScheduler else { return true }
+                    if await foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly) {
+                        return true
+                    }
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+                return false
+            },
             enqueueSidecarAnalysis: { [sidecarAnalysisQueue] sourceURL, sidecarURL in
                 await sidecarAnalysisQueue.enqueue(sourceURL: sourceURL, sidecarURL: sidecarURL)
             },

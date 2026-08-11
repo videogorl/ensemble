@@ -58,6 +58,7 @@ public enum EnsembleLogRedactor {
             message.contains("/var/folders/") ||
             message.contains("/tmp/") ||
             message.range(of: "/library", options: .caseInsensitive) != nil ||
+            message.range(of: "/media/", options: .caseInsensitive) != nil ||
             message.range(of: "/playlists", options: .caseInsensitive) != nil ||
             message.range(of: "/hubs", options: .caseInsensitive) != nil
     }
@@ -93,7 +94,7 @@ public enum EnsembleLogRedactor {
                 options: [.regularExpression, .caseInsensitive]
             )
             .replacingOccurrences(
-                of: #"/(?:library|playlists|hubs)(?:/\S*|\b)"#,
+                of: #"/(?:library|media|playlists|hubs)(?:/\S*|\b)"#,
                 with: "<redacted-path>",
                 options: [.regularExpression, .caseInsensitive]
             )

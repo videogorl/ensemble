@@ -459,51 +459,26 @@ public actor PlexAPIClient {
     /// Fetches raw lyrics content from a stream key path (e.g. `/library/streams/12345`)
     /// Returns the UTF-8 text content, or nil on 404/error
     /// Fetch lyrics content for a given stream key.
-    /// Uses format=xml (matching Plexamp) and retries once on 404 since PMS
-    /// caches LyricFind lyrics briefly and may need a moment to re-fetch.
+    /// Uses format=xml (matching Plexamp). A 404 is treated as unavailable;
+    /// later user or sync requests can try again without blocking this request.
     public func getLyricsContent(streamKey: String) async throws -> String? {
         // Plexamp fetches lyrics with format=xml; Accept: application/json from
         // the shared Plex headers causes PMS to return JSON instead. We handle both formats.
         let query = ["format": "xml", "includeInlineAttribution": "1"]
 
-        // Attempt fetch with retries — PMS may return 404 if its LyricFind cache
-        // expired and needs a moment to re-fetch from the provider.
-        // iOS 15 devices see more frequent 404s, so we use 3 attempts with longer delays.
-        let maxAttempts = 3
-        for attempt in 1...maxAttempts {
-            do {
-                let data = try await serverRequest(path: streamKey, query: query)
-
-                EnsembleLogger.debug("Lyrics: content fetch succeeded for \(streamKey) on attempt \(attempt) (\(data.count) bytes)")
-
-                // Try JSON extraction (when Accept: application/json triggers JSON response)
-                if let text = Self.extractLyricsFromJSON(data) {
-                    return text
-                }
-
-                // Try XML extraction (when format=xml is respected)
-                if let text = Self.extractLyricsFromXML(data) {
-                    return text
-                }
-
-                // Fall back to treating the response as raw text (plain LRC/TXT)
-                return String(data: data, encoding: .utf8)
-            } catch {
-                let errorString = "\(error)"
-                let isHTTP404 = errorString.contains("404")
-
-                EnsembleLogger.debug("Lyrics: fetch failed for \(streamKey) (attempt \(attempt)/\(maxAttempts)): \(error.localizedDescription) [is404=\(isHTTP404)]")
-
-                if isHTTP404 && attempt < maxAttempts {
-                    // Increasing delay between retries — gives PMS time to re-fetch from LyricFind
-                    let delaySeconds: UInt64 = attempt == 1 ? 2_000_000_000 : 3_000_000_000
-                    try? await Task.sleep(nanoseconds: delaySeconds)
-                    continue
-                }
-                return nil
+        do {
+            let data = try await serverRequest(path: streamKey, query: query)
+            if let text = Self.extractLyricsFromJSON(data) {
+                return text
             }
+            if let text = Self.extractLyricsFromXML(data) {
+                return text
+            }
+            return String(data: data, encoding: .utf8)
+        } catch {
+            EnsembleLogger.debug("Lyrics: content unavailable for \(streamKey): \(error.localizedDescription)")
+            return nil
         }
-        return nil
     }
 
     // MARK: - Lyrics Parsing Helpers
@@ -876,12 +851,6 @@ public actor PlexAPIClient {
             token: serverConnection.token,
             headerContext: requestHeaderContext
         ).makeRequest(method: "GET", path: path, query: query, accept: accept)
-
-        // Keep hot-path request logs URL-free so launch sync does not spend time redacting every line.
-        let isHTTPS = url.lowercased().hasPrefix("https://")
-        EnsembleLogger.debug(
-            "📡 Request: \(request.httpMethod ?? "GET") pathLength=\(path.count) queryItems=\(query.count) endpointHTTPS=\(isHTTPS)"
-        )
 
         let (data, _) = try await performRequest(request)
         return data

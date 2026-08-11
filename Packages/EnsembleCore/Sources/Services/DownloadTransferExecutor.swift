@@ -63,6 +63,30 @@ struct DownloadTransferExecutionError: Error {
     let attemptedDirectFallback: Bool
 }
 
+private actor DownloadPostCompletionQueue {
+    typealias Work = @MainActor @Sendable () async -> Void
+
+    private var pending: [Int: Work] = [:]
+    private var nextEnqueuedID = 0
+    private var nextWorkID = 0
+    private var workerTask: Task<Void, Never>?
+
+    func enqueue(_ work: @escaping Work) {
+        pending[nextEnqueuedID] = work
+        nextEnqueuedID += 1
+        guard workerTask == nil else { return }
+        workerTask = Task { await drain() }
+    }
+
+    private func drain() async {
+        while let work = pending.removeValue(forKey: nextWorkID) {
+            nextWorkID += 1
+            await work()
+        }
+        workerTask = nil
+    }
+}
+
 @MainActor
 final class DownloadTransferExecutor {
     struct Dependencies {
@@ -74,6 +98,7 @@ final class DownloadTransferExecutor {
         let fetchArtworkURL: (String, String, Int) async throws -> URL?
         let artworkDownloadManager: ArtworkDownloadManagerProtocol
         let fetchAndCacheLyrics: @Sendable (String, String?) async -> Void
+        let waitUntilPostCompletionWorkAllowed: () async -> Bool
         let enqueueSidecarAnalysis: (URL, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
         let isStillReferenced: (DownloadTransferContext) async -> Bool
@@ -82,6 +107,7 @@ final class DownloadTransferExecutor {
     }
 
     private let dependencies: Dependencies
+    private let postCompletionQueue = DownloadPostCompletionQueue()
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -327,19 +353,18 @@ final class DownloadTransferExecutor {
     }
 
     private func runPostCompletionWork(fileURL: URL, ctx: DownloadTransferContext) async {
-        await cacheArtworkForDownloadedTrack(ctx: ctx)
-
         let sidecarURL = fileURL.appendingPathExtension("freq")
         await dependencies.enqueueSidecarAnalysis(fileURL, sidecarURL)
-
-        let trackRatingKey = ctx.trackRatingKey
-        let sourceCompositeKey = ctx.sourceCompositeKey
-        let fetchAndCacheLyrics = dependencies.fetchAndCacheLyrics
-        Task(priority: .utility) {
-            await fetchAndCacheLyrics(trackRatingKey, sourceCompositeKey)
-        }
-
         dependencies.scheduleDownloadsChanged()
+
+        await postCompletionQueue.enqueue { @MainActor [weak self] in
+            guard let self,
+                  await self.dependencies.waitUntilPostCompletionWorkAllowed() else {
+                return
+            }
+            await self.cacheArtworkForDownloadedTrack(ctx: ctx)
+            await self.dependencies.fetchAndCacheLyrics(ctx.trackRatingKey, ctx.sourceCompositeKey)
+        }
     }
 
     /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
@@ -350,7 +375,9 @@ final class DownloadTransferExecutor {
         defer { dependencies.finishSourcePersistenceWork(persistenceWork) }
 
         var candidates: [(ratingKey: String, path: String)] = []
-        if let path = ctx.trackThumbPath, !path.isEmpty {
+        if let path = ctx.trackThumbPath,
+           !path.isEmpty,
+           path != ctx.albumThumbPath || ctx.albumRatingKey == nil {
             candidates.append((ctx.trackRatingKey, path))
         }
         if let albumRatingKey = ctx.albumRatingKey,

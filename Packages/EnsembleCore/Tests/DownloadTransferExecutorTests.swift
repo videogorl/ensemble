@@ -7,6 +7,24 @@ import XCTest
 
 @MainActor
 final class DownloadTransferExecutorTests: XCTestCase {
+    private actor PostCompletionProbe {
+        private var active = 0
+        private var maximumActive = 0
+        private var completed = 0
+
+        func run() async {
+            active += 1
+            maximumActive = max(maximumActive, active)
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            active -= 1
+            completed += 1
+        }
+
+        func snapshot() -> (maximumActive: Int, completed: Int) {
+            (maximumActive, completed)
+        }
+    }
+
     private final class DownloadManagerMock: DownloadManagerProtocol, @unchecked Sendable {
         struct CompletionCall {
             let downloadID: NSManagedObjectID
@@ -65,6 +83,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
         func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {
             cachedArtwork.append((url, ratingKey, type))
         }
+        func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws {
+            cachedArtwork.append((url, identity.ratingKey, identity.type))
+        }
         func deleteArtwork(ratingKey: String, type: ArtworkType) {}
         func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
         func clearArtworkCache() async throws {}
@@ -108,6 +129,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchAndCacheLyrics: { _, _ in
                     lyricsExpectation.fulfill()
                 },
+                waitUntilPostCompletionWorkAllowed: { true },
                 enqueueSidecarAnalysis: { sourceURL, sidecarURL in
                     sidecarPairs.append((sourceURL, sidecarURL))
                 },
@@ -168,6 +190,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchAndCacheLyrics: { _, _ in
                     lyricsExpectation.fulfill()
                 },
+                waitUntilPostCompletionWorkAllowed: { true },
                 enqueueSidecarAnalysis: { _, _ in },
                 scheduleDownloadsChanged: {},
                 isStillReferenced: { _ in true },
@@ -193,6 +216,104 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertEqual(downloadManager.completionCalls.count, 1)
         XCTAssertEqual(downloadManager.completionCalls.first?.quality, StreamingQuality.high.rawValue)
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
+    }
+
+    func testSharedAlbumArtworkIsCachedOnceUnderTheAlbumIdentity() async throws {
+        let downloadManager = DownloadManagerMock()
+        let artworkManager = ArtworkDownloadManagerMock()
+        let lyricsExpectation = expectation(description: "post-completion work finished")
+        let sharedArtworkPath = "/library/metadata/album/thumb"
+        let ctx = makeContext(
+            trackRatingKey: "artwork-track",
+            quality: "high",
+            trackThumbPath: sharedArtworkPath,
+            albumRatingKey: "album",
+            albumThumbPath: sharedArtworkPath
+        )
+        let payload = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
+
+        let executor = DownloadTransferExecutor(
+            dependencies: .init(
+                downloadManager: downloadManager,
+                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/unused.mp3")! },
+                fetchOfflineDownloadQueueMedia: { _, _ in (payload, "artwork-track.mp3", "audio/mpeg") },
+                shouldAttemptDirectFallback: { _, _ in false },
+                performDirectDownload: { _, _, _ in (URL(fileURLWithPath: "/tmp/unused"), URLResponse()) },
+                fetchArtworkURL: { _, _, _ in URL(string: "https://example.com/artwork.jpg") },
+                artworkDownloadManager: artworkManager,
+                fetchAndCacheLyrics: { _, _ in lyricsExpectation.fulfill() },
+                waitUntilPostCompletionWorkAllowed: { true },
+                enqueueSidecarAnalysis: { _, _ in },
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in true },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
+            )
+        )
+
+        _ = try await executor.execute(ctx: ctx, requestedQuality: .high)
+        await fulfillment(of: [lyricsExpectation], timeout: 1.0)
+
+        let destinationURL = DownloadTransferExecutor.localFileURL(
+            ratingKey: ctx.trackRatingKey,
+            safeSourceKey: ctx.safeSourceKey,
+            quality: .high,
+            suggestedFilename: "artwork-track.mp3",
+            mimeType: "audio/mpeg",
+            payload: payload
+        )
+        cleanupURLs.append(destinationURL)
+        XCTAssertEqual(artworkManager.cachedArtwork.map(\.ratingKey), ["album"])
+    }
+
+    func testPostCompletionMetadataWorkIsSerialized() async throws {
+        let probe = PostCompletionProbe()
+        let payload = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
+        let executor = DownloadTransferExecutor(
+            dependencies: .init(
+                downloadManager: DownloadManagerMock(),
+                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/unused.mp3")! },
+                fetchOfflineDownloadQueueMedia: { track, _ in
+                    (payload, "\(track.id).mp3", "audio/mpeg")
+                },
+                shouldAttemptDirectFallback: { _, _ in false },
+                performDirectDownload: { _, _, _ in (URL(fileURLWithPath: "/tmp/unused"), URLResponse()) },
+                fetchArtworkURL: { _, _, _ in nil },
+                artworkDownloadManager: ArtworkDownloadManagerMock(),
+                fetchAndCacheLyrics: { _, _ in await probe.run() },
+                waitUntilPostCompletionWorkAllowed: { true },
+                enqueueSidecarAnalysis: { _, _ in },
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in true },
+                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
+                finishSourcePersistenceWork: { _ in }
+            )
+        )
+
+        let contexts = ["serial-1", "serial-2"].map {
+            makeContext(trackRatingKey: $0, quality: "high")
+        }
+        for ctx in contexts {
+            _ = try await executor.execute(ctx: ctx, requestedQuality: .high)
+            cleanupURLs.append(
+                DownloadTransferExecutor.localFileURL(
+                    ratingKey: ctx.trackRatingKey,
+                    safeSourceKey: ctx.safeSourceKey,
+                    quality: .high,
+                    suggestedFilename: "\(ctx.trackRatingKey).mp3",
+                    mimeType: "audio/mpeg",
+                    payload: payload
+                )
+            )
+        }
+
+        for _ in 0..<20 {
+            if await probe.snapshot().completed == 2 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.completed, 2)
+        XCTAssertEqual(snapshot.maximumActive, 1)
     }
 
     func testExecuteFallsBackToDirectOriginalWhenQueueFails() async throws {
@@ -222,6 +343,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchAndCacheLyrics: { _, _ in
                     lyricsExpectation.fulfill()
                 },
+                waitUntilPostCompletionWorkAllowed: { true },
                 enqueueSidecarAnalysis: { _, _ in },
                 scheduleDownloadsChanged: {},
                 isStillReferenced: { _ in true },
@@ -273,6 +395,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchAndCacheLyrics: { _, _ in
                     XCTFail("Lyrics should not be fetched for an unreferenced download")
                 },
+                waitUntilPostCompletionWorkAllowed: { true },
                 enqueueSidecarAnalysis: { _, _ in
                     sidecarCount += 1
                 },
@@ -317,6 +440,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 fetchArtworkURL: { _, _, _ in nil },
                 artworkDownloadManager: ArtworkDownloadManagerMock(),
                 fetchAndCacheLyrics: { _, _ in },
+                waitUntilPostCompletionWorkAllowed: { true },
                 enqueueSidecarAnalysis: { _, _ in },
                 scheduleDownloadsChanged: {},
                 isStillReferenced: { _ in true },
@@ -337,7 +461,13 @@ final class DownloadTransferExecutorTests: XCTestCase {
         }
     }
 
-    private func makeContext(trackRatingKey: String, quality: String) -> DownloadTransferContext {
+    private func makeContext(
+        trackRatingKey: String,
+        quality: String,
+        trackThumbPath: String? = nil,
+        albumRatingKey: String? = nil,
+        albumThumbPath: String? = nil
+    ) -> DownloadTransferContext {
         let download = CDDownload(context: CoreDataStack.shared.viewContext)
         let objectID = download.objectID
         return DownloadTransferContext(
@@ -354,9 +484,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                 sourceCompositeKey: "library:account:server:source"
             ),
             safeSourceKey: "library_account_server_source",
-            trackThumbPath: nil,
-            albumRatingKey: nil,
-            albumThumbPath: nil
+            trackThumbPath: trackThumbPath,
+            albumRatingKey: albumRatingKey,
+            albumThumbPath: albumThumbPath
         )
     }
 

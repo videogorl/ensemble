@@ -374,7 +374,7 @@ private final class LogFileWriter: @unchecked Sendable {
             handle.write(data)
 
             self.writeCount += 1
-            if self.writeCount >= 50 {
+            if self.writeCount >= 250 {
                 handle.synchronizeFile()
                 self.writeCount = 0
             }

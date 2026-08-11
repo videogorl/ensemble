@@ -40,27 +40,11 @@ extension PlexAPIClient {
     /// Get a single track
     public func getTrack(trackKey: String) async throws -> PlexTrack? {
         let data = try await serverRequest(path: "/library/metadata/\(trackKey)")
-
-        EnsembleLogger.debug("🔍 Received track metadata payload for \(trackKey): \(data.count) bytes")
-
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,
             from: data
         )
-        let track = container.mediaContainer.items.first
-
-        if let track {
-            EnsembleLogger.debug("🔍 getTrack - media count: \(track.media?.count ?? 0)")
-            if let media = track.media?.first {
-                EnsembleLogger.debug("🔍 getTrack - part count: \(media.part?.count ?? 0)")
-                if let part = media.part?.first {
-                    EnsembleLogger.debug("🔍 getTrack - part key: \(part.key ?? "nil")")
-                    EnsembleLogger.debug("🔍 getTrack - part file: \(part.file ?? "nil")")
-                }
-            }
-        }
-
-        return track
+        return container.mediaContainer.items.first
     }
 
     /// Get multiple tracks in a single batch request

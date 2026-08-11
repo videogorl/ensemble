@@ -334,7 +334,9 @@ public actor PlexWebSocketManager {
                 // Library scan/refresh activities
                 if let activities = container.ActivityNotification {
                     for activity in activities {
-                        EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: activity event=\(activity.event ?? "nil") type=\(activity.Activity?.type ?? "nil") progress=\(activity.Activity?.progress ?? -1)")
+                        if activity.event != "updated" {
+                            EnsembleLogger.debug("🔌 WebSocket[\(serverName)]: activity event=\(activity.event ?? "nil") type=\(activity.Activity?.type ?? "nil") progress=\(activity.Activity?.progress ?? -1)")
+                        }
                         broadcast(.activityUpdate(
                             event: activity.event ?? "",
                             type: activity.Activity?.type ?? "",

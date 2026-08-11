@@ -34,13 +34,14 @@ final class EnsembleLoggerRedactionTests: XCTestCase {
     }
 
     func testRedactsPlexAndFilesystemPathMessages() {
-        let message = "Request path=/library/metadata/7551 file=/Users/test/Music/Secret Track.mp3"
+        let message = "Request path=/library/metadata/7551 file=/Users/test/Music/Secret Track.mp3 media=/media/server/Music/Secret.flac"
 
         let redacted = EnsembleLogRedactor.redactSensitiveValues(in: message)
 
         XCTAssertFalse(redacted.contains("/library/metadata/7551"))
         XCTAssertFalse(redacted.contains("/Users/test/Music/Secret"))
-        XCTAssertEqual(redacted, "Request path=<redacted-path> file=<redacted-path>")
+        XCTAssertFalse(redacted.contains("/media/server/Music/Secret.flac"))
+        XCTAssertEqual(redacted, "Request path=<redacted-path> file=<redacted-path> media=<redacted-path>")
     }
 
     func testFileLogHandlerReceivesRedactedMessage() {
