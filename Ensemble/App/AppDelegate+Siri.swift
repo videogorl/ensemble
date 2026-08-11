@@ -364,6 +364,7 @@ func executeSiriPlaybackInBackground(
         // but harmless and safe for the cold-launch race).
         DependencyContainer.shared.accountManager.loadAccounts()
         DependencyContainer.shared.serverHealthChecker.prepopulateUnknownStates()
+        let sc = DependencyContainer.shared.syncCoordinator
 
         // Await the early health check task from didFinishLaunching instead of
         // running a separate set of health checks. This avoids redundant work
@@ -391,14 +392,13 @@ func executeSiriPlaybackInBackground(
                 if nm.networkState != .unknown { break }
                 try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
             }
-            await shc.checkAllServers()
+            await sc.refreshServerHealthStates()
             let postFallback = shc.serverStates.map { "\($0.key.suffix(8)):\($0.value.isAvailable ? "up" : "down")" }.joined(separator: ",")
             AppLogger.info("SIRI_APP: [origin=\(origin)] Post-fallback serverStates: [\(postFallback)]")
         }
 
         // Build sync providers (needed for stream URL resolution) and update
         // API client connections from the registry endpoints.
-        let sc = DependencyContainer.shared.syncCoordinator
         sc.refreshProviders()
         await sc.refreshAPIClientConnections()
         AppLogger.info("SIRI_APP: [origin=\(origin)] Server connectivity ready")

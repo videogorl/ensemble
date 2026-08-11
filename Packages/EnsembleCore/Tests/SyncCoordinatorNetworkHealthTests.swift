@@ -369,7 +369,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         XCTAssertEqual(healthRefreshCount, 0)
     }
 
-    func testConcurrentTransitionEventsCoalesceToSingleHealthRefreshTask() async {
+    func testInterfaceSwitchQueuesFollowupAfterReconnectHealthRefresh() async {
         let (coordinator, _) = makeCoordinator()
         var now = Date(timeIntervalSince1970: 50_000)
         coordinator.nowProviderForTesting = { now }
@@ -388,7 +388,7 @@ final class SyncCoordinatorNetworkHealthTests: XCTestCase {
         await coordinator.handleObservedNetworkStateForTesting(.online(.cellular))
         await coordinator.awaitHealthRefreshForTesting()
 
-        XCTAssertEqual(startedCount, 1)
+        XCTAssertEqual(startedCount, 2)
     }
 
     func testStartupHealthChecksCoalesceWithForegroundRefresh() async {

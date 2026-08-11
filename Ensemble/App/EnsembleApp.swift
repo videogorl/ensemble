@@ -315,6 +315,7 @@ struct EnsembleApp: App {
         Task { @MainActor in
             switch phase {
             case .active:
+                let isInitialActivation = !hasStartedPlaybackRestore
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(true)
                 // Start persistent log session on first activation (macOS)
                 startPersistentLogSessionIfNeeded()
@@ -323,8 +324,12 @@ struct EnsembleApp: App {
                 DependencyContainer.shared.networkMonitor.startMonitoring()
                 DependencyContainer.shared.webSocketCoordinator.start()
                 DependencyContainer.shared.offlineBackgroundExecutionCoordinator.register()
-                await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
-                await DependencyContainer.shared.reconcileSyncOnForeground()
+                if isInitialActivation {
+                    AppLogger.debug("💻 EnsembleApp: Initial active phase — skipping foreground freshness before cold-launch health checks")
+                } else {
+                    await DependencyContainer.shared.syncCoordinator.handleAppWillEnterForeground()
+                    await DependencyContainer.shared.reconcileSyncOnForeground()
+                }
 
                 // Start periodic sync timer
                 DependencyContainer.shared.syncCoordinator.startPeriodicSync()
@@ -333,7 +338,7 @@ struct EnsembleApp: App {
                 // so we need to mirror the iPhone launch sequence here once:
                 // load accounts/providers, run health checks, then restore the
                 // persisted queue/current track before the first startup sync.
-                if !hasStartedPlaybackRestore {
+                if isInitialActivation {
                     hasStartedPlaybackRestore = true
 
                     Task.detached(priority: .utility) {
