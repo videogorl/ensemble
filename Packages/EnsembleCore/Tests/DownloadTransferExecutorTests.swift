@@ -7,10 +7,10 @@ import XCTest
 
 @MainActor
 final class DownloadTransferExecutorTests: XCTestCase {
-    private actor PostCompletionProbe {
+    private actor ArtifactProbe {
         private var active = 0
-        private var maximumActive = 0
         private var completed = 0
+        private var maximumActive = 0
 
         func run() async {
             active += 1
@@ -20,8 +20,8 @@ final class DownloadTransferExecutorTests: XCTestCase {
             completed += 1
         }
 
-        func snapshot() -> (maximumActive: Int, completed: Int) {
-            (maximumActive, completed)
+        func snapshot() -> (completed: Int, maximumActive: Int) {
+            (completed, maximumActive)
         }
     }
 
@@ -74,24 +74,6 @@ final class DownloadTransferExecutorTests: XCTestCase {
         func deleteAllDownloads() async throws {}
     }
 
-    private final class ArtworkDownloadManagerMock: ArtworkDownloadManagerProtocol, @unchecked Sendable {
-        var cachedArtwork: [(url: URL, ratingKey: String, type: ArtworkType)] = []
-
-        func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { nil }
-        func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { nil }
-        func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { nil }
-        func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {
-            cachedArtwork.append((url, ratingKey, type))
-        }
-        func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws {
-            cachedArtwork.append((url, identity.ratingKey, identity.type))
-        }
-        func deleteArtwork(ratingKey: String, type: ArtworkType) {}
-        func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {}
-        func clearArtworkCache() async throws {}
-        func getArtworkCacheSize() async throws -> Int64 { 0 }
-    }
-
     private var cleanupURLs: [URL] = []
 
     override func tearDown() {
@@ -102,13 +84,30 @@ final class DownloadTransferExecutorTests: XCTestCase {
         super.tearDown()
     }
 
+    func testArtifactQueueDeduplicatesAndSerializesWork() async {
+        let queue = DownloadArtifactQueue()
+        let probe = ArtifactProbe()
+
+        await queue.enqueue(key: "same") { await probe.run() }
+        await queue.enqueue(key: "same") { await probe.run() }
+        await queue.enqueue(key: "other") { await probe.run() }
+
+        for _ in 0..<20 {
+            if await probe.snapshot().completed == 2 { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        let snapshot = await probe.snapshot()
+        XCTAssertEqual(snapshot.completed, 2)
+        XCTAssertEqual(snapshot.maximumActive, 1)
+    }
+
     func testExecuteDirectOriginalCompletesAndRunsPostCompletionWork() async throws {
         let downloadManager = DownloadManagerMock()
-        let artworkManager = ArtworkDownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "direct-track", quality: "original")
         let response = makeHTTPResponse(url: URL(string: "https://example.com/direct-track.mp3")!, mimeType: "audio/mpeg")
-        let lyricsExpectation = expectation(description: "lyrics fetched")
-        var sidecarPairs: [(URL, URL)] = []
+        let completionExpectation = expectation(description: "completion observed")
+        var completedFileURL: URL?
         var notificationCount = 0
 
         let executor = DownloadTransferExecutor(
@@ -124,26 +123,20 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     let tempURL = try self.writeTemporaryFile(named: "direct-track.tmp", data: Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00]))
                     return (tempURL, response)
                 },
-                fetchArtworkURL: { _, _, _ in nil },
-                artworkDownloadManager: artworkManager,
-                fetchAndCacheLyrics: { _, _ in
-                    lyricsExpectation.fulfill()
-                },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { sourceURL, sidecarURL in
-                    sidecarPairs.append((sourceURL, sidecarURL))
+                didComplete: { completedContext, fileURL in
+                    XCTAssertEqual(completedContext.trackRatingKey, ctx.trackRatingKey)
+                    completedFileURL = fileURL
+                    completionExpectation.fulfill()
                 },
                 scheduleDownloadsChanged: {
                     notificationCount += 1
                 },
-                isStillReferenced: { _ in true },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
+                isStillReferenced: { _ in true }
             )
         )
 
         let result = try await executor.execute(ctx: ctx, requestedQuality: .original)
-        await fulfillment(of: [lyricsExpectation], timeout: 1.0)
+        await fulfillment(of: [completionExpectation], timeout: 1.0)
 
         let destinationURL = DownloadTransferExecutor.localFileURL(
             ratingKey: ctx.trackRatingKey,
@@ -157,17 +150,14 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertEqual(downloadManager.completionCalls.count, 1)
         XCTAssertEqual(downloadManager.completionCalls.first?.quality, StreamingQuality.original.rawValue)
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
-        XCTAssertEqual(sidecarPairs.count, 1)
-        XCTAssertEqual(sidecarPairs.first?.0, destinationURL)
-        XCTAssertEqual(sidecarPairs.first?.1, destinationURL.appendingPathExtension("freq"))
+        XCTAssertEqual(completedFileURL, destinationURL)
         XCTAssertEqual(notificationCount, 1)
-        XCTAssertTrue(artworkManager.cachedArtwork.isEmpty)
     }
 
     func testExecuteDownloadQueueSuccessPersistsRequestedQuality() async throws {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "queue-track", quality: "high")
-        let lyricsExpectation = expectation(description: "lyrics fetched")
+        let completionExpectation = expectation(description: "completion observed")
         let payload = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
 
         let executor = DownloadTransferExecutor(
@@ -185,22 +175,14 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     XCTFail("Direct download should not be called")
                     return (URL(fileURLWithPath: "/tmp/unused"), URLResponse())
                 },
-                fetchArtworkURL: { _, _, _ in nil },
-                artworkDownloadManager: ArtworkDownloadManagerMock(),
-                fetchAndCacheLyrics: { _, _ in
-                    lyricsExpectation.fulfill()
-                },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { _, _ in },
+                didComplete: { _, _ in completionExpectation.fulfill() },
                 scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
+                isStillReferenced: { _ in true }
             )
         )
 
         let result = try await executor.execute(ctx: ctx, requestedQuality: .high)
-        await fulfillment(of: [lyricsExpectation], timeout: 1.0)
+        await fulfillment(of: [completionExpectation], timeout: 1.0)
 
         let destinationURL = DownloadTransferExecutor.localFileURL(
             ratingKey: ctx.trackRatingKey,
@@ -218,109 +200,11 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
     }
 
-    func testSharedAlbumArtworkIsCachedOnceUnderTheAlbumIdentity() async throws {
-        let downloadManager = DownloadManagerMock()
-        let artworkManager = ArtworkDownloadManagerMock()
-        let lyricsExpectation = expectation(description: "post-completion work finished")
-        let sharedArtworkPath = "/library/metadata/album/thumb"
-        let ctx = makeContext(
-            trackRatingKey: "artwork-track",
-            quality: "high",
-            trackThumbPath: sharedArtworkPath,
-            albumRatingKey: "album",
-            albumThumbPath: sharedArtworkPath
-        )
-        let payload = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
-
-        let executor = DownloadTransferExecutor(
-            dependencies: .init(
-                downloadManager: downloadManager,
-                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/unused.mp3")! },
-                fetchOfflineDownloadQueueMedia: { _, _ in (payload, "artwork-track.mp3", "audio/mpeg") },
-                shouldAttemptDirectFallback: { _, _ in false },
-                performDirectDownload: { _, _, _ in (URL(fileURLWithPath: "/tmp/unused"), URLResponse()) },
-                fetchArtworkURL: { _, _, _ in URL(string: "https://example.com/artwork.jpg") },
-                artworkDownloadManager: artworkManager,
-                fetchAndCacheLyrics: { _, _ in lyricsExpectation.fulfill() },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { _, _ in },
-                scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
-            )
-        )
-
-        _ = try await executor.execute(ctx: ctx, requestedQuality: .high)
-        await fulfillment(of: [lyricsExpectation], timeout: 1.0)
-
-        let destinationURL = DownloadTransferExecutor.localFileURL(
-            ratingKey: ctx.trackRatingKey,
-            safeSourceKey: ctx.safeSourceKey,
-            quality: .high,
-            suggestedFilename: "artwork-track.mp3",
-            mimeType: "audio/mpeg",
-            payload: payload
-        )
-        cleanupURLs.append(destinationURL)
-        XCTAssertEqual(artworkManager.cachedArtwork.map(\.ratingKey), ["album"])
-    }
-
-    func testPostCompletionMetadataWorkIsSerialized() async throws {
-        let probe = PostCompletionProbe()
-        let payload = Data([0x49, 0x44, 0x33, 0x03, 0x00, 0x00])
-        let executor = DownloadTransferExecutor(
-            dependencies: .init(
-                downloadManager: DownloadManagerMock(),
-                fetchDirectDownloadURL: { _, _ in URL(string: "https://example.com/unused.mp3")! },
-                fetchOfflineDownloadQueueMedia: { track, _ in
-                    (payload, "\(track.id).mp3", "audio/mpeg")
-                },
-                shouldAttemptDirectFallback: { _, _ in false },
-                performDirectDownload: { _, _, _ in (URL(fileURLWithPath: "/tmp/unused"), URLResponse()) },
-                fetchArtworkURL: { _, _, _ in nil },
-                artworkDownloadManager: ArtworkDownloadManagerMock(),
-                fetchAndCacheLyrics: { _, _ in await probe.run() },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { _, _ in },
-                scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
-            )
-        )
-
-        let contexts = ["serial-1", "serial-2"].map {
-            makeContext(trackRatingKey: $0, quality: "high")
-        }
-        for ctx in contexts {
-            _ = try await executor.execute(ctx: ctx, requestedQuality: .high)
-            cleanupURLs.append(
-                DownloadTransferExecutor.localFileURL(
-                    ratingKey: ctx.trackRatingKey,
-                    safeSourceKey: ctx.safeSourceKey,
-                    quality: .high,
-                    suggestedFilename: "\(ctx.trackRatingKey).mp3",
-                    mimeType: "audio/mpeg",
-                    payload: payload
-                )
-            )
-        }
-
-        for _ in 0..<20 {
-            if await probe.snapshot().completed == 2 { break }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        let snapshot = await probe.snapshot()
-        XCTAssertEqual(snapshot.completed, 2)
-        XCTAssertEqual(snapshot.maximumActive, 1)
-    }
-
     func testExecuteFallsBackToDirectOriginalWhenQueueFails() async throws {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "fallback-track", quality: "medium")
         let response = makeHTTPResponse(url: URL(string: "https://example.com/fallback-track.mp3")!, mimeType: "audio/mpeg")
-        let lyricsExpectation = expectation(description: "lyrics fetched")
+        let completionExpectation = expectation(description: "completion observed")
         var fallbackDecisionCalls = 0
 
         let executor = DownloadTransferExecutor(
@@ -338,22 +222,14 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     let tempURL = try self.writeTemporaryFile(named: "fallback-track.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
                     return (tempURL, response)
                 },
-                fetchArtworkURL: { _, _, _ in nil },
-                artworkDownloadManager: ArtworkDownloadManagerMock(),
-                fetchAndCacheLyrics: { _, _ in
-                    lyricsExpectation.fulfill()
-                },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { _, _ in },
+                didComplete: { _, _ in completionExpectation.fulfill() },
                 scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
+                isStillReferenced: { _ in true }
             )
         )
 
         let result = try await executor.execute(ctx: ctx, requestedQuality: .medium)
-        await fulfillment(of: [lyricsExpectation], timeout: 1.0)
+        await fulfillment(of: [completionExpectation], timeout: 1.0)
 
         let destinationURL = DownloadTransferExecutor.localFileURL(
             ratingKey: ctx.trackRatingKey,
@@ -374,7 +250,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "removed-target", quality: "original")
         let response = makeHTTPResponse(url: URL(string: "https://example.com/removed-target.mp3")!, mimeType: "audio/mpeg")
-        var sidecarCount = 0
+        var completionCount = 0
         var notificationCount = 0
 
         let executor = DownloadTransferExecutor(
@@ -390,21 +266,11 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     let tempURL = try self.writeTemporaryFile(named: "removed-target.tmp", data: Data([0x49, 0x44, 0x33, 0x04]))
                     return (tempURL, response)
                 },
-                fetchArtworkURL: { _, _, _ in nil },
-                artworkDownloadManager: ArtworkDownloadManagerMock(),
-                fetchAndCacheLyrics: { _, _ in
-                    XCTFail("Lyrics should not be fetched for an unreferenced download")
-                },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { _, _ in
-                    sidecarCount += 1
-                },
+                didComplete: { _, _ in completionCount += 1 },
                 scheduleDownloadsChanged: {
                     notificationCount += 1
                 },
-                isStillReferenced: { _ in false },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
+                isStillReferenced: { _ in false }
             )
         )
 
@@ -421,7 +287,7 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertFalse(result.persisted)
         XCTAssertTrue(downloadManager.completionCalls.isEmpty)
         XCTAssertFalse(FileManager.default.fileExists(atPath: destinationURL.path))
-        XCTAssertEqual(sidecarCount, 0)
+        XCTAssertEqual(completionCount, 0)
         XCTAssertEqual(notificationCount, 0)
     }
 
@@ -437,15 +303,9 @@ final class DownloadTransferExecutorTests: XCTestCase {
                     XCTFail("Direct download should not be attempted")
                     return (URL(fileURLWithPath: "/tmp/unused"), URLResponse())
                 },
-                fetchArtworkURL: { _, _, _ in nil },
-                artworkDownloadManager: ArtworkDownloadManagerMock(),
-                fetchAndCacheLyrics: { _, _ in },
-                waitUntilPostCompletionWorkAllowed: { true },
-                enqueueSidecarAnalysis: { _, _ in },
+                didComplete: { _, _ in },
                 scheduleDownloadsChanged: {},
-                isStillReferenced: { _ in true },
-                beginSourcePersistenceWork: { _ in SourcePersistenceWorkHandle(leases: []) },
-                finishSourcePersistenceWork: { _ in }
+                isStillReferenced: { _ in true }
             )
         )
 

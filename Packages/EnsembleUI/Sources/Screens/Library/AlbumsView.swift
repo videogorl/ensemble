@@ -314,13 +314,7 @@ public struct AlbumDetailView: View {
             albumMenuActions: AlbumDetailMenuActions(
                 downloadAvailability: resolvedDownloadMenuAvailability(
                     isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled(album),
-                    sourceAvailability: album.actionAvailability(
-                        for: .download,
-                        downloadStatus: DownloadCapabilityPolicy.status(
-                            for: album.sourceCompositeKey,
-                            accountManager: deps.accountManager
-                        )
-                    )
+                    sourceAvailability: album.actionAvailability(for: .download)
                 ),
                 editMetadataAvailability: album.actionAvailability(for: .editMetadata),
                 deleteAvailability: album.actionAvailability(for: .delete),

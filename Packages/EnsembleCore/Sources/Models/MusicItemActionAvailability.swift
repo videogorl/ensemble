@@ -107,8 +107,7 @@ extension MusicItemActionCapabilities {
 public extension Track {
     func actionAvailability(
         for action: MusicItemAction,
-        isFavorited: Bool? = nil,
-        downloadStatus: DownloadCapabilityStatus = .unknown
+        isFavorited: Bool? = nil
     ) -> MusicItemActionAvailability {
         if let availability = actionCapabilities?.availability(for: action) {
             return availability
@@ -123,7 +122,6 @@ public extension Track {
         case .download:
             return sourceActionAvailability(
                 isSupported: sourceCapabilities.supportsOfflineDownloads,
-                status: downloadStatus,
                 unavailableReason: "\(sourceCapabilities.displayName) tracks cannot be downloaded in Ensemble."
             )
         case .favorite:
@@ -151,10 +149,7 @@ public extension Track {
 }
 
 public extension Album {
-    func actionAvailability(
-        for action: MusicItemAction,
-        downloadStatus: DownloadCapabilityStatus = .unknown
-    ) -> MusicItemActionAvailability {
+    func actionAvailability(for action: MusicItemAction) -> MusicItemActionAvailability {
         if let availability = actionCapabilities?.availability(for: action) {
             return availability
         }
@@ -165,7 +160,6 @@ public extension Album {
         case .download:
             return sourceActionAvailability(
                 isSupported: capabilities.supportsOfflineDownloads,
-                status: downloadStatus,
                 unavailableReason: "\(capabilities.displayName) albums cannot be downloaded in Ensemble."
             )
         case .editMetadata:
@@ -185,10 +179,7 @@ public extension Album {
 }
 
 public extension Artist {
-    func actionAvailability(
-        for action: MusicItemAction,
-        downloadStatus: DownloadCapabilityStatus = .unknown
-    ) -> MusicItemActionAvailability {
+    func actionAvailability(for action: MusicItemAction) -> MusicItemActionAvailability {
         if let availability = actionCapabilities?.availability(for: action) {
             return availability
         }
@@ -199,7 +190,6 @@ public extension Artist {
         case .download:
             return sourceActionAvailability(
                 isSupported: capabilities.supportsOfflineDownloads,
-                status: downloadStatus,
                 unavailableReason: "\(capabilities.displayName) artists cannot be downloaded in Ensemble."
             )
         case .editMetadata:
@@ -215,10 +205,7 @@ public extension Artist {
 }
 
 public extension Playlist {
-    func actionAvailability(
-        for action: MusicItemAction,
-        downloadStatus: DownloadCapabilityStatus = .unknown
-    ) -> MusicItemActionAvailability {
+    func actionAvailability(for action: MusicItemAction) -> MusicItemActionAvailability {
         guard let sourceCapabilities else { return unknownSourceAvailability }
         switch action {
         case .addItems:
@@ -244,7 +231,6 @@ public extension Playlist {
         case .download:
             return sourceActionAvailability(
                 isSupported: sourceCapabilities.supportsOfflineDownloads,
-                status: downloadStatus,
                 unavailableReason: "\(sourceCapabilities.displayName) playlists cannot be downloaded in Ensemble."
             )
         case .favorite, .editMetadata:
@@ -326,10 +312,9 @@ private func libraryCapabilities(for sourceCompositeKey: String?) -> MusicSource
 
 private func sourceActionAvailability(
     isSupported: Bool,
-    status: DownloadCapabilityStatus,
     unavailableReason: String
 ) -> MusicItemActionAvailability {
-    guard isSupported, status != .unavailable else {
+    guard isSupported else {
         return .unavailable(reason: unavailableReason)
     }
     return .available

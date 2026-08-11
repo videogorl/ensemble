@@ -3,6 +3,26 @@ import XCTest
 
 final class LRCParserTests: XCTestCase {
 
+    func testPersistentLyricsOutcomesRoundTrip() throws {
+        for outcome in [
+            LyricsService.PersistentLyricsOutcome.content("[00:01.00]Line"),
+            .unavailable
+        ] {
+            let data = try JSONEncoder().encode(outcome)
+            XCTAssertEqual(
+                try JSONDecoder().decode(LyricsService.PersistentLyricsOutcome.self, from: data),
+                outcome
+            )
+        }
+    }
+
+    func testResolvedArtifactStateRequiresMatchingTrackSignature() {
+        let state = LyricsService.PersistentLyricsArtifactState(trackDateModified: 123)
+
+        XCTAssertTrue(state.matches(Date(timeIntervalSince1970: 123)))
+        XCTAssertFalse(state.matches(Date(timeIntervalSince1970: 124)))
+    }
+
     // MARK: - LRC Parsing
 
     func testParsesBasicTimedLines() {

@@ -962,13 +962,7 @@ public struct PlaylistDetailView: View {
                     playlistMenuActions: PlaylistDetailMenuActions(
                         downloadAvailability: resolvedDownloadMenuAvailability(
                             isDownloaded: isDownloaded,
-                            sourceAvailability: viewModel.playlist.actionAvailability(
-                                for: .download,
-                                downloadStatus: DownloadCapabilityPolicy.status(
-                                    for: viewModel.playlist.sourceCompositeKey,
-                                    accountManager: deps.accountManager
-                                )
-                            )
+                            sourceAvailability: viewModel.playlist.actionAvailability(for: .download)
                         ),
                         isDownloaded: isDownloaded,
                         renameAvailability: viewModel.playlist.actionAvailability(for: .rename),

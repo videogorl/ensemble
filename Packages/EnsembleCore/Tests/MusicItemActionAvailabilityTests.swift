@@ -132,7 +132,7 @@ final class MusicItemActionAvailabilityTests: XCTestCase {
         )
     }
 
-    func testDownloadAvailabilityCombinesProviderAndLibraryState() {
+    func testDownloadAvailabilityUsesProviderCapability() {
         let appleAlbum = Album(
             id: "apple-album",
             key: "apple-album",
@@ -147,17 +147,10 @@ final class MusicItemActionAvailabilityTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            appleAlbum.actionAvailability(for: .download, downloadStatus: .unknown),
+            appleAlbum.actionAvailability(for: .download),
             .unavailable(reason: "Apple Music albums cannot be downloaded in Ensemble.")
         )
-        XCTAssertEqual(
-            plexAlbum.actionAvailability(for: .download, downloadStatus: .unavailable),
-            .unavailable(reason: "Plex albums cannot be downloaded in Ensemble.")
-        )
-        XCTAssertEqual(
-            plexAlbum.actionAvailability(for: .download, downloadStatus: .unknown),
-            .available
-        )
+        XCTAssertEqual(plexAlbum.actionAvailability(for: .download), .available)
     }
 
     func testUnknownAndMalformedSourcesNeverInheritPlexActions() {

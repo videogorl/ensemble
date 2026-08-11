@@ -303,14 +303,10 @@ public final class DependencyContainer: @unchecked Sendable {
                 return try await manager.getArtworkCacheFileCount()
             },
             clearLyricsCache: { [lyricsService = playback.lyricsService] sourceKey in
-                await MainActor.run {
-                    lyricsService.clearCache(forSourceCompositeKey: sourceKey)
-                }
+                await lyricsService.clearCache(forSourceCompositeKey: sourceKey)
             },
             clearAllLyricsCaches: { [lyricsService = playback.lyricsService] in
-                await MainActor.run {
-                    lyricsService.clearAllCaches()
-                }
+                await lyricsService.clearAllCaches()
             },
             clearSharedArtworkCaches: { [weak artworkLoader = playback.artworkLoader as? ArtworkLoader] in
                 try await artworkLoader?.resetTransientCaches()
@@ -605,7 +601,7 @@ public final class DependencyContainer: @unchecked Sendable {
                     network.accountManager.makeAPIClient(accountId: accountId, serverId: serverId)
                 },
                 clearLyricsCache: { ratingKey, sourceCompositeKey in
-                    playback.lyricsService.clearCache(
+                    await playback.lyricsService.clearCache(
                         forTrackRatingKey: ratingKey,
                         sourceCompositeKey: sourceCompositeKey
                     )

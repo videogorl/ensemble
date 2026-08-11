@@ -648,13 +648,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
                     let availability = resolvedDownloadMenuAvailability(
                         isDownloaded: isDownloaded,
-                        sourceAvailability: album.actionAvailability(
-                            for: .download,
-                            downloadStatus: DownloadCapabilityPolicy.status(
-                                for: sourceKey,
-                                accountManager: deps.accountManager
-                            )
-                        )
+                        sourceAvailability: album.actionAvailability(for: .download)
                     )
                     Button {
                         Task {
@@ -679,13 +673,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
                     let availability = resolvedDownloadMenuAvailability(
                         isDownloaded: isDownloaded,
-                        sourceAvailability: artist.actionAvailability(
-                            for: .download,
-                            downloadStatus: DownloadCapabilityPolicy.status(
-                                for: sourceKey,
-                                accountManager: deps.accountManager
-                            )
-                        )
+                        sourceAvailability: artist.actionAvailability(for: .download)
                     )
                     Button {
                         Task {
@@ -713,14 +701,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     let availability = playlistMenuActions?.downloadAvailability
                         ?? resolvedDownloadMenuAvailability(
                             isDownloaded: isDownloaded,
-                            sourceAvailability: playlist.actionAvailability(
-                                for: .download,
-                                downloadStatus: DownloadCapabilityPolicy.status(
-                                    for: sourceKey,
-                                    accountManager: deps.accountManager
-                                )
-                            )
-                    )
+                            sourceAvailability: playlist.actionAvailability(for: .download)
+                        )
                     Button {
                         if let playlistMenuActions {
                             playlistMenuActions.onToggleDownload()

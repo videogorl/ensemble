@@ -173,13 +173,9 @@ struct AlbumActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-        let downloadStatus = DownloadCapabilityPolicy.status(
-            for: album.sourceCompositeKey,
-            accountManager: deps.accountManager
-        )
         let downloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
-            sourceAvailability: album.actionAvailability(for: .download, downloadStatus: downloadStatus)
+            sourceAvailability: album.actionAvailability(for: .download)
         )
         let editAvailability = album.actionAvailability(for: .editMetadata)
         let deleteAvailability = album.actionAvailability(for: .delete)
@@ -382,13 +378,9 @@ struct ArtistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-        let downloadStatus = DownloadCapabilityPolicy.status(
-            for: artist.sourceCompositeKey,
-            accountManager: deps.accountManager
-        )
         let downloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
-            sourceAvailability: artist.actionAvailability(for: .download, downloadStatus: downloadStatus)
+            sourceAvailability: artist.actionAvailability(for: .download)
         )
         let editAvailability = artist.actionAvailability(for: .editMetadata)
         let isPinned = pinManager.isPinned(id: artist.id, sourceKey: artist.sourceCompositeKey ?? "")
@@ -514,13 +506,9 @@ struct PlaylistActionsContextMenu: View {
 
     var body: some View {
         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-        let downloadStatus = DownloadCapabilityPolicy.status(
-            for: playlist.sourceCompositeKey,
-            accountManager: deps.accountManager
-        )
         let downloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
-            sourceAvailability: playlist.actionAvailability(for: .download, downloadStatus: downloadStatus)
+            sourceAvailability: playlist.actionAvailability(for: .download)
         )
         let renameAvailability = playlist.actionAvailability(for: .rename)
         let reorderAvailability = playlist.actionAvailability(for: .reorder)
@@ -654,22 +642,11 @@ struct MergedPlaylistActionsContextMenu: View {
 
     var body: some View {
         let downloadablePlaylists = displayPlaylist.playlists.filter { playlist in
-            let downloadStatus = DownloadCapabilityPolicy.status(
-                for: playlist.sourceCompositeKey,
-                accountManager: deps.accountManager
-            )
-            return playlist.actionAvailability(
-                for: .download,
-                downloadStatus: downloadStatus
-            ).isAvailable
+            playlist.actionAvailability(for: .download).isAvailable
         }
         let downloadAvailability = MusicItemActionAvailability.combined(
             displayPlaylist.playlists.map { playlist in
-                let status = DownloadCapabilityPolicy.status(
-                    for: playlist.sourceCompositeKey,
-                    accountManager: deps.accountManager
-                )
-                return playlist.actionAvailability(for: .download, downloadStatus: status)
+                playlist.actionAvailability(for: .download)
             }
         )
         let renameAvailability = MusicItemActionAvailability.combined(

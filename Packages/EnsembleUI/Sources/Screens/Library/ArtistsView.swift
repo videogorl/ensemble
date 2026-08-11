@@ -744,10 +744,7 @@ public struct ArtistDetailView: View {
     private var artistPinMenuButton: some View {
         let isPinned = isArtistPinned
         let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
-        let canDownload = DownloadCapabilityPolicy.canAttemptDownload(
-            for: viewModel.artist.sourceCompositeKey,
-            accountManager: dependencies.accountManager
-        )
+        let canDownload = viewModel.artist.actionAvailability(for: .download).isAvailable
         let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
             Button {
@@ -1544,10 +1541,7 @@ public struct ArtistDetailView: View {
     }
 
     private func canDownload(_ artist: Artist) -> Bool {
-        DownloadCapabilityPolicy.canAttemptDownload(
-            for: artist.sourceCompositeKey,
-            accountManager: dependencies.accountManager
-        )
+        artist.actionAvailability(for: .download).isAvailable
     }
 
     private func sourceFavoritedTracksSection(

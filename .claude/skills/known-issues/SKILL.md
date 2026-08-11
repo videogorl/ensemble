@@ -79,7 +79,7 @@ No unresolved critical issues are currently documented.
 
 - **Area:** `LyricsService`, `PlexAPIClient.getLyricsContent(streamKey:)`
 - **Status:** Some tracks report a lyrics stream in metadata but `/library/streams/{streamKey}` returns 404.
-- **Rule:** Treat persistent 404s as server-side absence. Keep retry/negative-cache behavior defensive and user-facing state non-crashing.
+- **Rule:** Treat confirmed 404s as signature-scoped server absence and persist the unavailable outcome. Retry only after an explicit user retry or stream/track signature change; keep transport and 5xx failures retryable.
 
 ### Background Downloads Are Best-Effort
 

@@ -1605,7 +1605,7 @@ final class EnsembleUITests: XCTestCase {
 
     func testDetailMenuKeepsUnknownDownloadVisibleButUnavailable() {
         let album = Album(id: "legacy", key: "/album/legacy", title: "Legacy")
-        let availability = album.actionAvailability(for: .download, downloadStatus: .unknown)
+        let availability = album.actionAvailability(for: .download)
 
         XCTAssertEqual(
             resolvedDownloadMenuAvailability(

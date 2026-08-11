@@ -175,6 +175,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Serializes post-download frequency analysis so only one FFT runs at a time.
     /// Supports suspend/resume for app lifecycle and priority bumping for the playing track.
     private let sidecarAnalysisQueue: SidecarAnalysisQueue
+    private let artifactQueue = DownloadArtifactQueue()
     private var isUserPaused = false
     private var isLowPowerSuspended = false
     private var isAppInBackground = false
@@ -264,28 +265,8 @@ public final class OfflineDownloadService: ObservableObject {
                     downloadManager: downloadManager
                 )
             },
-            fetchArtworkURL: { [syncCoordinator] path, sourceKey, size in
-                try await syncCoordinator.getArtworkURL(path: path, sourceKey: sourceKey, size: size)
-            },
-            artworkDownloadManager: artworkDownloadManager,
-            fetchAndCacheLyrics: { [lyricsService] trackRatingKey, sourceCompositeKey in
-                await lyricsService.fetchAndCacheLyrics(
-                    trackRatingKey: trackRatingKey,
-                    sourceCompositeKey: sourceCompositeKey
-                )
-            },
-            waitUntilPostCompletionWorkAllowed: { [weak self] in
-                while !Task.isCancelled {
-                    guard let foregroundWorkScheduler = self?.foregroundWorkScheduler else { return true }
-                    if await foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly) {
-                        return true
-                    }
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-                return false
-            },
-            enqueueSidecarAnalysis: { [sidecarAnalysisQueue] sourceURL, sidecarURL in
-                await sidecarAnalysisQueue.enqueue(sourceURL: sourceURL, sidecarURL: sidecarURL)
+            didComplete: { [weak self] ctx, fileURL in
+                await self?.enqueueArtifactReconciliation(ctx: ctx, fileURL: fileURL)
             },
             scheduleDownloadsChanged: { [weak self] in
                 self?.notificationBridge.scheduleDownloadsChanged()
@@ -297,12 +278,6 @@ public final class OfflineDownloadService: ObservableObject {
                     trackSourceCompositeKey: ctx.sourceCompositeKey
                 )
                 return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
-            },
-            beginSourcePersistenceWork: { [syncCoordinator] sourceKey in
-                syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceKey)
-            },
-            finishSourcePersistenceWork: { [syncCoordinator] work in
-                syncCoordinator.finishSourcePersistenceWork(work)
             }
         )
     )
@@ -1182,6 +1157,139 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    private func enqueueArtifactReconciliation(
+        ctx: DownloadTransferContext,
+        fileURL: URL
+    ) async {
+        await sidecarAnalysisQueue.enqueue(
+            sourceURL: fileURL,
+            sidecarURL: fileURL.appendingPathExtension("freq")
+        )
+        await artifactQueue.enqueue(
+            key: "\(ctx.sourceCompositeKey)|\(ctx.trackRatingKey)"
+        ) { @MainActor [weak self] in
+            guard let self, await self.waitUntilArtifactWorkIsAllowed() else { return }
+            await self.cacheArtworkForDownloadedTrack(ctx: ctx)
+            await self.lyricsService.fetchAndCacheLyrics(for: ctx.domainTrack)
+        }
+    }
+
+    private func waitUntilArtifactWorkIsAllowed() async -> Bool {
+        while !Task.isCancelled {
+            guard let foregroundWorkScheduler else { return true }
+            if await foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return false
+    }
+
+    /// Best-effort artwork repair for completed downloads so offline surfaces retain artwork.
+    private func cacheArtworkForDownloadedTrack(ctx: DownloadTransferContext) async {
+        guard let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(
+            sourceKey: ctx.sourceCompositeKey
+        ) else {
+            return
+        }
+        defer { syncCoordinator.finishSourcePersistenceWork(persistenceWork) }
+
+        var candidates: [(ratingKey: String, path: String)] = []
+        if let path = ctx.trackThumbPath,
+           !path.isEmpty,
+           path != ctx.albumThumbPath || ctx.albumRatingKey == nil {
+            candidates.append((ctx.trackRatingKey, path))
+        }
+        if let albumRatingKey = ctx.albumRatingKey,
+           let albumThumbPath = ctx.albumThumbPath,
+           !albumThumbPath.isEmpty {
+            candidates.append((albumRatingKey, albumThumbPath))
+        }
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert("\(candidate.ratingKey)|\(candidate.path)").inserted {
+            let exists = await artworkDownloadManager.localArtworkExists(
+                ratingKey: candidate.ratingKey,
+                type: .album,
+                sourceCompositeKey: ctx.sourceCompositeKey,
+                sourcePath: candidate.path,
+                dateModifiedSeconds: nil,
+                minimumPixelDimension: nil
+            )
+            guard !exists else { continue }
+
+            do {
+                guard let artworkURL = try await syncCoordinator.getArtworkURL(
+                    path: candidate.path,
+                    sourceKey: ctx.sourceCompositeKey,
+                    size: 500
+                ) else {
+                    continue
+                }
+                try await artworkDownloadManager.downloadAndCacheArtwork(
+                    from: artworkURL,
+                    identity: ArtworkIdentity(
+                        ratingKey: candidate.ratingKey,
+                        type: .album,
+                        sourcePath: candidate.path,
+                        dateModifiedSeconds: nil,
+                        sourceCompositeKey: ctx.sourceCompositeKey
+                    )
+                )
+                EnsembleLogger.debug(
+                    "🖼️ Reconciled download artwork: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
+                )
+            } catch {
+                EnsembleLogger.debug(
+                    "⚠️ Download artwork reconciliation failed for \(ctx.trackRatingKey): \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func reconcileCompletedDownloadArtifacts() async {
+        do {
+            let completed = try await downloadManager.fetchCompletedDownloads()
+            let candidates = completed.compactMap { download -> (DownloadTransferContext, URL)? in
+                guard let track = download.track,
+                      let sourceCompositeKey = track.sourceCompositeKey,
+                      let filePath = download.filePath,
+                      !filePath.isEmpty else {
+                    return nil
+                }
+                let ctx = DownloadTransferContext(
+                    downloadObjectID: download.objectID,
+                    trackRatingKey: track.ratingKey,
+                    sourceCompositeKey: sourceCompositeKey,
+                    trackDuration: track.duration,
+                    downloadQuality: download.quality,
+                    domainTrack: Track(from: track),
+                    safeSourceKey: sourceCompositeKey.replacingOccurrences(of: ":", with: "_"),
+                    trackThumbPath: track.thumbPath,
+                    albumRatingKey: track.album?.ratingKey,
+                    albumThumbPath: track.album?.thumbPath
+                )
+                return (
+                    ctx,
+                    DownloadManager.downloadsDirectory.appendingPathComponent(filePath)
+                )
+            }
+
+            for (ctx, fileURL) in candidates {
+                await enqueueArtifactReconciliation(ctx: ctx, fileURL: fileURL)
+            }
+            if !candidates.isEmpty {
+                EnsembleLogger.debug(
+                    "📦 Queued derived-artifact reconciliation for \(candidates.count) completed download(s)"
+                )
+            }
+        } catch {
+            EnsembleLogger.debug(
+                "⚠️ Failed queuing derived download artifact reconciliation: \(error.localizedDescription)"
+            )
+        }
+    }
+
     /// Scan all completed downloads for truncated audio files and mark them as failed.
     /// Runs at startup (after DownloadManager's own self-healing) to catch truncated files
     /// that passed the basic HTML/empty payload checks but have significantly shorter audio
@@ -1530,6 +1638,8 @@ public final class OfflineDownloadService: ObservableObject {
             )
             EnsembleLogger.debug("❌ Failed removing orphaned completed downloads: \(error.localizedDescription)")
         }
+
+        await reconcileCompletedDownloadArtifacts()
     }
 
     /// Reconciles interrupted work after launch, foreground, background URLSession wakes,
@@ -1937,6 +2047,38 @@ public final class OfflineDownloadService: ObservableObject {
     }
 }
 
+// MARK: - Derived Download Artifact Queue
+
+actor DownloadArtifactQueue {
+    typealias Work = @MainActor @Sendable () async -> Void
+
+    private var pending: [(key: String, work: Work)] = []
+    private var activeKey: String?
+    private var workerTask: Task<Void, Never>?
+
+    func enqueue(key: String, work: @escaping Work) {
+        guard activeKey != key, !pending.contains(where: { $0.key == key }) else { return }
+        pending.append((key, work))
+        startWorkerIfNeeded()
+    }
+
+    private func startWorkerIfNeeded() {
+        guard workerTask == nil, !pending.isEmpty else { return }
+        workerTask = Task { await drain() }
+    }
+
+    private func drain() async {
+        while !pending.isEmpty {
+            let item = pending.removeFirst()
+            activeKey = item.key
+            await item.work()
+            activeKey = nil
+        }
+        workerTask = nil
+        startWorkerIfNeeded()
+    }
+}
+
 // MARK: - Sidecar Analysis Queue
 
 /// Serializes post-download frequency analysis so only one FFT runs at a time.
@@ -1968,6 +2110,7 @@ private actor SidecarAnalysisQueue {
     /// Add an item to the end of the queue. Skips duplicates (same sourceURL already pending).
     func enqueue(sourceURL: URL, sidecarURL: URL) {
         guard Self.sourceFileExists(sourceURL, sidecarURL: sidecarURL) else { return }
+        guard !FileManager.default.fileExists(atPath: sidecarURL.path) else { return }
         guard !pending.contains(where: { $0.sourceURL == sourceURL }) else { return }
         pending.append((sourceURL: sourceURL, sidecarURL: sidecarURL))
         startWorkerIfNeeded()

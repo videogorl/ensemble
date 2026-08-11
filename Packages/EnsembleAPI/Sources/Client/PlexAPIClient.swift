@@ -457,10 +457,10 @@ public actor PlexAPIClient {
     // MARK: - Lyrics
 
     /// Fetches raw lyrics content from a stream key path (e.g. `/library/streams/12345`)
-    /// Returns the UTF-8 text content, or nil on 404/error
+    /// Returns the UTF-8 text content, or nil when PMS confirms the stream is absent.
     /// Fetch lyrics content for a given stream key.
-    /// Uses format=xml (matching Plexamp). A 404 is treated as unavailable;
-    /// later user or sync requests can try again without blocking this request.
+    /// Uses format=xml (matching Plexamp). Only a confirmed 404 is unavailable;
+    /// transient and server errors remain retryable failures.
     public func getLyricsContent(streamKey: String) async throws -> String? {
         // Plexamp fetches lyrics with format=xml; Accept: application/json from
         // the shared Plex headers causes PMS to return JSON instead. We handle both formats.
@@ -475,8 +475,8 @@ public actor PlexAPIClient {
                 return text
             }
             return String(data: data, encoding: .utf8)
-        } catch {
-            EnsembleLogger.debug("Lyrics: content unavailable for \(streamKey): \(error.localizedDescription)")
+        } catch where Self.isUnavailableLyricsResponse(error) {
+            EnsembleLogger.debug("Lyrics: content unavailable for \(streamKey) (404)")
             return nil
         }
     }
@@ -640,10 +640,18 @@ public actor PlexAPIClient {
             let data = try await serverRequest(path: streamKey, query: query, accept: "text/plain")
             EnsembleLogger.debug("Lyrics: raw content fetch succeeded for \(streamKey) (\(data.count) bytes)")
             return String(data: data, encoding: .utf8)
+        } catch where Self.isUnavailableLyricsResponse(error) {
+            EnsembleLogger.debug("Lyrics: raw content unavailable for \(streamKey) (404)")
+            return nil
         } catch {
             EnsembleLogger.debug("Lyrics: raw content fetch failed for \(streamKey): \(error.localizedDescription)")
             throw error
         }
+    }
+
+    static func isUnavailableLyricsResponse(_ error: Error) -> Bool {
+        guard case PlexAPIError.httpError(statusCode: 404) = error else { return false }
+        return true
     }
 
     /// Get artist radio station as a playlist

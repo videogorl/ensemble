@@ -28,13 +28,7 @@ public struct MergedPlaylistDetailView: View {
     public var body: some View {
         let playlists = viewModel.displayPlaylist.playlists
         let downloadAvailabilities = playlists.map { playlist in
-            playlist.actionAvailability(
-                for: .download,
-                downloadStatus: DownloadCapabilityPolicy.status(
-                    for: playlist.sourceCompositeKey,
-                    accountManager: deps.accountManager
-                )
-            )
+            playlist.actionAvailability(for: .download)
         }
         let isAnyDownloaded = playlists.contains {
             deps.offlineDownloadService.isPlaylistDownloadEnabled($0)

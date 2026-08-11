@@ -11,7 +11,6 @@ public struct LibraryDownloadSummary: Identifiable, Equatable {
     public let serverName: String
     public let libraryName: String
     public let accountName: String
-    public let canDownload: Bool
     /// Whether a library-level download target exists
     public let isEnabled: Bool
     public let downloadedTrackCount: Int
@@ -236,11 +235,6 @@ public final class DownloadsViewModel: ObservableObject {
 
     /// Toggle library-level download on or off
     public func setLibraryEnabled(sourceCompositeKey: String, title: String, isEnabled: Bool) async {
-        guard DownloadCapabilityPolicy.canAttemptDownload(for: sourceCompositeKey, accountManager: accountManager) else {
-            EnsembleLogger.debug("DownloadsViewModel: rejected library download toggle for unavailable source \(sourceCompositeKey)")
-            return
-        }
-
         libraryTogglesInProgress.insert(sourceCompositeKey)
         await downloadMutationWorkflow.setLibraryDownloadEnabled(
             sourceCompositeKey: sourceCompositeKey,
@@ -275,10 +269,6 @@ public final class DownloadsViewModel: ObservableObject {
                         serverName: server.name,
                         libraryName: library.title,
                         accountName: account.accountIdentifier,
-                        canDownload: DownloadCapabilityPolicy.canAttemptDownload(
-                            for: sourceCompositeKey,
-                            accountManager: accountManager
-                        ),
                         isEnabled: offlineDownloadService.isLibraryDownloadEnabled(
                             sourceCompositeKey: sourceCompositeKey
                         ),
@@ -373,10 +363,6 @@ public final class DownloadsViewModel: ObservableObject {
                         serverName: server.name,
                         libraryName: library.title,
                         accountName: account.accountIdentifier,
-                        canDownload: DownloadCapabilityPolicy.canAttemptDownload(
-                            for: sourceCompositeKey,
-                            accountManager: accountManager
-                        ),
                         isEnabled: isEnabled,
                         downloadedTrackCount: completedDownloads.count,
                         totalTrackCount: totalTrackCount,

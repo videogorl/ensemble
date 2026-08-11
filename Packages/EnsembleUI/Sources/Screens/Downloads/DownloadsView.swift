@@ -231,7 +231,7 @@ public struct DownloadsView: View {
                 .accessibilityLabel(libraryDownloadToggleLabel(for: library))
                 .accessibilityValue(libraryDownloadToggleValue(for: library))
                 .accessibilityHint(libraryDownloadToggleHint(for: library))
-                .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
             }
         }
     }
@@ -338,7 +338,7 @@ public struct DownloadsView: View {
                 .accessibilityLabel(libraryDownloadToggleLabel(for: library))
                 .accessibilityValue(libraryDownloadToggleValue(for: library))
                 .accessibilityHint(libraryDownloadToggleHint(for: library))
-                .disabled(!library.canDownload || viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
+                .disabled(viewModel.libraryTogglesInProgress.contains(library.sourceCompositeKey))
 
                 // Manual chevron since the hidden NavigationLink won't render one
                 Image(systemName: EnsembleDesign.Icon.chevronRight)
@@ -387,12 +387,6 @@ public struct DownloadsView: View {
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
 
-                    if !library.canDownload {
-                        Text("Downloads unavailable")
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            .lineLimit(1)
-                    }
                 }
             }
 
@@ -463,10 +457,7 @@ public struct DownloadsView: View {
     }
 
     private func libraryDownloadToggleHint(for library: LibraryDownloadSummary) -> String {
-        if library.canDownload {
-            return "Enables or removes offline downloads for this library."
-        }
-        return "Downloads are unavailable for this library."
+        "Enables or removes offline downloads for this library."
     }
 
     // MARK: - Target Rows

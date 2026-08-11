@@ -63,30 +63,6 @@ struct DownloadTransferExecutionError: Error {
     let attemptedDirectFallback: Bool
 }
 
-private actor DownloadPostCompletionQueue {
-    typealias Work = @MainActor @Sendable () async -> Void
-
-    private var pending: [Int: Work] = [:]
-    private var nextEnqueuedID = 0
-    private var nextWorkID = 0
-    private var workerTask: Task<Void, Never>?
-
-    func enqueue(_ work: @escaping Work) {
-        pending[nextEnqueuedID] = work
-        nextEnqueuedID += 1
-        guard workerTask == nil else { return }
-        workerTask = Task { await drain() }
-    }
-
-    private func drain() async {
-        while let work = pending.removeValue(forKey: nextWorkID) {
-            nextWorkID += 1
-            await work()
-        }
-        workerTask = nil
-    }
-}
-
 @MainActor
 final class DownloadTransferExecutor {
     struct Dependencies {
@@ -95,19 +71,12 @@ final class DownloadTransferExecutor {
         let fetchOfflineDownloadQueueMedia: (Track, StreamingQuality) async throws -> (data: Data, suggestedFilename: String?, mimeType: String?)
         let shouldAttemptDirectFallback: (Error, DownloadTransferContext) -> Bool
         let performDirectDownload: (URL, NSManagedObjectID, Int64) async throws -> (URL, URLResponse)
-        let fetchArtworkURL: (String, String, Int) async throws -> URL?
-        let artworkDownloadManager: ArtworkDownloadManagerProtocol
-        let fetchAndCacheLyrics: @Sendable (String, String?) async -> Void
-        let waitUntilPostCompletionWorkAllowed: () async -> Bool
-        let enqueueSidecarAnalysis: (URL, URL) async -> Void
+        let didComplete: (DownloadTransferContext, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
         let isStillReferenced: (DownloadTransferContext) async -> Bool
-        let beginSourcePersistenceWork: (String) -> SourcePersistenceWorkHandle?
-        let finishSourcePersistenceWork: (SourcePersistenceWorkHandle) -> Void
     }
 
     private let dependencies: Dependencies
-    private let postCompletionQueue = DownloadPostCompletionQueue()
 
     init(dependencies: Dependencies) {
         self.dependencies = dependencies
@@ -230,7 +199,7 @@ final class DownloadTransferExecutor {
             guard persisted else {
                 return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback, persisted: false)
             }
-            await runPostCompletionWork(fileURL: destinationURL, ctx: ctx)
+            await notifyCompletion(fileURL: destinationURL, ctx: ctx)
 
             return DownloadTransferResult(attemptedDirectFallback: attemptedDirectFallback, persisted: true)
         } catch {
@@ -297,7 +266,7 @@ final class DownloadTransferExecutor {
         guard persisted else {
             return .skippedUnreferenced
         }
-        await runPostCompletionWork(fileURL: destinationURL, ctx: ctx)
+        await notifyCompletion(fileURL: destinationURL, ctx: ctx)
         return .completed
     }
 
@@ -352,86 +321,9 @@ final class DownloadTransferExecutor {
         }
     }
 
-    private func runPostCompletionWork(fileURL: URL, ctx: DownloadTransferContext) async {
-        let sidecarURL = fileURL.appendingPathExtension("freq")
-        await dependencies.enqueueSidecarAnalysis(fileURL, sidecarURL)
+    private func notifyCompletion(fileURL: URL, ctx: DownloadTransferContext) async {
         dependencies.scheduleDownloadsChanged()
-
-        await postCompletionQueue.enqueue { @MainActor [weak self] in
-            guard let self,
-                  await self.dependencies.waitUntilPostCompletionWorkAllowed() else {
-                return
-            }
-            await self.cacheArtworkForDownloadedTrack(ctx: ctx)
-            await self.dependencies.fetchAndCacheLyrics(ctx.trackRatingKey, ctx.sourceCompositeKey)
-        }
-    }
-
-    /// Best-effort artwork caching for newly downloaded tracks so offline lists/details keep artwork.
-    private func cacheArtworkForDownloadedTrack(ctx: DownloadTransferContext) async {
-        guard let persistenceWork = dependencies.beginSourcePersistenceWork(ctx.sourceCompositeKey) else {
-            return
-        }
-        defer { dependencies.finishSourcePersistenceWork(persistenceWork) }
-
-        var candidates: [(ratingKey: String, path: String)] = []
-        if let path = ctx.trackThumbPath,
-           !path.isEmpty,
-           path != ctx.albumThumbPath || ctx.albumRatingKey == nil {
-            candidates.append((ctx.trackRatingKey, path))
-        }
-        if let albumRatingKey = ctx.albumRatingKey,
-           let albumThumbPath = ctx.albumThumbPath,
-           !albumThumbPath.isEmpty {
-            candidates.append((albumRatingKey, albumThumbPath))
-        }
-
-        guard !candidates.isEmpty else { return }
-
-        var seen = Set<String>()
-        for candidate in candidates {
-            let dedupeKey = "\(candidate.ratingKey)|\(candidate.path)"
-            guard seen.insert(dedupeKey).inserted else { continue }
-
-            if let cachedArtworkPath = try? await dependencies.artworkDownloadManager.getLocalArtworkPath(
-                ratingKey: candidate.ratingKey,
-                type: .album,
-                sourceCompositeKey: ctx.sourceCompositeKey,
-                sourcePath: candidate.path,
-                dateModifiedSeconds: nil
-            ), FileManager.default.fileExists(atPath: cachedArtworkPath) {
-                continue
-            }
-
-            do {
-                guard let artworkURL = try await dependencies.fetchArtworkURL(
-                    candidate.path,
-                    ctx.sourceCompositeKey,
-                    500
-                ) else {
-                    continue
-                }
-
-                try await dependencies.artworkDownloadManager.downloadAndCacheArtwork(
-                    from: artworkURL,
-                    identity: ArtworkIdentity(
-                        ratingKey: candidate.ratingKey,
-                        type: .album,
-                        sourcePath: candidate.path,
-                        dateModifiedSeconds: nil,
-                        sourceCompositeKey: ctx.sourceCompositeKey
-                    )
-                )
-
-                EnsembleLogger.debug(
-                    "🖼️ Cached artwork for downloaded track: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
-                )
-            } catch {
-                EnsembleLogger.debug(
-                    "⚠️ Failed caching artwork for downloaded track \(ctx.trackRatingKey): \(error.localizedDescription)"
-                )
-            }
-        }
+        await dependencies.didComplete(ctx, fileURL)
     }
 
     /// Downloads a URL to a temporary file while periodically reporting progress to CoreData.

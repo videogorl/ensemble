@@ -367,13 +367,9 @@ public final class LyricsService: ObservableObject {
     @Published public private(set) var hasChordLyricsForCurrentTrack = false
     @Published public private(set) var isDisplayingChordLyrics = false
 
-    // In-memory cache keyed by "ratingKey:sourceCompositeKey" (max ~20 entries).
-    // Both .available and .notAvailable results are cached. Negative entries expire
-    // after 30 minutes to allow retries once PMS's LyricFind cache warms up.
+    // In-memory cache keyed by source, track, mode, and stream signature (max ~20 entries).
     private var cache: [String: LyricsState] = [:]
-    private var negativeCacheTimestamps: [String: Date] = [:]
     private let maxCacheSize = 20
-    private let negativeCacheTTL: TimeInterval = 30 * 60  // 30 minutes
 
     // Cancel in-flight fetch on track change
     private var loadTask: Task<Void, Never>?
@@ -392,6 +388,12 @@ public final class LyricsService: ObservableObject {
         var normalSource: LyricsSource
         var chordState: LyricsState
         var chordSource: LyricsSource
+    }
+
+    private struct LyricsModeResolution: Sendable {
+        let state: LyricsState
+        let source: LyricsSource
+        let isDurable: Bool
     }
 
     private struct LyricsStreamSignature: Codable, Equatable, Sendable {
@@ -437,10 +439,23 @@ public final class LyricsService: ObservableObject {
         }
     }
 
-    private struct PersistentLyricsCacheEntry: Codable, Sendable {
-        let content: String
+    enum PersistentLyricsOutcome: Codable, Sendable, Equatable {
+        case content(String)
+        case unavailable
+    }
+
+    private struct PersistentLyricsCacheEntry: Codable, Sendable, Equatable {
+        let outcome: PersistentLyricsOutcome
         let signature: LyricsStreamSignature
         let savedAt: Date
+    }
+
+    struct PersistentLyricsArtifactState: Codable, Sendable, Equatable {
+        let trackDateModified: TimeInterval?
+
+        func matches(_ dateModified: Date?) -> Bool {
+            trackDateModified == dateModified?.timeIntervalSince1970
+        }
     }
 
     // Persistent lyrics cache directory
@@ -451,14 +466,21 @@ public final class LyricsService: ObservableObject {
 
     public init(syncCoordinator: SyncCoordinator) {
         self.syncCoordinator = syncCoordinator
-        // Ensure cache directory exists
-        try? FileManager.default.createDirectory(at: Self.lyricsCacheDir, withIntermediateDirectories: true)
     }
 
     // MARK: - Public API
 
     /// Load lyrics for a track. Cancels any in-flight fetch.
     public func loadLyrics(for track: Track) {
+        startLyricsLoad(for: track, clearingCache: false)
+    }
+
+    /// Force a fresh lyrics fetch for the current track by evicting its durable outcome.
+    public func retryLyrics(for track: Track) {
+        startLyricsLoad(for: track, clearingCache: true)
+    }
+
+    private func startLyricsLoad(for track: Track, clearingCache: Bool) {
         loadTask?.cancel()
 
         currentLyrics = .loading
@@ -469,6 +491,13 @@ public final class LyricsService: ObservableObject {
 
         loadTask = Task { [weak self] in
             guard let self else { return }
+            if clearingCache {
+                await self.clearCache(
+                    forTrackRatingKey: track.id,
+                    sourceCompositeKey: track.sourceCompositeKey ?? "local"
+                )
+                guard !Task.isCancelled else { return }
+            }
 
             let bundle = await self.fetchLyrics(for: track)
             guard !Task.isCancelled else {
@@ -494,14 +523,6 @@ public final class LyricsService: ObservableObject {
         hasChordLyricsForCurrentTrack = false
         isDisplayingChordLyrics = false
         activeBundle = nil
-    }
-
-    /// Force a fresh lyrics fetch for the current track by evicting any cached
-    /// negative result before re-running the normal load pipeline.
-    public func retryLyrics(for track: Track) {
-        loadTask?.cancel()
-        clearCache(forTrackRatingKey: track.id, sourceCompositeKey: track.sourceCompositeKey ?? "local")
-        loadLyrics(for: track)
     }
 
     #if DEBUG
@@ -549,15 +570,17 @@ public final class LyricsService: ObservableObject {
         // Skip server fetch when offline, but allow downloaded/cached lyric sidecars
         // to support playback without current Plex stream metadata.
         if syncCoordinator.isOffline {
-            let normal = Self.loadOfflineCachedState(for: track, mode: .lyrics)
-            let chords = Self.loadOfflineCachedState(for: track, mode: .chords)
-            if normal != nil || chords != nil {
+            async let normal = Self.loadOfflineCachedState(for: track, mode: .lyrics)
+            async let chords = Self.loadOfflineCachedState(for: track, mode: .chords)
+            let cachedNormal = await normal
+            let cachedChords = await chords
+            if cachedNormal != nil || cachedChords != nil {
                 EnsembleLogger.debug("Lyrics: offline, loaded cached sidecar state for track \(track.id)")
                 return LyricsBundle(
-                    normalState: normal?.0 ?? .notAvailable,
-                    normalSource: normal?.1 ?? .noApiClient,
-                    chordState: chords?.0 ?? .notAvailable,
-                    chordSource: chords?.1 ?? .noApiClient
+                    normalState: cachedNormal?.0 ?? .notAvailable,
+                    normalSource: cachedNormal?.1 ?? .noApiClient,
+                    chordState: cachedChords?.0 ?? .notAvailable,
+                    chordSource: cachedChords?.1 ?? .noApiClient
                 )
             }
 
@@ -582,25 +605,7 @@ public final class LyricsService: ObservableObject {
         }
 
         do {
-            guard let metadata = try await provider.getLyricsMetadata(trackID: track.id) else {
-                EnsembleLogger.debug("Lyrics: metadata fetch returned nil for \(track.id)")
-                return LyricsBundle(normalState: .notAvailable, normalSource: .trackMetadataFailed, chordState: .notAvailable, chordSource: .trackMetadataFailed)
-            }
-
-            let allAssets = metadata.normalAssets + metadata.chordCandidateAssets
-            EnsembleLogger.debug("Lyrics: source returned \(allAssets.count) lyrics assets")
-            for asset in allAssets {
-                EnsembleLogger.debug("Lyrics:   asset id=\(asset.id) codec=\(asset.codec ?? "nil") timed=\(asset.isTimed) provider=\(asset.provider ?? "nil") file=\(asset.file ?? "nil")")
-            }
-
-            guard !allAssets.isEmpty else {
-                EnsembleLogger.debug("Lyrics: no lyrics asset found in track metadata")
-                return LyricsBundle(normalState: .notAvailable, normalSource: .noLyricsStream, chordState: .notAvailable, chordSource: .noLyricsStream)
-            }
-
-            let normal = await fetchNormalLyrics(track: track, assets: metadata.normalAssets, provider: provider)
-            let chords = await fetchChordLyrics(track: track, assets: metadata.chordCandidateAssets, provider: provider)
-            return LyricsBundle(normalState: normal.0, normalSource: normal.1, chordState: chords.0, chordSource: chords.1)
+            return try await resolveLyrics(track: track, provider: provider)
         } catch {
             if Task.isCancelled {
                 return LyricsBundle(normalState: .notAvailable, normalSource: .cancelled, chordState: .notAvailable, chordSource: .cancelled)
@@ -610,110 +615,270 @@ public final class LyricsService: ObservableObject {
         }
     }
 
+    private func resolveLyrics(
+        track: Track,
+        provider: MusicSourceLyricsProviding
+    ) async throws -> LyricsBundle {
+        if await hasDurableNoAssetsOutcome(for: track) {
+            await saveResolvedArtifactState(for: track)
+            return Self.noLyricsBundle
+        }
+
+        guard let metadata = try await provider.getLyricsMetadata(trackID: track.id) else {
+            EnsembleLogger.debug("Lyrics: metadata fetch returned nil for \(track.id)")
+            return LyricsBundle(
+                normalState: .notAvailable,
+                normalSource: .trackMetadataFailed,
+                chordState: .notAvailable,
+                chordSource: .trackMetadataFailed
+            )
+        }
+        let signatureTrack = Track(
+            id: track.id,
+            key: track.key,
+            title: metadata.title,
+            dateModified: metadata.dateModified ?? track.dateModified,
+            sourceCompositeKey: track.sourceCompositeKey
+        )
+        let allAssets = metadata.normalAssets + metadata.chordCandidateAssets
+        EnsembleLogger.debug("Lyrics: source returned \(allAssets.count) lyrics assets")
+        for asset in allAssets {
+            EnsembleLogger.debug(
+                "Lyrics: asset id=\(asset.id) codec=\(asset.codec ?? "nil") timed=\(asset.isTimed) provider=\(asset.provider ?? "nil") file=\(asset.file ?? "nil")"
+            )
+        }
+
+        guard !allAssets.isEmpty else {
+            await saveNoAssetsOutcome(for: signatureTrack)
+            await saveResolvedArtifactState(for: track)
+            return Self.noLyricsBundle
+        }
+
+        if metadata.normalAssets.isEmpty {
+            await saveNoAssetsOutcome(for: signatureTrack, mode: .lyrics)
+        }
+        if metadata.chordCandidateAssets.isEmpty {
+            await saveNoAssetsOutcome(for: signatureTrack, mode: .chords)
+        }
+
+        let normal = await fetchNormalLyrics(
+            track: signatureTrack,
+            assets: metadata.normalAssets,
+            provider: provider
+        )
+        let chords = await fetchChordLyrics(
+            track: signatureTrack,
+            assets: metadata.chordCandidateAssets,
+            provider: provider
+        )
+        if normal.isDurable, chords.isDurable {
+            await saveResolvedArtifactState(for: track)
+        }
+        return LyricsBundle(
+            normalState: normal.state,
+            normalSource: normal.source,
+            chordState: chords.state,
+            chordSource: chords.source
+        )
+    }
+
+    private static var noLyricsBundle: LyricsBundle {
+        LyricsBundle(
+            normalState: .notAvailable,
+            normalSource: .noLyricsStream,
+            chordState: .notAvailable,
+            chordSource: .noLyricsStream
+        )
+    }
+
+    private func hasDurableNoAssetsOutcome(for track: Track) async -> Bool {
+        let signature = Self.noAssetsSignature(for: track)
+        async let normal = loadPersistentOutcome(
+            key: Self.noAssetsKey(for: track, mode: .lyrics),
+            signature: signature,
+            mode: .lyrics
+        )
+        async let chords = loadPersistentOutcome(
+            key: Self.noAssetsKey(for: track, mode: .chords),
+            signature: signature,
+            mode: .chords
+        )
+        let outcomes = await (normal, chords)
+        return outcomes.0 == .unavailable && outcomes.1 == .unavailable
+    }
+
+    private func saveNoAssetsOutcome(for track: Track) async {
+        await saveNoAssetsOutcome(for: track, mode: .lyrics)
+        await saveNoAssetsOutcome(for: track, mode: .chords)
+    }
+
+    private func saveNoAssetsOutcome(for track: Track, mode: LyricsMode) async {
+        await savePersistentOutcome(
+            .unavailable,
+            key: Self.noAssetsKey(for: track, mode: mode),
+            signature: Self.noAssetsSignature(for: track)
+        )
+    }
+
     private func fetchNormalLyrics(
         track: Track,
         assets: [MusicSourceLyricsAsset],
         provider: MusicSourceLyricsProviding
-    ) async -> (LyricsState, LyricsSource) {
+    ) async -> LyricsModeResolution {
         guard !assets.isEmpty else {
-            return (.notAvailable, .noLyricsStream)
+            return LyricsModeResolution(state: .notAvailable, source: .noLyricsStream, isDurable: true)
         }
 
         var lastUnavailableSource: LyricsSource = .noLyricsStream
+        var isDurable = true
 
         for asset in assets {
             let signature = Self.streamSignature(for: track, asset: asset)
             let key = Self.cacheKey(for: track, asset: asset, mode: .lyrics)
             if let cached = loadCachedState(key: key) {
-                return (cached, .memoryCache)
+                if cached.isAvailable {
+                    return LyricsModeResolution(state: cached, source: .memoryCache, isDurable: true)
+                }
+                lastUnavailableSource = .contentFetchFailed
+                continue
             }
-            if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .lyrics),
-               let parsed = Self.parseContent(cachedContent, codec: asset.codec) {
-                let state = LyricsState.available(parsed)
-                setCached(state, forKey: key)
-                EnsembleLogger.debug("Lyrics: loaded normal lyrics from persistent cache (\(parsed.lines.count) lines)")
-                return (state, .persistentCache)
+            switch await loadPersistentOutcome(
+                key: key,
+                signature: signature,
+                mode: .lyrics
+            ) {
+            case .content(let cachedContent):
+                if let parsed = Self.parseContent(cachedContent, codec: asset.codec) {
+                    let state = LyricsState.available(parsed)
+                    setCached(state, forKey: key)
+                    EnsembleLogger.debug("Lyrics: loaded normal lyrics from persistent cache (\(parsed.lines.count) lines)")
+                    return LyricsModeResolution(state: state, source: .persistentCache, isDurable: true)
+                }
+                isDurable = false
+            case .unavailable:
+                setCached(.notAvailable, forKey: key)
+                lastUnavailableSource = .contentFetchFailed
+                continue
+            case nil:
+                break
             }
 
             do {
                 let content = try await provider.getLyricsContent(asset: asset, raw: asset.isLocalMedia)
                 guard let content else {
+                    await savePersistentOutcome(.unavailable, key: key, signature: signature)
+                    setCached(.notAvailable, forKey: key)
                     lastUnavailableSource = .contentFetchFailed
                     continue
                 }
-                guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
+                guard !Task.isCancelled else {
+                    return LyricsModeResolution(state: .notAvailable, source: .cancelled, isDurable: false)
+                }
                 if asset.isLocalMedia,
                    Self.parseChordContent(content)?.containsChords == true {
                     lastUnavailableSource = .parseFailed
+                    isDurable = false
                     continue
                 }
                 guard let parsed = Self.parseContent(content, codec: asset.codec), !parsed.lines.isEmpty else {
                     lastUnavailableSource = .parseFailed
+                    isDurable = false
                     continue
                 }
                 let state = LyricsState.available(parsed)
-                saveToPersistentCache(content, key: key, signature: signature)
+                await savePersistentOutcome(.content(content), key: key, signature: signature)
                 setCached(state, forKey: key)
-                return (state, .server)
+                return LyricsModeResolution(state: state, source: .server, isDurable: true)
             } catch {
-                if Task.isCancelled { return (.notAvailable, .cancelled) }
+                if Task.isCancelled {
+                    return LyricsModeResolution(state: .notAvailable, source: .cancelled, isDurable: false)
+                }
                 lastUnavailableSource = .contentFetchFailed
+                isDurable = false
                 continue
             }
         }
 
-        return (.notAvailable, lastUnavailableSource)
+        return LyricsModeResolution(
+            state: .notAvailable,
+            source: lastUnavailableSource,
+            isDurable: isDurable
+        )
     }
 
     private func fetchChordLyrics(
         track: Track,
         assets: [MusicSourceLyricsAsset],
         provider: MusicSourceLyricsProviding
-    ) async -> (LyricsState, LyricsSource) {
+    ) async -> LyricsModeResolution {
         guard !assets.isEmpty else {
-            return (.notAvailable, .noLyricsStream)
+            return LyricsModeResolution(state: .notAvailable, source: .noLyricsStream, isDurable: true)
         }
 
+        var isDurable = true
         for asset in assets {
             let signature = Self.streamSignature(for: track, asset: asset)
             let key = Self.cacheKey(for: track, asset: asset, mode: .chords)
+            let cachedOutcome = await loadPersistentOutcome(
+                key: key,
+                signature: signature,
+                mode: .chords
+            )
+            if cachedOutcome == .unavailable {
+                setCached(.notAvailable, forKey: key)
+                continue
+            }
 
             do {
                 guard let content = try await provider.getLyricsContent(asset: asset, raw: true) else {
-                    if let cached = cachedChordState(forKey: key, signature: signature) {
-                        return cached
+                    if let cached = await cachedChordState(
+                        forKey: key,
+                        cachedOutcome: cachedOutcome
+                    ) {
+                        return LyricsModeResolution(state: cached.0, source: cached.1, isDurable: true)
                     }
+                    await savePersistentOutcome(.unavailable, key: key, signature: signature)
+                    setCached(.notAvailable, forKey: key)
                     continue
                 }
-                guard !Task.isCancelled else { return (.notAvailable, .cancelled) }
+                guard !Task.isCancelled else {
+                    return LyricsModeResolution(state: .notAvailable, source: .cancelled, isDurable: false)
+                }
                 guard let parsed = Self.parseChordContent(content), parsed.containsChords else {
                     EnsembleLogger.debug("Lyrics: fetched chord asset \(asset.id) but content did not parse as chords")
+                    isDurable = false
                     continue
                 }
                 let state = LyricsState.available(parsed)
-                saveToPersistentCache(content, key: key, signature: signature)
+                await savePersistentOutcome(.content(content), key: key, signature: signature)
                 setCached(state, forKey: key)
-                return (state, .server)
+                return LyricsModeResolution(state: state, source: .server, isDurable: true)
             } catch {
-                if Task.isCancelled { return (.notAvailable, .cancelled) }
-                if let cached = cachedChordState(forKey: key, signature: signature) {
-                    return cached
+                if Task.isCancelled {
+                    return LyricsModeResolution(state: .notAvailable, source: .cancelled, isDurable: false)
+                }
+                isDurable = false
+                if let cached = await cachedChordState(
+                    forKey: key,
+                    cachedOutcome: cachedOutcome
+                ) {
+                    return LyricsModeResolution(state: cached.0, source: cached.1, isDurable: false)
                 }
                 continue
             }
         }
 
-        return (.notAvailable, .parseFailed)
+        return LyricsModeResolution(state: .notAvailable, source: .parseFailed, isDurable: isDurable)
     }
 
     private func cachedChordState(
         forKey key: String,
-        signature: LyricsStreamSignature
-    ) -> (LyricsState, LyricsSource)? {
+        cachedOutcome: PersistentLyricsOutcome?
+    ) async -> (LyricsState, LyricsSource)? {
         if let cached = loadCachedState(key: key) {
-            return (cached, .memoryCache)
+            return cached.isAvailable ? (cached, .memoryCache) : nil
         }
-        if let cachedContent = loadFromPersistentCache(key: key, signature: signature, mode: .chords),
+        if case .content(let cachedContent) = cachedOutcome,
            let parsed = Self.parseChordContent(cachedContent), parsed.containsChords {
             let state = LyricsState.available(parsed)
             setCached(state, forKey: key)
@@ -747,11 +912,9 @@ public final class LyricsService: ObservableObject {
     /// Fetch and cache lyrics for a track that was just downloaded.
     /// Called fire-and-forget after audio download completion so lyrics
     /// are available immediately when the user plays the track offline.
-    public func fetchAndCacheLyrics(
-        trackRatingKey: String,
-        sourceCompositeKey: String?
-    ) async {
-        guard let sourceCompositeKey,
+    public func fetchAndCacheLyrics(for track: Track) async {
+        guard await hasResolvedArtifactState(for: track) == false else { return }
+        guard let sourceCompositeKey = track.sourceCompositeKey,
               let persistenceWork = syncCoordinator.beginCurrentSourcePersistenceWork(sourceKey: sourceCompositeKey) else {
             return
         }
@@ -759,37 +922,40 @@ public final class LyricsService: ObservableObject {
         guard let provider = syncCoordinator.lyricsProvider(for: sourceCompositeKey) else { return }
 
         do {
-            guard let metadata = try await provider.getLyricsMetadata(trackID: trackRatingKey) else { return }
-            let track = Track(
-                id: trackRatingKey,
-                key: "/library/metadata/\(trackRatingKey)",
-                title: metadata.title,
-                dateModified: metadata.dateModified,
-                sourceCompositeKey: sourceCompositeKey
-            )
-
-            if let asset = metadata.normalAssets.first,
-               let content = try await provider.getLyricsContent(asset: asset, raw: asset.isLocalMedia),
-               Self.parseContent(content, codec: asset.codec) != nil {
-                let signature = Self.streamSignature(for: track, asset: asset)
-                let key = Self.cacheKey(for: track, asset: asset, mode: .lyrics)
-                saveToPersistentCache(content, key: key, signature: signature)
-            }
-
-            for asset in metadata.chordCandidateAssets {
-                guard let content = try await provider.getLyricsContent(asset: asset, raw: true),
-                      let parsed = Self.parseChordContent(content),
-                      parsed.containsChords else {
-                    continue
-                }
-                let signature = Self.streamSignature(for: track, asset: asset)
-                let key = Self.cacheKey(for: track, asset: asset, mode: .chords)
-                saveToPersistentCache(content, key: key, signature: signature)
-                break
-            }
+            _ = try await resolveLyrics(track: track, provider: provider)
         } catch {
-            // Best-effort; failure is not critical
+            EnsembleLogger.debug(
+                "Lyrics: download pre-cache deferred after transient failure for \(track.id): \(error.localizedDescription)"
+            )
         }
+    }
+
+    private func hasResolvedArtifactState(for track: Track) async -> Bool {
+        await Task.detached(priority: .utility) {
+            let url = Self.persistentCachePath(key: Self.artifactStateKey(for: track))
+            guard let data = try? Data(contentsOf: url),
+                  let state = try? JSONDecoder().decode(PersistentLyricsArtifactState.self, from: data) else {
+                return false
+            }
+            return state.matches(track.dateModified)
+        }.value
+    }
+
+    private func saveResolvedArtifactState(for track: Track) async {
+        await Task.detached(priority: .utility) {
+            let state = PersistentLyricsArtifactState(
+                trackDateModified: track.dateModified?.timeIntervalSince1970
+            )
+            guard let data = try? JSONEncoder().encode(state) else { return }
+            try? FileManager.default.createDirectory(
+                at: Self.lyricsCacheDir,
+                withIntermediateDirectories: true
+            )
+            try? data.write(
+                to: Self.persistentCachePath(key: Self.artifactStateKey(for: track)),
+                options: .atomic
+            )
+        }.value
     }
 
     // MARK: - Cache Cleanup
@@ -797,47 +963,70 @@ public final class LyricsService: ObservableObject {
     /// Clear all persistent lyrics caches and in-memory cache.
     /// Called by CacheManager when user clears all library data.
     @discardableResult
-    public func clearAllCaches() -> Int {
-        let removedInMemoryCount = cache.count + negativeCacheTimestamps.count
+    public func clearAllCaches() async -> Int {
+        let removedInMemoryCount = cache.count
         cache.removeAll()
-        negativeCacheTimestamps.removeAll()
-        let removedFileCount = (try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path).count) ?? 0
-        try? FileManager.default.removeItem(at: Self.lyricsCacheDir)
-        try? FileManager.default.createDirectory(at: Self.lyricsCacheDir, withIntermediateDirectories: true)
+        let removedFileCount = await Task.detached(priority: .utility) {
+            let count = (try? FileManager.default.contentsOfDirectory(
+                atPath: Self.lyricsCacheDir.path
+            ).count) ?? 0
+            try? FileManager.default.removeItem(at: Self.lyricsCacheDir)
+            try? FileManager.default.createDirectory(
+                at: Self.lyricsCacheDir,
+                withIntermediateDirectories: true
+            )
+            return count
+        }.value
         return removedInMemoryCount + removedFileCount
     }
 
     /// Clear persistent lyrics cache files for a specific source.
     /// Called when an account or library is removed.
     @discardableResult
-    public func clearCache(forSourceCompositeKey sourceKey: String) -> Int {
-        // Remove matching in-memory cache entries
+    public func clearCache(forSourceCompositeKey sourceKey: String) async -> Int {
         let oldCacheCount = cache.count
-        let oldNegativeCount = negativeCacheTimestamps.count
         cache = cache.filter { !$0.key.contains(":\(sourceKey):") }
-        negativeCacheTimestamps = negativeCacheTimestamps.filter { !$0.key.contains(":\(sourceKey):") }
-        var removedCount = (oldCacheCount - cache.count) + (oldNegativeCount - negativeCacheTimestamps.count)
+        let removedInMemoryCount = oldCacheCount - cache.count
 
-        // Remove matching persistent cache files (filename contains the source key)
         let safeSourceKey = sourceKey.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else { return removedCount }
-        for file in files where file.contains(safeSourceKey) {
-            if (try? FileManager.default.removeItem(at: Self.lyricsCacheDir.appendingPathComponent(file))) != nil {
-                removedCount += 1
+        let removedFileCount = await Task.detached(priority: .utility) {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                atPath: Self.lyricsCacheDir.path
+            ) else {
+                return 0
             }
-        }
-        return removedCount
+            var removedCount = 0
+            for file in files where file.contains(safeSourceKey) {
+                if (try? FileManager.default.removeItem(
+                    at: Self.lyricsCacheDir.appendingPathComponent(file)
+                )) != nil {
+                    removedCount += 1
+                }
+            }
+            return removedCount
+        }.value
+        return removedInMemoryCount + removedFileCount
     }
 
     /// Remove cached lyrics for a single track/source pair.
-    public func clearCache(forTrackRatingKey ratingKey: String, sourceCompositeKey sourceKey: String) {
+    public func clearCache(
+        forTrackRatingKey ratingKey: String,
+        sourceCompositeKey sourceKey: String
+    ) async {
         cache = cache.filter { !$0.key.hasPrefix("\(ratingKey):\(sourceKey):") }
-        negativeCacheTimestamps = negativeCacheTimestamps.filter { !$0.key.hasPrefix("\(ratingKey):\(sourceKey):") }
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: Self.lyricsCacheDir.path) else { return }
         let safePrefix = Self.safeFilename("\(ratingKey):\(sourceKey):")
-        for file in files where file.hasPrefix(safePrefix) {
-            try? FileManager.default.removeItem(at: Self.lyricsCacheDir.appendingPathComponent(file))
-        }
+        await Task.detached(priority: .utility) {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                atPath: Self.lyricsCacheDir.path
+            ) else {
+                return
+            }
+            for file in files where file.hasPrefix(safePrefix) {
+                try? FileManager.default.removeItem(
+                    at: Self.lyricsCacheDir.appendingPathComponent(file)
+                )
+            }
+        }.value
     }
 
     /// Remove caches for multiple source-scoped tracks with one directory scan.
@@ -849,9 +1038,6 @@ public final class LyricsService: ObservableObject {
             "\($0.trackRatingKey):\($0.trackSourceCompositeKey):"
         }
         cache = cache.filter { key, _ in !prefixes.contains(where: key.hasPrefix) }
-        negativeCacheTimestamps = negativeCacheTimestamps.filter { key, _ in
-            !prefixes.contains(where: key.hasPrefix)
-        }
 
         let safePrefixes = prefixes.map(Self.safeFilename)
         await Task.detached(priority: .utility) {
@@ -881,57 +1067,87 @@ public final class LyricsService: ObservableObject {
     private nonisolated static func loadOfflineCachedState(
         for track: Track,
         mode: LyricsMode
-    ) -> (LyricsState, LyricsSource)? {
-        let sourceKey = track.sourceCompositeKey ?? "local"
-        let prefix = safeFilename("\(track.id):\(sourceKey):\(mode.rawValue):")
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: lyricsCacheDir.path) else {
-            return nil
-        }
+    ) async -> (LyricsState, LyricsSource)? {
+        await Task.detached(priority: .utility) {
+            let sourceKey = track.sourceCompositeKey ?? "local"
+            let prefix = safeFilename("\(track.id):\(sourceKey):\(mode.rawValue):")
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                atPath: lyricsCacheDir.path
+            ) else {
+                return nil
+            }
 
-        let decoder = JSONDecoder()
-        let entries = files.compactMap { file -> PersistentLyricsCacheEntry? in
-            guard file.hasPrefix(prefix) else { return nil }
-            let url = lyricsCacheDir.appendingPathComponent(file)
-            guard let data = try? Data(contentsOf: url) else { return nil }
-            return try? decoder.decode(PersistentLyricsCacheEntry.self, from: data)
-        }
-        .sorted { $0.savedAt > $1.savedAt }
+            let decoder = JSONDecoder()
+            let entries = files.compactMap { file -> PersistentLyricsCacheEntry? in
+                guard file.hasPrefix(prefix) else { return nil }
+                let url = lyricsCacheDir.appendingPathComponent(file)
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                return try? decoder.decode(PersistentLyricsCacheEntry.self, from: data)
+            }
+            .sorted { $0.savedAt > $1.savedAt }
 
-        for entry in entries {
-            switch mode {
-            case .lyrics:
-                if let parsed = parseContent(entry.content, codec: entry.signature.codec), !parsed.lines.isEmpty {
-                    return (.available(parsed), .persistentCache)
-                }
-            case .chords:
-                if let parsed = parseChordContent(entry.content), parsed.containsChords {
-                    return (.available(parsed), .persistentCache)
+            for entry in entries {
+                switch entry.outcome {
+                case .unavailable:
+                    return (.notAvailable, .noLyricsStream)
+                case .content(let content):
+                    switch mode {
+                    case .lyrics:
+                        if let parsed = parseContent(content, codec: entry.signature.codec),
+                           !parsed.lines.isEmpty {
+                            return (.available(parsed), .persistentCache)
+                        }
+                    case .chords:
+                        if let parsed = parseChordContent(content), parsed.containsChords {
+                            return (.available(parsed), .persistentCache)
+                        }
+                    }
                 }
             }
-        }
 
-        return nil
+            return nil
+        }.value
     }
 
-    private func loadFromPersistentCache(key: String, signature: LyricsStreamSignature, mode: LyricsMode) -> String? {
-        let url = Self.persistentCachePath(key: key)
-        guard let data = try? Data(contentsOf: url),
-              let entry = try? JSONDecoder().decode(PersistentLyricsCacheEntry.self, from: data),
-              entry.signature == signature else {
-            return nil
-        }
-
-        if mode == .chords, Date().timeIntervalSince(entry.savedAt) > 24 * 60 * 60 {
-            return nil
-        }
-
-        return entry.content
+    private func loadPersistentOutcome(
+        key: String,
+        signature: LyricsStreamSignature,
+        mode: LyricsMode
+    ) async -> PersistentLyricsOutcome? {
+        await Task.detached(priority: .utility) {
+            let url = Self.persistentCachePath(key: key)
+            guard let data = try? Data(contentsOf: url),
+                  let entry = try? JSONDecoder().decode(PersistentLyricsCacheEntry.self, from: data),
+                  entry.signature == signature else {
+                return nil
+            }
+            if mode == .chords,
+               case .content = entry.outcome,
+               Date().timeIntervalSince(entry.savedAt) > 24 * 60 * 60 {
+                return nil
+            }
+            return entry.outcome
+        }.value
     }
 
-    private nonisolated func saveToPersistentCache(_ content: String, key: String, signature: LyricsStreamSignature) {
-        let entry = PersistentLyricsCacheEntry(content: content, signature: signature, savedAt: Date())
-        guard let data = try? JSONEncoder().encode(entry) else { return }
-        try? data.write(to: Self.persistentCachePath(key: key), options: .atomic)
+    private func savePersistentOutcome(
+        _ outcome: PersistentLyricsOutcome,
+        key: String,
+        signature: LyricsStreamSignature
+    ) async {
+        await Task.detached(priority: .utility) {
+            let entry = PersistentLyricsCacheEntry(
+                outcome: outcome,
+                signature: signature,
+                savedAt: Date()
+            )
+            guard let data = try? JSONEncoder().encode(entry) else { return }
+            try? FileManager.default.createDirectory(
+                at: Self.lyricsCacheDir,
+                withIntermediateDirectories: true
+            )
+            try? data.write(to: Self.persistentCachePath(key: key), options: .atomic)
+        }.value
     }
 
     // MARK: - In-Memory Cache Management
@@ -948,8 +1164,38 @@ public final class LyricsService: ObservableObject {
             asset.id,
             asset.provider ?? "unknown",
             asset.codec ?? "unknown",
-            asset.format ?? "unknown"
+            asset.format ?? "unknown",
+            asset.file ?? "unknown",
+            track.dateModified.map { String($0.timeIntervalSince1970) } ?? "unknown"
         ].joined(separator: ":")
+    }
+
+    private nonisolated static func noAssetsKey(for track: Track, mode: LyricsMode) -> String {
+        [
+            track.id,
+            track.sourceCompositeKey ?? "local",
+            mode.rawValue,
+            "no-assets"
+        ].joined(separator: ":")
+    }
+
+    private nonisolated static func artifactStateKey(for track: Track) -> String {
+        [
+            track.id,
+            track.sourceCompositeKey ?? "local",
+            "artifact-state"
+        ].joined(separator: ":")
+    }
+
+    private nonisolated static func noAssetsSignature(for track: Track) -> LyricsStreamSignature {
+        LyricsStreamSignature(
+            streamID: "no-assets",
+            provider: nil,
+            codec: nil,
+            format: nil,
+            file: nil,
+            trackDateModified: track.dateModified?.timeIntervalSince1970
+        )
     }
 
     private nonisolated static func streamSignature(
@@ -967,39 +1213,16 @@ public final class LyricsService: ObservableObject {
     }
 
     private func loadCachedState(key: String) -> LyricsState? {
-        guard let cached = cache[key] else { return nil }
-        if case .notAvailable = cached,
-           let timestamp = negativeCacheTimestamps[key],
-           Date().timeIntervalSince(timestamp) >= negativeCacheTTL {
-            cache.removeValue(forKey: key)
-            negativeCacheTimestamps.removeValue(forKey: key)
-            return nil
-        }
-        return cached
+        cache[key]
     }
 
     private func setCached(_ state: LyricsState, forKey key: String) {
-        // Skip caching transient states
-        guard case .available = state else {
-            // Cache .notAvailable with a timestamp so it expires after negativeCacheTTL.
-            // This prevents 18-request storms when the same 404 stream is retried per
-            // track visit, while still allowing retries once PMS's LyricFind cache warms up.
-            if case .notAvailable = state {
-                cache[key] = state
-                negativeCacheTimestamps[key] = Date()
-            }
-            return
-        }
-
         cache[key] = state
-        // Clear any negative timestamp if we now have a positive result
-        negativeCacheTimestamps.removeValue(forKey: key)
 
         // Evict oldest entries if over limit
         if cache.count > maxCacheSize {
             if let firstKey = cache.keys.first {
                 cache.removeValue(forKey: firstKey)
-                negativeCacheTimestamps.removeValue(forKey: firstKey)
             }
         }
     }

@@ -317,7 +317,7 @@ public final class CacheManager: ObservableObject {
         // We should confirm with user before calling this
         try await libraryRepository.deleteAllLibraryData()
         // Also clear persistent lyrics cache
-        lyricsService.clearAllCaches()
+        await lyricsService.clearAllCaches()
     }
     
     private func clearAllDownloads() async throws {

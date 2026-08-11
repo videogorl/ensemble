@@ -3,6 +3,20 @@ import XCTest
 
 final class PlexAPIClientTests: XCTestCase {
 
+    func testOnlyLyrics404IsDurablyUnavailable() {
+        XCTAssertTrue(
+            PlexAPIClient.isUnavailableLyricsResponse(PlexAPIError.httpError(statusCode: 404))
+        )
+        XCTAssertFalse(
+            PlexAPIClient.isUnavailableLyricsResponse(PlexAPIError.httpError(statusCode: 500))
+        )
+        XCTAssertFalse(
+            PlexAPIClient.isUnavailableLyricsResponse(
+                PlexAPIError.networkError(URLError(.timedOut))
+            )
+        )
+    }
+
     func testArtworkURLCanBeBuiltWithoutAClient() throws {
         let url = try XCTUnwrap(PlexAPIClient.artworkURL(
             serverURL: "https://example.com:32400",

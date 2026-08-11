@@ -93,7 +93,7 @@ public final class MetadataMutationService {
     private let isOffline: () -> Bool
     private let canManageServer: (_ accountId: String, _ serverId: String) -> Bool
     private let makeClient: (_ accountId: String, _ serverId: String) -> MetadataMutationClient?
-    private let clearLyricsCache: (_ ratingKey: String, _ sourceCompositeKey: String) -> Void
+    private let clearLyricsCache: (_ ratingKey: String, _ sourceCompositeKey: String) async -> Void
     private let removeDeletedTracksFromPlayback: @MainActor (Set<String>) -> Void
 
     public init(
@@ -104,7 +104,7 @@ public final class MetadataMutationService {
         isOffline: @escaping () -> Bool,
         canManageServer: @escaping (_ accountId: String, _ serverId: String) -> Bool,
         makeClient: @escaping (_ accountId: String, _ serverId: String) -> MetadataMutationClient?,
-        clearLyricsCache: @escaping (_ ratingKey: String, _ sourceCompositeKey: String) -> Void,
+        clearLyricsCache: @escaping (_ ratingKey: String, _ sourceCompositeKey: String) async -> Void,
         removeDeletedTracksFromPlayback: @escaping @MainActor (Set<String>) -> Void
     ) {
         self.libraryRepository = libraryRepository
@@ -276,7 +276,7 @@ public final class MetadataMutationService {
                     trackSourceCompositeKey: sourceCompositeKey
                 )
             )
-            clearLyricsCache(track.id, sourceCompositeKey)
+            await clearLyricsCache(track.id, sourceCompositeKey)
         }
 
         artworkDownloadManager.deleteArtwork(

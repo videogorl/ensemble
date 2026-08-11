@@ -118,7 +118,7 @@ final class DownloadTargetReconciler {
     ) -> [OfflineTrackReference] {
         let references = tracks.compactMap { track -> OfflineTrackReference? in
             guard let sourceCompositeKey = track.sourceCompositeKey else { return nil }
-            guard DownloadCapabilityPolicy.providerSupportsOfflineDownloads(for: sourceCompositeKey) else {
+            guard MediaSourceIdentity.parse(sourceCompositeKey)?.sourceType.capabilities.supportsOfflineDownloads == true else {
                 return nil
             }
             guard isSourceCompatible(sourceCompositeKey, with: target) else { return nil }
