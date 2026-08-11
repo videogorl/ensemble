@@ -222,10 +222,12 @@ public struct ArtworkView: View {
             priority: imagePriority
         )
 
-        guard let resolved = await ArtworkImageResolver.resolvedImage(
+        let resolved = await ArtworkImageResolver.resolvedImage(
             for: descriptor,
             artworkLoader: dependencies.artworkLoader
-        ) else {
+        )
+        guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
+        guard let resolved else {
             artworkURL = nil
             resolvedImage = nil
             return
@@ -235,7 +237,6 @@ public struct ArtworkView: View {
             artworkURL = resolved.url
         }
 
-        guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
         previousImage = resolvedImage ?? previousImage
         resolvedImage = resolved.image
     }

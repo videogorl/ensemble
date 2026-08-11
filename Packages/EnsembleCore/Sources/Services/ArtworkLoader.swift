@@ -466,8 +466,6 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
     /// Called when server connection changes to clear stale URLs pointing to unreachable endpoints.
     /// Coalesces rapid successive calls (e.g. startup reconnect + health check) within a 5s window.
     public func invalidateURLCache() async {
-        NotificationCenter.default.post(name: Self.serversBecameAvailable, object: self)
-
         // Coalesce rapid invalidations during startup
         if let lastDate = lastBulkInvalidationDate,
            Date().timeIntervalSince(lastDate) < Self.bulkInvalidationCooldown {
@@ -480,6 +478,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         // Connection changed — all tracked URLs are stale
         await artworkURLTracker.clearAll()
         EnsembleLogger.debug("🎨 ArtworkLoader: Invalidated URL cache after connection change")
+        NotificationCenter.default.post(name: Self.serversBecameAvailable, object: self)
     }
 
     /// Invalidate a specific artwork so views re-fetch from the server.

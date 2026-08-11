@@ -5277,6 +5277,34 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         )
     }
 
+    @MainActor
+    private func isPrefetchedTrackStillUpcoming(_ trackID: String, depth: Int) -> Bool {
+        let currentTrackID = queue.indices.contains(currentQueueIndex)
+            ? queue[currentQueueIndex].track.playbackIdentity
+            : currentTrack?.playbackIdentity
+        let nextUpcomingTrackID = upcomingQueueIndices(depth: depth).first.map {
+            queue[$0].track.playbackIdentity
+        }
+        return PlaybackPrefetchController.shouldSchedulePrefetchedTrack(
+            prefetchedTrackID: trackID,
+            currentTrackID: currentTrackID,
+            nextUpcomingTrackID: nextUpcomingTrackID
+        )
+    }
+
+    @MainActor
+    private func schedulePrefetchedTrackIfStillUpcoming(
+        _ trackID: String,
+        depth: Int,
+        engine: AudioPlaybackEngine,
+        schedule: () throws -> Void
+    ) rethrows -> Bool {
+        guard isPrefetchedTrackStillUpcoming(trackID, depth: depth),
+              !engine.isTrackScheduled(trackID) else { return false }
+        try schedule()
+        return true
+    }
+
     private func prefetchUpcomingItems(depth: Int) async {
         guard let engine = audioEngine else { return }
 
@@ -5380,26 +5408,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
 
-            let scheduleContext = await MainActor.run { [weak self] in
-                guard let self else {
-                    return (currentTrackID: String?.none, nextUpcomingTrackID: String?.none)
-                }
-
-                let currentTrackID = self.queue.indices.contains(self.currentQueueIndex)
-                    ? self.queue[self.currentQueueIndex].track.playbackIdentity
-                    : self.currentTrack?.playbackIdentity
-                let nextUpcomingTrackID = self.upcomingQueueIndices(depth: depth).first.map { self.queue[$0].track.playbackIdentity }
-                return (currentTrackID: currentTrackID, nextUpcomingTrackID: nextUpcomingTrackID)
-            }
-
-            guard PlaybackPrefetchController.shouldSchedulePrefetchedTrack(
-                prefetchedTrackID: trackIdentity,
-                currentTrackID: scheduleContext.currentTrackID,
-                nextUpcomingTrackID: scheduleContext.nextUpcomingTrackID
-            ) else {
-                EnsembleLogger.debug(
-                    "[prefetch] '\(track.title)' no longer matches upcoming queue current=\(scheduleContext.currentTrackID ?? "nil") next=\(scheduleContext.nextUpcomingTrackID ?? "nil")"
-                )
+            guard await isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth) else {
+                EnsembleLogger.debug("[prefetch] '\(track.title)' no longer matches the upcoming queue")
                 return
             }
 
@@ -5454,6 +5464,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     for: trackIdentity,
                     fileURL: fileURL
                 )
+                guard await isPrefetchedTrackStillUpcoming(trackIdentity, depth: depth),
+                      !engine.isTrackScheduled(trackIdentity) else {
+                    EnsembleLogger.debug("[prefetch] '\(track.title)' changed while SmartMix analysis was running")
+                    return
+                }
                 let tempoGate = Self.smartMixTempoMatchingGate()
                 if let plan = SmartMixPlanner.plan(
                     outgoingDuration: smartMixContext.currentDuration,
@@ -5492,13 +5507,33 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                         EnsembleLogger.debug("[prefetch] Cached '\(track.title)' for later SmartMix scheduling")
                         return
                     }
-                    try engine.scheduleSmartMixNext(fileURL: fileURL, trackId: trackIdentity, plan: plan)
+                    guard try await schedulePrefetchedTrackIfStillUpcoming(
+                        trackIdentity,
+                        depth: depth,
+                        engine: engine,
+                        schedule: {
+                            try engine.scheduleSmartMixNext(fileURL: fileURL, trackId: trackIdentity, plan: plan)
+                        }
+                    ) else {
+                        EnsembleLogger.debug("[prefetch] '\(track.title)' changed before SmartMix scheduling")
+                        return
+                    }
                 } else if PlaybackPrefetchController.shouldScheduleGaplessNow(
                     currentTime: smartMixContext.currentTime,
                     duration: smartMixContext.currentDuration,
                     playbackState: playbackState
                 ) {
-                    try engine.scheduleNext(fileURL: fileURL, trackId: trackIdentity)
+                    guard try await schedulePrefetchedTrackIfStillUpcoming(
+                        trackIdentity,
+                        depth: depth,
+                        engine: engine,
+                        schedule: {
+                            try engine.scheduleNext(fileURL: fileURL, trackId: trackIdentity)
+                        }
+                    ) else {
+                        EnsembleLogger.debug("[prefetch] '\(track.title)' changed before gapless scheduling")
+                        return
+                    }
                 } else {
                     EnsembleLogger.debug("[prefetch] Cached '\(track.title)' for later SmartMix scheduling")
                     return
@@ -5526,8 +5561,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     EnsembleLogger.debug("[prefetch] Cached '\(track.title)' for later gapless scheduling")
                     return
                 }
-
-                try engine.scheduleNext(fileURL: fileURL, trackId: trackIdentity)
+                guard try await schedulePrefetchedTrackIfStillUpcoming(
+                    trackIdentity,
+                    depth: depth,
+                    engine: engine,
+                    schedule: {
+                        try engine.scheduleNext(fileURL: fileURL, trackId: trackIdentity)
+                    }
+                ) else {
+                    EnsembleLogger.debug("[prefetch] '\(track.title)' changed before gapless scheduling")
+                    return
+                }
             }
 
             if let plan = await MainActor.run(body: { [weak self] in
