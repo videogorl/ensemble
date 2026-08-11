@@ -99,7 +99,7 @@ More-routed library screens:
 - Albums: grid/list, sort/filter sheet, album detail, metadata/get-info sheet if available.
 - Genres: genre list, genre detail, track list.
 - Favorites: favorite tracks/albums/artists/playlists sections or empty state, sorting/filtering, genre/filter chips if present, row/card menus.
-- Downloads: libraries section, items section, pending mutations if present, Download Manager settings.
+- Downloads: libraries section, items section, pending mutations if present, Download Manager settings. When a physical-device download sweep is requested and local download mutation is authorized, run [physical-download-sweep.md](physical-download-sweep.md).
 
 iPhone-only/compact checks:
 - Rotate Songs or Playlists to landscape and verify StageFlow if available.
