@@ -4,16 +4,19 @@ Use this runbook for an end-to-end download sweep on the user's physical iPhone 
 
 ## Authorization Boundary
 
-The user authorized adding and removing device-local downloads, download targets, queued work, and their local sidecars on this phone.
+The user authorized adding and removing device-local downloads, download targets, queued work, and their local sidecars on this phone. The user also authorized rapid enable/disable cycles for configured library sources and destructive mutation of playlists created by this sweep.
 
 Never use this authorization to:
-- delete a track, album, playlist, collection, library, or other item from Plex;
-- edit Plex metadata or playlist membership;
-- remove a Plex account, server, or library source;
+- delete a track, album, collection, library, or other Plex library item;
+- edit or delete a pre-existing playlist or its membership;
+- edit Plex metadata;
+- remove a Plex account, server, or configured library source;
 - clear all synced library data or reset the app;
 - incur cellular data charges without separate current approval.
 
-Confirm the selected action says `Download`, `Remove Download`, `Remove Downloads`, or `Remove All Downloads`. Do not select adjacent `Delete Track`, `Delete Album`, or `Delete Playlist` actions.
+For local-download operations, confirm the selected action says `Download`, `Remove Download`, `Remove Downloads`, or `Remove All Downloads`. Never select adjacent `Delete Track` or `Delete Album` actions; select `Delete Playlist` only after proving the exact playlist identity belongs to the current sweep.
+
+Name every disposable playlist `Ensemble Download Sweep <run-id> <suffix>` and record its provider-returned identity immediately. Rename, reorder, add/remove tracks, or delete a playlist only when that exact identity was created during the current sweep. A title match alone is insufficient authorization.
 
 ## Definition Of Complete
 
@@ -25,9 +28,11 @@ Do not call the download system fully swept until every applicable row below pas
 | Album | Complete a small album target and verify detail counts, progress, playable rows, and removal. |
 | Artist | Complete or deliberately bound a small artist target; verify membership and cleanup. |
 | Playlist | Complete a small existing playlist without mutating the Plex playlist. |
+| Sweep-owned playlist | Create, mutate, download, reconcile, and delete a uniquely identified disposable Plex playlist. |
 | Favorites | Reconcile a favorites target and verify only downloadable provider members are queued. |
 | Overlap | Put one source-scoped track in two targets; removing the first target preserves the file, removing the final target evicts it and its sidecars. |
 | Library | Exercise enable, queue creation, pause/resume, backgrounding, completion or a documented capacity blocker, disable, and bounded cleanup. |
+| Source-library reconciliation | Rapidly enable/disable a configured library at the earliest UI-permitted boundary; verify scoped cleanup, restoration, and no duplicate or stale state. |
 | Quality | Exercise Original, High (320 kbps), Medium (192 kbps), and Low (128 kbps), including redownload at current quality. |
 | Playback | Download during active streaming, play a downloaded item while the queue runs, and prove offline playback. |
 | Lifecycle | Foreground, background, lock, foreground recovery, terminate/relaunch recovery, and stale `.downloading` repair. |
@@ -45,12 +50,13 @@ Do not call the download system fully swept until every applicable row below pas
 4. Check device lock state before installation. Use the passcode from `.env` only through Device Hub when needed; never print or persist it in artifacts.
 5. Create an artifact root such as `/tmp/ensemble-download-sweep-<run-id>` with `screenshots`, `ui`, `logs`, `traces`, and `reports` subdirectories.
 6. Capture a baseline before changing downloads:
-   - every library toggle and its account/server/library label;
+   - every download-library toggle and every configured source-library enabled flag, with account/server/library labels kept distinct;
    - every existing target, status, downloaded/total count, and estimated/on-disk size;
+   - pre-existing playlist identities and the current server playlist count needed to prove they were not mutated;
    - active queue reason, quality, cellular setting, Low Data Mode, network path, free device storage, and active playback state;
    - installed build number, PID, app log session, and visible Dynamic Island/Lock Screen activity;
    - existing failures and the names/IDs of test fixtures chosen below.
-7. Use only existing Plex media. Do not create, edit, or delete remote Plex content to manufacture fixtures.
+7. Use only existing Plex media as track/album/artist fixtures. The only remote Plex objects this sweep may create, edit, or delete are its uniquely identified disposable playlists.
 
 ## Fixture Selection
 
@@ -60,6 +66,7 @@ Choose the smallest existing fixtures that cover behavior while keeping the swee
 - one small album, preferably 12 tracks or fewer;
 - one small artist, preferably 25 tracks or fewer;
 - one small existing playlist, preferably 20 tracks or fewer;
+- one disposable Plex playlist created by the sweep from three to six existing tracks;
 - an album and playlist sharing at least one identical source-scoped track;
 - favorites with at least one Plex item and, when configured, one non-downloadable provider item;
 - the smallest enabled Plex library for the library-target run.
@@ -90,7 +97,17 @@ For the overlapping album and playlist:
 
 For merged/cross-provider favorites or playlists, verify unsupported provider members remain visible online but never create Ensemble download memberships or queue rows.
 
-### 3. Quality Matrix
+### 3. Disposable Playlist Lifecycle
+
+1. Create `Ensemble Download Sweep <run-id> A` on a Plex source that supports playlist deletion. Record its returned playlist ID and source key before mutation.
+2. Add three to six existing tracks, including the overlap fixture; verify optimistic UI, server convergence, ordering, duplicate prevention, and refresh without touching any pre-existing playlist.
+3. Rename, reorder, remove, and re-add tracks in this sweep-owned playlist. Exercise an offline-queued mutation and reconnect if the provider supports it.
+4. Download the playlist and verify membership, counts, order, target detail, shared-file reference counting, and offline playback.
+5. Delete the sweep-owned playlist while its download target exists. Verify the app either reconciles/removes the target or leaves an explicitly stale but removable local target; if policy is unclear, record a missing-policy finding. It must not crash, duplicate rows, strand an unremovable target, or affect another playlist.
+6. Confirm the exact playlist ID is absent from Plex after deletion and every baseline playlist remains present and unchanged.
+7. Do not create an Apple Music playlist for cleanup testing because MusicKit exposes no supported delete operation; use an existing Apple playlist read-only when provider comparison is useful.
+
+### 4. Quality Matrix
 
 Use the same known-good track for repeatable comparison:
 
@@ -101,7 +118,7 @@ Use the same known-good track for repeatable comparison:
 5. Verify Manage Downloads and Profile > Audio Quality show the same current quality and cellular preference.
 6. Restore the baseline quality after evidence capture.
 
-### 4. Playback Concurrency
+### 5. Playback Concurrency
 
 1. Start audible streaming playback and record stable system progress.
 2. Start the small album or playlist download while playback continues.
@@ -110,7 +127,7 @@ Use the same known-good track for repeatable comparison:
 5. Play an already-downloaded track while other downloads remain active.
 6. Verify online source selection follows quality policy and Airplane Mode falls back to the local file.
 
-### 5. Background, Lock, And Relaunch
+### 6. Background, Lock, And Relaunch
 
 Use a target long enough to remain active through the transition:
 
@@ -121,7 +138,7 @@ Use a target long enough to remain active through the transition:
 5. Terminate Ensemble during an active transfer, relaunch the exact installed build, and verify launch recovery repairs stale state without duplicate records or files.
 6. Background during recovery, foreground again, and verify the deferred recovery runs once and the queue winds down cleanly.
 
-### 6. Network And Scheduler Policy
+### 7. Network And Scheduler Policy
 
 1. On Wi-Fi, verify normal queue start and pause/resume.
 2. Enable Low Data Mode, verify the explanatory paused state, exercise `Resume Downloads for One Hour`, and confirm the persistent setting is unchanged.
@@ -130,7 +147,7 @@ Use a target long enough to remain active through the transition:
 5. Verify the cellular preference is synchronized between both settings surfaces. Do not transfer over cellular without separate current approval.
 6. Exercise user pause during target reconciliation and ensure Resume stays visible while resumable work exists.
 
-### 7. Failure And Retry
+### 8. Failure And Retry
 
 Use naturally occurring server failures; do not corrupt Plex content.
 
@@ -140,7 +157,7 @@ Use naturally occurring server failures; do not corrupt Plex content.
 4. Confirm direct-original fallback is attempted only when policy permits and repeated unsupported transcodes do not loop indefinitely.
 5. After failure, verify pending count reaches zero, queue controls settle, background activity ends, and relaunch does not resurrect completed failure handling.
 
-### 8. Library Target And Soak
+### 9. Library Target And Soak
 
 1. Enable the smallest library and verify target shell publication, estimated size, membership count, and immediate UI responsiveness.
 2. Pause, resume, background, lock, relaunch, and disable while partially downloaded; verify bounded cleanup and responsive progress publication.
@@ -148,14 +165,30 @@ Use naturally occurring server failures; do not corrupt Plex content.
 4. If the safety margin is unavailable, record full-library completion as blocked; do not fill the phone to manufacture a low-storage test.
 5. Disable the library and verify cleanup preserves files still referenced by another target.
 
-### 9. Destructive Local Cleanup
+### 10. Rapid Source-Library Reconciliation
+
+This tests Profile > Music Sources library enablement, not the download-library toggle in Downloads.
+
+1. Choose a Plex library with another enabled library still available when possible. Record its source composite key, synced row counts, Feed hubs, playlists, download targets/files, artwork, pending mutations, and the unaffected-source baseline.
+2. If needed, create and download a uniquely identified sweep-owned playlist on that server so playlist/download reconciliation is observable without risking existing playlists.
+3. Disable the source library through Device Hub. As soon as the UI operation finishes and the control becomes available, re-enable it; never bypass the in-flight guard with direct persistence or API edits.
+4. Repeat three UI-permitted disable/enable cycles. In separate cycles, background once and terminate/relaunch once while sync or cleanup is settling.
+5. On each disable, verify source-scoped library rows, Feed items, artwork, offline targets/files, and pending mutations are purged only for that source. Unrelated sources and their downloads must remain usable.
+6. On each re-enable, verify one provider registration and one authoritative sync restore the expected content without duplicate rows, memberships, artwork records, targets, or concurrent sync storms. Older cleanup/sync generations must not overwrite the newest enabled state.
+7. Verify Songs, Albums, Artists, Favorites, Search, Feed, Playlists, Downloads, Siri/App Intent index state where observable, and source-detail counts converge without an unrelated navigation workaround.
+8. If multiple libraries share the server, test both boundaries: disable a non-final library and verify server playlists remain; then disable the final enabled library once and verify server-scoped local playlist cleanup. Re-enable the baseline libraries and verify Plex playlists resync from the server.
+9. Record `AccountManager: library selection changed`, `[SourceReconciliation]`, cleanup completion, provider refresh, sync start/finish, target reconciliation, and duplicate-count evidence. Capture an Instruments trace spanning the fastest complete cycle.
+10. Confirm no Plex track, album, collection, library, or pre-existing playlist changed remotely. Restore every source enabled flag to its baseline and wait for local and synced preference convergence before continuing.
+
+### 11. Destructive Local Cleanup
 
 After scoped removal passes, exercise `Remove All Downloads` as the final destructive case:
 
 1. Capture the confirmation copy, execute `Remove All`, and wait for cleanup completion.
 2. Verify targets, queued rows, audio files, and offline sidecars are removed; library toggles are off and Downloads shows its true empty state.
 3. Verify Plex browse/search still contains the same remote tracks, albums, artists, playlists, favorites, and libraries sampled at baseline.
-4. Do not restore removed pre-existing downloads unless the active sweep request asks for restoration; report exactly what local state was removed.
+4. Delete any remaining sweep-owned playlist by its recorded provider identity and verify all pre-existing playlists remain unchanged.
+5. Do not restore removed pre-existing downloads unless the active sweep request asks for restoration; report exactly what local state was removed.
 
 ## Continuous UI And Performance Checks
 
@@ -187,9 +220,11 @@ The sweep passes only when:
 - offline files play and invalid files do not;
 - overlapping targets preserve and evict shared files correctly;
 - lifecycle and network transitions leave no stuck or duplicate work;
+- rapid source-library cycles converge to the last user-selected state without cross-source cleanup or duplicate content;
 - playback remains coherent during transfer activity;
 - UI state converges without manual refresh and system activity ends when work ends;
-- local removal never mutates Plex content;
+- local removal never mutates Plex content, and only exact sweep-owned playlists are changed or deleted remotely;
+- every sweep-owned playlist is accounted for and deleted when its provider supports deletion;
 - Instruments shows no unexplained app-owned hang, sustained post-queue work, or playback starvation;
 - the temporary UI runner is removed, settings are restored, playback is paused, and the phone is locked with lock state verified independently.
 
