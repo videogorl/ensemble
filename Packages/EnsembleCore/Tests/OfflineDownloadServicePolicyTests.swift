@@ -80,6 +80,7 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         private var _fetchCompletedDownloadsCount = 0
         private var _deletedReferences: [OfflineTrackReference] = []
         private var _deleteBatches: [[OfflineTrackReference]] = []
+        private var _removeOrphanedDownloadFilesCallCount = 0
         private var _pendingCount = 0
         private var _nextPendingDelayNanoseconds: UInt64 = 0
         private var _statusUpdateDelayNanoseconds: UInt64 = 0
@@ -102,6 +103,10 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
 
         var deleteBatches: [[OfflineTrackReference]] {
             lock.withLock { _deleteBatches }
+        }
+
+        var removeOrphanedDownloadFilesCallCount: Int {
+            lock.withLock { _removeOrphanedDownloadFilesCallCount }
         }
 
         var pendingCount: Int {
@@ -174,6 +179,10 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         func getTotalDownloadSize() async throws -> Int64 { 0 }
         func deleteDownloads(forSourceCompositeKey sourceCompositeKey: String) async throws {}
         func deleteAllDownloads() async throws {}
+        func removeOrphanedDownloadFiles() async throws -> Int {
+            lock.withLock { _removeOrphanedDownloadFilesCallCount += 1 }
+            return 0
+        }
     }
 
     private final class MockTargetRepository: OfflineDownloadTargetRepositoryProtocol, @unchecked Sendable {
@@ -479,6 +488,30 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(progressUpdates.map(\.completed), [0, 2])
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphanedCacheURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: sharedCacheURL.path))
+    }
+
+    func testLibraryTrackRemovalCleansOrphanedFilesWithoutScanningForMetadataEdits() async {
+        let downloadManager = MockDownloadManager()
+        let service = await makeService(downloadManager: downloadManager)
+        let source = MusicSourceIdentifier.appleMusic
+
+        await service.handleContentChange(
+            SyncContentChange(
+                source: source,
+                libraryResult: LibrarySyncResult(changedTracks: 1),
+                syncedAt: Date()
+            )
+        )
+        XCTAssertEqual(downloadManager.removeOrphanedDownloadFilesCallCount, 0)
+
+        await service.handleContentChange(
+            SyncContentChange(
+                source: source,
+                libraryResult: LibrarySyncResult(removedTracks: 1),
+                syncedAt: Date()
+            )
+        )
+        XCTAssertEqual(downloadManager.removeOrphanedDownloadFilesCallCount, 1)
     }
 
     private func lyricsCacheFilenamePrefix(for reference: OfflineTrackReference) -> String {

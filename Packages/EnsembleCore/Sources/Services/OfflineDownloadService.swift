@@ -1934,6 +1934,28 @@ public final class OfflineDownloadService: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        syncCoordinator.$lastContentChange
+            .compactMap { $0 }
+            .sink { [weak self] change in
+                Task { @MainActor in
+                    await self?.handleContentChange(change)
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    func handleContentChange(_ change: SyncContentChange) async {
+        guard change.libraryResult?.removedTracks ?? 0 > 0 else { return }
+
+        do {
+            let removedFiles = try await downloadManager.removeOrphanedDownloadFiles()
+            if removedFiles > 0 {
+                EnsembleLogger.info("Removed \(removedFiles) orphaned download artifact(s) after library sync")
+            }
+        } catch {
+            EnsembleLogger.error("Failed removing orphaned download artifacts after library sync: \(error.localizedDescription)")
+        }
     }
 
     private func handleSourceSyncUpdate(_ statuses: [MusicSourceIdentifier: MusicSourceStatus]) async {
