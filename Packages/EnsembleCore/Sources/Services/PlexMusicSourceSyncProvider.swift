@@ -446,15 +446,21 @@ public final class PlexMusicSourceSyncProvider:
         // Compare the small artist catalog directly alongside item-level incremental queries.
         progressHandler(0.05)
         var phaseStart = CFAbsoluteTimeGetCurrent()
-        async let existingArtistMetadata = repository.fetchArtistSyncMetadata(forSource: sourceKey)
-        let artists = try await apiClient.getArtists(sectionKey: sectionKey)
+        async let existingArtistMetadataRequest = repository.fetchArtistSyncMetadata(forSource: sourceKey)
+        var artists = try await apiClient.getArtists(sectionKey: sectionKey)
+        let existingArtistMetadata = try await existingArtistMetadataRequest
+        var artistRatingKeys = Set(artists.map(\.ratingKey))
+        if !Set(existingArtistMetadata.keys).isSubset(of: artistRatingKeys) {
+            EnsembleLogger.debug("🔄 Confirming Plex artist inventory before orphan removal")
+            artists = try await apiClient.getArtists(sectionKey: sectionKey)
+            artistRatingKeys = Set(artists.map(\.ratingKey))
+        }
         let artistInputs = artists.map(Self.artistUpsertInput)
         let artistsToSync = Self.changedArtistInputs(
             artistInputs,
-            existingMetadata: try await existingArtistMetadata
+            existingMetadata: existingArtistMetadata
         )
         try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
-        let artistRatingKeys = Set(artists.map(\.ratingKey))
         EnsembleLogger.debug(
             "⏱️ Incremental sync: artist metadata comparison took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s — \(artists.count) from server, \(artistsToSync.count) changed"
         )
@@ -583,8 +589,22 @@ public final class PlexMusicSourceSyncProvider:
                 async let existingTrackMetadata = repository.fetchTrackSyncMetadata(forSource: sourceKey)
                 async let allAlbums = apiClient.getAlbums(sectionKey: sectionKey)
                 async let allTracks = apiClient.getTracks(sectionKey: sectionKey)
-                let albums = try await allAlbums
-                let tracks = try await allTracks
+                let cachedAlbumMetadata = try await existingAlbumMetadata
+                let cachedTrackMetadata = try await existingTrackMetadata
+                var albums = try await allAlbums
+                var tracks = try await allTracks
+                var candidateAlbumRatingKeys = Set(albums.map(\.ratingKey))
+                var candidateTrackRatingKeys = Set(tracks.map(\.ratingKey))
+                if !Set(cachedAlbumMetadata.keys).isSubset(of: candidateAlbumRatingKeys) {
+                    EnsembleLogger.debug("🔄 Confirming Plex album inventory before orphan removal")
+                    albums = try await apiClient.getAlbums(sectionKey: sectionKey)
+                    candidateAlbumRatingKeys = Set(albums.map(\.ratingKey))
+                }
+                if !Set(cachedTrackMetadata.keys).isSubset(of: candidateTrackRatingKeys) {
+                    EnsembleLogger.debug("🔄 Confirming Plex track inventory before orphan removal")
+                    tracks = try await apiClient.getTracks(sectionKey: sectionKey)
+                    candidateTrackRatingKeys = Set(tracks.map(\.ratingKey))
+                }
                 let trackCounts = Self.trackCountsByAlbumRatingKey(tracks)
                 let releaseFormats = await libraryAlbumReleaseFormats()
                 let authoritativeAlbumInputs = albums.map { album in
@@ -608,11 +628,11 @@ public final class PlexMusicSourceSyncProvider:
                 }
                 let authoritativeAlbumsToSync = Self.changedAlbumInputs(
                     authoritativeAlbumInputs,
-                    existingMetadata: try await existingAlbumMetadata
+                    existingMetadata: cachedAlbumMetadata
                 )
                 let authoritativeTracksToSync = Self.changedTrackInputs(
                     authoritativeTrackInputs,
-                    existingMetadata: try await existingTrackMetadata
+                    existingMetadata: cachedTrackMetadata
                 )
                 try await repository.batchUpsertAlbums(
                     authoritativeAlbumsToSync,
@@ -624,18 +644,30 @@ public final class PlexMusicSourceSyncProvider:
                 )
                 authoritativeChangedAlbums = authoritativeAlbumsToSync.count
                 authoritativeChangedTracks = authoritativeTracksToSync.count
-                albumRatingKeys = Set(albums.map(\.ratingKey))
-                trackRatingKeys = Set(tracks.map(\.ratingKey))
+                albumRatingKeys = candidateAlbumRatingKeys
+                trackRatingKeys = candidateTrackRatingKeys
                 EnsembleLogger.debug(
                     "🔄 Authoritative Plex metadata reconciliation: albums=\(authoritativeChangedAlbums) tracks=\(authoritativeChangedTracks)"
                 )
             } else {
                 // Concrete additions/deletions need only the compact identity inventory.
-                let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
-                albumRatingKeys = Set(albumInventory.map(\.ratingKey))
+                var albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
+                var candidateAlbumRatingKeys = Set(albumInventory.map(\.ratingKey))
+                if !Set(existingAlbumTimestamps.keys).isSubset(of: candidateAlbumRatingKeys) {
+                    EnsembleLogger.debug("🔄 Confirming Plex album inventory before orphan removal")
+                    albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
+                    candidateAlbumRatingKeys = Set(albumInventory.map(\.ratingKey))
+                }
+                albumRatingKeys = candidateAlbumRatingKeys
                 progressHandler(0.75)
-                let trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
-                trackRatingKeys = Set(trackInventory.map(\.ratingKey))
+                var trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
+                var candidateTrackRatingKeys = Set(trackInventory.map(\.ratingKey))
+                if !Set(existingTrackTimestamps.keys).isSubset(of: candidateTrackRatingKeys) {
+                    EnsembleLogger.debug("🔄 Confirming Plex track inventory before orphan removal")
+                    trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
+                    candidateTrackRatingKeys = Set(trackInventory.map(\.ratingKey))
+                }
+                trackRatingKeys = candidateTrackRatingKeys
             }
             progressHandler(0.85)
 
@@ -853,11 +885,21 @@ public final class PlexMusicSourceSyncProvider:
             accountName: nil
         )
 
+        async let cachedArtistMetadataRequest = repository.fetchArtistSyncMetadata(forSource: sourceKey)
+        async let cachedAlbumTimestampsRequest = repository.fetchAlbumTimestamps(forSource: sourceKey)
+        async let cachedTrackTimestampsRequest = repository.fetchTrackTimestamps(forSource: sourceKey)
+
         // Sync artists (batch upsert — single context, single save)
         progressHandler(0.1)
         var phaseStart = CFAbsoluteTimeGetCurrent()
-        let artists = try await apiClient.getArtists(sectionKey: sectionKey)
-        let artistRatingKeys = Set(artists.map { $0.ratingKey })
+        let cachedArtistMetadata = try await cachedArtistMetadataRequest
+        var artists = try await apiClient.getArtists(sectionKey: sectionKey)
+        var artistRatingKeys = Set(artists.map { $0.ratingKey })
+        if !Set(cachedArtistMetadata.keys).isSubset(of: artistRatingKeys) {
+            EnsembleLogger.debug("🔄 Confirming Plex artist inventory before orphan removal")
+            artists = try await apiClient.getArtists(sectionKey: sectionKey)
+            artistRatingKeys = Set(artists.map { $0.ratingKey })
+        }
         let artistInputs = artists.map(Self.artistUpsertInput)
         try await repository.batchUpsertArtists(artistInputs, sourceCompositeKey: sourceKey)
 
@@ -866,11 +908,24 @@ public final class PlexMusicSourceSyncProvider:
         // Sync albums (batch upsert)
         progressHandler(0.3)
         phaseStart = CFAbsoluteTimeGetCurrent()
-        let albums = try await apiClient.getAlbums(sectionKey: sectionKey)
+        let cachedAlbumTimestamps = try await cachedAlbumTimestampsRequest
+        let cachedTrackTimestamps = try await cachedTrackTimestampsRequest
+        var albums = try await apiClient.getAlbums(sectionKey: sectionKey)
         let releaseFormats = await libraryAlbumReleaseFormats()
-        let tracks = try await apiClient.getTracks(sectionKey: sectionKey)
+        var tracks = try await apiClient.getTracks(sectionKey: sectionKey)
+        var albumRatingKeys = Set(albums.map { $0.ratingKey })
+        var trackRatingKeys = Set(tracks.map { $0.ratingKey })
+        if !Set(cachedAlbumTimestamps.keys).isSubset(of: albumRatingKeys) {
+            EnsembleLogger.debug("🔄 Confirming Plex album inventory before orphan removal")
+            albums = try await apiClient.getAlbums(sectionKey: sectionKey)
+            albumRatingKeys = Set(albums.map { $0.ratingKey })
+        }
+        if !Set(cachedTrackTimestamps.keys).isSubset(of: trackRatingKeys) {
+            EnsembleLogger.debug("🔄 Confirming Plex track inventory before orphan removal")
+            tracks = try await apiClient.getTracks(sectionKey: sectionKey)
+            trackRatingKeys = Set(tracks.map { $0.ratingKey })
+        }
         let trackCountsByAlbum = Self.trackCountsByAlbumRatingKey(tracks)
-        let albumRatingKeys = Set(albums.map { $0.ratingKey })
         // Build album genre lookup for copying genres to tracks (Plex only returns genres on albums)
         var albumGenresByKey: [String: String] = [:]
         let albumInputs = albums.map { album in
@@ -892,7 +947,6 @@ public final class PlexMusicSourceSyncProvider:
         // Sync tracks (batch upsert — biggest win, ~24s → ~2-3s)
         progressHandler(0.5)
         phaseStart = CFAbsoluteTimeGetCurrent()
-        let trackRatingKeys = Set(tracks.map { $0.ratingKey })
         let trackInputs = tracks.map { track in
             // Copy genre from parent album (Plex doesn't return genres on tracks)
             let trackGenreNames = track.parentRatingKey.flatMap { albumGenresByKey[$0] }

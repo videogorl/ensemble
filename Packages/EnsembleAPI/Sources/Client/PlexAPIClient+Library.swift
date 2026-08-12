@@ -10,6 +10,7 @@ extension PlexAPIClient {
     ) async throws -> [T] {
         var allItems: [T] = []
         var start = 0
+        var expectedTotalSize: Int?
 
         while true {
             var query = baseQuery
@@ -26,20 +27,31 @@ extension PlexAPIClient {
             )
 
             let items = container.mediaContainer.items
-            guard !items.isEmpty else { break }
+            guard container.mediaContainer.size == items.count,
+                  let totalSize = container.mediaContainer.totalSize,
+                  expectedTotalSize == nil || expectedTotalSize == totalSize,
+                  container.mediaContainer.offset == nil || container.mediaContainer.offset == start else {
+                throw PlexAPIError.invalidResponse
+            }
+            expectedTotalSize = totalSize
+
+            guard !items.isEmpty else {
+                guard start == totalSize else { throw PlexAPIError.invalidResponse }
+                break
+            }
 
             allItems.append(contentsOf: items)
 
             let nextStart = start + items.count
-            if let totalSize = container.mediaContainer.totalSize, nextStart >= totalSize {
+            guard nextStart <= totalSize else { throw PlexAPIError.invalidResponse }
+            if nextStart == totalSize {
                 break
             }
-            if items.count < pageSize {
-                break
-            }
+            guard items.count == pageSize else { throw PlexAPIError.invalidResponse }
             start = nextStart
         }
 
+        guard allItems.count == expectedTotalSize else { throw PlexAPIError.invalidResponse }
         return allItems
     }
 
@@ -70,11 +82,15 @@ extension PlexAPIClient {
 
     /// Get artists in a library section with an optional Plex container cap.
     public func getArtists(sectionKey: String, limit: Int?) async throws -> [PlexArtist] {
-        var query = ["type": "8"]
-        if let limit {
-            query["X-Plex-Container-Start"] = "0"
-            query["X-Plex-Container-Size"] = String(limit)
+        guard let limit else {
+            return try await getPagedSectionItems(
+                sectionKey: sectionKey,
+                baseQuery: ["type": "8"]
+            )
         }
+        var query = ["type": "8"]
+        query["X-Plex-Container-Start"] = "0"
+        query["X-Plex-Container-Size"] = String(limit)
         return try await mediaContainerItems(path: "/library/sections/\(sectionKey)/all", query: query)
     }
 
@@ -103,11 +119,15 @@ extension PlexAPIClient {
 
     /// Get albums in a library section with an optional Plex container cap.
     public func getAlbums(sectionKey: String, limit: Int?) async throws -> [PlexAlbum] {
-        var query = ["type": "9"]
-        if let limit {
-            query["X-Plex-Container-Start"] = "0"
-            query["X-Plex-Container-Size"] = String(limit)
+        guard let limit else {
+            return try await getPagedSectionItems(
+                sectionKey: sectionKey,
+                baseQuery: ["type": "9"]
+            )
         }
+        var query = ["type": "9"]
+        query["X-Plex-Container-Start"] = "0"
+        query["X-Plex-Container-Size"] = String(limit)
         return try await mediaContainerItems(path: "/library/sections/\(sectionKey)/all", query: query)
     }
 
@@ -281,9 +301,9 @@ extension PlexAPIClient {
     /// Get all artist ratingKeys in a library section (minimal response)
     /// Uses includeFields=ratingKey to reduce response size significantly
     public func getArtistInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
-        return try await mediaContainerItems(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "8",
                 "includeFields": "ratingKey",
                 "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"
@@ -293,9 +313,9 @@ extension PlexAPIClient {
 
     /// Get all album ratingKeys in a library section (minimal response)
     public func getAlbumInventory(sectionKey: String) async throws -> [PlexInventoryItem] {
-        return try await mediaContainerItems(
-            path: "/library/sections/\(sectionKey)/all",
-            query: [
+        return try await getPagedSectionItems(
+            sectionKey: sectionKey,
+            baseQuery: [
                 "type": "9",
                 "includeFields": "ratingKey",
                 "excludeElements": "Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role"

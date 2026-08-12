@@ -539,6 +539,48 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(request.url?.absoluteString).contains("updatedAt%3E%3D=999"))
     }
 
+    func testPagedLibraryInventoryRejectsPrematureEmptyPage() async throws {
+        DownloadQueueURLProtocol.install { request in
+            let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
+            let start = components?.queryItems?.first {
+                $0.name == "X-Plex-Container-Start"
+            }?.value
+            guard start == "0" else {
+                return (200, Data(#"{"MediaContainer":{"size":0,"totalSize":501,"offset":500,"Metadata":[]}}"#.utf8))
+            }
+
+            let items = (0..<500)
+                .map { #"{"ratingKey":"\#($0)"}"# }
+                .joined(separator: ",")
+            return (
+                200,
+                Data("{\"MediaContainer\":{\"size\":500,\"totalSize\":501,\"offset\":0,\"Metadata\":[\(items)]}}".utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DownloadQueueURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        do {
+            _ = try await client.getTrackInventory(sectionKey: "3")
+            XCTFail("Expected an incomplete paginated inventory to fail")
+        } catch PlexAPIError.invalidResponse {
+            // Expected: orphan deletion must not consume a partial inventory.
+        }
+    }
+
     func testPlexTrackDecodingFallsBackToFileNameWhenTitleMissing() throws {
         let trackJSON = """
         {

@@ -8,7 +8,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
         let sut = BackgroundRefreshCoordinator(
             appEndpointRefresh: { events.append("endpoint") },
             foregroundEndpointRefresh: { events.append("endpoint") },
-            incrementalSync: { events.append("sync") },
+            incrementalSync: { events.append("sync-\($0)") },
             feedRefresh: {
                 events.append("feed")
                 return true
@@ -24,7 +24,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
 
         let result = await sut.performAppRefresh()
 
-        XCTAssertEqual(events, ["schedule", "endpoint", "sync", "feed", "siri-index", "siri-context"])
+        XCTAssertEqual(events, ["schedule", "endpoint", "sync-true", "feed", "siri-index", "siri-context"])
         XCTAssertTrue(result.didRunEndpointRefresh)
         XCTAssertTrue(result.didRunIncrementalSync)
         XCTAssertTrue(result.didRefreshFeedSnapshot)
@@ -35,10 +35,11 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
 
     func testForegroundFreshnessHonorsCooldownAfterSuccess() async {
         var runCount = 0
+        var reconciliationRequests: [Bool] = []
         let sut = BackgroundRefreshCoordinator(
             appEndpointRefresh: { runCount += 1 },
             foregroundEndpointRefresh: { runCount += 1 },
-            incrementalSync: {},
+            incrementalSync: { reconciliationRequests.append($0) },
             feedRefresh: { true },
             siriIndexRefresh: { true },
             siriContextRefresh: {},
@@ -47,12 +48,14 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
 
         let first = await sut.performForegroundFreshnessRefresh()
         let second = await sut.performForegroundFreshnessRefresh()
-        let forced = await sut.performForegroundFreshnessRefresh(force: true)
+        sut.markMissedEventWindow()
+        let forced = await sut.performForegroundFreshnessRefresh()
 
         XCTAssertTrue(first.didRunEndpointRefresh)
         XCTAssertFalse(second.didRunEndpointRefresh)
         XCTAssertTrue(forced.didRunEndpointRefresh)
         XCTAssertEqual(runCount, 2)
+        XCTAssertEqual(reconciliationRequests, [false, true])
     }
 
     func testForegroundFreshnessUsesForegroundEndpointPolicy() async {
@@ -60,7 +63,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
         let sut = BackgroundRefreshCoordinator(
             appEndpointRefresh: { endpointEvents.append("app") },
             foregroundEndpointRefresh: { endpointEvents.append("foreground") },
-            incrementalSync: {},
+            incrementalSync: { _ in },
             feedRefresh: { true },
             siriIndexRefresh: { true },
             siriContextRefresh: {},
@@ -83,7 +86,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
         let sut = BackgroundRefreshCoordinator(
             appEndpointRefresh: { throw TestError.endpoint },
             foregroundEndpointRefresh: { throw TestError.endpoint },
-            incrementalSync: {},
+            incrementalSync: { _ in },
             feedRefresh: {
                 didRunFeed = true
                 return false
@@ -107,7 +110,7 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
         let sut = BackgroundRefreshCoordinator(
             appEndpointRefresh: { events.append("endpoint") },
             foregroundEndpointRefresh: { events.append("endpoint") },
-            incrementalSync: { events.append("sync") },
+            incrementalSync: { _ in events.append("sync") },
             feedRefresh: {
                 events.append("feed")
                 return true

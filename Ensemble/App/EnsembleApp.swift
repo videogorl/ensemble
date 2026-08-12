@@ -262,7 +262,7 @@ struct EnsembleApp: App {
                 } else {
                     // Route foreground freshness through one coordinator so iOS 15
                     // foreground refresh and iOS background refresh share the same work.
-                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh(force: true)
+                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
                     await DependencyContainer.shared.reconcileSyncOnForeground()
                 }
 
@@ -278,6 +278,7 @@ struct EnsembleApp: App {
             case .background:
                 UserJourneyLogger.log(context: "app", event: "scenePhase", details: ["phase": "background"])
                 DependencyContainer.shared.foregroundWorkScheduler.setForegroundActive(false)
+                DependencyContainer.shared.backgroundRefreshCoordinator.markMissedEventWindow()
                 // Flush log session to disk but keep the file handle open so
                 // logs continue capturing during background audio playback.
                 DependencyContainer.shared.persistentLogService.flushSession()

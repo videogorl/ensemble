@@ -22,13 +22,14 @@ public struct BackgroundRefreshResult: Sendable, Equatable {
 /// Runs the app's lightweight freshness path from both background tasks and foreground launch.
 public final class BackgroundRefreshCoordinator {
     public typealias AsyncStep = @MainActor @Sendable () async throws -> Void
+    public typealias IncrementalStep = @MainActor @Sendable (_ reconcileMissedPlexEvents: Bool) async throws -> Void
     public typealias FeedStep = @MainActor @Sendable () async throws -> Bool
     public typealias SiriIndexStep = @MainActor @Sendable () async throws -> Bool
     public typealias ScheduleStep = @MainActor @Sendable () -> Void
 
     private let appEndpointRefresh: AsyncStep
     private let foregroundEndpointRefresh: AsyncStep
-    private let incrementalSync: AsyncStep
+    private let incrementalSync: IncrementalStep
     private let feedRefresh: FeedStep
     private let siriIndexRefresh: SiriIndexStep
     private let siriContextRefresh: AsyncStep
@@ -37,6 +38,7 @@ public final class BackgroundRefreshCoordinator {
     private let foregroundCooldown: TimeInterval
     private var lastForegroundRefresh: Date?
     private var inFlightKind: BackgroundRefreshKind?
+    private var hasMissedEventWindow = false
 
     public convenience init(
         syncCoordinator: SyncCoordinator,
@@ -53,8 +55,10 @@ public final class BackgroundRefreshCoordinator {
             foregroundEndpointRefresh: {
                 await syncCoordinator.handleAppWillEnterForeground()
             },
-            incrementalSync: {
-                await syncCoordinator.syncAllIncremental(reconcileMissedPlexEvents: true)
+            incrementalSync: { reconcileMissedPlexEvents in
+                await syncCoordinator.syncAllIncremental(
+                    reconcileMissedPlexEvents: reconcileMissedPlexEvents
+                )
             },
             feedRefresh: {
                 await homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12") != nil
@@ -80,7 +84,7 @@ public final class BackgroundRefreshCoordinator {
     internal init(
         appEndpointRefresh: @escaping AsyncStep,
         foregroundEndpointRefresh: @escaping AsyncStep,
-        incrementalSync: @escaping AsyncStep,
+        incrementalSync: @escaping IncrementalStep,
         feedRefresh: @escaping FeedStep,
         siriIndexRefresh: @escaping SiriIndexStep,
         siriContextRefresh: @escaping AsyncStep,
@@ -103,12 +107,21 @@ public final class BackgroundRefreshCoordinator {
     @MainActor
     public func performAppRefresh() async -> BackgroundRefreshResult {
         scheduleNextAppRefresh?()
-        return await run(kind: .appRefresh, force: true)
+        let result = await run(kind: .appRefresh, force: true)
+        recordSuccessfulReconciliation(result)
+        return result
+    }
+
+    /// Marks that Plex events may occur before the next WebSocket connection is established.
+    @MainActor
+    public func markMissedEventWindow() {
+        hasMissedEventWindow = true
     }
 
     @discardableResult
     @MainActor
-    public func performForegroundFreshnessRefresh(force: Bool = false) async -> BackgroundRefreshResult {
+    public func performForegroundFreshnessRefresh() async -> BackgroundRefreshResult {
+        let force = hasMissedEventWindow
         if !force,
            let lastForegroundRefresh,
            Date().timeIntervalSince(lastForegroundRefresh) < foregroundCooldown {
@@ -128,10 +141,14 @@ public final class BackgroundRefreshCoordinator {
         }
 
         let result = await run(kind: .foregroundFreshness, force: force)
-        if result.succeeded {
-            lastForegroundRefresh = result.completedAt
-        }
+        recordSuccessfulReconciliation(result)
         return result
+    }
+
+    private func recordSuccessfulReconciliation(_ result: BackgroundRefreshResult) {
+        guard result.didRunIncrementalSync else { return }
+        lastForegroundRefresh = result.completedAt
+        hasMissedEventWindow = false
     }
 
     @MainActor
@@ -192,7 +209,7 @@ public final class BackgroundRefreshCoordinator {
         }
 
         do {
-            try await incrementalSync()
+            try await incrementalSync(force)
             didRunIncrementalSync = true
         } catch {
             errors.append("sync: \(error.localizedDescription)")
