@@ -671,9 +671,9 @@ public final class PlexMusicSourceSyncProvider:
             }
             progressHandler(0.85)
 
-            removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
-            removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
             removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+            removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+            removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
             if fullMetadataReconciliationDue {
                 try await syncCursorRepository?.recordFullSync(
                     scopeKey: sourceKey,
@@ -978,9 +978,9 @@ public final class PlexMusicSourceSyncProvider:
         progressHandler(0.85)
         phaseStart = CFAbsoluteTimeGetCurrent()
         EnsembleLogger.debug("🧹 Checking for orphaned items...")
-        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
-        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
         let removedGenres = try await repository.removeOrphanedGenres(notIn: genreRatingKeys, forSource: sourceKey)
 
         if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
