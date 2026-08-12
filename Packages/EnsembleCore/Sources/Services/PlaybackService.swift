@@ -290,9 +290,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func shouldInferAppleMusicPrevious(
         previousTime: TimeInterval,
-        currentTime: TimeInterval
+        currentTime: TimeInterval,
+        restartWasObserved: Bool
     ) -> Bool {
-        previousTime <= previousRestartThreshold
+        (restartWasObserved || previousTime >= 1)
+            && previousTime <= previousRestartThreshold
             && currentTime <= 0.75
             && previousTime - currentTime >= 0.25
     }
@@ -1117,6 +1119,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let maxQueueLookahead = 5 // Max number of future tracks to keep queued
     #if os(iOS)
         private var appleMusicPlaybackController: AppleMusicPlaybackControlling?
+        private var appleMusicPreviousRestartGeneration: UInt64?
     #endif
     // Playback history for "previous" navigation (not persisted across app restarts)
     @Published public private(set) var playbackHistory: [QueueItem] = []
@@ -6004,6 +6007,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     )
                 }
             }
+            controller.onPaused = { [weak self] queueGeneration in
+                guard let self,
+                      self.isCurrentAppleMusicQueue(queueGeneration),
+                      self.playbackState == .playing || self.playbackState == .buffering else { return }
+                self.applyPauseForHandoff(reason: .system)
+            }
             controller.onDynamicTrack = { [weak self] track, queueGeneration in
                 self?.handleAppleMusicRadioTrack(
                     track,
@@ -6033,6 +6042,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             startTime: TimeInterval?,
             generation: UInt64
         ) async {
+            let preservesNowPlayingContinuity = isSkipTransitionInProgress
+            defer {
+                if preservesNowPlayingContinuity {
+                    isSkipTransitionInProgress = false
+                    disarmSkipTransitionSafety()
+                }
+            }
             pendingPreBufferTime = nil
             let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
@@ -6044,7 +6060,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             waveformHeights = []
             frequencyBands = []
             playbackState = .loading
-            updateNowPlayingInfo()
+            if preservesNowPlayingContinuity {
+                pushNowPlayingForSkipTransition()
+            } else {
+                updateNowPlayingInfo()
+            }
 
             do {
                 setupAppleMusicPlayback()
@@ -6153,6 +6173,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
             recordToHistory(queue[currentQueueIndex])
             currentQueueIndex = nextIndex
+            currentTrack = nextItem?.track
+            updatePlaybackTimes(rawTime: 0)
+            playbackState = .loading
+            isSkipTransitionInProgress = true
+            armSkipTransitionSafety()
+            pushNowPlayingForSkipTransition()
             await playCurrentQueueItem(caller: "appleMusicSegmentEnded")
             savePlaybackState()
         }
@@ -6241,8 +6267,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
             let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
                 || appleMusicPlaybackController?.hasQueuedSuccessor == true
+            if currentTime > Self.previousRestartThreshold, time <= 0.75 {
+                appleMusicPreviousRestartGeneration = queueGeneration
+            }
             if !hasContinuousAppleMusicSuccessor,
-               Self.shouldInferAppleMusicPrevious(previousTime: currentTime, currentTime: time) {
+               Self.shouldInferAppleMusicPrevious(
+                   previousTime: currentTime,
+                   currentTime: time,
+                   restartWasObserved: appleMusicPreviousRestartGeneration == queueGeneration
+               ) {
+                appleMusicPreviousRestartGeneration = nil
                 EnsembleLogger.debug("[Handoff] inferred Apple Music previous command")
                 previous()
                 return

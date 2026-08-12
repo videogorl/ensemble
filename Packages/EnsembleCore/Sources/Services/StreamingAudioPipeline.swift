@@ -43,6 +43,7 @@ final class StreamingAudioPipeline: NSObject {
         let cacheURL: URL
         let duration: TimeInterval?
         let bufferSeconds: TimeInterval
+        let startupTimeout: TimeInterval
         let sessionConfiguration: URLSessionConfiguration
 
         init(
@@ -51,6 +52,7 @@ final class StreamingAudioPipeline: NSObject {
             cacheURL: URL,
             duration: TimeInterval? = nil,
             bufferSeconds: TimeInterval = 20,
+            startupTimeout: TimeInterval = 15,
             sessionConfiguration: URLSessionConfiguration? = nil
         ) {
             self.request = request
@@ -58,6 +60,7 @@ final class StreamingAudioPipeline: NSObject {
             self.cacheURL = cacheURL
             self.duration = duration
             self.bufferSeconds = bufferSeconds
+            self.startupTimeout = startupTimeout
             self.sessionConfiguration = sessionConfiguration ?? Self.defaultSessionConfiguration()
         }
 
@@ -92,6 +95,7 @@ final class StreamingAudioPipeline: NSObject {
     private var lastPCMUptime: TimeInterval?
     private var decodedFrameCount: AVAudioFramePosition = 0
     private var decodedFrameTarget: AVAudioFramePosition?
+    private var startupTimeoutWorkItem: DispatchWorkItem?
 
     var cacheURL: URL { configuration.cacheURL }
 
@@ -148,6 +152,14 @@ final class StreamingAudioPipeline: NSObject {
             let task = session.dataTask(with: configuration.request)
             self.task = task
             task.resume()
+            let startupTimeoutWorkItem = DispatchWorkItem { [weak self] in
+                self?.failStartupIfNeeded()
+            }
+            self.startupTimeoutWorkItem = startupTimeoutWorkItem
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + configuration.startupTimeout,
+                execute: startupTimeoutWorkItem
+            )
         } catch {
             fail(error)
         }
@@ -155,13 +167,19 @@ final class StreamingAudioPipeline: NSObject {
 
     func cancel() {
         stateLock.lock()
+        let shouldNotify = !cancelled && !completed
         cancelled = true
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
         pcmBuffer?.wakeWaiters()
         task?.cancel()
         session?.invalidateAndCancel()
+        startupTimeoutWorkItem?.cancel()
+        startupTimeoutWorkItem = nil
         closeCache()
+        if shouldNotify {
+            onFailure?(URLError(.cancelled))
+        }
     }
 
     @discardableResult
@@ -203,6 +221,8 @@ final class StreamingAudioPipeline: NSObject {
                 pcmBuffer = ring
                 decodedFrameTarget = frameTarget
                 stateLock.unlock()
+                startupTimeoutWorkItem?.cancel()
+                startupTimeoutWorkItem = nil
                 onFormatReady?(format)
             } catch {
                 fail(error)
@@ -252,9 +272,11 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     private func complete() {
+        startupTimeoutWorkItem?.cancel()
+        startupTimeoutWorkItem = nil
         stateLock.lock()
-        let shouldNotify = !completed
-        completed = true
+        let shouldNotify = !completed && !cancelled
+        if shouldNotify { completed = true }
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
         pcmBuffer?.wakeWaiters()
@@ -266,13 +288,27 @@ final class StreamingAudioPipeline: NSObject {
     }
 
     private func fail(_ error: Error) {
+        startupTimeoutWorkItem?.cancel()
+        startupTimeoutWorkItem = nil
         stateLock.lock()
+        let shouldNotify = !cancelled && !completed
         cancelled = true
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
         pcmBuffer?.wakeWaiters()
         closeCache()
-        onFailure?(error)
+        if shouldNotify {
+            onFailure?(error)
+        }
+    }
+
+    private func failStartupIfNeeded() {
+        stateLock.lock()
+        let shouldFail = pcmBuffer == nil && !cancelled && !completed
+        stateLock.unlock()
+        guard shouldFail else { return }
+        fail(URLError(.timedOut))
+        task?.cancel()
     }
 
     private var isActiveForWrites: Bool {

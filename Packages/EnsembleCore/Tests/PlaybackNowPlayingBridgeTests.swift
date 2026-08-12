@@ -98,6 +98,26 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertTrue(commandCenter.changePlaybackPosition.isEnabled)
     }
 
+    func testSkipTransitionKeepsSystemNowPlayingActiveWhileLoading() {
+        let nowPlayingCenter = FakeNowPlayingInfoCenter()
+        let bridge = PlaybackNowPlayingBridge(
+            artworkLoader: MockArtworkLoader(),
+            nowPlayingCenter: nowPlayingCenter,
+            commandCenter: FakeRemoteCommandCenter()
+        )
+
+        bridge.pushNowPlayingForSkipTransition(makeState(
+            track: makeTrack(),
+            playbackState: .loading
+        ))
+
+        XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
+        XCTAssertEqual(
+            nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double,
+            1
+        )
+    }
+
     #if os(iOS)
     func testAppleMusicUpdateRejectsStalePlexArtworkCompletion() async throws {
         let artworkURL = try makeTemporaryPNG()

@@ -91,6 +91,14 @@ enum AppleMusicPlaybackEndPolicy {
         wasPlaying && !isEndSuppressed
     }
 
+    static func shouldReportUnexpectedPause(
+        wasPlaying: Bool,
+        isEndSuppressed: Bool,
+        reachedFinalEntryBoundary: Bool
+    ) -> Bool {
+        wasPlaying && !isEndSuppressed && !reachedFinalEntryBoundary
+    }
+
     static func shouldReportFinalEntryReset(
         playbackTime: TimeInterval,
         lastPlayingTime: TimeInterval?,
@@ -320,6 +328,7 @@ protocol AppleMusicPlaybackControlling: AnyObject {
     var onTrackChanged: ((String, UInt64) -> Void)? { get set }
     var onTimeChanged: ((TimeInterval, UInt64) -> Void)? { get set }
     var onEnded: ((UInt64) -> Void)? { get set }
+    var onPaused: ((UInt64) -> Void)? { get set }
     var onDynamicTrack: ((Track, UInt64) -> Void)? { get set }
     var onTrackMetadataChanged: ((Track, UInt64) -> Void)? { get set }
     var onDynamicQueueChanged: (([Track], UInt64) -> Void)? { get set }
@@ -379,6 +388,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     var onTrackChanged: ((String, UInt64) -> Void)?
     var onTimeChanged: ((TimeInterval, UInt64) -> Void)?
     var onEnded: ((UInt64) -> Void)?
+    var onPaused: ((UInt64) -> Void)?
     var onDynamicTrack: ((Track, UInt64) -> Void)?
     var onTrackMetadataChanged: ((Track, UInt64) -> Void)?
     var onDynamicQueueChanged: (([Track], UInt64) -> Void)?
@@ -420,9 +430,9 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                     + " snapshotFinal=\(lastPlayingEndSnapshot?.isFinalEntry == true)"
             )
         }
+        publishState()
         guard player.state.playbackStatus == .playing else {
             endStallTracker.reset()
-            publishState()
             return
         }
         onTimeChanged?(playbackTime, queueGeneration)
@@ -516,7 +526,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         try await player.prepareToPlay()
         try Task.checkCancellation()
         guard acceptCompletion(for: generation) else { return [] }
-        if let startTime { player.playbackTime = startTime }
+        player.playbackTime = startTime ?? 0
         try await player.play()
         try Task.checkCancellation()
         guard acceptCompletion(for: generation) else { return [] }
@@ -1101,10 +1111,20 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             scheduleEndConfirmation(forStoppedPlayback: true)
         } else if playbackStatus == .paused, reachedFinalEntryBoundary {
             scheduleEndConfirmation(forStoppedPlayback: false)
+        } else if playbackStatus == .paused,
+                  AppleMusicPlaybackEndPolicy.shouldReportUnexpectedPause(
+                      wasPlaying: wasPlaying,
+                      isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes,
+                      reachedFinalEntryBoundary: reachedFinalEntryBoundary
+                  ),
+                  let queueGeneration = activeQueueGeneration {
+            wasPlaying = false
+            onPaused?(queueGeneration)
         } else if playbackStatus == .playing {
             pausedEndTask?.cancel()
             pausedEndTask = nil
             wasPlaying = true
+            isInterrupted = false
             suppressPausedEndUntilPlaybackResumes = false
         } else {
             pausedEndTask?.cancel()
