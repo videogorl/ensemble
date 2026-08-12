@@ -1,26 +1,39 @@
 import Foundation
 
 extension PlexAPIClient {
+    private func getMetadata<T: Codable & Sendable>(
+        _ type: T.Type,
+        ratingKey: String,
+        query: [String: String] = [:]
+    ) async throws -> T? {
+        let data = try await serverRequest(
+            path: "/library/metadata/\(ratingKey)",
+            query: query
+        )
+        let container = try JSONDecoder().decode(PlexMediaContainer<T>.self, from: data)
+        return container.mediaContainer.items.first
+    }
+
+    /// Get one artist using the authoritative single-item metadata endpoint.
+    public func getArtist(artistKey: String) async throws -> PlexArtist? {
+        try await getMetadata(PlexArtist.self, ratingKey: artistKey)
+    }
+
+    /// Get one album using the authoritative single-item metadata endpoint.
+    public func getAlbum(albumKey: String) async throws -> PlexAlbum? {
+        try await getMetadata(PlexAlbum.self, ratingKey: albumKey)
+    }
+
     /// Get detailed artist metadata (genres, country, similar artists, styles, GUIDs).
     /// Uses the single-item metadata endpoint which returns richer data than the section listing.
     public func getArtistDetail(artistKey: String) async throws -> PlexArtistDetail? {
-        let data = try await serverRequest(path: "/library/metadata/\(artistKey)")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexArtistDetail>.self,
-            from: data
-        )
-        return container.mediaContainer.items.first
+        try await getMetadata(PlexArtistDetail.self, ratingKey: artistKey)
     }
 
     /// Get detailed album metadata (genres, styles, studio, GUIDs).
     /// Uses the single-item metadata endpoint which returns richer data than the section listing.
     public func getAlbumDetail(albumKey: String) async throws -> PlexAlbumDetail? {
-        let data = try await serverRequest(path: "/library/metadata/\(albumKey)")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexAlbumDetail>.self,
-            from: data
-        )
-        return container.mediaContainer.items.first
+        try await getMetadata(PlexAlbumDetail.self, ratingKey: albumKey)
     }
 
     /// Get sonically similar albums from Plex's recommendation engine.
@@ -39,12 +52,14 @@ extension PlexAPIClient {
 
     /// Get a single track
     public func getTrack(trackKey: String) async throws -> PlexTrack? {
-        let data = try await serverRequest(path: "/library/metadata/\(trackKey)")
-        let container = try JSONDecoder().decode(
-            PlexMediaContainer<PlexTrack>.self,
-            from: data
+        try await getMetadata(
+            PlexTrack.self,
+            ratingKey: trackKey,
+            query: [
+                "includeMedia": "1",
+                "includeElements": "Media"
+            ]
         )
-        return container.mediaContainer.items.first
     }
 
     /// Get multiple tracks in a single batch request
@@ -56,7 +71,13 @@ extension PlexAPIClient {
 
         EnsembleLogger.debug("📦 Fetching \(ratingKeys.count) tracks in batch")
 
-        let data = try await serverRequest(path: "/library/metadata/\(ids)")
+        let data = try await serverRequest(
+            path: "/library/metadata/\(ids)",
+            query: [
+                "includeMedia": "1",
+                "includeElements": "Media"
+            ]
+        )
 
         let container = try JSONDecoder().decode(
             PlexMediaContainer<PlexTrack>.self,

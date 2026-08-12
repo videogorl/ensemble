@@ -1466,6 +1466,12 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(artistMetadata["artist"]?.actionCapabilitiesData, updated)
         XCTAssertEqual(albumMetadata["album"]?.actionCapabilitiesData, updated)
         XCTAssertEqual(trackMetadata["track"]?.actionCapabilitiesData, updated)
+        let missingArtists = try await repository.fetchArtistSyncMetadata(forSource: sourceKey, ratingKeys: ["missing"])
+        let missingAlbums = try await repository.fetchAlbumSyncMetadata(forSource: sourceKey, ratingKeys: ["missing"])
+        let missingTracks = try await repository.fetchTrackSyncMetadata(forSource: sourceKey, ratingKeys: ["missing"])
+        XCTAssertTrue(missingArtists.isEmpty)
+        XCTAssertTrue(missingAlbums.isEmpty)
+        XCTAssertTrue(missingTracks.isEmpty)
     }
 
     func testBatchUpsertsBackfillMissingDateAddedWithoutReplacingKnownDates() async throws {

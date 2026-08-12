@@ -268,9 +268,16 @@ extension LibraryRepository {
 
     /// Fetches source-scoped artist fields for metadata comparison without escaping managed objects.
     public func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] {
+        try await fetchArtistSyncMetadata(forSource: sourceKey, ratingKeys: [])
+    }
+
+    public func fetchArtistSyncMetadata(
+        forSource sourceKey: String,
+        ratingKeys: Set<String>
+    ) async throws -> [String: ArtistSyncMetadata] {
         try await coreDataStack.performBackgroundContext { context in
             let request: NSFetchRequest<CDArtist> = CDArtist.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.predicate = Self.sourceScopedPredicate(sourceKey: sourceKey, ratingKeys: ratingKeys)
             let artists = try context.fetch(request)
             var result: [String: ArtistSyncMetadata] = [:]
             result.reserveCapacity(artists.count)
@@ -292,9 +299,16 @@ extension LibraryRepository {
 
     /// Fetches source-scoped album fields for metadata comparison without escaping managed objects.
     public func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] {
+        try await fetchAlbumSyncMetadata(forSource: sourceKey, ratingKeys: [])
+    }
+
+    public func fetchAlbumSyncMetadata(
+        forSource sourceKey: String,
+        ratingKeys: Set<String>
+    ) async throws -> [String: AlbumSyncMetadata] {
         try await coreDataStack.performBackgroundContext { context in
             let request: NSFetchRequest<CDAlbum> = CDAlbum.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.predicate = Self.sourceScopedPredicate(sourceKey: sourceKey, ratingKeys: ratingKeys)
             request.fetchBatchSize = 200
             request.relationshipKeyPathsForPrefetching = ["artist"]
             let albums = try context.fetch(request)
@@ -326,9 +340,16 @@ extension LibraryRepository {
 
     /// Fetches source-scoped track fields for metadata comparison without escaping managed objects.
     public func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata] {
+        try await fetchTrackSyncMetadata(forSource: sourceKey, ratingKeys: [])
+    }
+
+    public func fetchTrackSyncMetadata(
+        forSource sourceKey: String,
+        ratingKeys: Set<String>
+    ) async throws -> [String: TrackSyncMetadata] {
         try await coreDataStack.performBackgroundContext { context in
             let request: NSFetchRequest<CDTrack> = CDTrack.fetchRequest()
-            request.predicate = NSPredicate(format: "sourceCompositeKey == %@", sourceKey)
+            request.predicate = Self.sourceScopedPredicate(sourceKey: sourceKey, ratingKeys: ratingKeys)
             request.fetchBatchSize = 200
             request.relationshipKeyPathsForPrefetching = ["album"]
             let tracks = try context.fetch(request)

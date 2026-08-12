@@ -670,6 +670,9 @@ public protocol LibraryRepositoryProtocol: Sendable {
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata]
     func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata]
     func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata]
+    func fetchArtistSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: ArtistSyncMetadata]
+    func fetchAlbumSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: AlbumSyncMetadata]
+    func fetchTrackSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: TrackSyncMetadata]
     func fetchArtistTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchAlbumTimestamps(forSource sourceKey: String) async throws -> [String: Date]
     func fetchTrackTimestamps(forSource sourceKey: String) async throws -> [String: Date]
@@ -877,6 +880,15 @@ public extension LibraryRepositoryProtocol {
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] { [:] }
     func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] { [:] }
     func fetchTrackSyncMetadata(forSource sourceKey: String) async throws -> [String: TrackSyncMetadata] { [:] }
+    func fetchArtistSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: ArtistSyncMetadata] {
+        try await fetchArtistSyncMetadata(forSource: sourceKey).filter { ratingKeys.contains($0.key) }
+    }
+    func fetchAlbumSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: AlbumSyncMetadata] {
+        try await fetchAlbumSyncMetadata(forSource: sourceKey).filter { ratingKeys.contains($0.key) }
+    }
+    func fetchTrackSyncMetadata(forSource sourceKey: String, ratingKeys: Set<String>) async throws -> [String: TrackSyncMetadata] {
+        try await fetchTrackSyncMetadata(forSource: sourceKey).filter { ratingKeys.contains($0.key) }
+    }
     func batchUpsertGenres(_ inputs: [GenreUpsertInput], sourceCompositeKey: String) async throws {
         for input in inputs {
             _ = try await upsertGenre(

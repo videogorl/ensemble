@@ -66,6 +66,8 @@ Get metadata for item(s) by rating key.
 - `includeChildren` (optional): Include child items
 - `includeRelated` (optional): Include related items
 
+Use this endpoint for WebSocket-targeted reconciliation. PMS timeline events identify the exact rating key and media type, while timestamp-filtered section queries may omit a metadata edit when `updatedAt` remains absent or unchanged. Artist edits require refreshing their child albums and tracks; album edits require refreshing their child tracks because Plex repeats parent names in those payloads.
+
 ---
 
 ### `GET /library/metadata/{ids}/allLeaves`

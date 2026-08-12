@@ -286,6 +286,140 @@ public final class PlexMusicSourceSyncProvider:
         }
     }
 
+    func reconcileLibraryChanges(
+        _ changes: Set<PlexLibraryChange>,
+        to repository: LibraryRepositoryProtocol
+    ) async throws -> LibrarySyncResult {
+        let actionableChanges = changes.filter { !$0.isDeletion }
+        guard !actionableChanges.isEmpty else { return LibrarySyncResult() }
+
+        let sourceKey = sourceIdentifier.compositeKey
+        _ = try await repository.upsertMusicSource(
+            compositeKey: sourceKey,
+            type: sourceIdentifier.type.rawValue,
+            accountId: sourceIdentifier.accountId,
+            serverId: sourceIdentifier.serverId,
+            libraryId: sourceIdentifier.libraryId,
+            displayName: nil,
+            accountName: nil
+        )
+
+        let explicitArtistKeys = Set(actionableChanges.filter { $0.kind == .artist }.map(\.ratingKey))
+        let explicitAlbumKeys = Set(actionableChanges.filter { $0.kind == .album }.map(\.ratingKey))
+        let explicitTrackKeys = Set(actionableChanges.filter { $0.kind == .track }.map(\.ratingKey))
+
+        var artistsByKey: [String: PlexArtist] = [:]
+        var albumsByKey: [String: PlexAlbum] = [:]
+        var tracksByKey: [String: PlexTrack] = [:]
+
+        for artistKey in explicitArtistKeys.sorted() {
+            if let artist = try await apiClient.getArtist(artistKey: artistKey) {
+                artistsByKey[artist.ratingKey] = artist
+            }
+            for album in try await apiClient.getArtistAlbums(artistKey: artistKey) {
+                albumsByKey[album.ratingKey] = album
+            }
+            for track in try await apiClient.getArtistTracks(artistKey: artistKey) {
+                tracksByKey[track.ratingKey] = track
+            }
+        }
+
+        for albumKey in explicitAlbumKeys.sorted() {
+            if let album = try await apiClient.getAlbum(albumKey: albumKey) {
+                albumsByKey[album.ratingKey] = album
+            }
+            for track in try await apiClient.getAlbumTracks(albumKey: albumKey) {
+                tracksByKey[track.ratingKey] = track
+            }
+        }
+
+        if !explicitTrackKeys.isEmpty {
+            for track in try await apiClient.getTracks(ratingKeys: explicitTrackKeys.sorted()) {
+                tracksByKey[track.ratingKey] = track
+            }
+        }
+
+        let missingAlbumKeys = Set(tracksByKey.values.compactMap(\.parentRatingKey))
+            .subtracting(albumsByKey.keys)
+        for albumKey in missingAlbumKeys.sorted() {
+            if let album = try await apiClient.getAlbum(albumKey: albumKey) {
+                albumsByKey[album.ratingKey] = album
+            }
+        }
+
+        let missingArtistKeys = Set(albumsByKey.values.compactMap(\.parentRatingKey))
+            .subtracting(artistsByKey.keys)
+        for artistKey in missingArtistKeys.sorted() {
+            if let artist = try await apiClient.getArtist(artistKey: artistKey) {
+                artistsByKey[artist.ratingKey] = artist
+            }
+        }
+
+        let trackCounts = Self.trackCountsByAlbumRatingKey(Array(tracksByKey.values))
+        let albumInputs = albumsByKey.values.map { album in
+            Self.albumUpsertInput(
+                from: album,
+                trackCount: explicitAlbumKeys.contains(album.ratingKey)
+                    ? trackCounts[album.ratingKey] ?? album.leafCount
+                    : album.leafCount
+            )
+        }
+        let albumGenres = Dictionary(uniqueKeysWithValues: albumInputs.compactMap { input in
+            input.genreNames.map { (input.ratingKey, $0) }
+        })
+        let artistInputs = artistsByKey.values.map(Self.artistUpsertInput)
+        let trackInputs = tracksByKey.values.map { track in
+            Self.trackUpsertInput(
+                from: track,
+                genreNames: track.parentRatingKey.flatMap { albumGenres[$0] }
+            )
+        }
+
+        async let existingArtists: [String: ArtistSyncMetadata] = artistInputs.isEmpty
+            ? [:]
+            : repository.fetchArtistSyncMetadata(
+                forSource: sourceKey,
+                ratingKeys: Set(artistInputs.map(\.ratingKey))
+            )
+        async let existingAlbums: [String: AlbumSyncMetadata] = albumInputs.isEmpty
+            ? [:]
+            : repository.fetchAlbumSyncMetadata(
+                forSource: sourceKey,
+                ratingKeys: Set(albumInputs.map(\.ratingKey))
+            )
+        async let existingTracks: [String: TrackSyncMetadata] = trackInputs.isEmpty
+            ? [:]
+            : repository.fetchTrackSyncMetadata(
+                forSource: sourceKey,
+                ratingKeys: Set(trackInputs.map(\.ratingKey))
+            )
+        let artistsToSync = Self.changedArtistInputs(
+            artistInputs,
+            existingMetadata: try await existingArtists
+        )
+        let albumsToSync = Self.changedAlbumInputs(
+            albumInputs,
+            existingMetadata: try await existingAlbums
+        )
+        let tracksToSync = Self.changedTrackInputs(
+            trackInputs,
+            existingMetadata: try await existingTracks
+        )
+
+        try await repository.batchUpsertArtists(artistsToSync, sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertAlbums(albumsToSync, sourceCompositeKey: sourceKey)
+        try await repository.batchUpsertTracks(tracksToSync, sourceCompositeKey: sourceKey)
+
+        EnsembleLogger.debug(
+            "🔌 Targeted Plex reconciliation for \(sourceKey): artists=\(artistsToSync.count) albums=\(albumsToSync.count) tracks=\(tracksToSync.count)"
+        )
+        return LibrarySyncResult(
+            changedArtists: artistsToSync.count,
+            changedAlbums: albumsToSync.count,
+            changedTracks: tracksToSync.count
+        )
+    }
+
     public func syncLibraryIncremental(
         since timestamp: TimeInterval,
         to repository: LibraryRepositoryProtocol,
@@ -378,7 +512,7 @@ public final class PlexMusicSourceSyncProvider:
         // Note: ratedAfter (lastRatedAt>=) is intentionally omitted. The Plex API filter
         // returns ALL ever-rated tracks regardless of the timestamp argument, wasting ~1MB
         // and 3+ seconds per cycle for zero incremental benefit. Rating changes made on
-        // other clients are caught by the next full sync (app launch or 1h periodic).
+        // other clients are caught by the next authoritative metadata reconciliation.
         // On-device rating changes go through MutationCoordinator immediately.
 
         let trackChanges = Self.deduplicatedChangedItems(
@@ -425,34 +559,102 @@ public final class PlexMusicSourceSyncProvider:
             scopeType: .plexLibrary
         )
         let changedItemCount = artistsToSync.count + albumsToSync.count + tracksToSync.count
+        let fullMetadataReconciliationDue = Self.shouldReconcileFullMetadata(
+            lastReconciledAt: cursor?.lastFullSyncAt,
+            now: Date()
+        )
         let shouldCheckOrphans = Self.shouldCheckOrphans(
             changedItemCount: changedItemCount,
             lastCheckedAt: cursor?.lastInventorySyncAt?.timeIntervalSince1970 ?? 0,
             now: Date()
         )
 
+        var authoritativeChangedAlbums = 0
+        var authoritativeChangedTracks = 0
         let removedArtists: Int
         let removedAlbums: Int
         let removedTracks: Int
-        if shouldCheckOrphans {
-            // Fetch only ratingKeys using includeFields (much smaller than full metadata).
+        if shouldCheckOrphans || fullMetadataReconciliationDue {
+            let albumRatingKeys: Set<String>
+            let trackRatingKeys: Set<String>
             progressHandler(0.65)
-            let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
-            let albumRatingKeys = Set(albumInventory.map(\.ratingKey))
-            progressHandler(0.75)
-
-            let trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
-            let trackRatingKeys = Set(trackInventory.map(\.ratingKey))
+            if fullMetadataReconciliationDue {
+                async let existingAlbumMetadata = repository.fetchAlbumSyncMetadata(forSource: sourceKey)
+                async let existingTrackMetadata = repository.fetchTrackSyncMetadata(forSource: sourceKey)
+                async let allAlbums = apiClient.getAlbums(sectionKey: sectionKey)
+                async let allTracks = apiClient.getTracks(sectionKey: sectionKey)
+                let albums = try await allAlbums
+                let tracks = try await allTracks
+                let trackCounts = Self.trackCountsByAlbumRatingKey(tracks)
+                let releaseFormats = await libraryAlbumReleaseFormats()
+                let authoritativeAlbumInputs = albums.map { album in
+                    Self.albumUpsertInput(
+                        from: album,
+                        trackCount: trackCounts[album.ratingKey],
+                        releaseFormat: releaseFormats?[album.ratingKey],
+                        updatesReleaseFormat: releaseFormats != nil
+                    )
+                }
+                let authoritativeAlbumGenres = Dictionary(
+                    uniqueKeysWithValues: authoritativeAlbumInputs.compactMap { input in
+                        input.genreNames.map { (input.ratingKey, $0) }
+                    }
+                )
+                let authoritativeTrackInputs = tracks.map { track in
+                    Self.trackUpsertInput(
+                        from: track,
+                        genreNames: track.parentRatingKey.flatMap { authoritativeAlbumGenres[$0] }
+                    )
+                }
+                let authoritativeAlbumsToSync = Self.changedAlbumInputs(
+                    authoritativeAlbumInputs,
+                    existingMetadata: try await existingAlbumMetadata
+                )
+                let authoritativeTracksToSync = Self.changedTrackInputs(
+                    authoritativeTrackInputs,
+                    existingMetadata: try await existingTrackMetadata
+                )
+                try await repository.batchUpsertAlbums(
+                    authoritativeAlbumsToSync,
+                    sourceCompositeKey: sourceKey
+                )
+                try await repository.batchUpsertTracks(
+                    authoritativeTracksToSync,
+                    sourceCompositeKey: sourceKey
+                )
+                authoritativeChangedAlbums = authoritativeAlbumsToSync.count
+                authoritativeChangedTracks = authoritativeTracksToSync.count
+                albumRatingKeys = Set(albums.map(\.ratingKey))
+                trackRatingKeys = Set(tracks.map(\.ratingKey))
+                EnsembleLogger.debug(
+                    "🔄 Authoritative Plex metadata reconciliation: albums=\(authoritativeChangedAlbums) tracks=\(authoritativeChangedTracks)"
+                )
+            } else {
+                // Concrete additions/deletions need only the compact identity inventory.
+                let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
+                albumRatingKeys = Set(albumInventory.map(\.ratingKey))
+                progressHandler(0.75)
+                let trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
+                trackRatingKeys = Set(trackInventory.map(\.ratingKey))
+            }
             progressHandler(0.85)
 
             removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
             removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
             removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
-            try await syncCursorRepository?.recordInventorySync(
-                scopeKey: sourceKey,
-                scopeType: .plexLibrary,
-                at: Date()
-            )
+            if fullMetadataReconciliationDue {
+                try await syncCursorRepository?.recordFullSync(
+                    scopeKey: sourceKey,
+                    scopeType: .plexLibrary,
+                    at: queryStartedAt
+                )
+            } else {
+                try await syncCursorRepository?.recordInventorySync(
+                    scopeKey: sourceKey,
+                    scopeType: .plexLibrary,
+                    at: Date()
+                )
+            }
 
             if removedArtists + removedAlbums + removedTracks > 0 {
                 EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
@@ -480,8 +682,8 @@ public final class PlexMusicSourceSyncProvider:
         EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         return LibrarySyncResult(
             changedArtists: artistsToSync.count,
-            changedAlbums: albumsToSync.count,
-            changedTracks: tracksToSync.count,
+            changedAlbums: albumsToSync.count + authoritativeChangedAlbums,
+            changedTracks: tracksToSync.count + authoritativeChangedTracks,
             removedArtists: removedArtists,
             removedAlbums: removedAlbums,
             removedTracks: removedTracks
@@ -536,6 +738,24 @@ public final class PlexMusicSourceSyncProvider:
         _ inputs: [ArtistUpsertInput],
         existingMetadata: [String: ArtistSyncMetadata]
     ) -> [ArtistUpsertInput] {
+        inputs.filter { input in
+            existingMetadata[input.ratingKey]?.matches(input) != true
+        }
+    }
+
+    static func changedAlbumInputs(
+        _ inputs: [AlbumUpsertInput],
+        existingMetadata: [String: AlbumSyncMetadata]
+    ) -> [AlbumUpsertInput] {
+        inputs.filter { input in
+            existingMetadata[input.ratingKey]?.matches(input) != true
+        }
+    }
+
+    static func changedTrackInputs(
+        _ inputs: [TrackUpsertInput],
+        existingMetadata: [String: TrackSyncMetadata]
+    ) -> [TrackUpsertInput] {
         inputs.filter { input in
             existingMetadata[input.ratingKey]?.matches(input) != true
         }
@@ -978,6 +1198,16 @@ public final class PlexMusicSourceSyncProvider:
         guard changedItemCount == 0 else { return true }
         guard lastCheckedAt > 0 else { return true }
         return now.timeIntervalSince1970 - lastCheckedAt >= interval
+    }
+
+    static func shouldReconcileFullMetadata(
+        lastReconciledAt: Date?,
+        now: Date,
+        interval: TimeInterval = orphanCheckInterval
+    ) -> Bool {
+        guard let lastReconciledAt else { return true }
+        let age = now.timeIntervalSince(lastReconciledAt)
+        return age < 0 || age >= interval
     }
 
     @discardableResult

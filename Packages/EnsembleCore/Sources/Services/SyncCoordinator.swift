@@ -2784,6 +2784,14 @@ public final class SyncCoordinator: ObservableObject {
     /// Trigger an incremental sync for a specific library section.
     /// Called by `PlexWebSocketCoordinator` when a library update notification arrives.
     public func syncSectionIncremental(sectionKey: String, serverKey: String) async {
+        await syncSectionIncremental(sectionKey: sectionKey, serverKey: serverKey, changes: [])
+    }
+
+    func syncSectionIncremental(
+        sectionKey: String,
+        serverKey: String,
+        changes: Set<PlexLibraryChange>
+    ) async {
         guard !isOffline else {
             EnsembleLogger.debug("🔌 SyncCoordinator: Skipping WebSocket-triggered sync for section \(sectionKey) while offline")
             return
@@ -2800,21 +2808,70 @@ public final class SyncCoordinator: ObservableObject {
             return
         }
 
-        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (sources=\(resolutions.count))")
+        EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (sources=\(resolutions.count), items=\(changes.count))")
 
         for resolution in resolutions {
-            do {
-                try await syncCursorRepository?.deleteCursor(
-                    scopeKey: resolution.sourceId.compositeKey,
-                    scopeType: .plexLibrary
-                )
-            } catch {
-                EnsembleLogger.error(
-                    "🔌 SyncCoordinator: Failed to invalidate library inventory cursor for \(resolution.compositeKey): \(error.localizedDescription)"
-                )
+            let targetedReconciliationSucceeded = await reconcilePlexLibraryChanges(
+                changes,
+                resolution: resolution
+            )
+            let requiresInventory = changes.isEmpty || changes.contains(where: { $0.isDeletion }) || !targetedReconciliationSucceeded
+            if requiresInventory {
+                do {
+                    try await syncCursorRepository?.invalidateInventorySync(
+                        scopeKey: resolution.sourceId.compositeKey,
+                        scopeType: .plexLibrary
+                    )
+                } catch {
+                    EnsembleLogger.error(
+                        "🔌 SyncCoordinator: Failed to invalidate library inventory cursor for \(resolution.compositeKey): \(error.localizedDescription)"
+                    )
+                }
             }
             await syncIncremental(source: resolution.sourceId)
             EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey) (source=\(resolution.compositeKey))")
+        }
+    }
+
+    private func reconcilePlexLibraryChanges(
+        _ changes: Set<PlexLibraryChange>,
+        resolution: WebSocketSyncController.SectionResolution
+    ) async -> Bool {
+        guard changes.contains(where: { !$0.isDeletion }) else { return true }
+
+        if let activeSync = activeSourceSyncs[resolution.sourceId.compositeKey] {
+            _ = await activeSync.task.value
+        }
+
+        guard let operation = beginSourcePersistenceOperation(sourceKey: resolution.sourceId.compositeKey) else {
+            return false
+        }
+        defer { finishSourcePersistenceOperation(operation) }
+        guard let provider = operation.providers[resolution.sourceId.compositeKey] as? PlexMusicSourceSyncProvider else {
+            return false
+        }
+
+        do {
+            let result = try await provider.reconcileLibraryChanges(changes, to: libraryRepository)
+            guard isSourcePersistenceOperationCurrent(operation) else { return false }
+            await processReparentedTracks()
+            guard isSourcePersistenceOperationCurrent(operation) else { return false }
+            await processArtworkInvalidations()
+            guard isSourcePersistenceOperationCurrent(operation) else { return false }
+            publishContentChangeIfNeeded(
+                for: resolution.sourceId,
+                libraryResult: result,
+                syncedAt: Date()
+            )
+            if result.hasMaterialChanges {
+                SiriMediaIndexNotifications.postRebuildRequest(reason: "plex_targeted_reconciliation")
+            }
+            return true
+        } catch {
+            EnsembleLogger.error(
+                "🔌 SyncCoordinator: Targeted Plex reconciliation failed for \(resolution.compositeKey): \(error.localizedDescription)"
+            )
+            return false
         }
     }
 

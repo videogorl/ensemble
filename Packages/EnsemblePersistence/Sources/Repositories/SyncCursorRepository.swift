@@ -39,6 +39,7 @@ public protocol SyncCursorRepositoryProtocol: Sendable {
     func recordIncrementalSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
     func recordInventorySync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
     func recordFullSync(scopeKey: String, scopeType: SyncCursorScopeType, at date: Date) async throws
+    func invalidateInventorySync(scopeKey: String, scopeType: SyncCursorScopeType) async throws
     func deleteCursor(scopeKey: String, scopeType: SyncCursorScopeType) async throws
 }
 
@@ -74,6 +75,17 @@ public final class SyncCursorRepository: SyncCursorRepositoryProtocol, @unchecke
             cursor.lastFullSyncAt = max(cursor.lastFullSyncAt ?? .distantPast, date)
             cursor.lastInventorySyncAt = max(cursor.lastInventorySyncAt ?? .distantPast, date)
             cursor.lastSuccessfulSyncAt = max(cursor.lastSuccessfulSyncAt ?? .distantPast, date)
+        }
+    }
+
+    public func invalidateInventorySync(scopeKey: String, scopeType: SyncCursorScopeType) async throws {
+        try await coreDataStack.performBackgroundContext { context in
+            guard let cursor = try Self.fetchCursor(scopeKey: scopeKey, scopeType: scopeType, in: context) else {
+                return
+            }
+            cursor.lastInventorySyncAt = nil
+            cursor.updatedAt = Date()
+            try context.save()
         }
     }
 

@@ -70,6 +70,30 @@ final class SyncCursorRepositoryTests: XCTestCase {
         XCTAssertEqual(retained?.lastIncrementalSyncAt, Date(timeIntervalSince1970: 2))
     }
 
+    func testInvalidateInventoryPreservesFullSyncCadence() async throws {
+        let repository = SyncCursorRepository(coreDataStack: .inMemory())
+        let scopeKey = "plex:account:server:library"
+        let fullSyncDate = Date(timeIntervalSince1970: 1_000)
+        try await repository.recordFullSync(
+            scopeKey: scopeKey,
+            scopeType: .plexLibrary,
+            at: fullSyncDate
+        )
+
+        try await repository.invalidateInventorySync(
+            scopeKey: scopeKey,
+            scopeType: .plexLibrary
+        )
+
+        let cursor = try await repository.fetchCursor(
+            scopeKey: scopeKey,
+            scopeType: .plexLibrary
+        )
+        XCTAssertNil(cursor?.lastInventorySyncAt)
+        XCTAssertEqual(cursor?.lastFullSyncAt, fullSyncDate)
+        XCTAssertEqual(cursor?.lastSuccessfulSyncAt, fullSyncDate)
+    }
+
     func testOlderCompletionDoesNotRegressCursor() async throws {
         let repository = SyncCursorRepository(coreDataStack: .inMemory())
         let scopeKey = "plex:account:server"

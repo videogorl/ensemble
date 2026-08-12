@@ -75,4 +75,32 @@ final class PlexWebSocketCoordinatorTests: XCTestCase {
         try await Task.sleep(nanoseconds: 3_100_000_000)
         XCTAssertEqual(callbackCount, 1)
     }
+
+    func testLibraryUpdateCarriesLatestExactItemChanges() async throws {
+        let (coordinator, _) = makeCoordinator()
+        var receivedChanges: Set<PlexLibraryChange> = []
+        coordinator.onLibraryUpdate = { _, _, changes in
+            receivedChanges = changes
+        }
+
+        await coordinator.handleEventForTesting(
+            .libraryUpdate(sectionID: 3, itemID: 10, type: 10, state: 5),
+            from: "account:server"
+        )
+        await coordinator.handleEventForTesting(
+            .libraryUpdate(sectionID: 3, itemID: 10, type: 10, state: 9),
+            from: "account:server"
+        )
+        await coordinator.handleEventForTesting(
+            .libraryUpdate(sectionID: 3, itemID: 20, type: 9, state: 5),
+            from: "account:server"
+        )
+
+        try await Task.sleep(nanoseconds: 3_100_000_000)
+
+        XCTAssertEqual(receivedChanges, [
+            PlexLibraryChange(ratingKey: "10", kind: .track, state: 9),
+            PlexLibraryChange(ratingKey: "20", kind: .album, state: 5)
+        ])
+    }
 }

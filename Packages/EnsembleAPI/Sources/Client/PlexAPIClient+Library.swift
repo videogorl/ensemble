@@ -264,7 +264,13 @@ extension PlexAPIClient {
 
     /// Get all tracks by an artist
     public func getArtistTracks(artistKey: String) async throws -> [PlexTrack] {
-        try await mediaContainerItems(path: "/library/metadata/\(artistKey)/allLeaves")
+        try await mediaContainerItems(
+            path: "/library/metadata/\(artistKey)/allLeaves",
+            query: [
+                "includeMedia": "1",
+                "includeElements": "Media"
+            ]
+        )
     }
 
     /// Get genres in a library section

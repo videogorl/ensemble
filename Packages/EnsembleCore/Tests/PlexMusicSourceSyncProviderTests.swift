@@ -255,6 +255,31 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
     }
 
+    func testFullMetadataReconciliationRunsWhenMissingStaleOrClockRegressed() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertTrue(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+            lastReconciledAt: nil,
+            now: now,
+            interval: 200
+        ))
+        XCTAssertTrue(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+            lastReconciledAt: Date(timeIntervalSince1970: 700),
+            now: now,
+            interval: 200
+        ))
+        XCTAssertTrue(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+            lastReconciledAt: Date(timeIntervalSince1970: 1_100),
+            now: now,
+            interval: 200
+        ))
+        XCTAssertFalse(PlexMusicSourceSyncProvider.shouldReconcileFullMetadata(
+            lastReconciledAt: Date(timeIntervalSince1970: 900),
+            now: now,
+            interval: 200
+        ))
+    }
+
     func testPlaylistTrackSyncSkipsUnchangedPlaylist() {
         XCTAssertFalse(
             PlexMusicSourceSyncProvider.shouldFetchPlaylistTracks(
