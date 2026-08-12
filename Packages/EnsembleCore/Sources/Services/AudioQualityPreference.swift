@@ -10,6 +10,8 @@ public enum AudioQualityPreference {
     )
     public static let downloadQualityKey = "downloadQuality"
     public static let defaultDownloadQuality = "high"
+    public static let sharingQualityKey = "sharingQuality"
+    public static let defaultSharingQuality = "original"
 
     public static func storedStreamingQuality(in defaults: UserDefaults = .standard) -> String {
         defaults.string(forKey: streamingQualityKey) ?? defaultStreamingQuality
@@ -17,6 +19,10 @@ public enum AudioQualityPreference {
 
     public static func storedDownloadQuality(in defaults: UserDefaults = .standard) -> String {
         defaults.string(forKey: downloadQualityKey) ?? defaultDownloadQuality
+    }
+
+    public static func storedSharingQuality(in defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: sharingQualityKey) ?? defaultSharingQuality
     }
 
     public static func storedAllowStreamingOnCellular(in defaults: UserDefaults = .standard) -> Bool {

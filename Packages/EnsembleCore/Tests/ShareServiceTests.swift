@@ -93,12 +93,15 @@ final class ShareServiceTests: XCTestCase {
             key: "/library/metadata/1",
             title: "Downloaded Track",
             artistName: "Artist",
-            localFilePath: tempPath
+            localFilePath: tempPath,
+            downloadedQuality: "original"
         )
 
         XCTAssertTrue(track.isDownloaded)
         XCTAssertEqual(track.localFilePath, tempPath)
         XCTAssertTrue(FileManager.default.fileExists(atPath: tempPath))
+        XCTAssertNotNil(ShareService.matchingLocalFileURL(for: track, quality: .original))
+        XCTAssertNil(ShareService.matchingLocalFileURL(for: track, quality: .high))
     }
 
     func testTrackWithoutLocalFile_isNotDownloaded() {
@@ -135,13 +138,31 @@ final class ShareServiceTests: XCTestCase {
             title: "Lossless",
             artistName: "Artist",
             streamKey: "/library/parts/1/file.mp3",
-            localFilePath: "/tmp/cache/audio-file.FLAC"
+            localFilePath: "/tmp/cache/audio-file.FLAC",
+            downloadedQuality: "original"
         )
 
         let metadata = TrackFileExportMetadata(track: track)
 
         XCTAssertEqual(metadata.fileExtension, "flac")
         XCTAssertEqual(metadata.fileName, "Lossless - Artist.flac")
+
+        let transcodedMetadata = TrackFileExportMetadata(track: track, quality: .medium)
+        XCTAssertEqual(transcodedMetadata.fileName, "Lossless - Artist.mp3")
+
+        let mediumDownload = track.withLocalFilePath("/tmp/cache/audio-file_medium.m4a")
+        XCTAssertEqual(TrackFileExportMetadata(track: mediumDownload).fileName, "Lossless - Artist.mp3")
+    }
+
+    func testSharingQualityDefaultsToOriginalWhenUnset() {
+        let suiteName = "ShareServiceTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        XCTAssertEqual(
+            AudioQualityPreference.storedSharingQuality(in: defaults),
+            AudioQualityPreference.defaultSharingQuality
+        )
     }
 
     func testTrackFileExportMetadataFallsBackToStreamExtension() {

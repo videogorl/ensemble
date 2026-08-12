@@ -38,6 +38,8 @@ struct AudioQualitySettingsView: View {
     private var allowStreamingOnCellular = AudioQualityPreference.defaultAllowStreamingOnCellular
     @AppStorage(AudioQualityPreference.downloadQualityKey)
     private var downloadQuality = AudioQualityPreference.defaultDownloadQuality
+    @AppStorage(AudioQualityPreference.sharingQualityKey)
+    private var sharingQuality = AudioQualityPreference.defaultSharingQuality
     @AppStorage(DownloadSettingsPreference.allowCellularDownloadsKey)
     private var allowCellularDownloads = DownloadSettingsPreference.defaultAllowCellularDownloads
 
@@ -60,6 +62,14 @@ struct AudioQualitySettingsView: View {
                     EnsembleUtilitySectionHeader("Downloads")
                 } footer: {
                     Text("Higher quality downloads use more storage space and cellular data.")
+                }
+
+                Section {
+                    sharingQualityPicker
+                } header: {
+                    EnsembleUtilitySectionHeader("Sharing")
+                } footer: {
+                    Text("Controls audio files shared or dragged outside Ensemble.")
                 }
             }
         } regularContent: {
@@ -92,6 +102,15 @@ struct AudioQualitySettingsView: View {
                     Toggle("Allow Downloading on Cellular", isOn: $allowCellularDownloads)
                 }
             }
+
+            EnsembleUtilityCardSection(
+                "Sharing",
+                footer: "Controls audio files shared or dragged outside Ensemble."
+            ) {
+                EnsembleUtilityCardRow {
+                    sharingQualityPicker
+                }
+            }
         }
         .onChange(of: allowStreamingOnCellular) { _ in
             NotificationCenter.default.post(name: AudioQualityPreference.cellularStreamingPolicyDidChange, object: nil)
@@ -114,6 +133,15 @@ struct AudioQualitySettingsView: View {
 
     private var downloadQualityPicker: some View {
         Picker("Download Quality", selection: $downloadQuality) {
+            Text("Original").tag("original")
+            Text("High (320 kbps)").tag("high")
+            Text("Medium (192 kbps)").tag("medium")
+            Text("Low (128 kbps)").tag("low")
+        }
+    }
+
+    private var sharingQualityPicker: some View {
+        Picker("Sharing Quality", selection: $sharingQuality) {
             Text("Original").tag("original")
             Text("High (320 kbps)").tag("high")
             Text("Medium (192 kbps)").tag("medium")

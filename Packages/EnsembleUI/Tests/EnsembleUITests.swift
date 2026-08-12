@@ -547,12 +547,17 @@ final class EnsembleUITests: XCTestCase {
     }
 
     func testTrackItemProviderKeepsLocalFileExtensionInSuggestedName() {
+        let localFilePath = NSTemporaryDirectory() + "lossless_\(UUID().uuidString).FLAC"
+        FileManager.default.createFile(atPath: localFilePath, contents: Data("audio".utf8))
+        defer { try? FileManager.default.removeItem(atPath: localFilePath) }
+
         let track = Track(
             id: "track-1",
             key: "/tracks/1",
             title: "Lossless",
             artistName: "Artist",
-            localFilePath: "/tmp/cache/lossless.FLAC"
+            localFilePath: localFilePath,
+            downloadedQuality: "original"
         )
 
         let provider = MediaDragPayload.trackItemProvider(for: track)

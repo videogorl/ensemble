@@ -89,17 +89,21 @@ struct MediaDragPayload: Codable, Equatable {
     }
 
     static func trackItemProvider(for track: Track, shareService: ShareService) -> NSItemProvider {
-        trackItemProvider(for: track) { [shareService, track] in
+        let quality = StreamingQuality(
+            rawValue: AudioQualityPreference.storedSharingQuality()
+        ) ?? .original
+        return trackItemProvider(for: track, quality: quality) { [shareService, track] in
             await shareService.prepareTrackFileURL(track: track)
         }
     }
 
     static func trackItemProvider(
         for track: Track,
+        quality: StreamingQuality = .original,
         externalFileProvider: (@MainActor () async -> URL?)? = nil
     ) -> NSItemProvider {
-        let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
-        let exportMetadata = TrackFileExportMetadata(track: track)
+        let fileURL = ShareService.matchingLocalFileURL(for: track, quality: quality)
+        let exportMetadata = TrackFileExportMetadata(track: track, quality: quality)
         let provider = MediaDragExportPolicy.itemProvider(
             for: MediaDragPayload.track(track),
             fallbackFileURL: fileURL,
@@ -149,8 +153,11 @@ struct MediaDragPayload: Codable, Equatable {
 
     #if os(macOS)
     static func trackPasteboardWriter(for track: Track, shareService: ShareService) -> NSPasteboardWriting? {
-        let fileURL = track.localFilePath.map(URL.init(fileURLWithPath:))
-        let exportMetadata = TrackFileExportMetadata(track: track)
+        let quality = StreamingQuality(
+            rawValue: AudioQualityPreference.storedSharingQuality()
+        ) ?? .original
+        let fileURL = ShareService.matchingLocalFileURL(for: track, quality: quality)
+        let exportMetadata = TrackFileExportMetadata(track: track, quality: quality)
         return MediaDragExportPolicy.pasteboardWriter(
             for: MediaDragPayload.track(track),
             fallbackFileURL: fileURL,

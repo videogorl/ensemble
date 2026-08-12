@@ -27,7 +27,7 @@ A beautiful, universal Plex Music Player for iOS, iPadOS, macOS, and watchOS. St
 - **Search** — Fast search across your entire library with compact result layouts
 - **Gesture Actions (iOS/iPadOS)** — Mail-style track swipe actions (`Play Next`, `Play Last`, `Add to Playlist…`, favorite toggle) across library and search track lists
 - **Long-Press Menus** — Album, artist, and playlist cards expose context actions that match detail-view capabilities
-- **Share Ensemble Links** — Share portable song, artist, album, or playlist links that resolve against another user's own enabled libraries without exposing Plex server IDs; existing streaming-link and audio-file sharing remain separate options
+- **Share Ensemble Links and Audio** — Share portable song, artist, album, or playlist links that resolve against another user's own enabled libraries without exposing Plex server IDs, or export audio files at a separately selected sharing quality through Share Audio File and external drag
 
 **Advanced Features:**
 - **Advanced Filtering** — Multi-select genres/artists, year ranges, sort options with persistence

@@ -1574,6 +1574,18 @@ public final class SyncCoordinator: ObservableObject {
         return try await apiClient.getUniversalStreamURL(for: plexTrack, quality: quality)
     }
 
+    /// Download a complete quality-specific Plex file for export.
+    public func downloadUniversalStreamToFile(
+        for track: Track,
+        quality: StreamingQuality
+    ) async throws -> URL {
+        let apiClient = try await apiClientForTrack(track)
+        return try await apiClient.downloadUniversalStreamToFile(
+            ratingKey: track.id,
+            quality: quality
+        )
+    }
+
     /// Attempt a server-primed offline transcode through the download queue API.
     /// Returns media payload and optional suggested filename when successful.
     public func getOfflineDownloadQueueMedia(

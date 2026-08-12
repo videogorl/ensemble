@@ -12,11 +12,17 @@ public struct TrackFileExportMetadata: Equatable, Sendable {
         "\(sanitizedBaseName).\(fileExtension)"
     }
 
-    public init(track: Track, fallbackExtension: String = "mp3") {
+    public init(
+        track: Track,
+        fallbackExtension: String = "mp3",
+        quality: StreamingQuality = .original
+    ) {
         let title = Self.formattedTrackTitle(track)
         self.displayTitle = title
         self.sanitizedBaseName = Self.sanitizedFilename(title)
-        self.fileExtension = Self.preferredExtension(for: track, fallbackExtension: fallbackExtension)
+        self.fileExtension = quality == .original
+            ? Self.preferredExtension(for: track, fallbackExtension: fallbackExtension)
+            : "mp3"
     }
 
     private static func formattedTrackTitle(_ track: Track) -> String {
@@ -36,7 +42,10 @@ public struct TrackFileExportMetadata: Equatable, Sendable {
     }
 
     private static func preferredExtension(for track: Track, fallbackExtension: String) -> String {
-        if let ext = pathExtension(from: track.localFilePath) {
+        let localQuality = AudioQualityPreference.normalizedQuality(track.downloadedQuality)
+            ?? track.localFilePath.flatMap { AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: $0)) }
+        if localQuality == StreamingQuality.original.rawValue,
+           let ext = pathExtension(from: track.localFilePath) {
             return ext
         }
 
@@ -151,46 +160,64 @@ public final class ShareService: ObservableObject {
     // MARK: - File Sharing
 
     /// Prepare a shareable audio file payload for a track.
-    /// For downloaded tracks, returns the local file URL directly.
+    /// Reuses a local download only when it matches the selected sharing quality.
     /// For non-downloaded tracks, downloads to a temp directory first.
     /// Returns nil on download failure.
     public func prepareTrackFilePayload(track: Track) async -> SharePayload? {
         guard !track.isAppleMusic else { return nil }
-        let originalFileInfo = track.localFilePath == nil ? await originalFileInfo(for: track) : nil
+        let quality = StreamingQuality(
+            rawValue: AudioQualityPreference.storedSharingQuality()
+        ) ?? .original
+        let localFileURL = Self.matchingLocalFileURL(for: track, quality: quality)
+        let originalFileInfo = quality == .original && localFileURL == nil
+            ? await originalFileInfo(for: track)
+            : nil
         let exportMetadata = TrackFileExportMetadata(
             track: track,
-            fallbackExtension: originalFileInfo?.container ?? "mp3"
+            fallbackExtension: originalFileInfo?.container ?? "mp3",
+            quality: quality
         )
         let title = exportMetadata.displayTitle
 
         // Check for existing local download — create a renamed copy so the share sheet
         // shows the human-readable filename instead of the internal storage name
-        if let localPath = track.localFilePath {
-            let fileURL = URL(fileURLWithPath: localPath)
-            if FileManager.default.fileExists(atPath: localPath) {
-                let renamedURL = Self.tempShareDirectory
-                    .appendingPathComponent(exportMetadata.fileName)
-                try? FileManager.default.removeItem(at: renamedURL)
-                do {
-                    try FileManager.default.copyItem(at: fileURL, to: renamedURL)
-                    return .file(url: renamedURL, title: title)
-                } catch {
-                    // Fall back to sharing the original file directly
-                    return .file(url: fileURL, title: title)
-                }
+        if let localFileURL {
+            let renamedURL = Self.tempShareDirectory
+                .appendingPathComponent(exportMetadata.fileName)
+            try? FileManager.default.removeItem(at: renamedURL)
+            do {
+                try FileManager.default.copyItem(at: localFileURL, to: renamedURL)
+                return .file(url: renamedURL, title: title)
+            } catch {
+                // Fall back to sharing the original file directly
+                return .file(url: localFileURL, title: title)
             }
         }
 
         // Download to temp directory for non-downloaded tracks
         do {
-            // Sharing uses original quality (default) which always resolves to a direct URL
-            let resolution = try await syncCoordinator.getStreamURL(for: track)
-            let streamURL: URL
-            switch resolution {
-            case .directStream(let url), .downloadedFile(let url):
-                streamURL = url
-            case .progressiveTranscode:
-                throw PlexAPIError.invalidURL
+            let downloadedURL: URL
+            let responseByteCount: Int?
+            if quality == .original {
+                let resolution = try await syncCoordinator.getStreamURL(for: track, quality: quality)
+                let streamURL: URL
+                switch resolution {
+                case .directStream(let url), .downloadedFile(let url):
+                    streamURL = url
+                case .progressiveTranscode:
+                    throw PlexAPIError.invalidURL
+                }
+                let (url, response) = try await URLSession.shared.download(from: streamURL)
+                downloadedURL = url
+                responseByteCount = response.expectedContentLength > 0
+                    ? Int(response.expectedContentLength)
+                    : nil
+            } else {
+                downloadedURL = try await syncCoordinator.downloadUniversalStreamToFile(
+                    for: track,
+                    quality: quality
+                )
+                responseByteCount = nil
             }
             let tempFileURL = Self.tempShareDirectory
                 .appendingPathComponent(exportMetadata.fileName)
@@ -198,9 +225,7 @@ public final class ShareService: ObservableObject {
             // Clean up any previous temp file at this path
             try? FileManager.default.removeItem(at: tempFileURL)
 
-            let (downloadedURL, response) = try await URLSession.shared.download(from: streamURL)
             let actualByteCount = try downloadedURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-            let responseByteCount = response.expectedContentLength > 0 ? Int(response.expectedContentLength) : nil
             let expectedByteCount = originalFileInfo?.fileSize ?? responseByteCount
             guard Self.isCompleteAudioExport(
                 actualByteCount: actualByteCount,
@@ -225,6 +250,20 @@ public final class ShareService: ObservableObject {
             return nil
         }
         return url
+    }
+
+    /// Return a complete local download only when it matches the requested export quality.
+    public nonisolated static func matchingLocalFileURL(
+        for track: Track,
+        quality: StreamingQuality
+    ) -> URL? {
+        guard let localPath = track.localFilePath,
+              FileManager.default.fileExists(atPath: localPath) else {
+            return nil
+        }
+        let localQuality = AudioQualityPreference.normalizedQuality(track.downloadedQuality)
+            ?? AudioQualityPreference.fileQuality(at: URL(fileURLWithPath: localPath))
+        return localQuality == quality.rawValue ? URL(fileURLWithPath: localPath) : nil
     }
 
     nonisolated static func isCompleteAudioExport(actualByteCount: Int, expectedByteCount: Int?) -> Bool {
