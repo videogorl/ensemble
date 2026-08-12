@@ -2803,6 +2803,16 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔌 SyncCoordinator: WebSocket-triggered incremental sync for section \(sectionKey) (sources=\(resolutions.count))")
 
         for resolution in resolutions {
+            do {
+                try await syncCursorRepository?.deleteCursor(
+                    scopeKey: resolution.sourceId.compositeKey,
+                    scopeType: .plexLibrary
+                )
+            } catch {
+                EnsembleLogger.error(
+                    "🔌 SyncCoordinator: Failed to invalidate library inventory cursor for \(resolution.compositeKey): \(error.localizedDescription)"
+                )
+            }
             await syncIncremental(source: resolution.sourceId)
             EnsembleLogger.debug("🔌 SyncCoordinator: Incremental sync completed for section \(sectionKey) (source=\(resolution.compositeKey))")
         }
