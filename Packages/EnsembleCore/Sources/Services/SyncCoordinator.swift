@@ -1805,6 +1805,12 @@ public final class SyncCoordinator: ObservableObject {
             } else {
                 try await libraryRepository.deleteAllData(forSourceCompositeKey: sourceId.compositeKey)
             }
+            if sourceId.type == .plex {
+                try await syncCursorRepository?.deleteCursor(
+                    scopeKey: sourceId.compositeKey,
+                    scopeType: .plexLibrary
+                )
+            }
 
             if accountManager.sourceConfigurationSnapshot.shouldPreserveSourceKey(sourceId.compositeKey) {
                 sourcePersistenceFence.finishCleanup(sourceKey: sourceId.compositeKey)

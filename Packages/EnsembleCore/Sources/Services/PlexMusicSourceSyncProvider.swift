@@ -15,7 +15,7 @@ public final class PlexMusicSourceSyncProvider:
     MusicSourceRadioProviding,
     @unchecked Sendable
 {
-    static let playlistOrphanCheckInterval: TimeInterval = 24 * 60 * 60
+    static let orphanCheckInterval: TimeInterval = 24 * 60 * 60
 
     public let sourceIdentifier: MusicSourceIdentifier
     private let apiClient: PlexAPIClient
@@ -292,6 +292,7 @@ public final class PlexMusicSourceSyncProvider:
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
         let sourceKey = sourceIdentifier.compositeKey
+        let queryStartedAt = Date()
         EnsembleLogger.debug("🔄 Incremental sync for \(sourceKey) since \(Date(timeIntervalSince1970: timestamp))")
 
         let syncStart = CFAbsoluteTimeGetCurrent()
@@ -411,7 +412,7 @@ public final class PlexMusicSourceSyncProvider:
         }
         try await repository.batchUpsertTracks(trackInputs, sourceCompositeKey: sourceKey)
 
-        // Orphan removal: Fetch server inventory (lightweight) and remove local items not on server
+        // Orphan removal: fetch server inventory only after changes or on a periodic cleanup.
         progressHandler(0.55)
         if !tracksToSync.isEmpty {
             EnsembleLogger.debug("⏱️ Incremental sync: tracks upsert took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
@@ -419,33 +420,63 @@ public final class PlexMusicSourceSyncProvider:
         EnsembleLogger.debug("⏱️ Incremental sync: library phase total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         phaseStart = CFAbsoluteTimeGetCurrent()
 
-        // Fetch only ratingKeys from server using includeFields parameter (much smaller response)
-        progressHandler(0.65)
+        let cursor = try await syncCursorRepository?.fetchCursor(
+            scopeKey: sourceKey,
+            scopeType: .plexLibrary
+        )
+        let changedItemCount = artistsToSync.count + albumsToSync.count + tracksToSync.count
+        let shouldCheckOrphans = Self.shouldCheckOrphans(
+            changedItemCount: changedItemCount,
+            lastCheckedAt: cursor?.lastInventorySyncAt?.timeIntervalSince1970 ?? 0,
+            now: Date()
+        )
 
-        let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
-        let albumRatingKeys = Set(albumInventory.map { $0.ratingKey })
-        progressHandler(0.75)
+        let removedArtists: Int
+        let removedAlbums: Int
+        let removedTracks: Int
+        if shouldCheckOrphans {
+            // Fetch only ratingKeys using includeFields (much smaller than full metadata).
+            progressHandler(0.65)
+            let albumInventory = try await apiClient.getAlbumInventory(sectionKey: sectionKey)
+            let albumRatingKeys = Set(albumInventory.map(\.ratingKey))
+            progressHandler(0.75)
 
-        let trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
-        let trackRatingKeys = Set(trackInventory.map { $0.ratingKey })
-        progressHandler(0.85)
+            let trackInventory = try await apiClient.getTrackInventory(sectionKey: sectionKey)
+            let trackRatingKeys = Set(trackInventory.map(\.ratingKey))
+            progressHandler(0.85)
 
-        // Remove orphans
-        let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
-        let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
-        let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+            removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
+            removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
+            removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
+            try await syncCursorRepository?.recordInventorySync(
+                scopeKey: sourceKey,
+                scopeType: .plexLibrary,
+                at: Date()
+            )
 
-        if removedArtists + removedAlbums + removedTracks > 0 {
-            EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
+            if removedArtists + removedAlbums + removedTracks > 0 {
+                EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks")
+            } else {
+                EnsembleLogger.debug("✅ No orphaned items found")
+            }
+            EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
         } else {
-            EnsembleLogger.debug("✅ No orphaned items found")
+            removedArtists = 0
+            removedAlbums = 0
+            removedTracks = 0
+            progressHandler(0.9)
+            EnsembleLogger.debug("⏭️ Incremental sync: orphan check skipped; no library changes and recent cleanup exists")
         }
 
         // Update last sync timestamp
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        try await syncCursorRepository?.recordIncrementalSync(
+            scopeKey: sourceKey,
+            scopeType: .plexLibrary,
+            at: queryStartedAt
+        )
 
         progressHandler(1.0)
-        EnsembleLogger.debug("⏱️ Incremental sync: orphan check took \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - phaseStart))s")
         EnsembleLogger.debug("✅ Incremental sync complete for \(sourceKey) — total \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - syncStart))s")
         return LibrarySyncResult(
             changedArtists: artistsToSync.count,
@@ -587,6 +618,7 @@ public final class PlexMusicSourceSyncProvider:
         progressHandler: @Sendable (Double) -> Void
     ) async throws -> LibrarySyncResult {
         let syncStart = CFAbsoluteTimeGetCurrent()
+        let queryStartedAt = Date()
         let sourceKey = sourceIdentifier.compositeKey
         EnsembleLogger.debug("🔄 Full library sync starting for \(sourceKey)")
 
@@ -688,6 +720,11 @@ public final class PlexMusicSourceSyncProvider:
 
         // Update last sync timestamp
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        try await syncCursorRepository?.recordFullSync(
+            scopeKey: sourceKey,
+            scopeType: .plexLibrary,
+            at: queryStartedAt
+        )
 
         progressHandler(1.0)
         return LibrarySyncResult(
@@ -862,8 +899,8 @@ public final class PlexMusicSourceSyncProvider:
 
         // Orphan removal: fetch inventory only after playlist changes or on a periodic cleanup.
         progressHandler(0.7)
-        let shouldCheckOrphans = Self.shouldCheckPlaylistOrphans(
-            changedPlaylistCount: changedPlaylists.count,
+        let shouldCheckOrphans = Self.shouldCheckOrphans(
+            changedItemCount: changedPlaylists.count,
             lastCheckedAt: forceOrphanCheck
                 ? 0
                 : cursor?.lastInventorySyncAt?.timeIntervalSince1970
@@ -932,13 +969,13 @@ public final class PlexMusicSourceSyncProvider:
         return localMembershipCount.map { $0 == 0 || $0 > serverTrackCount } ?? true
     }
 
-    static func shouldCheckPlaylistOrphans(
-        changedPlaylistCount: Int,
+    static func shouldCheckOrphans(
+        changedItemCount: Int,
         lastCheckedAt: TimeInterval,
         now: Date,
-        interval: TimeInterval = playlistOrphanCheckInterval
+        interval: TimeInterval = orphanCheckInterval
     ) -> Bool {
-        guard changedPlaylistCount == 0 else { return true }
+        guard changedItemCount == 0 else { return true }
         guard lastCheckedAt > 0 else { return true }
         return now.timeIntervalSince1970 - lastCheckedAt >= interval
     }

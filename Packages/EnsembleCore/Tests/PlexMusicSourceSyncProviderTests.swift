@@ -211,22 +211,22 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         XCTAssertEqual(input.trackCount, 2)
     }
 
-    func testPlaylistOrphanCheckRunsWhenPlaylistsChanged() {
+    func testOrphanCheckRunsWhenItemsChanged() {
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldCheckPlaylistOrphans(
-                changedPlaylistCount: 1,
+            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+                changedItemCount: 1,
                 lastCheckedAt: Date().timeIntervalSince1970,
                 now: Date()
             )
         )
     }
 
-    func testPlaylistOrphanCheckSkipsRecentUnchangedCleanup() {
+    func testOrphanCheckSkipsRecentUnchangedCleanup() {
         let now = Date(timeIntervalSince1970: 1_000)
 
         XCTAssertFalse(
-            PlexMusicSourceSyncProvider.shouldCheckPlaylistOrphans(
-                changedPlaylistCount: 0,
+            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+                changedItemCount: 0,
                 lastCheckedAt: 900,
                 now: now,
                 interval: 200
@@ -234,13 +234,21 @@ final class PlexMusicSourceSyncProviderTests: XCTestCase {
         )
     }
 
-    func testPlaylistOrphanCheckRunsWhenUnchangedCleanupIsStale() {
+    func testOrphanCheckRunsWhenUnchangedCleanupIsStaleOrMissing() {
         let now = Date(timeIntervalSince1970: 1_000)
 
         XCTAssertTrue(
-            PlexMusicSourceSyncProvider.shouldCheckPlaylistOrphans(
-                changedPlaylistCount: 0,
+            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+                changedItemCount: 0,
                 lastCheckedAt: 700,
+                now: now,
+                interval: 200
+            )
+        )
+        XCTAssertTrue(
+            PlexMusicSourceSyncProvider.shouldCheckOrphans(
+                changedItemCount: 0,
+                lastCheckedAt: 0,
                 now: now,
                 interval: 200
             )

@@ -30,6 +30,7 @@ public struct SyncCursorRecord: Equatable, Sendable {
 }
 
 public enum SyncCursorScopeType: String, Sendable {
+    case plexLibrary = "plex-library"
     case serverPlaylists = "server-playlists"
 }
 

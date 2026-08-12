@@ -13,26 +13,23 @@ extension PlexAPIClient {
             throw DownloadQueueError.queueNotAvailable
         }
 
-        let queueId = try await getOrCreateDownloadQueueID()
         let metadataKey = "/library/metadata/\(trackRatingKey)"
-        let itemId = try await addDownloadQueueItem(
-            queueId: queueId,
+        let (queueId, itemId) = try await enqueueDownloadQueueItem(
             metadataKey: metadataKey,
             quality: quality
-        )
-
-        EnsembleLogger.debug(
-            "⬇️ DownloadQueue enqueued: queue=\(queueId) item=\(itemId) track=\(trackRatingKey) quality=\(quality.rawValue)"
         )
 
         let timeoutDeadline = Date().addingTimeInterval(120)
         var pollInterval: UInt64 = 1_000_000_000
         let maxPollInterval: UInt64 = 15_000_000_000
+        var statusPollCount = 0
+        defer { recordDownloadQueueTelemetry(statusPollCount: statusPollCount) }
         while Date() < timeoutDeadline {
             try Task.checkCancellation()
 
             let item: DownloadQueueItemRecord
             do {
+                statusPollCount += 1
                 item = try await getDownloadQueueItem(queueId: queueId, itemId: itemId)
             } catch is CancellationError {
                 throw CancellationError()
@@ -202,12 +199,71 @@ extension PlexAPIClient {
     // MARK: - Download Queue Helpers
 
     func getOrCreateDownloadQueueID() async throws -> Int {
+        if let cachedDownloadQueueID {
+            downloadQueueCacheHitCount += 1
+            return cachedDownloadQueueID
+        }
+        if let downloadQueueIDTask {
+            downloadQueueCacheHitCount += 1
+            return try await downloadQueueIDTask.value
+        }
+
+        downloadQueueCacheMissCount += 1
+        let task = Task { try await fetchDownloadQueueID() }
+        downloadQueueIDTask = task
+        do {
+            let queueId = try await task.value
+            cachedDownloadQueueID = queueId
+            downloadQueueIDTask = nil
+            return queueId
+        } catch {
+            downloadQueueIDTask = nil
+            throw error
+        }
+    }
+
+    private func fetchDownloadQueueID() async throws -> Int {
         let data = try await serverRequestPOST(path: "/downloadQueue")
         let decoded = try JSONDecoder().decode(DownloadQueueEnvelope.self, from: data)
         guard let queueId = decoded.MediaContainer.DownloadQueue?.first?.id else {
             throw DownloadQueueError.invalidQueueResponse
         }
         return queueId
+    }
+
+    func enqueueDownloadQueueItem(
+        metadataKey: String,
+        quality: StreamingQuality
+    ) async throws -> (queueId: Int, itemId: Int) {
+        var queueId = try await getOrCreateDownloadQueueID()
+        do {
+            let itemId = try await addDownloadQueueItem(
+                queueId: queueId,
+                metadataKey: metadataKey,
+                quality: quality
+            )
+            return (queueId, itemId)
+        } catch let error as PlexAPIError {
+            guard case .httpError(statusCode: 404) = error else { throw error }
+            cachedDownloadQueueID = nil
+            queueId = try await getOrCreateDownloadQueueID()
+            let itemId = try await addDownloadQueueItem(
+                queueId: queueId,
+                metadataKey: metadataKey,
+                quality: quality
+            )
+            return (queueId, itemId)
+        }
+    }
+
+    func recordDownloadQueueTelemetry(statusPollCount: Int) {
+        downloadQueueItemCount += 1
+        downloadQueueStatusPollCount += statusPollCount
+        guard downloadQueueItemCount == 1 || downloadQueueItemCount.isMultiple(of: 100) else { return }
+
+        EnsembleLogger.debug(
+            "DownloadQueue aggregate items=\(downloadQueueItemCount) statusPolls=\(downloadQueueStatusPollCount) queueCacheHits=\(downloadQueueCacheHitCount) queueCacheMisses=\(downloadQueueCacheMissCount)"
+        )
     }
 
     func addDownloadQueueItem(

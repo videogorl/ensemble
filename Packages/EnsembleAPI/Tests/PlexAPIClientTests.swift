@@ -1,7 +1,146 @@
 import XCTest
 @testable import EnsembleAPI
 
+private final class DownloadQueueURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var handler: ((URLRequest) -> (Int, Data))?
+
+    static func install(_ handler: @escaping (URLRequest) -> (Int, Data)) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.lock()
+        let handler = Self.handler
+        Self.lock.unlock()
+        guard let handler, let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        let (statusCode, data) = handler(request)
+        let response = HTTPURLResponse(
+            url: url,
+            statusCode: statusCode,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "application/json"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
 final class PlexAPIClientTests: XCTestCase {
+
+    func testDownloadQueueCachesIDAndRefreshesItAfterNotFound() async throws {
+        let stateLock = NSLock()
+        var queueRequests = 0
+        var addPaths: [String] = []
+        DownloadQueueURLProtocol.install { request in
+            stateLock.lock()
+            defer { stateLock.unlock() }
+
+            let path = request.url?.path ?? ""
+            if path == "/downloadQueue" {
+                queueRequests += 1
+                let id = queueRequests == 1 ? 3 : 4
+                return (200, Data(#"{"MediaContainer":{"DownloadQueue":[{"id":\#(id)}]}}"#.utf8))
+            }
+
+            addPaths.append(path)
+            if path == "/downloadQueue/3/add" {
+                return (404, Data())
+            }
+            let itemID = addPaths.count == 2 ? 42 : 43
+            return (200, Data(#"{"MediaContainer":{"AddedQueueItems":[{"id":\#(itemID)}]}}"#.utf8))
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DownloadQueueURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        let first = try await client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/1",
+            quality: .high
+        )
+        let second = try await client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/2",
+            quality: .high
+        )
+
+        XCTAssertEqual(first.queueId, 4)
+        XCTAssertEqual(first.itemId, 42)
+        XCTAssertEqual(second.queueId, 4)
+        XCTAssertEqual(second.itemId, 43)
+        XCTAssertEqual(queueRequests, 2)
+        XCTAssertEqual(addPaths, [
+            "/downloadQueue/3/add",
+            "/downloadQueue/4/add",
+            "/downloadQueue/4/add"
+        ])
+    }
+
+    func testConcurrentDownloadQueueEnqueuesShareQueueRequest() async throws {
+        let stateLock = NSLock()
+        var queueRequests = 0
+        DownloadQueueURLProtocol.install { request in
+            stateLock.lock()
+            defer { stateLock.unlock() }
+
+            if request.url?.path == "/downloadQueue" {
+                queueRequests += 1
+                Thread.sleep(forTimeInterval: 0.05)
+                return (200, Data(#"{"MediaContainer":{"DownloadQueue":[{"id":3}]}}"#.utf8))
+            }
+            return (200, Data(#"{"MediaContainer":{"AddedQueueItems":[{"id":42}]}}"#.utf8))
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DownloadQueueURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://example.com",
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            urlSession: session
+        )
+
+        async let first = client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/1",
+            quality: .high
+        )
+        async let second = client.enqueueDownloadQueueItem(
+            metadataKey: "/library/metadata/2",
+            quality: .high
+        )
+        _ = try await (first, second)
+
+        XCTAssertEqual(queueRequests, 1)
+    }
 
     func testOnlyLyrics404IsDurablyUnavailable() {
         XCTAssertTrue(

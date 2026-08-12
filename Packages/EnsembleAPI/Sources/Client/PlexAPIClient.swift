@@ -244,6 +244,12 @@ public actor PlexAPIClient {
     let serverConnection: PlexServerConnection
     let selectedLibrary: PlexLibrarySelection?
     var currentServerURL: String  // The currently active server URL
+    var cachedDownloadQueueID: Int?
+    var downloadQueueIDTask: Task<Int, Error>?
+    var downloadQueueItemCount = 0
+    var downloadQueueStatusPollCount = 0
+    var downloadQueueCacheHitCount = 0
+    var downloadQueueCacheMissCount = 0
     private let isNetworkAvailable: @Sendable () async -> Bool
 
     // Centralized endpoint registry — when set, failover results are reported back
@@ -273,7 +279,8 @@ public actor PlexAPIClient {
         serverKey: String? = nil,
         isNetworkAvailable: @escaping @Sendable () async -> Bool = { true },
         productName: String = "Ensemble",
-        productVersion: String = "1.0"
+        productVersion: String = "1.0",
+        urlSession: URLSession? = nil
     ) {
         self.serverConnection = connection
         self.selectedLibrary = librarySelection
@@ -292,7 +299,7 @@ public actor PlexAPIClient {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15  // Reduced from 30s for faster failover on remote networks
         config.timeoutIntervalForResource = 120  // Keep resource timeout longer for large responses
-        self.session = URLSession(configuration: config)
+        self.session = urlSession ?? URLSession(configuration: config)
         
         let isHTTPS = connection.url.lowercased().hasPrefix("https://")
         let secureAlternativeCount = connection.alternativeURLs
