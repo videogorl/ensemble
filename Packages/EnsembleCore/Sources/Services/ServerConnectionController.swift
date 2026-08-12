@@ -229,6 +229,8 @@ final class ServerConnectionController {
         for source: MusicSourceIdentifier,
         fallback: ServerConnectionState
     ) async -> ServerConnectionState {
+        guard source.type == .plex else { return fallback }
+
         var resolvedURL: String?
 
         if let apiClient = accountManager.makeAPIClient(accountId: source.accountId, serverId: source.serverId) {

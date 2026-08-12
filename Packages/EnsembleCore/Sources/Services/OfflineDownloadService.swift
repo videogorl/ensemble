@@ -580,7 +580,7 @@ public final class OfflineDownloadService: ObservableObject {
     /// Remove all download targets, memberships, and downloaded files.
     public func removeAllDownloads() async {
         // Stop the download queue first.
-        queueCoordinator.cancelCurrentTask()
+        await queueCoordinator.cancelCurrentTask()
         isQueueRunning = false
         refreshQueueStatusReason()
 
@@ -860,14 +860,16 @@ public final class OfflineDownloadService: ObservableObject {
     /// Any in-progress FFT stops at the next cancellation checkpoint (~0.1s); the
     /// interrupted item is re-queued at the front and retries when the app foregrounds.
     public func suspendSidecarAnalysis() async {
+        await artifactQueue.suspend()
         await sidecarAnalysisQueue.suspend()
-        EnsembleLogger.info("Sidecar analysis suspended — app backgrounded")
+        EnsembleLogger.info("Derived download artifacts suspended — app backgrounded")
     }
 
     /// Resume sidecar analysis when the app foregrounds.
     public func resumeSidecarAnalysis() async {
+        await artifactQueue.resume()
         await sidecarAnalysisQueue.resume()
-        EnsembleLogger.info("Sidecar analysis resumed — app foregrounded")
+        EnsembleLogger.info("Derived download artifacts resumed — app foregrounded")
     }
 
     /// Subscribe to playback publishers so download work can protect active listening.
@@ -909,13 +911,19 @@ public final class OfflineDownloadService: ObservableObject {
             .store(in: &cancellables)
     }
 
-    /// Stops all in-progress downloads immediately and re-queues them as pending.
-    /// Used when download quality changes to avoid continuing old-quality downloads.
+    /// Stops all in-progress downloads and re-queues those transfers at the new quality.
     public func cancelInProgressDownloads() async {
+        let desiredQuality = currentDownloadQuality()
+        let interruptedDownloadIDs = (try? await downloadManager.fetchPendingDownloads())?
+            .filter { $0.downloadStatus == .downloading }
+            .map(\.objectID) ?? []
         await stopQueueForSuspension()
-        try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .pending)
+        for downloadID in interruptedDownloadIDs {
+            try? await downloadManager.requeueDownload(downloadID, quality: desiredQuality)
+        }
         refreshQueueStatusReason()
         scheduleFullProgressRefresh()
+        startQueueIfNeeded()
     }
 
     /// Called when the app backgrounds. Suspends discretionary queue work unless
@@ -971,9 +979,10 @@ public final class OfflineDownloadService: ObservableObject {
 
     private func handleBackgroundTaskExpiration() {
         allowsBackgroundContinuation = false
-        queueCoordinator.cancelCurrentTask()
-        Task {
-            await recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: false)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.queueCoordinator.cancelCurrentTask()
+            await self.recoverInterruptedDownloads(reason: .backgroundExpiration, resumeEligibleWork: false)
         }
     }
 
@@ -1108,6 +1117,13 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             }
         } catch {
+            if Task.isCancelled {
+                EnsembleLogger.debug(
+                    "📥 Download transfer cancelled; lifecycle owner will recover track=\(ctx.trackRatingKey) source=\(ctx.sourceCompositeKey)"
+                )
+                return
+            }
+
             let executionError = error as? DownloadTransferExecutionError
             let underlyingError = executionError?.underlying ?? error
             let resolution = retryPolicy.resolveFailure(
@@ -1115,8 +1131,6 @@ public final class OfflineDownloadService: ObservableObject {
                     trackRatingKey: ctx.trackRatingKey,
                     sourceCompositeKey: ctx.sourceCompositeKey,
                     attemptedDirectFallback: executionError?.attemptedDirectFallback ?? false,
-                    updatedQuality: currentDownloadQuality(),
-                    isCancellation: Task.isCancelled,
                     isNetworkLoss: isNetworkLossError(underlyingError),
                     isRetryableTransfer: underlyingError is DownloadTransferError || isRetryableTruncation(underlyingError),
                     errorDescription: underlyingError.localizedDescription
@@ -1124,14 +1138,6 @@ public final class OfflineDownloadService: ObservableObject {
             )
 
             switch resolution {
-            case .resetToPending(let quality):
-                // Quality changes cancel in-flight downloads and re-queue at the
-                // new quality; .paused would leave the old-quality download stuck.
-                try? await downloadManager.updateDownloadStatus(
-                    ctx.downloadObjectID,
-                    status: .pending,
-                    quality: quality
-                )
             case .pauseForNetworkLoss:
                 // Network dropped mid-transfer — pause so the download auto-resumes
                 // when connectivity returns, instead of marking as permanently failed.
@@ -1175,14 +1181,8 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func waitUntilArtifactWorkIsAllowed() async -> Bool {
-        while !Task.isCancelled {
-            guard let foregroundWorkScheduler else { return true }
-            if await foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly) {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-        }
-        return false
+        guard let foregroundWorkScheduler else { return !Task.isCancelled }
+        return await foregroundWorkScheduler.waitUntilAllowed(.artworkRetry, policy: .idleOnly)
     }
 
     /// Best-effort artwork repair for completed downloads so offline surfaces retain artwork.
@@ -1778,7 +1778,7 @@ public final class OfflineDownloadService: ObservableObject {
     }
 
     private func stopQueueForSuspension() async {
-        queueCoordinator.cancelCurrentTask()
+        await queueCoordinator.cancelCurrentTask()
         backgroundExecutionCoordinator.finishCurrentTask(success: true)
         try? await downloadManager.updateDownloads(withStatuses: [.downloading], to: .paused)
     }
@@ -2055,6 +2055,7 @@ actor DownloadArtifactQueue {
     private var pending: [(key: String, work: Work)] = []
     private var activeKey: String?
     private var workerTask: Task<Void, Never>?
+    private var isSuspended = false
 
     func enqueue(key: String, work: @escaping Work) {
         guard activeKey != key, !pending.contains(where: { $0.key == key }) else { return }
@@ -2062,13 +2063,22 @@ actor DownloadArtifactQueue {
         startWorkerIfNeeded()
     }
 
+    func suspend() {
+        isSuspended = true
+    }
+
+    func resume() {
+        isSuspended = false
+        startWorkerIfNeeded()
+    }
+
     private func startWorkerIfNeeded() {
-        guard workerTask == nil, !pending.isEmpty else { return }
+        guard !isSuspended, workerTask == nil, !pending.isEmpty else { return }
         workerTask = Task { await drain() }
     }
 
     private func drain() async {
-        while !pending.isEmpty {
+        while !isSuspended, !pending.isEmpty {
             let item = pending.removeFirst()
             activeKey = item.key
             await item.work()

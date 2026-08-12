@@ -45,9 +45,13 @@ final class DownloadQueueCoordinator {
         }
     }
 
-    func cancelCurrentTask() {
-        queueTask?.cancel()
-        queueTask = nil
+    func cancelCurrentTask() async {
+        guard let task = queueTask else {
+            dependencies.setQueueRunning(false)
+            return
+        }
+        task.cancel()
+        await task.value
         dependencies.setQueueRunning(false)
     }
 

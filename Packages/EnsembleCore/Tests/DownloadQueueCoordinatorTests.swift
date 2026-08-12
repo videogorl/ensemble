@@ -114,4 +114,46 @@ final class DownloadQueueCoordinatorTests: XCTestCase {
         XCTAssertEqual(workerRuns.withValue { $0 }, 2)
         XCTAssertTrue(runningStates.withValue { $0 }.contains(true))
     }
+
+    func testCancellationWaitsForWorkerShutdownBeforeClearingTask() async {
+        let workerStarted = LockedBox(false)
+        let workerFinished = LockedBox(false)
+
+        let coordinator = DownloadQueueCoordinator(
+            dependencies: .init(
+                canRunAutomatically: { true },
+                setQueueRunning: { _ in },
+                refreshQueueStatus: {},
+                fetchPendingCount: { 1 },
+                currentWorkMode: { .foregroundIdle },
+                queueWorkerCount: { _, _ in 1 },
+                runWorker: { _ in
+                    workerStarted.set(true)
+                    while !Task.isCancelled {
+                        await Task.yield()
+                    }
+                    await withCheckedContinuation { continuation in
+                        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+                            workerFinished.set(true)
+                            continuation.resume()
+                        }
+                    }
+                    return true
+                },
+                applyNetworkPolicy: {},
+                finishBackgroundTask: { _ in },
+                showCompletionToast: {}
+            )
+        )
+
+        coordinator.startIfNeeded()
+        while !workerStarted.withValue({ $0 }) {
+            await Task.yield()
+        }
+
+        await coordinator.cancelCurrentTask()
+
+        XCTAssertTrue(workerFinished.withValue { $0 })
+        XCTAssertFalse(coordinator.hasActiveTask)
+    }
 }

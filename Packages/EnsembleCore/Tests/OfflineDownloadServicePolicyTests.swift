@@ -585,6 +585,22 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertEqual(backgroundCoordinator.continuedProcessingRequests.count, 1)
     }
 
+    func testDerivedArtifactQueueWaitsWhileBackgroundSuspended() async {
+        let queue = DownloadArtifactQueue()
+        var executionCount = 0
+
+        await queue.suspend()
+        await queue.enqueue(key: "track") {
+            executionCount += 1
+        }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(executionCount, 0)
+
+        await queue.resume()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(executionCount, 1)
+    }
+
     func testForegroundRecoveryRunsAfterBackgroundExpirationRecovery() async {
         let downloadManager = MockDownloadManager()
         let backgroundCoordinator = MockBackgroundExecutionCoordinator()

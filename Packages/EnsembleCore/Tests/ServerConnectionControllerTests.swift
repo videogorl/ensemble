@@ -295,4 +295,31 @@ final class ServerConnectionControllerTests: XCTestCase {
 
         XCTAssertEqual(state, .connected(url: "https://initial.example.com"))
     }
+
+    func testAppleMusicSuccessfulSyncSkipsPlexConnectionResolution() async {
+        let accountManager = makeAccountManager()
+        let networkMonitor = makeNetworkMonitor()
+        let healthChecker = ServerHealthChecker(
+            accountManager: accountManager,
+            networkMonitor: networkMonitor
+        )
+        let controller = ServerConnectionController(
+            accountManager: accountManager,
+            serverHealthChecker: healthChecker,
+            connectionRegistry: nil
+        )
+        var messages: [String] = []
+        EnsembleCore.EnsembleLogger.fileLogHandler = { _, _, message in
+            messages.append(message)
+        }
+        defer { EnsembleCore.EnsembleLogger.fileLogHandler = nil }
+
+        let state = await controller.connectionStateAfterSuccessfulSync(
+            for: .appleMusic,
+            fallback: .connected(url: "music://local")
+        )
+
+        XCTAssertEqual(state, .connected(url: "music://local"))
+        XCTAssertFalse(messages.contains { $0.contains("makeAPIClient") })
+    }
 }
