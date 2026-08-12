@@ -17,6 +17,7 @@ final class DownloadTargetReconciler {
         let trackReferenceCount: Int
         let newPendingCount: Int
         let downloadQuality: String
+        let targetWasRemoved: Bool
     }
 
     struct Dependencies {
@@ -36,8 +37,21 @@ final class DownloadTargetReconciler {
 
     func reconcileTarget(_ target: TargetDescriptor) async throws -> ReconcileResult {
         let previousReferences = try await dependencies.targetRepository.fetchTrackReferences(targetKey: target.key)
-        let trackReferences = try await resolveTrackReferences(for: target)
         let downloadQuality = dependencies.currentDownloadQuality()
+        guard let trackReferences = try await resolveTrackReferences(for: target) else {
+            try await dependencies.targetRepository.deleteTarget(key: target.key)
+            let unreferenced = try await dependencies.targetRepository.unreferencedTrackReferences(
+                from: previousReferences
+            )
+            try await dependencies.downloadManager.deleteDownloads(forReferences: unreferenced)
+            await dependencies.clearLyricsCaches(unreferenced)
+            return ReconcileResult(
+                trackReferenceCount: 0,
+                newPendingCount: 0,
+                downloadQuality: downloadQuality,
+                targetWasRemoved: true
+            )
+        }
         let membershipsChanged = previousReferences != trackReferences
         if membershipsChanged {
             try await dependencies.targetRepository.replaceMemberships(
@@ -63,11 +77,12 @@ final class DownloadTargetReconciler {
         return ReconcileResult(
             trackReferenceCount: trackReferences.count,
             newPendingCount: newPendingCount,
-            downloadQuality: downloadQuality
+            downloadQuality: downloadQuality,
+            targetWasRemoved: false
         )
     }
 
-    private func resolveTrackReferences(for target: TargetDescriptor) async throws -> [OfflineTrackReference] {
+    private func resolveTrackReferences(for target: TargetDescriptor) async throws -> [OfflineTrackReference]? {
         switch target.kind {
         case .library:
             guard let sourceKey = target.sourceCompositeKey else { return [] }
@@ -97,12 +112,12 @@ final class DownloadTargetReconciler {
         case .playlist:
             guard let ratingKey = target.ratingKey,
                   let sourceKey = target.sourceCompositeKey,
-                  MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+                  MediaSourceIdentity.parse(sourceKey) != nil else { return nil }
             guard let playlist = try await dependencies.playlistRepository.fetchPlaylist(
                 ratingKey: ratingKey,
                 sourceCompositeKey: sourceKey
             ) else {
-                return []
+                return nil
             }
             return normalizedTrackReferences(from: playlist.tracksArray, for: target)
 

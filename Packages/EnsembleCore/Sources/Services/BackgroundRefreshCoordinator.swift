@@ -64,15 +64,14 @@ public final class BackgroundRefreshCoordinator {
                 await homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12") != nil
             },
             siriIndexRefresh: {
-                await siriMediaIndexStore.rebuildIndex() != nil
+                if let systemMediaIntegrationService {
+                    await systemMediaIntegrationService.refreshSpotlightIndex()
+                    return true
+                }
+                return await siriMediaIndexStore.rebuildIndex() != nil
             },
             siriContextRefresh: {
-                if let systemMediaIntegrationService {
-                    await systemMediaIntegrationService.updateMediaUserContext()
-                    await systemMediaIntegrationService.refreshSpotlightIndex()
-                } else {
-                    await siriMediaUserContextManager.updateMediaUserContext()
-                }
+                await siriMediaUserContextManager.updateMediaUserContext()
             },
             isNetworkAvailable: {
                 !syncCoordinator.isOffline

@@ -508,7 +508,9 @@ final class SyncExecutionController {
                 MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
             )
             dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
-            dependencies.postSiriRebuildRequest()
+            if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
+                dependencies.postSiriRebuildRequest()
+            }
             return .success
         } catch is CancellationError {
             guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
@@ -671,7 +673,9 @@ final class SyncExecutionController {
                 MusicSourceStatus(syncStatus: .lastSynced(syncedAt), connectionState: resolvedConnectionState)
             )
             dependencies.publishContentChange(source, libraryResult, playlistResult, syncedAt)
-            dependencies.postSiriRebuildRequest()
+            if libraryResult?.hasMaterialChanges == true || playlistResult?.hasMaterialChanges == true {
+                dependencies.postSiriRebuildRequest()
+            }
             return .success
         } catch is CancellationError {
             guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {

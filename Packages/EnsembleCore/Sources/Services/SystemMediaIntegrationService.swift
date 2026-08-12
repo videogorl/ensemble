@@ -437,7 +437,7 @@ public final class SystemMediaIntegrationService {
         }
 
         let previousIndex = await siriMediaIndexStore.loadIndexUnbounded()
-        let rebuiltIndex = await siriMediaIndexStore.rebuildIndex()
+        let rebuiltIndex = await siriMediaIndexStore.rebuildIndex(previousIndex: previousIndex)
         let index = rebuiltIndex ?? previousIndex
         guard let index else {
             EnsembleLogger.debug("[SystemMedia] Spotlight refresh skipped; no media index")

@@ -89,8 +89,14 @@ public final class SiriMediaIndexStore {
 
     /// Rebuilds and writes a compact searchable index.
     @discardableResult
-    public func rebuildIndex() async -> SiriMediaIndex? {
+    public func rebuildIndex(previousIndex: SiriMediaIndex? = nil) async -> SiriMediaIndex? {
         do {
+            let existingIndex: SiriMediaIndex?
+            if let providedIndex = previousIndex {
+                existingIndex = providedIndex
+            } else {
+                existingIndex = await loadIndexUnbounded()
+            }
             let enabledLibrarySourceKeys = enabledSourceKeysProvider?()
             let playlistSourceKeys = enabledLibrarySourceKeys.map {
                 SystemMediaSourceScope.playlistSourceKeys(forEnabledLibraryKeys: $0)
@@ -198,6 +204,10 @@ public final class SiriMediaIndexStore {
             }
 
             let index = SiriMediaIndex(items: items)
+            guard Self.hasMaterialChanges(from: existingIndex, to: index) else {
+                EnsembleLogger.debug("Siri media index unchanged; skipped shared-container write")
+                return existingIndex
+            }
             try await save(index)
             return index
         } catch {
@@ -224,14 +234,15 @@ public final class SiriMediaIndexStore {
         let directory = indexURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let data = try JSONEncoder().encode(index)
-        let tempURL = directory.appendingPathComponent(UUID().uuidString + ".tmp")
-        try data.write(to: tempURL, options: .atomic)
+        try JSONEncoder().encode(index).write(to: indexURL, options: .atomic)
+    }
 
-        _ = try? FileManager.default.replaceItemAt(indexURL, withItemAt: tempURL)
-        if !FileManager.default.fileExists(atPath: indexURL.path) {
-            try FileManager.default.moveItem(at: tempURL, to: indexURL)
-        }
+    nonisolated static func hasMaterialChanges(
+        from previousIndex: SiriMediaIndex?,
+        to currentIndex: SiriMediaIndex
+    ) -> Bool {
+        previousIndex?.schemaVersion != currentIndex.schemaVersion
+            || previousIndex?.items != currentIndex.items
     }
 
     nonisolated private static func indexURL() -> URL? {

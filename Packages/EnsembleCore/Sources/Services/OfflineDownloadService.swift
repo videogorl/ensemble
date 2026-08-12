@@ -819,6 +819,11 @@ public final class OfflineDownloadService: ObservableObject {
             )
         )
 
+        if result.targetWasRemoved {
+            EnsembleLogger.info("Removed offline playlist target whose authoritative playlist no longer exists")
+            return
+        }
+
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - startedAt) * 1_000)
         EnsembleLogger.info(
             "Offline target reconciliation finished tracks=\(result.trackReferenceCount) newPending=\(result.newPendingCount) elapsedMs=\(elapsedMs)"

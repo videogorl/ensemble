@@ -254,6 +254,10 @@ struct EnsembleApp: App {
                     DependencyContainer.shared.webSocketCoordinator.start()
                 }
 
+                // Polling is foreground lifecycle work, independent of whether
+                // idle-budgeted startup sync has been able to run yet.
+                DependencyContainer.shared.syncCoordinator.startPeriodicSync()
+
                 // Resume persisted download work before foreground sync and reconciliation.
                 await DependencyContainer.shared.offlineDownloadService.handleAppWillEnterForeground()
 

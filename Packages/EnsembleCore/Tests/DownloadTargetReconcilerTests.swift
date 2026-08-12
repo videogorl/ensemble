@@ -118,12 +118,13 @@ final class DownloadTargetReconcilerTests: XCTestCase {
         var previousReferencesByTarget: [String: [OfflineTrackReference]] = [:]
         var membershipCounts: [OfflineTrackReference: Int] = [:]
         var replacedMemberships: [String: [OfflineTrackReference]] = [:]
+        var deletedTargetKeys: [String] = []
 
         func fetchTargets() async throws -> [CDOfflineDownloadTarget] { [] }
         func fetchTarget(key: String) async throws -> CDOfflineDownloadTarget? { nil }
         func upsertTarget(key: String, kind: CDOfflineDownloadTarget.Kind, ratingKey: String?, sourceCompositeKey: String?, displayName: String?) async throws -> CDOfflineDownloadTarget { fatalError() }
         func updateTarget(key: String, status: CDOfflineDownloadTarget.Status, totalTrackCount: Int, completedTrackCount: Int, progress: Float, lastError: String?) async throws {}
-        func deleteTarget(key: String) async throws {}
+        func deleteTarget(key: String) async throws { deletedTargetKeys.append(key) }
         func deleteTargets(forSourceCompositeKey sourceKey: String) async throws {}
         func deleteAllTargets() async throws {}
         func fetchMemberships(targetKey: String) async throws -> [CDOfflineDownloadMembership] { [] }
@@ -175,7 +176,15 @@ final class DownloadTargetReconcilerTests: XCTestCase {
             .init(key: "target", kind: .library, ratingKey: nil, sourceCompositeKey: sourceKey)
         )
 
-        XCTAssertEqual(result, .init(trackReferenceCount: 2, newPendingCount: 2, downloadQuality: "high"))
+        XCTAssertEqual(
+            result,
+            .init(
+                trackReferenceCount: 2,
+                newPendingCount: 2,
+                downloadQuality: "high",
+                targetWasRemoved: false
+            )
+        )
         XCTAssertEqual(
             targetRepository.replacedMemberships["target"],
             [
@@ -217,7 +226,15 @@ final class DownloadTargetReconcilerTests: XCTestCase {
             .init(key: "target", kind: .library, ratingKey: nil, sourceCompositeKey: sourceKey)
         )
 
-        XCTAssertEqual(result, .init(trackReferenceCount: 1, newPendingCount: 1, downloadQuality: "high"))
+        XCTAssertEqual(
+            result,
+            .init(
+                trackReferenceCount: 1,
+                newPendingCount: 1,
+                downloadQuality: "high",
+                targetWasRemoved: false
+            )
+        )
         XCTAssertTrue(targetRepository.replacedMemberships.isEmpty)
         XCTAssertEqual(downloadManager.batchCreateCalls.first?.0, [reference])
         XCTAssertTrue(downloadManager.deletedReferences.isEmpty)
@@ -265,6 +282,52 @@ final class DownloadTargetReconcilerTests: XCTestCase {
                 OfflineTrackReference(trackRatingKey: "2", trackSourceCompositeKey: sourceKey)
             ]
         )
+    }
+
+    func testMissingPlaylistRemovesTargetAndOnlyUnreferencedDownloads() async throws {
+        let libraryRepository = LibraryRepositoryMock()
+        let playlistRepository = PlaylistRepositoryMock()
+        let downloadManager = DownloadManagerMock()
+        let targetRepository = TargetRepositoryMock()
+        let sourceKey = "plex:account:server"
+        let orphaned = OfflineTrackReference(
+            trackRatingKey: "orphaned",
+            trackSourceCompositeKey: "\(sourceKey):music"
+        )
+        let shared = OfflineTrackReference(
+            trackRatingKey: "shared",
+            trackSourceCompositeKey: "\(sourceKey):music"
+        )
+        targetRepository.previousReferencesByTarget["playlist-target"] = [orphaned, shared]
+        targetRepository.membershipCounts[orphaned] = 0
+        targetRepository.membershipCounts[shared] = 1
+        var clearedLyrics: [OfflineTrackReference] = []
+        let reconciler = DownloadTargetReconciler(
+            dependencies: .init(
+                targetRepository: targetRepository,
+                libraryRepository: libraryRepository,
+                playlistRepository: playlistRepository,
+                downloadManager: downloadManager,
+                currentDownloadQuality: { "high" },
+                clearLyricsCaches: { clearedLyrics.append(contentsOf: $0) }
+            )
+        )
+
+        let result = try await reconciler.reconcileTarget(
+            .init(
+                key: "playlist-target",
+                kind: .playlist,
+                ratingKey: "deleted-playlist",
+                sourceCompositeKey: sourceKey
+            )
+        )
+
+        XCTAssertTrue(result.targetWasRemoved)
+        XCTAssertEqual(targetRepository.deletedTargetKeys, ["playlist-target"])
+        XCTAssertEqual(downloadManager.deletedReferences, [orphaned])
+        XCTAssertEqual(clearedLyrics, [orphaned])
+        XCTAssertTrue(targetRepository.replacedMemberships.isEmpty)
+        XCTAssertTrue(downloadManager.batchCreateCalls.isEmpty)
     }
 
     func testReconcileFavoritesExcludesAppleMusicAndRemovesItsStaleMembership() async throws {

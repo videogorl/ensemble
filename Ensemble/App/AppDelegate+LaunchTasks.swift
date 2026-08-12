@@ -89,11 +89,6 @@ extension AppDelegate {
                 return
             }
 
-            let indexStore = DependencyContainer.shared.siriMediaIndexStore
-            if await indexStore.loadIndex(maxAge: 3600) == nil {
-                let rebuilt = await indexStore.rebuildIndex()
-                AppLogger.debug("AppDelegate: Siri media index rebuilt at launch (items: \(rebuilt?.items.count ?? 0))")
-            }
             if #available(iOS 16.0, *) {
                 EnsembleAppShortcutsProvider.updateAppShortcutParameters()
                 AppLogger.debug("SIRI_SHORTCUT: refreshed App Shortcuts parameter metadata")
@@ -163,11 +158,6 @@ extension AppDelegate {
             }
             await syncCoordinator.performStartupSync()
             AppLogger.debug("📱 AppDelegate: Startup sync complete")
-
-            // Start periodic sync timer after startup sync completes.
-            await MainActor.run {
-                syncCoordinator.startPeriodicSync()
-            }
         }
     }
 

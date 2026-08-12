@@ -6,6 +6,30 @@ import XCTest
 
 @MainActor
 final class SystemMediaIntegrationServiceTests: XCTestCase {
+    func testSiriIndexMaterialChangeIgnoresGenerationTimeButDetectsContentAndSchema() {
+        let item = SiriMediaIndexItem(kind: .track, id: "track", displayName: "Original")
+        let previous = SiriMediaIndex(
+            generatedAt: Date(timeIntervalSince1970: 1),
+            items: [item]
+        )
+        let regenerated = SiriMediaIndex(
+            generatedAt: Date(timeIntervalSince1970: 2),
+            items: [item]
+        )
+        let edited = SiriMediaIndex(
+            items: [SiriMediaIndexItem(kind: .track, id: "track", displayName: "Edited")]
+        )
+        let oldSchema = SiriMediaIndex(
+            schemaVersion: SiriMediaIndex.currentSchemaVersion - 1,
+            items: [item]
+        )
+
+        XCTAssertFalse(SiriMediaIndexStore.hasMaterialChanges(from: previous, to: regenerated))
+        XCTAssertTrue(SiriMediaIndexStore.hasMaterialChanges(from: previous, to: edited))
+        XCTAssertTrue(SiriMediaIndexStore.hasMaterialChanges(from: oldSchema, to: regenerated))
+        XCTAssertTrue(SiriMediaIndexStore.hasMaterialChanges(from: nil, to: regenerated))
+    }
+
     func testPlaybackStartContextDonationEligibilityRequiresAppUIReference() {
         let reference = makeReference(kind: .album)
 

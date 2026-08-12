@@ -56,6 +56,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         let sourceIdentifier: MusicSourceIdentifier
         private let recorder: EventRecorder
         private let syncLibraryHandler: (@Sendable () async throws -> LibrarySyncResult)?
+        private let syncLibraryIncrementalHandler: (@Sendable () async throws -> LibrarySyncResult)?
         private let syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
         private let syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)?
 
@@ -63,12 +64,14 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             sourceIdentifier: MusicSourceIdentifier,
             recorder: EventRecorder,
             syncLibraryHandler: (@Sendable () async throws -> LibrarySyncResult)? = nil,
+            syncLibraryIncrementalHandler: (@Sendable () async throws -> LibrarySyncResult)? = nil,
             syncPlaylistsHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil,
             syncPlaylistsIncrementalHandler: (@Sendable (PlaylistRepositoryProtocol) async throws -> PlaylistSyncResult)? = nil
         ) {
             self.sourceIdentifier = sourceIdentifier
             self.recorder = recorder
             self.syncLibraryHandler = syncLibraryHandler
+            self.syncLibraryIncrementalHandler = syncLibraryIncrementalHandler
             self.syncPlaylistsHandler = syncPlaylistsHandler
             self.syncPlaylistsIncrementalHandler = syncPlaylistsIncrementalHandler
         }
@@ -91,6 +94,9 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             progressHandler: @Sendable (Double) -> Void
         ) async throws -> LibrarySyncResult {
             progressHandler(1)
+            if let syncLibraryIncrementalHandler {
+                return try await syncLibraryIncrementalHandler()
+            }
             await recorder.record("library-incremental")
             return LibrarySyncResult(changedAlbums: 1)
         }
@@ -158,6 +164,35 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
         XCTAssertEqual(outcome, .success)
         XCTAssertEqual(completedSources, [source])
         XCTAssertEqual(events, ["library", "reparent", "artwork", "playlists", "artwork"])
+    }
+
+    func testSuccessfulSyncRequestsSiriRebuildOnlyForMaterialChanges() async {
+        let recorder = EventRecorder()
+        let source = makeSourceIdentifier()
+        let noOpProvider = RecordingProvider(
+            sourceIdentifier: source,
+            recorder: recorder,
+            syncLibraryHandler: { LibrarySyncResult() },
+            syncLibraryIncrementalHandler: { LibrarySyncResult() }
+        )
+        var rebuildRequests = 0
+        let controller = makeController(
+            source: source,
+            recorder: recorder,
+            postSiriRebuildRequest: { rebuildRequests += 1 }
+        )
+
+        _ = await controller.sync(source: source, providers: [source.compositeKey: noOpProvider])
+        await controller.syncIncremental(source: source, providers: [source.compositeKey: noOpProvider])
+        XCTAssertEqual(rebuildRequests, 0)
+
+        let changedProvider = RecordingProvider(
+            sourceIdentifier: source,
+            recorder: recorder,
+            syncLibraryHandler: { LibrarySyncResult(changedTracks: 1) }
+        )
+        _ = await controller.sync(source: source, providers: [source.compositeKey: changedProvider])
+        XCTAssertEqual(rebuildRequests, 1)
     }
 
     func testSourcePersistenceFenceDrainsWorkAndBlocksUntilCleanupFinishes() async throws {
@@ -637,6 +672,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
             PlaylistSyncResult?,
             Date
         ) -> Void = { _, _, _, _ in },
+        postSiriRebuildRequest: @escaping () -> Void = {},
         publishPreflightFailure: @escaping (MusicSourceIdentifier, String) -> Void = { _, _ in }
     ) -> SyncExecutionController {
         let stack = CoreDataStack.inMemory()
@@ -687,7 +723,7 @@ final class SyncExecutionControllerArtworkInvalidationTests: XCTestCase {
                 },
                 syncErrorMessage: { $0.localizedDescription },
                 effectiveConnectionState: { $0 },
-                postSiriRebuildRequest: {},
+                postSiriRebuildRequest: postSiriRebuildRequest,
                 sourceNeedsGenreMetadataRepair: { _ in false },
                 runStartupHealthChecksIfNeeded: { _, _ in false },
                 enabledServerKeysForHealthChecks: { [] },
