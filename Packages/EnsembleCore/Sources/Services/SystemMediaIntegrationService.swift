@@ -277,6 +277,8 @@ final class LiveSystemMediaVocabularyRegistrar: SystemMediaVocabularyRegistering
 @MainActor
 public final class SystemMediaIntegrationService {
     private static let spotlightChunkSize = 200
+    private static let spotlightFullRefreshInterval: TimeInterval = 24 * 60 * 60
+    private static let spotlightLastFullRefreshKey = "SystemMediaIntegrationService.lastSpotlightFullRefresh"
     private static let siriVocabularyLimit = 750
     nonisolated static let systemSuggestionArtworkSize = 500
     nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
@@ -288,6 +290,7 @@ public final class SystemMediaIntegrationService {
     private weak var foregroundWorkScheduler: ForegroundWorkScheduling?
     private var rebuildObserverToken: NSObjectProtocol?
     private var spotlightRefreshTask: Task<Void, Never>?
+    private var registeredSiriVocabulary: ([String], [String])?
 
     #if !os(macOS)
     private let intentDonor: SystemMediaIntentDonating
@@ -444,10 +447,8 @@ public final class SystemMediaIntegrationService {
             return
         }
 
-        if let rebuiltIndex {
-            let staleReferences = Self.staleSystemMediaReferences(previous: previousIndex, current: rebuiltIndex)
-            await deleteUnavailableSystemMedia(staleReferences)
-        }
+        let staleReferences = Self.staleSystemMediaReferences(previous: previousIndex, current: index)
+        await deleteUnavailableSystemMedia(staleReferences)
 
         refreshSiriVocabulary(from: index)
 
@@ -456,13 +457,27 @@ public final class SystemMediaIntegrationService {
             return
         }
 
+        let lastFullRefresh = UserDefaults.standard.object(forKey: Self.spotlightLastFullRefreshKey) as? Date
+        let requiresFullRefresh = lastFullRefresh.map {
+            Date().timeIntervalSince($0) >= Self.spotlightFullRefreshInterval
+        } ?? true
+        let indexItems = Self.spotlightItemsToIndex(
+            previous: previousIndex,
+            current: index,
+            requiresFullRefresh: requiresFullRefresh
+        )
+        guard !indexItems.isEmpty else {
+            EnsembleLogger.debug("[SystemMedia] Spotlight index unchanged; skipped update")
+            return
+        }
+
         let availableArtworkFilenames = Self.cachedArtworkFilenames()
         var indexedCount = 0
         do {
-            for chunk in index.items.chunked(into: Self.spotlightChunkSize) {
+            for chunk in indexItems.chunked(into: Self.spotlightChunkSize) {
                 if let foregroundWorkScheduler,
                    !foregroundWorkScheduler.isIdleForNonessentialWork {
-                    EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(index.items.count) media items; foreground work became active")
+                    EnsembleLogger.debug("[SystemMedia] Spotlight refresh paused after \(indexedCount)/\(indexItems.count) media items; foreground work became active")
                     return
                 }
 
@@ -474,7 +489,10 @@ public final class SystemMediaIntegrationService {
                 indexedCount += items.count
                 await Task.yield()
             }
-            EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(indexedCount) media items")
+            if requiresFullRefresh {
+                UserDefaults.standard.set(Date(), forKey: Self.spotlightLastFullRefreshKey)
+            }
+            EnsembleLogger.debug("[SystemMedia] Spotlight indexed \(indexedCount) \(requiresFullRefresh ? "full" : "changed") media items")
         } catch {
             EnsembleLogger.debug("[SystemMedia] Spotlight indexing failed: \(error.localizedDescription)")
         }
@@ -515,15 +533,21 @@ public final class SystemMediaIntegrationService {
             kind: .playlist,
             limit: Self.siriVocabularyLimit
         )
-        vocabularyRegistrar.setVocabularyStrings(
-            NSOrderedSet(array: playlistTitles),
-            of: .mediaPlaylistTitle
-        )
-
         let artistNames = Self.siriVocabularyStrings(
             from: index.items,
             kind: .artist,
             limit: Self.siriVocabularyLimit
+        )
+        guard registeredSiriVocabulary?.0 != playlistTitles
+                || registeredSiriVocabulary?.1 != artistNames else {
+            EnsembleLogger.debug("[SystemMedia] Siri vocabulary unchanged; skipped registration")
+            return
+        }
+        registeredSiriVocabulary = (playlistTitles, artistNames)
+
+        vocabularyRegistrar.setVocabularyStrings(
+            NSOrderedSet(array: playlistTitles),
+            of: .mediaPlaylistTitle
         )
         vocabularyRegistrar.setVocabularyStrings(
             NSOrderedSet(array: artistNames),
@@ -609,6 +633,26 @@ public final class SystemMediaIntegrationService {
                 return nil
             }
             return reference
+        }
+    }
+
+    static func spotlightItemsToIndex(
+        previous: SiriMediaIndex?,
+        current: SiriMediaIndex,
+        requiresFullRefresh: Bool
+    ) -> [SiriMediaIndexItem] {
+        guard !requiresFullRefresh,
+              let previous,
+              previous.schemaVersion == current.schemaVersion else {
+            return current.items
+        }
+
+        let previousItems = Dictionary(
+            previous.items.map { ($0.reference.sourceScopedIdentifier, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        return current.items.filter {
+            previousItems[$0.reference.sourceScopedIdentifier] != $0
         }
     }
 

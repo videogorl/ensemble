@@ -137,7 +137,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         XCTAssertTrue(provider.lastForceOrphanCheck)
     }
 
-    func testPassiveRefreshesDoNotForcePlaylistOrphanCheck() async throws {
+    func testServerRefreshesForcePlaylistOrphanCheck() async throws {
         for trigger in [PlaylistRefreshController.Trigger.webSocket, .downloadedPlaylist] {
             let controller = PlaylistRefreshController()
             let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
@@ -153,7 +153,7 @@ final class PlaylistRefreshControllerTests: XCTestCase {
             )
 
             XCTAssertNotNil(result)
-            XCTAssertFalse(provider.lastForceOrphanCheck)
+            XCTAssertTrue(provider.lastForceOrphanCheck)
         }
     }
 

@@ -304,6 +304,43 @@ final class SystemMediaIntegrationServiceTests: XCTestCase {
         XCTAssertEqual(staleReferences.map(\.sourceScopedIdentifier), [removed.reference.sourceScopedIdentifier])
     }
 
+    func testSpotlightIncrementalDiffHandlesAddEditRemoveAndFullRefresh() {
+        let unchanged = SiriMediaIndexItem(kind: .album, id: "album-1", displayName: "Unchanged")
+        let edited = SiriMediaIndexItem(kind: .track, id: "track-1", displayName: "Edited")
+        let removed = SiriMediaIndexItem(kind: .playlist, id: "playlist-1", displayName: "Removed")
+        let added = SiriMediaIndexItem(kind: .artist, id: "artist-1", displayName: "Added")
+        let previous = SiriMediaIndex(items: [unchanged, edited, removed])
+        let current = SiriMediaIndex(items: [
+            unchanged,
+            SiriMediaIndexItem(kind: .track, id: "track-1", displayName: "Edited Again"),
+            added
+        ])
+
+        XCTAssertEqual(
+            SystemMediaIntegrationService.spotlightItemsToIndex(
+                previous: previous,
+                current: current,
+                requiresFullRefresh: false
+            ).map(\.id),
+            ["track-1", "artist-1"]
+        )
+        XCTAssertEqual(
+            SystemMediaIntegrationService.spotlightItemsToIndex(
+                previous: previous,
+                current: current,
+                requiresFullRefresh: true
+            ),
+            current.items
+        )
+        XCTAssertTrue(
+            SystemMediaIntegrationService.spotlightItemsToIndex(
+                previous: current,
+                current: current,
+                requiresFullRefresh: false
+            ).isEmpty
+        )
+    }
+
     func testDonationIdentifiersCoverShuffleVariants() {
         let reference = makeReference(kind: .playlist)
 

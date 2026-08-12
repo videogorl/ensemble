@@ -247,7 +247,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         XCTAssertNotNil(coordinator.lastStartupSyncCompletion)
     }
 
-    func testStartupSyncWaitsForHealthChecksAndInvalidatesPlexReconciliationCursor() async throws {
+    func testStartupSyncWaitsForHealthChecksAndInvalidatesPlexReconciliationCursors() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let syncCursorRepository = SyncCursorRepository(coreDataStack: stack)
@@ -313,6 +313,15 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             scopeType: .plexLibrary,
             at: Date()
         )
+        let serverSourceKey = MediaSourceIdentity.serverSourceKey(for: sourceId)
+        try await syncCursorRepository.recordFullSync(
+            scopeKey: serverSourceKey,
+            scopeType: .serverPlaylists,
+            at: Date()
+        )
+        let legacyPlaylistKey = PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: legacyPlaylistKey)
+        defer { UserDefaults.standard.removeObject(forKey: legacyPlaylistKey) }
 
         let provider = RecordingSyncProvider(sourceIdentifier: sourceId)
         var syncObservedCompletedHealthChecks = false
@@ -337,5 +346,11 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             scopeType: .plexLibrary
         )
         XCTAssertNil(cursor)
+        let playlistCursor = try await syncCursorRepository.fetchCursor(
+            scopeKey: serverSourceKey,
+            scopeType: .serverPlaylists
+        )
+        XCTAssertNil(playlistCursor?.lastInventorySyncAt)
+        XCTAssertNil(UserDefaults.standard.object(forKey: legacyPlaylistKey))
     }
 }

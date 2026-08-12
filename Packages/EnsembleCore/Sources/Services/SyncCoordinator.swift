@@ -655,7 +655,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
     public func syncAllIncremental(reconcileMissedPlexEvents: Bool = false) async {
         if reconcileMissedPlexEvents {
-            await invalidatePlexLibraryReconciliationCursors()
+            await invalidatePlexReconciliationCursors()
         }
         await syncExecutionController().syncAllIncremental(providers: syncProviders)
     }
@@ -1324,13 +1324,14 @@ public final class SyncCoordinator: ObservableObject {
     /// - If last sync > 1 hour: incremental sync
     /// - Otherwise: skip (data is fresh enough)
     public func performStartupSync() async {
-        await invalidatePlexLibraryReconciliationCursors()
+        await invalidatePlexReconciliationCursors()
         await syncExecutionController().performStartupSync(providers: syncProviders)
     }
 
-    private func invalidatePlexLibraryReconciliationCursors() async {
+    private func invalidatePlexReconciliationCursors() async {
         guard let syncCursorRepository else { return }
 
+        var invalidatedServerKeys = Set<String>()
         for provider in syncProviders.values where provider.sourceIdentifier.type == .plex {
             do {
                 try await syncCursorRepository.deleteCursor(
@@ -1340,6 +1341,22 @@ public final class SyncCoordinator: ObservableObject {
             } catch {
                 EnsembleLogger.error(
                     "Failed to prepare authoritative Plex reconciliation for \(provider.sourceIdentifier.compositeKey): \(error.localizedDescription)"
+                )
+            }
+
+            let serverSourceKey = MediaSourceIdentity.serverSourceKey(for: provider.sourceIdentifier)
+            guard invalidatedServerKeys.insert(serverSourceKey).inserted else { continue }
+            UserDefaults.standard.removeObject(
+                forKey: PlexMusicSourceSyncProvider.playlistOrphanCheckKey(for: serverSourceKey)
+            )
+            do {
+                try await syncCursorRepository.invalidateInventorySync(
+                    scopeKey: serverSourceKey,
+                    scopeType: .serverPlaylists
+                )
+            } catch {
+                EnsembleLogger.error(
+                    "Failed to prepare authoritative Plex playlist reconciliation for \(serverSourceKey): \(error.localizedDescription)"
                 )
             }
         }

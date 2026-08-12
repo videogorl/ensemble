@@ -25,10 +25,8 @@ final class PlaylistRefreshController {
 
         var forcesPlaylistOrphanCheck: Bool {
             switch self {
-            case .mutationRefresh, .playlistOnly:
+            case .mutationRefresh, .playlistOnly, .webSocket, .downloadedPlaylist:
                 return true
-            case .webSocket, .downloadedPlaylist:
-                return false
             }
         }
     }

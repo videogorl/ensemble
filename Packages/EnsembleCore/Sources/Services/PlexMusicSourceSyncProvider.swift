@@ -1146,9 +1146,20 @@ public final class PlexMusicSourceSyncProvider:
         // Fetch existing playlist timestamps for change detection
         var phaseStart = CFAbsoluteTimeGetCurrent()
         let existingTimestamps = try await repository.fetchPlaylistTimestamps(forSource: serverSourceKey)
-        // Fetch playlists added or updated since last sync
-        let newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
-        let updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
+        // Authoritative refreshes reuse one complete response for change detection and orphan removal.
+        let authoritativePlaylists: [PlexPlaylist]?
+        let newPlaylists: [PlexPlaylist]
+        let updatedPlaylists: [PlexPlaylist]
+        if forceOrphanCheck {
+            let playlists = try await apiClient.getPlaylists()
+            authoritativePlaylists = playlists
+            newPlaylists = playlists
+            updatedPlaylists = []
+        } else {
+            authoritativePlaylists = nil
+            newPlaylists = try await apiClient.getPlaylists(addedAfter: lastSyncTimestamp)
+            updatedPlaylists = try await apiClient.getPlaylists(updatedAfter: lastSyncTimestamp)
+        }
 
         let playlistChanges = Self.deduplicatedChangedItems(
             added: newPlaylists,
@@ -1195,8 +1206,12 @@ public final class PlexMusicSourceSyncProvider:
         if shouldCheckOrphans {
             phaseStart = CFAbsoluteTimeGetCurrent()
             EnsembleLogger.debug("🧹 Checking for orphaned playlists...")
-            let playlistInventory = try await apiClient.getPlaylistInventory()
-            let validPlaylistKeys = Set(playlistInventory.map { $0.ratingKey })
+            let validPlaylistKeys: Set<String>
+            if let authoritativePlaylists {
+                validPlaylistKeys = Set(authoritativePlaylists.map(\.ratingKey))
+            } else {
+                validPlaylistKeys = Set(try await apiClient.getPlaylistInventory().map(\.ratingKey))
+            }
             progressHandler(0.85)
 
             removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
