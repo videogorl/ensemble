@@ -650,7 +650,10 @@ public final class SyncCoordinator: ObservableObject {
     }
     
     /// Sync all enabled sources incrementally (only fetch changes since last sync)
-    public func syncAllIncremental() async {
+    public func syncAllIncremental(reconcileMissedPlexEvents: Bool = false) async {
+        if reconcileMissedPlexEvents {
+            await invalidatePlexLibraryReconciliationCursors()
+        }
         await syncExecutionController().syncAllIncremental(providers: syncProviders)
     }
     
@@ -1318,7 +1321,25 @@ public final class SyncCoordinator: ObservableObject {
     /// - If last sync > 1 hour: incremental sync
     /// - Otherwise: skip (data is fresh enough)
     public func performStartupSync() async {
+        await invalidatePlexLibraryReconciliationCursors()
         await syncExecutionController().performStartupSync(providers: syncProviders)
+    }
+
+    private func invalidatePlexLibraryReconciliationCursors() async {
+        guard let syncCursorRepository else { return }
+
+        for provider in syncProviders.values where provider.sourceIdentifier.type == .plex {
+            do {
+                try await syncCursorRepository.deleteCursor(
+                    scopeKey: provider.sourceIdentifier.compositeKey,
+                    scopeType: .plexLibrary
+                )
+            } catch {
+                EnsembleLogger.error(
+                    "Failed to prepare authoritative Plex reconciliation for \(provider.sourceIdentifier.compositeKey): \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     /// Detect restored stores that have the genre catalog but not the per-item genre fields.

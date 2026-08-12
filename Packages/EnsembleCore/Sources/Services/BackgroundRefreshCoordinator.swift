@@ -54,7 +54,7 @@ public final class BackgroundRefreshCoordinator {
                 await syncCoordinator.handleAppWillEnterForeground()
             },
             incrementalSync: {
-                await syncCoordinator.syncAllIncremental()
+                await syncCoordinator.syncAllIncremental(reconcileMissedPlexEvents: true)
             },
             feedRefresh: {
                 await homeHubLoader.loadSnapshot(applySavedOrder: true, hubCount: "12") != nil
@@ -108,8 +108,9 @@ public final class BackgroundRefreshCoordinator {
 
     @discardableResult
     @MainActor
-    public func performForegroundFreshnessRefresh() async -> BackgroundRefreshResult {
-        if let lastForegroundRefresh,
+    public func performForegroundFreshnessRefresh(force: Bool = false) async -> BackgroundRefreshResult {
+        if !force,
+           let lastForegroundRefresh,
            Date().timeIntervalSince(lastForegroundRefresh) < foregroundCooldown {
             let now = Date()
             EnsembleLogger.debug("🔄 BackgroundRefreshCoordinator: foreground freshness skipped by cooldown")
@@ -126,7 +127,7 @@ public final class BackgroundRefreshCoordinator {
             )
         }
 
-        let result = await run(kind: .foregroundFreshness, force: false)
+        let result = await run(kind: .foregroundFreshness, force: force)
         if result.succeeded {
             lastForegroundRefresh = result.completedAt
         }

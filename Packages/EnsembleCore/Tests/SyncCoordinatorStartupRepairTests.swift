@@ -247,9 +247,10 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         XCTAssertNotNil(coordinator.lastStartupSyncCompletion)
     }
 
-    func testStartupSyncWaitsForInFlightHealthChecksBeforeIncrementalSync() async throws {
+    func testStartupSyncWaitsForHealthChecksAndInvalidatesPlexReconciliationCursor() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
+        let syncCursorRepository = SyncCursorRepository(coreDataStack: stack)
         let playlistRepository = MockPlaylistRepository()
         let artworkManager = MockArtworkDownloadManager()
         let accountManager = AccountManager(keychain: TestKeychain())
@@ -282,6 +283,7 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             accountManager: accountManager,
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
+            syncCursorRepository: syncCursorRepository,
             artworkDownloadManager: artworkManager,
             networkMonitor: networkMonitor,
             serverHealthChecker: serverHealthChecker
@@ -306,6 +308,11 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
             accountName: "tester"
         )
         try await libraryRepository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
+        try await syncCursorRepository.recordFullSync(
+            scopeKey: sourceKey,
+            scopeType: .plexLibrary,
+            at: Date()
+        )
 
         let provider = RecordingSyncProvider(sourceIdentifier: sourceId)
         var syncObservedCompletedHealthChecks = false
@@ -325,5 +332,10 @@ final class SyncCoordinatorStartupRepairTests: XCTestCase {
         XCTAssertTrue(healthChecksCompleted)
         XCTAssertTrue(syncObservedCompletedHealthChecks)
         XCTAssertEqual(provider.incrementalLibrarySyncCount, 1)
+        let cursor = try await syncCursorRepository.fetchCursor(
+            scopeKey: sourceKey,
+            scopeType: .plexLibrary
+        )
+        XCTAssertNil(cursor)
     }
 }

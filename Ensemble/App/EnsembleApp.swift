@@ -262,7 +262,7 @@ struct EnsembleApp: App {
                 } else {
                     // Route foreground freshness through one coordinator so iOS 15
                     // foreground refresh and iOS background refresh share the same work.
-                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh()
+                    await DependencyContainer.shared.backgroundRefreshCoordinator.performForegroundFreshnessRefresh(force: true)
                     await DependencyContainer.shared.reconcileSyncOnForeground()
                 }
 

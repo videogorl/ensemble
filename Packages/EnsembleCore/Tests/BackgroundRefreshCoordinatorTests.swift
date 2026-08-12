@@ -47,10 +47,12 @@ final class BackgroundRefreshCoordinatorTests: XCTestCase {
 
         let first = await sut.performForegroundFreshnessRefresh()
         let second = await sut.performForegroundFreshnessRefresh()
+        let forced = await sut.performForegroundFreshnessRefresh(force: true)
 
         XCTAssertTrue(first.didRunEndpointRefresh)
         XCTAssertFalse(second.didRunEndpointRefresh)
-        XCTAssertEqual(runCount, 1)
+        XCTAssertTrue(forced.didRunEndpointRefresh)
+        XCTAssertEqual(runCount, 2)
     }
 
     func testForegroundFreshnessUsesForegroundEndpointPolicy() async {
