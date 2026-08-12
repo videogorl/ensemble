@@ -580,6 +580,7 @@ public final class PlexMusicSourceSyncProvider:
         let removedArtists: Int
         let removedAlbums: Int
         let removedTracks: Int
+        let removedTrackRatingKeys: Set<String>
         if shouldCheckOrphans || fullMetadataReconciliationDue {
             let albumRatingKeys: Set<String>
             let trackRatingKeys: Set<String>
@@ -671,6 +672,9 @@ public final class PlexMusicSourceSyncProvider:
             }
             progressHandler(0.85)
 
+            removedTrackRatingKeys = Set(
+                existingTrackTimestamps.keys.lazy.filter { !trackRatingKeys.contains($0) }
+            )
             removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
             removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
             removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
@@ -698,6 +702,7 @@ public final class PlexMusicSourceSyncProvider:
             removedArtists = 0
             removedAlbums = 0
             removedTracks = 0
+            removedTrackRatingKeys = []
             progressHandler(0.9)
             EnsembleLogger.debug("⏭️ Incremental sync: orphan check skipped; no library changes and recent cleanup exists")
         }
@@ -718,7 +723,8 @@ public final class PlexMusicSourceSyncProvider:
             changedTracks: tracksToSync.count + authoritativeChangedTracks,
             removedArtists: removedArtists,
             removedAlbums: removedAlbums,
-            removedTracks: removedTracks
+            removedTracks: removedTracks,
+            removedTrackRatingKeys: removedTrackRatingKeys
         )
     }
 
@@ -978,6 +984,9 @@ public final class PlexMusicSourceSyncProvider:
         progressHandler(0.85)
         phaseStart = CFAbsoluteTimeGetCurrent()
         EnsembleLogger.debug("🧹 Checking for orphaned items...")
+        let removedTrackRatingKeys = Set(
+            cachedTrackTimestamps.keys.lazy.filter { !trackRatingKeys.contains($0) }
+        )
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
         let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
@@ -1009,6 +1018,7 @@ public final class PlexMusicSourceSyncProvider:
             removedArtists: removedArtists,
             removedAlbums: removedAlbums,
             removedTracks: removedTracks,
+            removedTrackRatingKeys: removedTrackRatingKeys,
             removedGenres: removedGenres
         )
     }

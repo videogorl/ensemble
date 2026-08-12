@@ -69,4 +69,32 @@ final class PeriodicSyncControllerTests: XCTestCase {
 
         await fulfillment(of: [expectation], timeout: 1.0)
     }
+
+    func testDownloadedPlaylistTimerStaysAtPriorityCadenceWhenWebSocketRelaxesLibrarySync() async {
+        let expectation = expectation(description: "downloaded playlist sync action")
+        var scheduledTimers: [(TimeInterval, FakeTimer)] = []
+        let controller = PeriodicSyncController(
+            defaultInterval: 60,
+            relaxedWebSocketInterval: 240,
+            downloadedPlaylistInterval: 15,
+            timerFactory: { interval, handler in
+                let timer = FakeTimer(handler: handler)
+                scheduledTimers.append((interval, timer))
+                return timer
+            }
+        )
+
+        controller.start(
+            action: {},
+            downloadedPlaylistAction: { expectation.fulfill() }
+        )
+        _ = controller.adjustForWebSocket(hasActiveWebSocket: true) {}
+
+        XCTAssertEqual(scheduledTimers.map(\.0), [60, 15, 240])
+        XCTAssertEqual(scheduledTimers[0].1.invalidateCount, 1)
+        XCTAssertEqual(scheduledTimers[1].1.invalidateCount, 0)
+
+        scheduledTimers[1].1.handler()
+        await fulfillment(of: [expectation], timeout: 1.0)
+    }
 }

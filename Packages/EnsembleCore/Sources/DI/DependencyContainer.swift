@@ -871,6 +871,9 @@ public final class DependencyContainer: @unchecked Sendable {
                 await offlineDownloadService?.handlePlaylistRefreshCompleted(serverSourceKey: serverSourceKey)
             }
         }
+        syncCoordinator.downloadedPlaylistServerSourceKeys = { [weak offlineDownloadService] in
+            offlineDownloadService?.downloadedPlexPlaylistServerSourceKeys ?? []
+        }
         syncCoordinator.onFavoritesRatingChanged = { [weak offlineDownloadService] in
             await offlineDownloadService?.reconcileFavoritesTargetIfEnabled()
         }

@@ -8,6 +8,7 @@ final class PlaylistRefreshController {
         case mutationRefresh
         case playlistOnly
         case webSocket
+        case downloadedPlaylist
 
         var description: String {
             switch self {
@@ -17,6 +18,8 @@ final class PlaylistRefreshController {
                 return "playlist-only sync"
             case .webSocket:
                 return "websocket sync"
+            case .downloadedPlaylist:
+                return "downloaded-playlist sync"
             }
         }
 
@@ -24,7 +27,7 @@ final class PlaylistRefreshController {
             switch self {
             case .mutationRefresh, .playlistOnly:
                 return true
-            case .webSocket:
+            case .webSocket, .downloadedPlaylist:
                 return false
             }
         }

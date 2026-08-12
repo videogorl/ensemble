@@ -147,6 +147,7 @@ public final class SyncCoordinator: ObservableObject {
     }
     private var cancellables = Set<AnyCancellable>()
     private var isCheckingHealth = false
+    private var isDownloadedPlaylistSyncing = false
     private var enabledServerKeysSnapshot = Set<String>()
     /// Timestamp of last sourceStatuses progress update per source — used to throttle
     /// @Published updates during sync so SwiftUI doesn't re-render on every item.
@@ -173,6 +174,8 @@ public final class SyncCoordinator: ObservableObject {
     }
     /// Signal fired when a server-level playlist refresh completes.
     public var onPlaylistRefreshCompleted: ((String) -> Void)?
+    /// Supplies Plex servers that currently own at least one downloaded playlist.
+    public var downloadedPlaylistServerSourceKeys: (() -> Set<String>)?
     /// Signal fired after a rating change so the favorites download target can reconcile.
     public var onFavoritesRatingChanged: (() async -> Void)?
     /// Optional load-aware gate for foreground health refreshes. DependencyContainer
@@ -2212,7 +2215,11 @@ public final class SyncCoordinator: ObservableObject {
     }
 
     /// Refresh playlists for a specific server after a mutation so CoreData stays in sync.
-    private func refreshServerPlaylists(serverSourceKey: String) async {
+    private func refreshServerPlaylists(
+        serverSourceKey: String,
+        trigger: PlaylistRefreshController.Trigger = .mutationRefresh,
+        allowFullFallback: Bool = true
+    ) async {
         guard let persistenceOperation = beginSourcePersistenceOperation(sourceKey: serverSourceKey) else {
             return
         }
@@ -2223,13 +2230,17 @@ public final class SyncCoordinator: ObservableObject {
                 serverSourceKey: serverSourceKey,
                 providers: persistenceOperation.providers,
                 playlistRepository: playlistRepository,
-                trigger: .mutationRefresh,
-                allowFullFallback: true
+                trigger: trigger,
+                allowFullFallback: allowFullFallback
             ) else {
                 return
             }
 
             guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
+            if case .downloadedPlaylist = trigger,
+               !result.playlistResult.hasMaterialChanges {
+                return
+            }
             await cachePlaylistArtwork(sourceId: result.sourceId, provider: result.provider)
             guard isSourcePersistenceOperationCurrent(persistenceOperation) else { return }
             publishContentChangeIfNeeded(
@@ -2760,9 +2771,14 @@ public final class SyncCoordinator: ObservableObject {
     /// Start periodic incremental sync while app is active (every 1 hour)
     public func startPeriodicSync() {
         EnsembleLogger.debug("⏰ Starting periodic sync timer (every 1 hour)")
-        periodicSyncController.start { [weak self] in
-            await self?.performPeriodicSync()
-        }
+        periodicSyncController.start(
+            action: { [weak self] in
+                await self?.performPeriodicSync()
+            },
+            downloadedPlaylistAction: { [weak self] in
+                await self?.performDownloadedPlaylistSync()
+            }
+        )
     }
     
     /// Stop periodic sync
@@ -2798,6 +2814,27 @@ public final class SyncCoordinator: ObservableObject {
         EnsembleLogger.debug("🔄 Performing periodic incremental sync...")
         await syncAllIncremental()
         EnsembleLogger.debug("✅ Periodic sync complete")
+    }
+
+    private func performDownloadedPlaylistSync() async {
+        guard !isOffline, !isSyncing, !isDownloadedPlaylistSyncing else { return }
+        #if os(iOS)
+        guard networkMonitor.isConnected else { return }
+        #endif
+        guard let serverSourceKeys = downloadedPlaylistServerSourceKeys?(),
+              !serverSourceKeys.isEmpty else { return }
+
+        isDownloadedPlaylistSyncing = true
+        defer { isDownloadedPlaylistSyncing = false }
+
+        EnsembleLogger.debug("⏰ Refreshing downloaded playlists on \(serverSourceKeys.count) server(s)")
+        for serverSourceKey in serverSourceKeys.sorted() {
+            await refreshServerPlaylists(
+                serverSourceKey: serverSourceKey,
+                trigger: .downloadedPlaylist,
+                allowFullFallback: false
+            )
+        }
     }
 
     // MARK: - WebSocket-Triggered Sync

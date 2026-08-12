@@ -446,6 +446,23 @@ public final class OfflineDownloadService: ObservableObject {
         }
     }
 
+    var downloadedPlexPlaylistServerSourceKeys: Set<String> {
+        Self.downloadedPlexPlaylistServerSourceKeys(in: targets)
+    }
+
+    static func downloadedPlexPlaylistServerSourceKeys(
+        in targets: [OfflineDownloadTargetSnapshot]
+    ) -> Set<String> {
+        Set(targets.compactMap { target in
+            guard target.kind == .playlist,
+                  let sourceKey = target.sourceCompositeKey,
+                  MediaSourceIdentity.sourceType(from: sourceKey) == .plex else {
+                return nil
+            }
+            return MediaSourceIdentity.serverSourceKey(from: sourceKey)
+        })
+    }
+
     // MARK: - Favorites Download Target
 
     /// Target key for the cross-library favorites download target
@@ -1947,6 +1964,14 @@ public final class OfflineDownloadService: ObservableObject {
 
     func handleContentChange(_ change: SyncContentChange) async {
         guard change.libraryResult?.removedTracks ?? 0 > 0 else { return }
+
+        let removedReferences = change.libraryResult?.removedTrackRatingKeys.map {
+            OfflineTrackReference(
+                trackRatingKey: $0,
+                trackSourceCompositeKey: change.source.compositeKey
+            )
+        } ?? []
+        await lyricsService.clearCaches(for: removedReferences)
 
         do {
             let removedFiles = try await downloadManager.removeOrphanedDownloadFiles()

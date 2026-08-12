@@ -490,10 +490,39 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sharedCacheURL.path))
     }
 
-    func testLibraryTrackRemovalCleansOrphanedFilesWithoutScanningForMetadataEdits() async {
+    func testLibraryTrackRemovalCleansOrphanedFilesAndSourceScopedLyrics() async throws {
         let downloadManager = MockDownloadManager()
         let service = await makeService(downloadManager: downloadManager)
-        let source = MusicSourceIdentifier.appleMusic
+        let source = MusicSourceIdentifier(
+            type: .plex,
+            accountId: "account",
+            serverId: "server",
+            libraryId: "library"
+        )
+        let removedReference = OfflineTrackReference(
+            trackRatingKey: "removed-\(UUID().uuidString)",
+            trackSourceCompositeKey: source.compositeKey
+        )
+        let retainedReference = OfflineTrackReference(
+            trackRatingKey: "retained-\(UUID().uuidString)",
+            trackSourceCompositeKey: source.compositeKey
+        )
+        let cacheDirectory = try XCTUnwrap(
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        ).appendingPathComponent("Ensemble/LyricsCache", isDirectory: true)
+        try FileManager.default.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        let removedCacheURL = cacheDirectory.appendingPathComponent(
+            lyricsCacheFilenamePrefix(for: removedReference) + "lyrics_test.json"
+        )
+        let retainedCacheURL = cacheDirectory.appendingPathComponent(
+            lyricsCacheFilenamePrefix(for: retainedReference) + "lyrics_test.json"
+        )
+        try Data([0x01]).write(to: removedCacheURL)
+        try Data([0x02]).write(to: retainedCacheURL)
+        defer {
+            try? FileManager.default.removeItem(at: removedCacheURL)
+            try? FileManager.default.removeItem(at: retainedCacheURL)
+        }
 
         await service.handleContentChange(
             SyncContentChange(
@@ -507,11 +536,82 @@ final class OfflineDownloadServicePolicyTests: XCTestCase {
         await service.handleContentChange(
             SyncContentChange(
                 source: source,
-                libraryResult: LibrarySyncResult(removedTracks: 1),
+                libraryResult: LibrarySyncResult(
+                    removedTracks: 1,
+                    removedTrackRatingKeys: [removedReference.trackRatingKey]
+                ),
                 syncedAt: Date()
             )
         )
         XCTAssertEqual(downloadManager.removeOrphanedDownloadFilesCallCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: removedCacheURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retainedCacheURL.path))
+    }
+
+    func testDownloadedPlaylistPollingScopesToDistinctPlexServers() {
+        let snapshots = [
+            OfflineDownloadTargetSnapshot(
+                id: "playlist-1",
+                key: "target-1",
+                kind: .playlist,
+                ratingKey: "playlist-1",
+                sourceCompositeKey: "plex:account:server",
+                displayName: "Plex Playlist",
+                status: .completed,
+                totalTrackCount: 1,
+                completedTrackCount: 1,
+                downloadedBytes: 1,
+                progress: 1,
+                failedTrackCount: 0
+            ),
+            OfflineDownloadTargetSnapshot(
+                id: "playlist-2",
+                key: "target-2",
+                kind: .playlist,
+                ratingKey: "playlist-2",
+                sourceCompositeKey: "plex:account:server",
+                displayName: "Same Plex Server",
+                status: .completed,
+                totalTrackCount: 1,
+                completedTrackCount: 1,
+                downloadedBytes: 1,
+                progress: 1,
+                failedTrackCount: 0
+            ),
+            OfflineDownloadTargetSnapshot(
+                id: "library",
+                key: "target-3",
+                kind: .library,
+                ratingKey: nil,
+                sourceCompositeKey: "plex:account:other-server:library",
+                displayName: "Library",
+                status: .completed,
+                totalTrackCount: 1,
+                completedTrackCount: 1,
+                downloadedBytes: 1,
+                progress: 1,
+                failedTrackCount: 0
+            ),
+            OfflineDownloadTargetSnapshot(
+                id: "apple-playlist",
+                key: "target-4",
+                kind: .playlist,
+                ratingKey: "apple-playlist",
+                sourceCompositeKey: "appleMusic:device:local",
+                displayName: "Apple Playlist",
+                status: .completed,
+                totalTrackCount: 1,
+                completedTrackCount: 1,
+                downloadedBytes: 1,
+                progress: 1,
+                failedTrackCount: 0
+            )
+        ]
+
+        XCTAssertEqual(
+            OfflineDownloadService.downloadedPlexPlaylistServerSourceKeys(in: snapshots),
+            ["plex:account:server"]
+        )
     }
 
     private func lyricsCacheFilenamePrefix(for reference: OfflineTrackReference) -> String {

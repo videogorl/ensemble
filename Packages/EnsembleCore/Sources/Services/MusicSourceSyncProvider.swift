@@ -10,6 +10,7 @@ public struct LibrarySyncResult: Sendable, Equatable {
     public let removedArtists: Int
     public let removedAlbums: Int
     public let removedTracks: Int
+    public let removedTrackRatingKeys: Set<String>
     public let removedGenres: Int
 
     public init(
@@ -20,6 +21,7 @@ public struct LibrarySyncResult: Sendable, Equatable {
         removedArtists: Int = 0,
         removedAlbums: Int = 0,
         removedTracks: Int = 0,
+        removedTrackRatingKeys: Set<String> = [],
         removedGenres: Int = 0
     ) {
         self.changedArtists = changedArtists
@@ -29,6 +31,7 @@ public struct LibrarySyncResult: Sendable, Equatable {
         self.removedArtists = removedArtists
         self.removedAlbums = removedAlbums
         self.removedTracks = removedTracks
+        self.removedTrackRatingKeys = removedTrackRatingKeys
         self.removedGenres = removedGenres
     }
 
