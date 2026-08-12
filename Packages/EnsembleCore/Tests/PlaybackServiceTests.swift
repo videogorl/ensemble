@@ -1220,9 +1220,17 @@ final class PlaybackServiceTests: XCTestCase {
             duration: 100,
             hasContinuousProviderSuccessor: false
         )
+        let finalEntryReset = PlaybackService.shouldPrepareEndTransitionLease(
+            playbackState: .playing,
+            currentTime: 0,
+            duration: 194.84,
+            hasContinuousProviderSuccessor: false,
+            isFinalEntryReset: true
+        )
 
         XCTAssertTrue(nearBoundary)
         XCTAssertFalse(afterSeekBack)
+        XCTAssertTrue(finalEntryReset)
         XCTAssertFalse(PlaybackService.shouldPrepareEndTransitionLease(
             playbackState: .playing,
             currentTime: 99,
@@ -1279,6 +1287,15 @@ final class PlaybackServiceTests: XCTestCase {
                 playbackState: state
             ))
         }
+
+        XCTAssertTrue(PlaybackService.shouldAcceptAppleMusicCallback(
+            queueGeneration: 42,
+            activeQueueGeneration: 42,
+            isAppleMusicEnabled: true,
+            currentTrackIsAppleMusic: true,
+            playbackState: .paused,
+            acceptsPausedPlayback: true
+        ))
     }
 
     func testAppleMusicResolutionSkipsOnlyUnresolvedLaterItems() throws {

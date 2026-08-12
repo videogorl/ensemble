@@ -329,6 +329,7 @@ protocol AppleMusicPlaybackControlling: AnyObject {
     var onTimeChanged: ((TimeInterval, UInt64) -> Void)? { get set }
     var onEnded: ((UInt64) -> Void)? { get set }
     var onPaused: ((UInt64) -> Void)? { get set }
+    var onResumed: ((UInt64) -> Void)? { get set }
     var onDynamicTrack: ((Track, UInt64) -> Void)? { get set }
     var onTrackMetadataChanged: ((Track, UInt64) -> Void)? { get set }
     var onDynamicQueueChanged: (([Track], UInt64) -> Void)? { get set }
@@ -363,6 +364,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private var hasReportedEnd = false
     private var endStallTracker = AppleMusicPlaybackEndStallTracker()
     private var pausedEndTask: Task<Void, Never>?
+    private var awaitsExternalResume = false
     private var suppressPausedEndUntilPlaybackResumes = false
     private var isInterrupted = false
     private var isPreparingQueue = false
@@ -389,6 +391,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     var onTimeChanged: ((TimeInterval, UInt64) -> Void)?
     var onEnded: ((UInt64) -> Void)?
     var onPaused: ((UInt64) -> Void)?
+    var onResumed: ((UInt64) -> Void)?
     var onDynamicTrack: ((Track, UInt64) -> Void)?
     var onTrackMetadataChanged: ((Track, UInt64) -> Void)?
     var onDynamicQueueChanged: (([Track], UInt64) -> Void)?
@@ -435,6 +438,18 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             endStallTracker.reset()
             return
         }
+        let isFinalEntry = AppleMusicPlaybackEndPolicy.isFinalEntry(
+            hasQueuedSuccessor: hasQueuedSuccessor,
+            isStationActive: isStationActive
+        )
+        let isEndSuppressed = isInterrupted || suppressPausedEndUntilPlaybackResumes
+        let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: playbackTime,
+            lastPlayingTime: lastPlayingEndSnapshot?.playbackTime,
+            isFinalEntry: isFinalEntry,
+            wasPlaying: wasPlaying,
+            isEndSuppressed: isEndSuppressed
+        )
         onTimeChanged?(playbackTime, queueGeneration)
         guard !hasReportedEnd,
               let song = resolvedOrTransientSong(from: currentEntry),
@@ -442,15 +457,13 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             endStallTracker.reset()
             return
         }
-        let isFinalEntry = AppleMusicPlaybackEndPolicy.isFinalEntry(
-            hasQueuedSuccessor: hasQueuedSuccessor,
-            isStationActive: isStationActive
-        )
-        lastPlayingEndSnapshot = AppleMusicPlaybackEndSnapshot(
-            playbackTime: playbackTime,
-            duration: duration,
-            isFinalEntry: isFinalEntry
-        )
+        if !isFinalEntryReset {
+            lastPlayingEndSnapshot = AppleMusicPlaybackEndSnapshot(
+                playbackTime: playbackTime,
+                duration: duration,
+                isFinalEntry: isFinalEntry
+            )
+        }
         if AppleMusicPlaybackEndPolicy.shouldReportEnd(
             playbackTime: playbackTime,
             duration: duration,
@@ -534,6 +547,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask?.cancel()
         pausedEndTask = nil
         hasReportedEnd = false
+        awaitsExternalResume = false
         wasPlaying = true
         endStallTracker.reset()
         isPreparingQueue = false
@@ -707,6 +721,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
     }
     func resume() async throws {
+        awaitsExternalResume = false
         try await runOperation(
             staleResult: (),
             onFailure: { generation in self.operations.markPaused(generation) }
@@ -724,6 +739,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask?.cancel()
         pausedEndTask = nil
         lastPlayingEndSnapshot = nil
+        awaitsExternalResume = false
         wasPlaying = false
         hasReportedEnd = true
         endStallTracker.reset()
@@ -806,6 +822,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask?.cancel()
         pausedEndTask = nil
         hasReportedEnd = false
+        awaitsExternalResume = false
         wasPlaying = true
         endStallTracker.reset()
         isPreparingQueue = false
@@ -890,6 +907,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask?.cancel()
         pausedEndTask = nil
         lastPlayingEndSnapshot = nil
+        awaitsExternalResume = false
         isPreparingQueue = true
         activeQueueGeneration = nil
         wasPlaying = false
@@ -916,6 +934,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         artworkRequestMusicID = nil
         enrichedArtwork = nil
         lastPublishedEntryID = nil
+        awaitsExternalResume = false
         wasPlaying = false
         hasReportedEnd = true
         operations.markStopped(generation)
@@ -1111,11 +1130,16 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         } else if playbackStatus == .paused, wasPlaying {
             scheduleEndConfirmation(forStoppedPlayback: false)
         } else if playbackStatus == .playing {
+            let shouldReportResume = awaitsExternalResume
             pausedEndTask?.cancel()
             pausedEndTask = nil
+            awaitsExternalResume = false
             wasPlaying = true
             isInterrupted = false
             suppressPausedEndUntilPlaybackResumes = false
+            if shouldReportResume, let queueGeneration = activeQueueGeneration {
+                onResumed?(queueGeneration)
+            }
         } else {
             pausedEndTask?.cancel()
             pausedEndTask = nil
@@ -1151,6 +1175,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 reachedFinalEntryBoundary: reachedFinalEntryBoundary
             ) {
                 self.wasPlaying = false
+                self.awaitsExternalResume = true
                 self.onPaused?(queueGeneration)
             }
         }
@@ -1199,6 +1224,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         pausedEndTask?.cancel()
         pausedEndTask = nil
         hasReportedEnd = true
+        awaitsExternalResume = false
         wasPlaying = false
         lastPlayingEndSnapshot = nil
         endStallTracker.reset()

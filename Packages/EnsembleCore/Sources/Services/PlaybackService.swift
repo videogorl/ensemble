@@ -484,11 +484,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTime: TimeInterval,
         duration: TimeInterval,
         hasContinuousProviderSuccessor: Bool,
+        isFinalEntryReset: Bool = false,
         leadTime: TimeInterval = 4
     ) -> Bool {
         guard playbackState == .playing,
-              !hasContinuousProviderSuccessor,
-              currentTime.isFinite,
+              !hasContinuousProviderSuccessor else { return false }
+        if isFinalEntryReset { return true }
+        guard currentTime.isFinite,
               duration.isFinite,
               duration > 0,
               leadTime > 0 else { return false }
@@ -513,7 +515,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         activeQueueGeneration: UInt64?,
         isAppleMusicEnabled: Bool,
         currentTrackIsAppleMusic: Bool,
-        playbackState: PlaybackState
+        playbackState: PlaybackState,
+        acceptsPausedPlayback: Bool = false
     ) -> Bool {
         guard activeQueueGeneration == queueGeneration,
               isAppleMusicEnabled,
@@ -521,7 +524,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         return switch playbackState {
         case .loading, .buffering, .playing: true
-        case .paused, .stopped, .failed: false
+        case .paused: acceptsPausedPlayback
+        case .stopped, .failed: false
         }
     }
 
@@ -6013,6 +6017,16 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                       self.playbackState == .playing || self.playbackState == .buffering else { return }
                 self.applyPauseForHandoff(reason: .system)
             }
+            controller.onResumed = { [weak self] queueGeneration in
+                guard let self,
+                      self.playbackState == .paused,
+                      self.isCurrentAppleMusicQueue(
+                          queueGeneration,
+                          acceptsPausedPlayback: true
+                      ) else { return }
+                EnsembleLogger.info("[MusicKit] Reconciled externally resumed playback")
+                self.resumeInternally(source: .system)
+            }
             controller.onDynamicTrack = { [weak self] track, queueGeneration in
                 self?.handleAppleMusicRadioTrack(
                     track,
@@ -6267,6 +6281,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
             let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
                 || appleMusicPlaybackController?.hasQueuedSuccessor == true
+            let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+                playbackTime: time,
+                lastPlayingTime: currentTime,
+                isFinalEntry: !hasContinuousAppleMusicSuccessor,
+                wasPlaying: playbackState == .playing
+            )
             if currentTime > Self.previousRestartThreshold, time <= 0.75 {
                 appleMusicPreviousRestartGeneration = queueGeneration
             }
@@ -6286,21 +6306,26 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 playbackState: playbackState,
                 currentTime: time,
                 duration: duration,
-                hasContinuousProviderSuccessor: hasContinuousAppleMusicSuccessor
+                hasContinuousProviderSuccessor: hasContinuousAppleMusicSuccessor,
+                isFinalEntryReset: isFinalEntryReset
             ))
             updateNowPlayingInfo()
         }
 
         @available(iOS 18, *)
         @MainActor
-        private func isCurrentAppleMusicQueue(_ queueGeneration: UInt64) -> Bool {
+        private func isCurrentAppleMusicQueue(
+            _ queueGeneration: UInt64,
+            acceptsPausedPlayback: Bool = false
+        ) -> Bool {
             guard !isSynchronizingAppleMusicQueueMutation else { return false }
             return Self.shouldAcceptAppleMusicCallback(
                 queueGeneration: queueGeneration,
                 activeQueueGeneration: appleMusicPlaybackController?.activeQueueGeneration,
                 isAppleMusicEnabled: syncCoordinator.accountManager.isAppleMusicEnabled,
                 currentTrackIsAppleMusic: currentTrack?.isAppleMusic == true,
-                playbackState: playbackState
+                playbackState: playbackState,
+                acceptsPausedPlayback: acceptsPausedPlayback
             )
         }
 
