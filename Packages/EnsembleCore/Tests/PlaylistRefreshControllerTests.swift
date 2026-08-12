@@ -137,21 +137,24 @@ final class PlaylistRefreshControllerTests: XCTestCase {
         XCTAssertTrue(provider.lastForceOrphanCheck)
     }
 
-    func testWebSocketRefreshDoesNotForcePlaylistOrphanCheck() async throws {
-        let controller = PlaylistRefreshController()
-        let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
-        let serverSourceKey = "plex:account-1:server-1"
-        let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
+    func testPassiveRefreshesDoNotForcePlaylistOrphanCheck() async throws {
+        for trigger in [PlaylistRefreshController.Trigger.webSocket, .downloadedPlaylist] {
+            let controller = PlaylistRefreshController()
+            let source = MusicSourceIdentifier(type: .plex, accountId: "account-1", serverId: "server-1", libraryId: "1")
+            let serverSourceKey = "plex:account-1:server-1"
+            let provider = MockProvider(sourceIdentifier: source, incrementalResult: .success(PlaylistSyncResult()))
 
-        _ = try await controller.refreshServer(
-            serverSourceKey: serverSourceKey,
-            providers: [source.compositeKey: provider],
-            playlistRepository: MockPlaylistRepository(),
-            trigger: .webSocket,
-            allowFullFallback: false
-        )
+            let result = try await controller.refreshServer(
+                serverSourceKey: serverSourceKey,
+                providers: [source.compositeKey: provider],
+                playlistRepository: MockPlaylistRepository(),
+                trigger: trigger,
+                allowFullFallback: false
+            )
 
-        XCTAssertFalse(provider.lastForceOrphanCheck)
+            XCTAssertNotNil(result)
+            XCTAssertFalse(provider.lastForceOrphanCheck)
+        }
     }
 
     func testRefreshServerReturnsNilWhenIncrementalFailsWithoutFallback() async throws {

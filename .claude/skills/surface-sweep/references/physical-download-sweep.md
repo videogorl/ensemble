@@ -41,6 +41,7 @@ Do not call the download system fully swept until every applicable row below pas
 | Removal | Per-track/target removal and the authorized `Remove All Downloads` flow, with no remote Plex mutation. |
 | UI/UX | Cross-surface state freshness, counts, progress, errors, retry controls, queue controls, toasts, Dynamic Island/Lock Screen activity, accessibility, and empty state. |
 | Performance | Download-only, playback-plus-download, and lifecycle traces with logs aligned to trace timestamps. |
+| Plex mutation convergence | Only with separate explicit authorization: foreground and cold-start add/edit/remove, downloaded-playlist add/remove/re-add, failure safety, no-op polling cost, and full disposable-fixture cleanup. |
 
 ## Preflight And Baseline
 
@@ -72,6 +73,33 @@ Choose the smallest existing fixtures that cover behavior while keeping the swee
 - the smallest enabled Plex library for the library-target run.
 
 Record title, rating key, source composite key, duration, and expected membership for each fixture. If no safe fixture exists, record the blocker rather than modifying Plex.
+
+## Optional Plex Mutation-Convergence Extension
+
+Run this extension only when the user explicitly authorizes live Plex fixture mutation. The default download-sweep authorization is insufficient. Use a uniquely named disposable two-track artist/album plus a sweep-owned playlist on the local Plex server. Create media from copies, record every path and Plex identity, and never edit or delete pre-existing media, metadata, or playlists.
+
+Use the exact freshly installed Ensemble build for both lifecycle modes:
+
+1. Baseline Plex responses, Ensemble source-scoped database rows, target memberships/counts, local audio and `.freq` files, lyrics/chord/artifact-state caches, narrow sync/download logs, and visible browse/detail/search/playlist UI.
+2. Foreground library convergence:
+   - scan in the disposable artist, album, and two tracks and verify one row per identity;
+   - edit a track title and verify every cached/rendered occurrence updates without a relaunch;
+   - edit the album title and verify the album plus denormalized child-track album names update;
+   - retain an unaffected track throughout so source scoping and selective cleanup are observable.
+3. Cold-start convergence: terminate Ensemble, make representative add/edit/removal changes, relaunch the exact installed build, and verify startup health plus authoritative reconciliation reaches Plex state without manual refresh. Cached rows must remain visible while reconciliation runs.
+4. Downloaded-playlist convergence:
+   - create a sweep-owned playlist containing track one, enable its Ensemble download target, and wait for audio, frequency, lyrics, and chords to complete;
+   - add track two through Plex while Ensemble remains foreground; within one 60-second target poll plus transfer time, verify membership, counts, download row, and all artifacts;
+   - remove track two from the Plex playlist without removing it from the library; verify the next poll removes its membership and, when no other target references it, all offline artifacts;
+   - re-add track two and verify it downloads again without relaunch, manual refresh, duplicate membership, or duplicate completion.
+5. Authoritative removal: while the downloaded target exists, remove only track two from the disposable Plex library and scan. Verify Ensemble deletes its track/download/membership rows plus audio, frequency, lyric, chord, and artifact-state files while track one and its files remain.
+6. Failure and efficiency evidence:
+   - use automated stubs—not a destabilized live server—to prove failed, malformed, partial, premature-empty, or inconsistent inventory preserves last-good data;
+   - observe an unchanged foreground target poll and prove it contacts only distinct servers with downloaded Plex playlist targets, performs no full library inventory, artwork recache, or target reconciliation, and remains active when WebSocket health relaxes ordinary library polling;
+   - record mutation time, detection time, completion time, request counts, CPU/thermal state, and when work returns to idle.
+7. Cleanup in dependency order: remove the Ensemble download target through UI, verify its local rows/files are gone, delete the exact sweep-owned playlist, move/delete only the disposable media, rescan Plex, and verify every recorded Plex and Ensemble fixture identity is absent. Preserve a recoverable media copy until these checks pass, then restore filters/navigation and baseline settings.
+
+For background download lifecycle evidence, correlate track ID, queue item ID, requested quality, completion rows, and files across expiration/recovery. Require exactly one durable completion per track and unchanged requested quality; `remainingPending=0` alone does not pass. For a missing lyric stream, require one request per unchanged signature and no retry storm. Inspect exported diagnostics for token and Plex filesystem-path redaction, and record thermal state before, during, and after the run.
 
 ## Ordered Journey
 

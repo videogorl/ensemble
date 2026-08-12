@@ -26,6 +26,18 @@ Artifact root:
 |---|---|---|---|---|---|---|---|
 | | | | | heard/system progress/log only | | | |
 
+## Plex Mutation Convergence
+
+| Mutation | App lifecycle | Plex before/after | Ensemble convergence | Latency | DB/files/log/UI evidence | Cleanup |
+|---|---|---|---|---:|---|---|
+| Library add | foreground/cold | | | | | |
+| Track metadata edit | foreground/cold | | | | | |
+| Album metadata edit | foreground/cold | | | | | |
+| Downloaded-playlist add/remove/re-add | foreground | | | | | |
+| Downloaded track removal | foreground/cold | | | | | |
+| Unchanged target poll | foreground | unchanged | no artwork/reconciliation/full inventory | | | n/a |
+| Failed/incomplete inventory | automated stub | invalid/incomplete | last-good preserved | | | n/a |
+
 ## Build Results
 
 - iPhone build:
@@ -87,6 +99,7 @@ Artifact root:
 - [ ] Aurora/accent propagation and restoration
 - [ ] StageFlow/landscape where available
 - [ ] Provider-aware source, browse/sort, search/cache, mutation, playback, and system-integration journeys where available
+- [ ] Explicitly authorized disposable Plex mutation convergence and cleanup, when in scope
 
 ## iPad Checklist
 

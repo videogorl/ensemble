@@ -26,6 +26,37 @@ If runtime verification is blocked by credentials, third-party service availabil
 
 Provider work is not complete when only the new provider succeeds. Re-run a representative existing-provider path, then test the normalized or merged path. When playback engines differ, verify queue construction, mutation, restoration, autoplay, background transition, and Now Playing state with both possible starting engines. When source lifecycle changes, verify add, usable-while-syncing behavior, refresh, disable/remove, cached-data cleanup, and re-add.
 
+## Plex Mutation Convergence
+
+For Plex sync, downloaded-playlist, or deletion cleanup changes, automated coverage and live PMS proof have different jobs. Keep the automated suite focused on the contracts below; use the explicitly authorized live extension in [physical-download-sweep.md](../surface-sweep/references/physical-download-sweep.md) for end-to-end server mutation timing and file evidence.
+
+Automated regression ownership:
+
+| Contract | Primary tests |
+|---|---|
+| Exact WebSocket changes, metadata comparison, and parent/child refresh selection | `PlexWebSocketCoordinatorTests`, `PlexMusicSourceSyncProviderTests` |
+| Cold-start and missed-event authoritative reconciliation | `SyncCoordinatorStartupRepairTests`, `BackgroundRefreshCoordinatorTests` |
+| Complete paged inventory before deletion; failed, malformed, or premature-empty inventory preserves last-good data | `PlexAPIClientTests`, `PlexMusicSourceSyncProviderTests` |
+| Downloaded-playlist cadence survives WebSocket relaxation, polls only distinct Plex target servers, and does not force playlist orphan inventory | `PeriodicSyncControllerTests`, `PlaylistRefreshControllerTests`, `OfflineDownloadServicePolicyTests` |
+| Playlist membership add/remove reconciliation, shared-reference preservation, and final-reference eviction | `DownloadTargetReconcilerTests`, `OfflineDownloadCleanupCoordinatorTests` |
+| Authoritative track removal clears only exact source-scoped audio, frequency, lyric, and chord artifacts | `OfflineDownloadServicePolicyTests` |
+| Background expiration keeps one queue owner, one completion, and the requested quality | `DownloadQueueCoordinatorTests`, `OfflineDownloadServicePolicyTests`, `DownloadTransferExecutorTests` |
+| Missing lyrics do not retry-storm; durable outcomes remain signature-scoped | `LyricsServiceTests`, `DownloadTransferExecutorTests` |
+
+Live acceptance matrix, using a uniquely named disposable Plex fixture and exact installed-build proof:
+
+- Foreground add: new artist, album, and tracks appear without duplicates.
+- Foreground metadata edits: track and album names converge on browse, detail, search, playlist, and denormalized child rows without relaunch.
+- Cold start: changes made while Ensemble is terminated converge after launch without a manual refresh.
+- Downloaded playlist: externally add, remove, and re-add a track while Ensemble stays foreground. Within one target-poll interval plus transfer time, membership, target counts, download rows, audio, frequency, lyrics, and chords must match Plex.
+- Track removal: deleting a downloaded fixture track from Plex removes its database row and exact offline artifacts while retaining an unaffected track and any still-referenced artifacts.
+- Failure safety: unavailable, failed, malformed, partial, or inconsistent inventory must preserve last-good rows and files. Test this with stubs; do not destabilize the live server to manufacture the failure.
+- Efficiency: an unchanged downloaded-playlist poll is server-targeted, does not run full library inventory, recache artwork, or reconcile targets, and does not suppress the ordinary low-frequency library timer.
+- Lifecycle: around background expiration and relaunch, correlate track ID and queue item ID to prove exactly one durable completion and unchanged requested quality; a final empty queue is insufficient evidence.
+- Diagnostics: missing-lyrics requests do not repeat for the same signature, logs redact tokens and server filesystem paths, thermal state is recorded, and work returns to idle.
+
+Record Plex response state, wall-clock mutation/convergence times, source composite keys/rating keys, app database rows, local artifact paths, narrow logs, visible UI, and cleanup. Remove only fixtures created for the run and verify both Plex and Ensemble return to baseline.
+
 ## When To Write Tests
 
 Required for:
@@ -113,5 +144,8 @@ Use `@testable import` for internal package behavior. Prefer protocol mocks for 
 - Playback-engine queue affinity, removed-item disclosure, background continuity, and provider-matched autoplay.
 - Provider artwork lifecycle: catalog-search thumbnails remain transient and bounded, library artwork remains reusable at browse/detail sizes, and source removal clears only that source's durable assets.
 - Source removal cleanup for database rows, transient/durable artwork, provider state, and restored queue references.
+- Foreground and cold-start Plex mutation convergence for additions, track/album edits, playlist membership, and authoritative removals.
+- Downloaded Plex playlist polling: target-server scoping, WebSocket-independent cadence, no-op efficiency, auto-download on add, and final-reference cleanup on removal.
+- Bulk-download lifecycle integrity: exactly-once completion, quality preservation, bounded missing-lyrics work, redacted diagnostics, and thermal recovery.
 
 Check existing tests before adding new files so coverage stays focused instead of duplicated.

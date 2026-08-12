@@ -24,6 +24,7 @@ Use this checklist for broad visual sweeps. Data-dependent rows can vary by test
 - Genre chips: verify spacing, wrapping/scrolling, selected/unselected state, reset behavior, and filtering on Songs, Genres, artist detail, favorites/mood/virtual collections, and compact vs regular layouts where data exists.
 - Scroll boundaries: for every long list/grid/table, scroll to bottom and back to top, checking mini-player clearance, final-row reachability, section headers, scroll index overlays, and toolbar/search collapse behavior.
 - Empty/data transition states: for every screen that can be empty, filtered empty, loading, syncing, offline, or no-results, capture at least one reachable representative state or record the blocker.
+- Plex mutation convergence: only with explicit live-Plex authorization, run the disposable-fixture foreground/cold-start add, edit, playlist-membership, removal, artifact-cleanup, and no-op efficiency matrix in [physical-download-sweep.md](physical-download-sweep.md).
 
 ## Multi-Source And Apple Music Journeys
 
