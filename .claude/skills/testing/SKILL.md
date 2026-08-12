@@ -38,8 +38,9 @@ Automated regression ownership:
 | Cold-start and missed-event authoritative reconciliation | `SyncCoordinatorStartupRepairTests`, `BackgroundRefreshCoordinatorTests` |
 | Complete paged inventory before deletion; failed, malformed, or premature-empty inventory preserves last-good data | `PlexAPIClientTests`, `PlexMusicSourceSyncProviderTests` |
 | Downloaded-playlist cadence survives WebSocket relaxation, polls only distinct Plex target servers, and does not force playlist orphan inventory | `PeriodicSyncControllerTests`, `PlaylistRefreshControllerTests`, `OfflineDownloadServicePolicyTests` |
-| Playlist membership add/remove reconciliation, shared-reference preservation, and final-reference eviction | `DownloadTargetReconcilerTests`, `OfflineDownloadCleanupCoordinatorTests` |
+| Playlist membership or whole-playlist removal, shared-reference preservation, target cleanup, and final-reference eviction | `DownloadTargetReconcilerTests`, `PlaylistRefreshControllerTests`, `OfflineDownloadCleanupCoordinatorTests` |
 | Authoritative track removal clears only exact source-scoped audio, frequency, lyric, and chord artifacts | `OfflineDownloadServicePolicyTests` |
+| No-op sync skips Siri rebuild/file writes; Spotlight applies source-scoped add/edit/remove deltas; vocabulary registration deduplicates within a launch | `SyncExecutionControllerArtworkInvalidationTests`, `SystemMediaIntegrationServiceTests` |
 | Background expiration keeps one queue owner, one completion, and the requested quality | `DownloadQueueCoordinatorTests`, `OfflineDownloadServicePolicyTests`, `DownloadTransferExecutorTests` |
 | Missing lyrics do not retry-storm; durable outcomes remain signature-scoped | `LyricsServiceTests`, `DownloadTransferExecutorTests` |
 
@@ -47,11 +48,13 @@ Live acceptance matrix, using a uniquely named disposable Plex fixture and exact
 
 - Foreground add: new artist, album, and tracks appear without duplicates.
 - Foreground metadata edits: track and album names converge on browse, detail, search, playlist, and denormalized child rows without relaunch.
-- Cold start: changes made while Ensemble is terminated converge after launch without a manual refresh.
+- Cold start: changes made while Ensemble is terminated converge after launch without a manual refresh; cached rows remain visible and foreground periodic timers start before idle-budgeted startup work completes.
 - Downloaded playlist: externally add, remove, and re-add a track while Ensemble stays foreground. Within one target-poll interval plus transfer time, membership, target counts, download rows, audio, frequency, lyrics, and chords must match Plex.
+- Playlist deletion: deleting the exact disposable Plex playlist removes its Ensemble playlist, download target, memberships, download rows, and final-reference artifacts. Tracks and artifacts still referenced elsewhere remain.
 - Track removal: deleting a downloaded fixture track from Plex removes its database row and exact offline artifacts while retaining an unaffected track and any still-referenced artifacts.
 - Failure safety: unavailable, failed, malformed, partial, or inconsistent inventory must preserve last-good rows and files. Test this with stubs; do not destabilize the live server to manufacture the failure.
-- Efficiency: an unchanged downloaded-playlist poll is server-targeted, does not run full library inventory, recache artwork, or reconcile targets, and does not suppress the ordinary low-frequency library timer.
+- Efficiency: an unchanged downloaded-playlist poll is server-targeted, does not run full library inventory, recache artwork, or reconcile targets, and does not suppress the ordinary low-frequency library timer. A no-op cold start skips the shared Siri-index write and Spotlight update; a material change updates only its source-scoped Spotlight delta. Allow the bounded daily full republish, then repeat to prove the no-op path.
+- Foreground lifecycle: background entry stops periodic timers, every active transition restarts them even when startup/indexing work is deferred, and a subsequent Plex mutation converges without relaunch or manual refresh.
 - Lifecycle: around background expiration and relaunch, correlate track ID and queue item ID to prove exactly one durable completion and unchanged requested quality; a final empty queue is insufficient evidence.
 - Diagnostics: missing-lyrics requests do not repeat for the same signature, logs redact tokens and server filesystem paths, thermal state is recorded, and work returns to idle.
 
@@ -146,6 +149,7 @@ Use `@testable import` for internal package behavior. Prefer protocol mocks for 
 - Source removal cleanup for database rows, transient/durable artwork, provider state, and restored queue references.
 - Foreground and cold-start Plex mutation convergence for additions, track/album edits, playlist membership, and authoritative removals.
 - Downloaded Plex playlist polling: target-server scoping, WebSocket-independent cadence, no-op efficiency, auto-download on add, and final-reference cleanup on removal.
+- System media publication: material-only rebuild requests, stable shared-index serialization, source-scoped Spotlight deltas, removed-item deletion, vocabulary deduplication, and bounded daily healing.
 - Bulk-download lifecycle integrity: exactly-once completion, quality preservation, bounded missing-lyrics work, redacted diagnostics, and thermal recovery.
 
 Check existing tests before adding new files so coverage stays focused instead of duplicated.

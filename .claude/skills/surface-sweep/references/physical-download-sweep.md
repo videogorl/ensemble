@@ -41,7 +41,7 @@ Do not call the download system fully swept until every applicable row below pas
 | Removal | Per-track/target removal and the authorized `Remove All Downloads` flow, with no remote Plex mutation. |
 | UI/UX | Cross-surface state freshness, counts, progress, errors, retry controls, queue controls, toasts, Dynamic Island/Lock Screen activity, accessibility, and empty state. |
 | Performance | Download-only, playback-plus-download, and lifecycle traces with logs aligned to trace timestamps. |
-| Plex mutation convergence | Only with separate explicit authorization: foreground and cold-start add/edit/remove, downloaded-playlist add/remove/re-add, failure safety, no-op polling cost, and full disposable-fixture cleanup. |
+| Plex mutation convergence | Only with separate explicit authorization: foreground and cold-start add/edit/remove, downloaded-playlist add/remove/re-add/delete, timer lifecycle, failure safety, bounded indexing, no-op polling cost, and full disposable-fixture cleanup. |
 
 ## Preflight And Baseline
 
@@ -86,18 +86,21 @@ Use the exact freshly installed Ensemble build for both lifecycle modes:
    - edit a track title and verify every cached/rendered occurrence updates without a relaunch;
    - edit the album title and verify the album plus denormalized child-track album names update;
    - retain an unaffected track throughout so source scoping and selective cleanup are observable.
-3. Cold-start convergence: terminate Ensemble, make representative add/edit/removal changes, relaunch the exact installed build, and verify startup health plus authoritative reconciliation reaches Plex state without manual refresh. Cached rows must remain visible while reconciliation runs.
+3. Cold-start convergence: terminate Ensemble, make representative add/edit/removal changes, relaunch the exact installed build, and verify startup health plus authoritative reconciliation reaches Plex state without manual refresh. Cached rows must remain visible while reconciliation runs, and foreground periodic timers must start before idle-budgeted startup sync or indexing finishes.
 4. Downloaded-playlist convergence:
    - create a sweep-owned playlist containing track one, enable its Ensemble download target, and wait for audio, frequency, lyrics, and chords to complete;
    - add track two through Plex while Ensemble remains foreground; within one 60-second target poll plus transfer time, verify membership, counts, download row, and all artifacts;
    - remove track two from the Plex playlist without removing it from the library; verify the next poll removes its membership and, when no other target references it, all offline artifacts;
    - re-add track two and verify it downloads again without relaunch, manual refresh, duplicate membership, or duplicate completion.
 5. Authoritative removal: while the downloaded target exists, remove only track two from the disposable Plex library and scan. Verify Ensemble deletes its track/download/membership rows plus audio, frequency, lyric, chord, and artifact-state files while track one and its files remain.
-6. Failure and efficiency evidence:
+6. Whole-playlist removal: terminate Ensemble, delete the exact sweep-owned Plex playlist, and relaunch. Verify authoritative startup reconciliation removes the playlist, target, memberships, download rows, and final-reference artifacts while retaining track one in the library. If playlist deletion is the changed behavior, repeat once with Ensemble foreground to cover the target poll.
+7. Failure, lifecycle, and efficiency evidence:
    - use automated stubs—not a destabilized live server—to prove failed, malformed, partial, premature-empty, or inconsistent inventory preserves last-good data;
    - observe an unchanged foreground target poll and prove it contacts only distinct servers with downloaded Plex playlist targets, performs no full library inventory, artwork recache, or target reconciliation, and remains active when WebSocket health relaxes ordinary library polling;
+   - background and foreground Ensemble, prove periodic timers stop and restart, then make a Plex change and verify the next poll converges even when startup/indexing work is still idle-deferred;
+   - on a no-op cold start, prove the shared Siri index is not rewritten, Spotlight skips an unchanged update, and duplicate vocabulary registration is skipped within the launch. After a material change, compare the expected source-scoped database delta with the Spotlight updated/deleted count rather than accepting a full-corpus rebuild. A once-daily full republish is valid; repeat afterward to exercise the no-op path;
    - record mutation time, detection time, completion time, request counts, CPU/thermal state, and when work returns to idle.
-7. Cleanup in dependency order: remove the Ensemble download target through UI, verify its local rows/files are gone, delete the exact sweep-owned playlist, move/delete only the disposable media, rescan Plex, and verify every recorded Plex and Ensemble fixture identity is absent. Preserve a recoverable media copy until these checks pass, then restore filters/navigation and baseline settings.
+8. Cleanup in dependency order: remove any remaining Ensemble download target through UI, verify its local rows/files are gone, delete the exact sweep-owned playlist if it still exists, move/delete only the disposable media, rescan Plex, and verify every recorded Plex and Ensemble fixture identity is absent. Preserve a recoverable media copy until these checks pass, then restore filters/navigation and baseline settings.
 
 For background download lifecycle evidence, correlate track ID, queue item ID, requested quality, completion rows, and files across expiration/recovery. Require exactly one durable completion per track and unchanged requested quality; `remainingPending=0` alone does not pass. For a missing lyric stream, require one request per unchanged signature and no retry storm. Inspect exported diagnostics for token and Plex filesystem-path redaction, and record thermal state before, during, and after the run.
 
@@ -131,7 +134,7 @@ For merged/cross-provider favorites or playlists, verify unsupported provider me
 2. Add three to six existing tracks, including the overlap fixture; verify optimistic UI, server convergence, ordering, duplicate prevention, and refresh without touching any pre-existing playlist.
 3. Rename, reorder, remove, and re-add tracks in this sweep-owned playlist. Exercise an offline-queued mutation and reconnect if the provider supports it.
 4. Download the playlist and verify membership, counts, order, target detail, shared-file reference counting, and offline playback.
-5. Delete the sweep-owned playlist while its download target exists. Verify the app either reconciles/removes the target or leaves an explicitly stale but removable local target; if policy is unclear, record a missing-policy finding. It must not crash, duplicate rows, strand an unremovable target, or affect another playlist.
+5. Delete the sweep-owned playlist while its download target exists. Verify authoritative reconciliation removes the playlist, target, memberships, download rows, and final-reference artifacts while preserving shared files and library tracks. A stale local target is a failure.
 6. Confirm the exact playlist ID is absent from Plex after deletion and every baseline playlist remains present and unchanged.
 7. Do not create an Apple Music playlist for cleanup testing because MusicKit exposes no supported delete operation; use an existing Apple playlist read-only when provider comparison is useful.
 
@@ -248,6 +251,7 @@ The sweep passes only when:
 - offline files play and invalid files do not;
 - overlapping targets preserve and evict shared files correctly;
 - lifecycle and network transitions leave no stuck or duplicate work;
+- background/foreground transitions stop and restart periodic sync, and a no-op cold start avoids shared-index writes, Spotlight updates, and duplicate vocabulary work;
 - rapid source-library cycles converge to the last user-selected state without cross-source cleanup or duplicate content;
 - playback remains coherent during transfer activity;
 - UI state converges without manual refresh and system activity ends when work ends;
