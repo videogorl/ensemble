@@ -1102,24 +1102,14 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func publishState() {
         guard !isPreparingQueue, activeQueueGeneration != nil else { return }
         let playbackStatus = player.state.playbackStatus
-        let reachedFinalEntryBoundary = hasReachedFinalEntryBoundary()
         if playbackStatus == .stopped,
            AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
                wasPlaying: wasPlaying,
                isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
            ) {
             scheduleEndConfirmation(forStoppedPlayback: true)
-        } else if playbackStatus == .paused, reachedFinalEntryBoundary {
+        } else if playbackStatus == .paused, wasPlaying {
             scheduleEndConfirmation(forStoppedPlayback: false)
-        } else if playbackStatus == .paused,
-                  AppleMusicPlaybackEndPolicy.shouldReportUnexpectedPause(
-                      wasPlaying: wasPlaying,
-                      isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes,
-                      reachedFinalEntryBoundary: reachedFinalEntryBoundary
-                  ),
-                  let queueGeneration = activeQueueGeneration {
-            wasPlaying = false
-            onPaused?(queueGeneration)
         } else if playbackStatus == .playing {
             pausedEndTask?.cancel()
             pausedEndTask = nil
@@ -1152,8 +1142,17 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                 self.reportEnded()
                 return
             }
-            guard self.hasReachedFinalEntryBoundary() else { return }
-            self.reportEnded()
+            let reachedFinalEntryBoundary = self.hasReachedFinalEntryBoundary()
+            if reachedFinalEntryBoundary {
+                self.reportEnded()
+            } else if AppleMusicPlaybackEndPolicy.shouldReportUnexpectedPause(
+                wasPlaying: self.wasPlaying,
+                isEndSuppressed: false,
+                reachedFinalEntryBoundary: reachedFinalEntryBoundary
+            ) {
+                self.wasPlaying = false
+                self.onPaused?(queueGeneration)
+            }
         }
     }
 
