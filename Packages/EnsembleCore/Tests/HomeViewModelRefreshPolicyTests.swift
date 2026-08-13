@@ -1769,47 +1769,25 @@ final class HomeViewModelRefreshPolicyTests: XCTestCase {
         XCTAssertFalse(sut.hasEnabledLibraries)
     }
 
-    func testUnavailableNetworkSnapshotPreservesExistingCachedFeedContent() async {
-        let cachedHub = makeHub()
-        let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: nil)
-        let (sut, _, _) = makeViewModel(hubLoader: loader)
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        sut.markInitialLoadCompletedForTesting()
-        sut.seedHubsForTesting([cachedHub])
+    func testFailedOrEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
+        let cases: [([Hub]?, Bool)] = [(nil, false), ([], false), ([], true)]
 
-        await sut.loadHubs()
+        for (networkHubs, isOffline) in cases {
+            let cachedHub = makeHub()
+            let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: networkHubs)
+            let (sut, coordinator, _) = makeViewModel(hubLoader: loader)
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            sut.markInitialLoadCompletedForTesting()
+            sut.seedHubsForTesting([cachedHub])
+            if isOffline {
+                await coordinator.handleObservedNetworkStateForTesting(.offline)
+            }
 
-        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
-        XCTAssertTrue(sut.isFeedCacheStale)
-    }
+            await sut.loadHubs()
 
-    func testEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
-        let cachedHub = makeHub()
-        let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: [])
-        let (sut, _, _) = makeViewModel(hubLoader: loader)
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        sut.markInitialLoadCompletedForTesting()
-        sut.seedHubsForTesting([cachedHub])
-
-        await sut.loadHubs()
-
-        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
-        XCTAssertTrue(sut.isFeedCacheStale)
-    }
-
-    func testOfflineEmptyNetworkSnapshotPreservesExistingCachedFeedContent() async {
-        let cachedHub = makeHub()
-        let loader = MockHomeHubLoader(cachedHubs: [], networkHubs: [])
-        let (sut, coordinator, _) = makeViewModel(hubLoader: loader)
-        try? await Task.sleep(nanoseconds: 30_000_000)
-        sut.markInitialLoadCompletedForTesting()
-        sut.seedHubsForTesting([cachedHub])
-        await coordinator.handleObservedNetworkStateForTesting(.offline)
-
-        await sut.loadHubs()
-
-        XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
-        XCTAssertTrue(sut.isFeedCacheStale)
+            XCTAssertEqual(sut.hubs.map(\.id), [cachedHub.id])
+            XCTAssertTrue(sut.isFeedCacheStale)
+        }
     }
 
     func testLocalAvailabilityFilterDropsUnresolvedItemsAndEmptyHubs() async throws {

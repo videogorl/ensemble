@@ -1,44 +1,41 @@
 # Mutations Policy
 
-Load this reference for playlist changes, ratings/favorites, metadata edits/deletes, pins, downloads, drag/drop, scrobbles, offline queued mutations, toast policy, or cross-screen mutation feedback.
-
-## Policies
-
-- Shared workflows own cross-screen business rules. Views and view models keep presentation, navigation, local optimistic state, and confirmation UI.
-- Offline-capable mutations should queue through the unified mutation path when the server is unavailable and replay when connectivity returns. Playlist queuing is source-normalized through `MusicSourceCapabilities.supportsQueuedPlaylistMutations`: Plex opts in, Apple Music opts out, and an unknown source fails closed. Queue records carry an exact owner source plus exact source ownership for every embedded track; enqueue and replay hold all referenced source leases, and removing any referenced source deletes the whole queued mutation before it can replay.
-- Playlist deletion treats Plex `404 Not Found` as terminal convergence for that source: clear the queued mutation, the local cached playlist, and that playlist's owned composite artwork file through the normal success path, while preserving other HTTP failures for retry or user feedback. A playlist artwork fallback may reference a shared album asset; destructive playlist actions must not delete that shared fallback. Plex may also use `404` when the source credentials no longer have access, so diagnostics must describe the playlist as absent or inaccessible rather than claiming confirmed server deletion.
-- Mutation feedback should be centralized in the workflow that owns the mutation, not duplicated per screen.
-- Item mutation affordances resolve through Core `MusicItemActionAvailability` as available, read-only, or unavailable with an action-specific reason. A provider may supply per-item `MusicItemActionCapabilities`; omitted actions retain source-wide defaults. Track, album, and artist overrides persist as versioned opaque data through sync and relaunch; a nil provider input preserves existing overrides, while an explicitly encoded empty set clears them. Shared menus and source pickers consume that contract instead of branching on Plex, Apple Music, or future provider types. Missing or malformed source ownership never inherits Plex permissions.
-- Pin mutations are local reversible preferences and should stay intentionally quiet unless the user action needs explicit feedback. A merged Watch playlist is pinned when any constituent is pinned; its Unpin action removes every pinned constituent, while Pin from an unpinned group pins every constituent.
-- Playlist mutation policy must be source-aware. Reject incompatible sources, smart targets, and duplicate tracks according to the shared resolver rules. The add-to-playlist picker and sidebar drop targets disable a destination that cannot accept every dragged item, including a different-server destination or a cached destination that already contains every compatible selected track. Apple Music duplicate checks use catalog identity when available and normalized title, artist, and duration when MusicKit exposes different catalog and library IDs or album editions for the same recording; album is the fallback when duration is unavailable. A merged sidebar playlist delegates to the first constituent in display order that can accept the drop and remains enabled when any constituent can; it is disabled only when none can. Exclude cached source-scoped target members before enqueuing. An all-duplicate selection is a warning/no-op, while an unavailable cache leaves Plex as the authority. A successfully persisted optimistic add immediately makes its concrete destination the recent add-to-playlist target, including sidebar drops and offline-queued adds. Persist Plex playlist item IDs, order, and display metadata independently from synced tracks so memberships from disabled libraries remain visible and removable/reorderable. Playback and download are unavailable only for those membership rows. Never rebuild a partially available playlist from its locally synced tracks. Optimistic rename/delete state and track-removal affordances are source-scoped; a read-only or incomplete constituent must not hide, rename, or expose actions for another constituent.
-- A track with missing or malformed source ownership is invalid for playlist mutation. Disable or reject it explicitly; never infer or repair ownership from a cached match, the only configured provider, or the target playlist.
-- Playlist display merging is provider-agnostic by normalized title and semantic kind. Same-named regular playlists merge across Plex, Apple Music, and future sources; smart/editorial playlists remain a separate group. Mutations split to compatible constituents: Apple user-created playlists accept Apple tracks when Apple reports `canEdit`; only playlists created by Ensemble additionally support rename/rebuild through MusicKit; Apple smart playlists remain read-only; and Plex playlists retain server compatibility. “Save Queue as Playlist” creates the same title on every compatible source represented in the queue, preserving each source's queue-relative track order; choosing an existing playlist updates same-named constituents and creates any missing represented-source constituent. The cross-source create sheet must not scan per-playlist membership it never uses. Catalog-backed Apple queue items retry playlist resolution through their library identifier when the catalog relationship is stale. A partial create result stays visible, names the completed source count, and retries only failed source keys. The resulting playlists merge through the normal display rules. A merged edit-source picker lists every constituent and disables unsupported targets with the model-provided reason instead of omitting them. Apple Music playlist/favorite mutations are online-only and never enter the shared pending-mutation queue. Playlist creation persists a provider-returned playlist while its source lease is still held, then returns without waiting on provider-wide cache refresh; reconciliation continues in background. After Apple accepts a track add, persist the new membership optimistically so the device UI updates immediately, then reconcile only the affected playlist in the background. Reconciliation retries boundedly until Apple's eventually consistent response contains the newly added tracks and must not persist an older snapshot over the optimistic cache; count alone is insufficient when the cache was already stale. Playlist deletion remains visibly unavailable for Apple Music because MusicKit exposes no supported delete operation.
-- Metadata edit/delete flows use shared request construction and success/failure feedback while parent views own editor presentation and post-delete navigation.
-- Rating/favorite changes may update UI optimistically, but server success/failure and queued-state feedback stay in the shared workflow. Offline queue eligibility is source-normalized through `MusicSourceCapabilities.supportsQueuedRatingMutations`; the resolved rating provider owns its API item identity and reports which shared playlist/favorites caches need reconciliation after success.
-- Apple Music favorites are binary and use `inFavorites` as cached truth. Heart adds through Apple's Favorites API and maps locally to rating 10 so the shared Favorites view includes it; accepted favorites remain protected from an older concurrent library-sync snapshot until Apple reports `inFavorites`. A library-only song resolves its catalog identity through Apple's documented Get a Library Song request before the favorite write, so the mutation does not depend on an authoritative inventory having already populated an in-memory map. Dislike is unavailable in both app and system Now Playing controls. Until a supported removal action is proven on hardware, an already-filled Apple heart is disabled in both surfaces and explains that removal is managed by Apple Music where explanatory UI is available.
-- Apple Music catalog songs whose MusicKit `libraryAddedDate` is absent expose `Add to Library` through shared track menus and Now Playing. `AppleMusicSourceProvider` owns the `MusicLibrary.add` mutation; `libraryAddedDate`, a live exact-ISRC match, and Apple's documented already-added response are converged success. After the observed opaque MediaPlayer failure, an exact catalog-to-library relationship or a single exact title/artist/duration match also converges because Apple can complete the add before reporting that error. Accepted and in-flight catalog IDs hide the action immediately, and device-local Apple source reconciliation runs asynchronously without turning a successful add into a failure. These mutations never enter Plex's offline mutation queue.
-- Scrobbles and playback tracking must remain source-exact and should not cross Plex source boundaries.
-- The iOS Focus scrobbling filter is a temporary device-local override of the saved Ensemble setting. Ending the Focus restores the saved value; the override gates new scrobbles but does not discard mutations already queued for replay.
-
-## Owners
-
-- `MutationCoordinator` owns online/offline mutation queuing for ratings, playlist changes, and scrobbles.
-- `PlaylistMutationController` owns provider-neutral playlist validation and local reconciliation after `SyncCoordinator` resolves the exact source capability.
-- `PlexMusicSourceSyncProvider` owns Plex playlist API behavior, including idempotent delete convergence and membership delete/move operations.
-- `PlaylistMutationWorkflow`, `TrackRatingMutationWorkflow`, `MetadataMutationWorkflow`, `PinMutationWorkflow`, and `DownloadMutationWorkflow` own their respective business rules and feedback.
-- `PlaylistDropResolver` and `MediaTrackResolver` own drag/drop media expansion, source compatibility, target rejection, and dedupe.
-- `MediaMenuCatalog` owns shared media menu action order, grouping, and destructive/editing gating.
-
-## Implementation Hooks
-
-- Route new row, card, detail, menu, and batch actions through the existing workflow or catalog before adding local mutation logic.
-- Keep add-to-playlist follow-up UI in `PlaylistActionPresentationHost` rather than local sheet payloads.
-- Keep destructive confirmations and post-delete navigation in the parent view, but keep mutation success/failure semantics in the workflow.
-- Use source-scoped media references and identities for all Plex-affecting mutations.
-- `PlaylistMutationController.editPlaylistItems` delegates provider-native membership semantics to the resolved provider. `PlexMusicSourceSyncProvider` uses Plex item delete/move endpoints; `PlaylistDetailView` may optimistically edit the complete cached membership list.
-
-## Verification
-
-- Add focused workflow tests for success, failure, offline queued, and incompatible-source paths when mutation policy changes.
-- Add UI or simulator evidence for new user-visible mutation flows, especially confirmation, toast, optimistic state, and post-delete navigation.
-- Verify duplicate prevention and source compatibility for drag/drop and playlist mutations.
+- Shared workflows own mutation validation, remote/queued semantics, optimistic
+  persistence, reconciliation, and feedback. Views/ViewModels own presentation,
+  confirmation, navigation, and local display state only.
+- Mutation capability and disabled reasons come from provider/source/item
+  contracts. Missing or malformed ownership fails closed and never inherits
+  Plex or the only configured provider's permissions.
+- Offline-capable work enters one durable mutation queue only when the resolved
+  provider explicitly supports it. Queue records retain the exact owner and all
+  referenced source scopes; removing a referenced source prevents replay.
+- Plex playlist/rating/scrobble operations may opt into offline replay. Apple
+  Music playlist/favorite/library operations remain online-only unless a proven
+  provider capability changes that contract.
+- Playlist mutations are source-aware. Reject incompatible sources, read-only or
+  smart targets, unresolved tracks, and duplicates according to the shared
+  resolver. Never rebuild a partially available playlist solely from locally
+  synced tracks.
+- Same-named regular playlists may merge for display across providers; smart or
+  editorial kinds stay separate. A merged mutation splits only to compatible
+  concrete constituents, reports partial outcomes, and retries only failed
+  sources. Unsupported constituents remain visible with their reason.
+- Playlist membership identity/order and enough display metadata remain durable
+  independently of the current library cache, so disabled or unavailable library
+  tracks remain visible and removable even when they cannot play/download.
+- Accepted mutations update exact local state immediately when safe. Older sync
+  snapshots cannot overwrite that optimistic state; background reconciliation
+  targets only the affected owner and converges to provider authority.
+- A Plex playlist delete returning 404 converges the exact local/queued playlist
+  as absent or inaccessible while preserving unrelated/shared artwork and other
+  HTTP failures for retry. Diagnostics must not claim server deletion when loss
+  of access is also possible.
+- Ratings/favorites and scrobbles remain source-exact. Apple favorites use the
+  provider's binary truth; unsupported removal/dislike operations stay visibly
+  unavailable rather than simulated.
+- Pins and visibility preferences are local reversible mutations. Focus-based
+  overrides are temporary and restore the saved preference when Focus ends;
+  they do not discard already queued mutations.
+- Destructive mutation feedback is explicit and centralized. A failed or partial
+  destructive operation never dismisses as full success or silently deletes
+  additional local data.
