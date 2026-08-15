@@ -6070,9 +6070,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
             pendingPreBufferTime = nil
-            let segment = repeatMode == .one
-                ? [queue[currentQueueIndex].track]
-                : Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
+            let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
             let submittedItems = Array(queue[currentQueueIndex...].prefix(segment.count))
 
@@ -6103,7 +6101,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 )
                 let unresolvedPlaybackIdentities = try await controller.play(
                     tracks: segment,
-                    smartMixEnabled: isSmartMixEnabled,
                     startTime: startTime
                 )
                 guard generation == playbackGenerationCounter,

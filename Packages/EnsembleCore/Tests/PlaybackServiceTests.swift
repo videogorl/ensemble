@@ -1432,11 +1432,11 @@ final class PlaybackServiceTests: XCTestCase {
             wasPlaying: true,
             isEndSuppressed: true
         ))
-        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldConfirmInactiveState(
             wasPlaying: true,
             isEndSuppressed: false
         ))
-        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldConfirmStoppedEnd(
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldConfirmInactiveState(
             wasPlaying: true,
             isEndSuppressed: true
         ))
