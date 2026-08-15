@@ -102,6 +102,7 @@ enum AppleMusicPlaybackEndPolicy {
     static func shouldReportFinalEntryReset(
         playbackTime: TimeInterval,
         lastPlayingTime: TimeInterval?,
+        duration: TimeInterval,
         isFinalEntry: Bool,
         wasPlaying: Bool,
         isEndSuppressed: Bool = false
@@ -109,8 +110,9 @@ enum AppleMusicPlaybackEndPolicy {
         wasPlaying
             && !isEndSuppressed
             && isFinalEntry
+            && duration > 0
             && playbackTime < 0.5
-            && (lastPlayingTime ?? 0) >= 0.5
+            && (lastPlayingTime ?? 0) >= duration - 0.5
     }
 }
 
@@ -446,6 +448,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
             playbackTime: playbackTime,
             lastPlayingTime: lastPlayingEndSnapshot?.playbackTime,
+            duration: resolvedOrTransientSong(from: currentEntry)?.duration ?? 0,
             isFinalEntry: isFinalEntry,
             wasPlaying: wasPlaying,
             isEndSuppressed: isEndSuppressed
@@ -1162,10 +1165,6 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                   (forStoppedPlayback ? playbackStatus == .stopped : playbackStatus == .paused),
                   !self.isInterrupted,
                   !self.suppressPausedEndUntilPlaybackResumes else { return }
-            if forStoppedPlayback {
-                self.reportEnded()
-                return
-            }
             let reachedFinalEntryBoundary = self.hasReachedFinalEntryBoundary()
             if reachedFinalEntryBoundary {
                 self.reportEnded()
@@ -1187,6 +1186,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         return AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
             playbackTime: player.playbackTime,
             lastPlayingTime: lastPlayingEndSnapshot?.playbackTime,
+            duration: lastPlayingEndSnapshot?.duration ?? 0,
             isFinalEntry: lastPlayingEndSnapshot?.isFinalEntry == true,
             wasPlaying: wasPlaying,
             isEndSuppressed: isEndSuppressed

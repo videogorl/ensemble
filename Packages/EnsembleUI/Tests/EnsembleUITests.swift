@@ -148,7 +148,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(resolved?.image)
         let localRequests = await artworkLoader.localRequests
         XCTAssertEqual(localRequests.count, 1)
-        XCTAssertEqual(localRequests.first?.minimumPixelDimension, nil)
+        XCTAssertEqual(localRequests.first?.minimumPixelDimension, 44)
         XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
         let cacheRequests = await artworkLoader.cacheRequests
         XCTAssertTrue(cacheRequests.isEmpty)
@@ -201,41 +201,42 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(cacheRequests.first?.hint, fallbackHint?.scoped(to: "plex:account:server"))
     }
 
-    func testArtworkResolverFindsSourceScopedLocalFallbackWhenPrimaryIsNotCached() async throws {
+    func testArtworkResolverFindsSamePathLocalFallbackByCacheIdentity() async throws {
         let fallbackArtworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: fallbackArtworkURL) }
 
-        let primaryPath = "/playlists/playlist-1/composite"
-        let fallbackPath = "https://example.com/album/{w}x{h}.jpg"
-        let primarySource = "plex:account:server"
-        let fallbackSource = "appleMusic:device:system:library"
+        let artworkPath = "/library/metadata/album-1/thumb"
+        let source = "plex:account:server"
         let artworkLoader = RecordingArtworkLoader(
             url: nil,
-            localURLsByPath: [fallbackPath: fallbackArtworkURL]
+            localURLsByRatingKey: ["album-1": fallbackArtworkURL]
         )
         let descriptor = ArtworkResolutionDescriptor(
-            path: primaryPath,
-            sourceKey: primarySource,
-            ratingKey: "playlist-1",
-            fallbackPath: fallbackPath,
-            fallbackRatingKey: nil,
-            fallbackSourceKey: fallbackSource,
+            path: artworkPath,
+            sourceKey: source,
+            ratingKey: "track-1",
+            fallbackPath: artworkPath,
+            fallbackRatingKey: "album-1",
             cacheHint: nil,
-            fallbackCacheHint: nil,
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: "album-1",
+                kind: .album,
+                sourcePath: artworkPath
+            ),
             size: 600,
             priority: .high
         )
 
-        let resolved = await ArtworkImageResolver.locallyCachedImage(
+        let resolved = await ArtworkImageResolver.resolvedImage(
             for: descriptor,
             artworkLoader: artworkLoader
         )
 
         XCTAssertEqual(resolved?.url, fallbackArtworkURL)
-        XCTAssertTrue(resolved?.blurCacheKey.contains(fallbackSource) == true)
         let requests = await artworkLoader.localRequests
-        XCTAssertEqual(requests.map(\.path), [primaryPath, fallbackPath])
-        XCTAssertEqual(requests.map(\.sourceKey), [primarySource, fallbackSource])
+        XCTAssertEqual(requests.map(\.ratingKey), ["track-1", "album-1"])
+        let artworkPaths = await artworkLoader.artworkPaths
+        XCTAssertTrue(artworkPaths.isEmpty)
     }
 
     func testMediaHeaderArtworkIdentityIsSourceScopedAndTracksFallbackRelinking() throws {
@@ -1919,6 +1920,7 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
     let localURL: URL?
     let urlsByPath: [String: URL]
     let localURLsByPath: [String: URL]
+    let localURLsByRatingKey: [String: URL]
     private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
     private(set) var localRequests: [LocalRequest] = []
     private(set) var artworkPaths: [String] = []
@@ -1927,12 +1929,14 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
         url: URL?,
         localURL: URL? = nil,
         urlsByPath: [String: URL] = [:],
-        localURLsByPath: [String: URL] = [:]
+        localURLsByPath: [String: URL] = [:],
+        localURLsByRatingKey: [String: URL] = [:]
     ) {
         self.url = url
         self.localURL = localURL
         self.urlsByPath = urlsByPath
         self.localURLsByPath = localURLsByPath
+        self.localURLsByRatingKey = localURLsByRatingKey
     }
 
     func artworkURLAsync(
@@ -1989,6 +1993,9 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
                 allowStaleIdentity: allowStaleIdentity
             )
         )
+        if let ratingKey, let localURL = localURLsByRatingKey[ratingKey] {
+            return localURL
+        }
         if let path, let localURL = localURLsByPath[path] {
             return localURL
         }

@@ -22,7 +22,7 @@ final class PlaybackPrefetchController {
         guard currentQueueIndex >= 0, currentQueueIndex < queueCount else { return [] }
 
         if repeatMode == .one {
-            return [currentQueueIndex]
+            return []
         }
 
         var indices: [Int] = []

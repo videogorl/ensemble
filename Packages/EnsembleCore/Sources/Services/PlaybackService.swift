@@ -1773,6 +1773,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             recordToHistory(queue[currentQueueIndex])
         }
 
+        if repeatMode == .one {
+            await playCurrentQueueItem(caller: "handleQueueExhausted-repeatOne")
+            savePlaybackState()
+            return
+        }
+
         // Find the next playable track, skipping unavailable ones (offline server, not downloaded).
         // This prevents trying to play a track we already know will fail.
         let nextIndex = findNextPlayableTrackIndex(after: currentQueueIndex)
@@ -6064,7 +6070,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 }
             }
             pendingPreBufferTime = nil
-            let segment = Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
+            let segment = repeatMode == .one
+                ? [queue[currentQueueIndex].track]
+                : Self.appleMusicSegment(from: queue[currentQueueIndex...].map(\.track))
             guard !segment.isEmpty else { return }
             let submittedItems = Array(queue[currentQueueIndex...].prefix(segment.count))
 
@@ -6175,6 +6183,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     + " nextAppleMusic=\(nextItem?.track.isAppleMusic == true)"
                     + " appState=\(UIApplication.shared.applicationState)"
             )
+            if repeatMode == .one {
+                recordToHistory(queue[currentQueueIndex])
+                await playCurrentQueueItem(caller: "appleMusicSegmentEnded-repeatOne")
+                savePlaybackState()
+                return
+            }
             if Self.shouldStartAppleMusicAutoplay(nextItem: nextItem, isEnabled: isAutoplayEnabled),
                let seed = currentTrack {
                 if nextIndex < queue.count { queue.removeSubrange(nextIndex...) }
@@ -6284,6 +6298,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
                 playbackTime: time,
                 lastPlayingTime: currentTime,
+                duration: duration,
                 isFinalEntry: !hasContinuousAppleMusicSuccessor,
                 wasPlaying: playbackState == .playing
             )

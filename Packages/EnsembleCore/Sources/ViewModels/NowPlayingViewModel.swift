@@ -1035,7 +1035,6 @@ public final class NowPlayingViewModel: ObservableObject {
 
     private func loadArtworkImage(for track: Track) {
         let trackIdentity = track.sourceScopedID
-        guard currentLoadTrackIdentity != trackIdentity else { return }
 
         // If the new track shares the same artwork path as the current one
         // (e.g. tracks in the same album), skip the reload entirely

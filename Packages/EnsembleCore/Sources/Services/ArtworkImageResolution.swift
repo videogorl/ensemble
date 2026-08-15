@@ -138,6 +138,13 @@ public enum ArtworkImageResolver {
         let candidates = candidateDescriptors(for: descriptor)
         var failedURL: URL?
 
+        if let local = await locallyCachedImage(
+            for: descriptor,
+            artworkLoader: artworkLoader
+        ) {
+            return .resolved(local)
+        }
+
         for candidate in candidates {
             let url = await artworkLoader.artworkURLAsync(
                 for: candidate.path,
@@ -227,9 +234,8 @@ public enum ArtworkImageResolver {
                 priority: descriptor.priority
             ))
         }
-        if descriptor.fallbackPath?.isEmpty == false,
-           descriptor.fallbackPath != descriptor.path {
-            candidates.append(ArtworkResolutionDescriptor(
+        if descriptor.fallbackPath?.isEmpty == false {
+            let fallback = ArtworkResolutionDescriptor(
                 path: descriptor.fallbackPath,
                 sourceKey: descriptor.fallbackSourceKey
                     ?? descriptor.fallbackCacheHint?.sourceCompositeKey
@@ -241,7 +247,10 @@ public enum ArtworkImageResolver {
                 fallbackCacheHint: nil,
                 size: descriptor.size,
                 priority: descriptor.priority
-            ))
+            )
+            if fallback.stableBlurCacheKey != candidates.first?.stableBlurCacheKey {
+                candidates.append(fallback)
+            }
         }
         return candidates
     }

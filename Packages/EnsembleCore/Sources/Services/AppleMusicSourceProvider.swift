@@ -225,7 +225,6 @@ public actor AppleMusicSourceProvider:
         )
 
         progressHandler(0.1)
-        async let nativeMetadataFetch = Self.fetchNativeLibraryMetadata()
         let fetchedSongs: [LibrarySong] = try await fetchAll(
             path: Self.librarySongsPath,
             progressHandler: { progress in
@@ -234,7 +233,7 @@ public actor AppleMusicSourceProvider:
         )
         var seenSongIDs = Set<String>()
         let songs = fetchedSongs.filter { seenSongIDs.insert($0.id).inserted }
-        let nativeMetadata = try await nativeMetadataFetch
+        let nativeMetadata = try await Self.fetchNativeLibraryMetadata()
         progressHandler(0.5)
 
         catalogIDsByLibraryID = Dictionary(uniqueKeysWithValues: songs.compactMap { song in

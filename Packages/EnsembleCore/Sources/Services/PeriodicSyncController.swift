@@ -13,6 +13,7 @@ final class PeriodicSyncController {
     private let timerFactory: TimerFactory
     private var timer: PeriodicSyncTimer?
     private var downloadedPlaylistTimer: PeriodicSyncTimer?
+    private var isRunning = false
 
     init(
         defaultInterval: TimeInterval = 60 * 60,
@@ -32,6 +33,7 @@ final class PeriodicSyncController {
         action: @escaping SyncRunner,
         downloadedPlaylistAction: SyncRunner? = nil
     ) {
+        isRunning = true
         schedule(interval: defaultInterval, action: action)
         downloadedPlaylistTimer?.invalidate()
         downloadedPlaylistTimer = downloadedPlaylistAction.map { action in
@@ -44,6 +46,7 @@ final class PeriodicSyncController {
     }
 
     func stop() {
+        isRunning = false
         timer?.invalidate()
         timer = nil
         downloadedPlaylistTimer?.invalidate()
@@ -53,7 +56,9 @@ final class PeriodicSyncController {
     @discardableResult
     func adjustForWebSocket(hasActiveWebSocket: Bool, action: @escaping SyncRunner) -> TimeInterval {
         let interval = hasActiveWebSocket ? relaxedWebSocketInterval : defaultInterval
-        schedule(interval: interval, action: action)
+        if isRunning {
+            schedule(interval: interval, action: action)
+        }
         return interval
     }
 

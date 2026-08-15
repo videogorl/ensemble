@@ -1443,18 +1443,28 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
             playbackTime: 0,
             lastPlayingTime: 267.6,
+            duration: 267.8,
             isFinalEntry: true,
             wasPlaying: true
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
             playbackTime: 0,
             lastPlayingTime: 267.6,
+            duration: 267.8,
             isFinalEntry: false,
             wasPlaying: true
         ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
             playbackTime: 0,
             lastPlayingTime: 0.1,
+            duration: 267.8,
+            isFinalEntry: true,
+            wasPlaying: true
+        ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
+            playbackTime: 0,
+            lastPlayingTime: 7.3,
+            duration: 468.7,
             isFinalEntry: true,
             wasPlaying: true
         ))

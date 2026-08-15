@@ -43,10 +43,29 @@ final class PeriodicSyncControllerTests: XCTestCase {
             }
         )
 
+        controller.start { }
         let interval = controller.adjustForWebSocket(hasActiveWebSocket: true) { }
 
         XCTAssertEqual(interval, 240)
-        XCTAssertEqual(capturedIntervals, [240])
+        XCTAssertEqual(capturedIntervals, [60, 240])
+    }
+
+    func testAdjustAfterStopDoesNotRestartTimer() {
+        var capturedIntervals: [TimeInterval] = []
+        let controller = PeriodicSyncController(
+            defaultInterval: 60,
+            relaxedWebSocketInterval: 240,
+            timerFactory: { interval, handler in
+                capturedIntervals.append(interval)
+                return FakeTimer(handler: handler)
+            }
+        )
+
+        controller.start { }
+        controller.stop()
+        _ = controller.adjustForWebSocket(hasActiveWebSocket: false) { }
+
+        XCTAssertEqual(capturedIntervals, [60])
     }
 
     func testFireRunsScheduledAction() async {

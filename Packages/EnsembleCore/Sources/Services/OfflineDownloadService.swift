@@ -1236,7 +1236,7 @@ public final class OfflineDownloadService: ObservableObject {
                 sourceCompositeKey: ctx.sourceCompositeKey,
                 sourcePath: candidate.path,
                 dateModifiedSeconds: nil,
-                minimumPixelDimension: nil
+                minimumPixelDimension: ArtworkSize.detail.rawValue
             )
             guard !exists else { continue }
 
@@ -1244,7 +1244,7 @@ public final class OfflineDownloadService: ObservableObject {
                 guard let artworkURL = try await syncCoordinator.getArtworkURL(
                     path: candidate.path,
                     sourceKey: ctx.sourceCompositeKey,
-                    size: 500
+                    size: ArtworkSize.detail.rawValue
                 ) else {
                     continue
                 }
@@ -1255,6 +1255,7 @@ public final class OfflineDownloadService: ObservableObject {
                         type: .album,
                         sourcePath: candidate.path,
                         dateModifiedSeconds: nil,
+                        requestedPixelDimension: ArtworkSize.detail.rawValue,
                         sourceCompositeKey: ctx.sourceCompositeKey
                     )
                 )
@@ -1415,7 +1416,10 @@ public final class OfflineDownloadService: ObservableObject {
             sourceCompositeKey: sourceKey,
             sourcePath: thumbPath,
             dateModifiedSeconds: nil
-        ), FileManager.default.fileExists(atPath: cachedPath) {
+        ), ArtworkFileInspector.fileExists(
+            atPath: cachedPath,
+            minimumPixelDimension: ArtworkSize.detail.rawValue
+        ) {
             return
         }
 
@@ -1423,7 +1427,7 @@ public final class OfflineDownloadService: ObservableObject {
             guard let artworkURL = try await syncCoordinator.getArtworkURL(
                 path: thumbPath,
                 sourceKey: sourceKey,
-                size: 500
+                size: ArtworkSize.detail.rawValue
             ) else { return }
 
             try await artworkDownloadManager.downloadAndCacheArtwork(
@@ -1433,6 +1437,7 @@ public final class OfflineDownloadService: ObservableObject {
                     type: type,
                     sourcePath: thumbPath,
                     dateModifiedSeconds: nil,
+                    requestedPixelDimension: ArtworkSize.detail.rawValue,
                     sourceCompositeKey: sourceKey
                 )
             )

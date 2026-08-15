@@ -28,7 +28,7 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         XCTAssertEqual(indices, [3, 0, 1])
     }
 
-    func testUpcomingQueueIndicesReturnsCurrentIndexForRepeatOne() {
+    func testUpcomingQueueIndicesDoesNotPrefetchForRepeatOne() {
         let controller = PlaybackPrefetchController()
 
         let indices = controller.upcomingQueueIndices(
@@ -38,7 +38,7 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
             depth: 3
         )
 
-        XCTAssertEqual(indices, [2])
+        XCTAssertEqual(indices, [])
     }
 
     func testPrefetchedTrackIsNotScheduledAfterItBecomesCurrent() {
