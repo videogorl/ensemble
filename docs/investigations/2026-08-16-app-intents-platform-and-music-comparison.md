@@ -85,6 +85,112 @@ strings -a /System/Applications/Music.app/Contents/MacOS/Music | rg 'AppIntentsB
 
 No primary Apple source or local metadata inspected here provides an Apple Music-specific App Intent inventory for Spotlight or user-placeable WidgetKit controls. Apple documents the general system capabilities, and Apple Music participates in standard Now Playing controls, but neither fact proves a Music-specific App Intent on those surfaces. Do not use an undocumented Apple Music behavior as an Ensemble requirement.
 
+## Ensemble Implementation Audit
+
+### Current Surface
+
+The iOS app currently emits nine App Intents and six entity types:
+
+| Area | Current implementation | Audit |
+|---|---|---|
+| App Shortcuts | Play Track, Album, Artist, and Playlist; Open Media | Five is a sensible count, but four playback shortcuts duplicate the same operation and four parallel entity/query types. |
+| Other App Intents | Get Ensemble Link; two hidden Shuffle intents | Get Link is a useful composable action. The hidden Shuffle intents are not referenced by the shortcut provider or elsewhere and should be deleted unless a current system route is proven to require them. |
+| Focus | Playback & Libraries `SetFocusFilterIntent` | Distinctive and well-scoped. Keep it. |
+| SiriKit Media | Play, Add Media, and Update Affinity in an intents extension | Correctly preserves iOS 15 support and the system media domain. Playback has substantial resolution, disambiguation, and main-app handoff logic. |
+| Shared content | Source-scoped JSON media index, Spotlight publication, Siri vocabulary, interaction donation | Strong foundation: one shared resolver, stable cross-source identity, material-change writes, and live Core Data revalidation before playback. |
+
+The stable Xcode 26.6 build succeeded and generated `Metadata.appintents` without App Intent validation errors. The metadata confirms that all nine App Intents are shipped, including the two non-discoverable Shuffle intents. It also confirms that the playback and open actions still use the deprecated foreground-launch declaration rather than explicit iOS 26 execution modes.
+
+### What Is Already Strong
+
+- The shared media resolver handles typed search, ranking, source scoping, equivalent-item deduplication, and SiriKit disambiguation instead of making each entry point invent its own matching behavior.
+- Playback is revalidated against live Core Data before execution, so a stale shared index is not treated as authoritative.
+- The system-media publisher avoids rewriting an unchanged index and updates Spotlight incrementally.
+- The generic `EnsembleMediaEntity` already represents songs, albums, artists, and playlists and carries the metadata needed for portable links. It is the natural canonical entity for future App Intents.
+- The Focus Filter is a genuinely app-specific system integration rather than a duplicate of an in-app screen.
+
+### Reliability Findings
+
+#### P0: Add-to-playlist and affinity can report success before anything happened
+
+The SiriKit extension writes each request to one fixed App Group file, posts a Darwin notification, and immediately returns `.success`. The main app then deletes the file before execution and suppresses coordinator errors with `try?`. Darwin notifications are transient and do not provide durable launch or acknowledgement semantics. If Ensemble is suspended or terminated, the user can hear success while the mutation is never applied; a later request can also replace the single pending file.
+
+The mutation coordinators compound this by treating invalid schema, no current track, and playlist-not-found as successful `Void` returns after showing an in-app toast. The extension therefore cannot distinguish completion, queued-offline success, and failure.
+
+Recommendation: do not add a custom queue yet. Use the same foreground/`NSUserActivity` handoff pattern as playback and return success only after the main-app coordinator reports a typed outcome. If the system cannot keep that execution alive reliably, temporarily remove these two SiriKit handlers rather than retain false success. Add a durable queue only if app-terminated testing proves the foreground handoff insufficient.
+
+#### P0: Advertised Siri phrases exceed implemented behavior
+
+The vocabulary advertises “Add this album to my favorites” and “Like this album,” but the handlers always operate on the current track; Add Media always targets a playlist. Remove those examples immediately. The Siri usage description should also say that Ensemble can play and update music or playlists, not only play them.
+
+#### P1: Open Media has an unconditional success response
+
+`OpenEnsembleMediaIntent` returns “Opening…” even when no destination can be formed, and ignores whether routing happened immediately or was merely queued for a future scene. Return a failure dialog for an invalid/stale entity and describe a queued open honestly. The index identifier should remain a hint; live existence must be checked before claiming success.
+
+#### P1: Entity discovery is search-only and may be stale
+
+Every media query returns an empty `suggestedEntities()` list. Users can type a search, but the parameter picker starts empty and Spotlight/Siri have fewer useful candidates. The App Intent query also loads the full shared JSON without the one-hour freshness check used by `SiriMediaIndexStore`.
+
+Return a small, stable suggestion set—recent/favorite tracks and playlists first—and reject or refresh stale index data. Do not simply expose all 4,500 indexed items.
+
+The index caps also introduce selection bias: artists and playlists are alphabetically sorted before their 1,500/500 caps, and albums are sorted by artist/year before their 1,500 cap. Large libraries can therefore exclude entire later alphabetic ranges. Rank a bounded set by user relevance before raising any cap; measure misses before increasing memory or file size.
+
+#### P1: Playback declarations lag the current platform
+
+Playback App Intents should conform to `AudioPlaybackIntent` on iOS 17+ so system speech does not interfere with starting audio. On iOS 26+, replace `openAppWhenRun` with the narrowest truthful `supportedModes`; keep an availability-compatible fallback for iOS 16–25. Most successful playback should not require presenting Ensemble's UI.
+
+### Simplification
+
+The current file contains four parallel media entity/query pairs, four parallel Play intents, two Shuffle variants, and a newer generic entity. This is more surface than the user-visible behavior requires.
+
+Use the existing `EnsembleMediaEntity` and source-scoped identifier as the single media value. Replace the four Play intents with one `PlayEnsembleMediaIntent(media:shuffle:)`, where shuffle is a simple optional `AppEnum` or Boolean only if Shortcuts needs to configure it. Keep separate App Shortcuts phrases for song, album, artist, and playlist only if phrase resolution measurably benefits; they can feed the same intent and entity type. Delete the hidden Shuffle intents and the four kind-specific entity/query types after migrating existing shortcuts safely.
+
+Keep these distinct because they are different verbs with different results:
+
+- Play Media
+- Open Media
+- Get Ensemble Link
+- Playback & Libraries Focus Filter
+
+Do not create App Intents for play/pause/next/previous/seek/shuffle-state/repeat-state. Those already belong to `MPRemoteCommandCenter`, and duplicating them creates a second playback-control contract.
+
+### Apple Music Comparison
+
+| Capability | Apple Music surface observed/documented | Ensemble today | Best next move |
+|---|---|---|---|
+| Find/select media | Find Music and Select Music produce typed music values | Entity parameters support typed string search, but there is no value-producing Find action and suggestions are empty | Add one Find Ensemble Media action returning the canonical media entity. |
+| Inspect/current item | Get Current Song and Get Details of Music | No App Intent result for current track; entity metadata exists internally | Add Get Current Ensemble Track. Let entity properties satisfy most details before adding a separate details action. |
+| Play | One Play Music consumer accepts music input | Four play-by-kind consumers | Consolidate to one Play Media consumer. Keep SiriKit's semantic media resolver for natural voice. |
+| Playlist mutation | Create Playlist and Add to Playlist accept inputs | SiriKit Add acts only on the implicit current track and has unreliable delivery | First make delivery honest; later add an App Intent that accepts explicit media plus a playlist. Do not build Create Playlist unless real workflows need it. |
+| Queue | Add to Playing Next and Clear Playing Next | No composable queue actions | Consider Add to Queue only after Find and Current Track exist. Standard skip/seek remain remote commands. |
+| Portable sharing | No equivalent observed in the inspected Music action set | Get Ensemble Link returns a URL | Keep it; this is a useful Ensemble-specific advantage. |
+| Focus behavior | No relevant Music action observed | Library visibility and scrobble override | Keep it; this is another differentiated integration. |
+
+Apple Music's advantage is not a larger phrase file. Its useful actions form a small typed pipeline: find or get a song, inspect it, then play it or pass it to a playlist/queue action. Ensemble already has the source-scoped media model needed to build the same shape with fewer types.
+
+### Recommended Delivery Order
+
+1. **Make existing mutations truthful:** correct vocabulary; replace transient success with an acknowledged main-app result; stop suppressing execution failures.
+2. **Delete duplication:** one canonical media entity/query and one Play intent; remove the hidden Shuffle intents; adopt `AudioPlaybackIntent` and availability-gated execution modes.
+3. **Make selection useful:** bounded recent/favorite suggestions, freshness handling, and relevance-based index selection.
+4. **Add only two composable producers:** Find Ensemble Media and Get Current Ensemble Track. Have Play, Open, Get Link, and a later explicit Add to Playlist consume their result.
+5. **Extend to macOS cautiously:** expose useful Shortcuts actions such as Find, Open, and Get Link from shared code; do not duplicate transport controls.
+6. **Evaluate iOS 27 separately:** prototype the beta audio schemas behind availability checks after the stable SDK ships, reusing the same entity, resolver, and coordinators. Do not replace SiriKit while iOS 15–26 remain supported.
+
+### Verification Matrix
+
+Existing resolver, playback coordinator, and system-media publication tests are useful and should stay. Add only one focused check around the mutation handoff/outcome boundary and one generated-metadata assertion if consolidation risks silently dropping shortcuts.
+
+System verification should cover the seams that unit tests cannot prove:
+
+- Shortcuts parameter picker with no query, typed query, duplicate names across sources, and a stale/deleted item;
+- playback with Ensemble foregrounded, backgrounded, terminated, offline, and locked;
+- add-to-playlist and affinity with the app terminated, no current track, an unavailable server, and two rapid requests;
+- Siri on phone and HomePod/AirPlay, explicitly separating resolution success from actual playback or mutation completion;
+- Spotlight and Shortcuts after a library rename, deletion, source disable, and index rebuild.
+
+This audit did not execute those device scenarios. The build and local Shortcuts catalog were verified; background, locked-device, Siri, HomePod, and AirPlay behavior remain code-level findings until exercised on current hardware.
+
 ## iOS 27 Audio Schemas: Future Direction, Not Current Baseline
 
 Apple's iOS 27 beta introduces an App Schema audio domain with `playAudio`, `addToLibrary`, `addToPlaylist`, `createStation`, `recognizeAudio`, `updateAudioAffinity`, and `warmupAudioQueue`. The Media Intents framework supplies structured `AudioSearch`; an app implements `IntentValueQuery` to map that request to its own audio entities.
