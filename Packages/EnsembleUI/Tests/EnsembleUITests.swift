@@ -404,7 +404,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(image)
         let localRequests = await artworkLoader.localRequests
         XCTAssertEqual(localRequests.count, 1)
-        XCTAssertEqual(localRequests.first?.minimumPixelDimension, nil)
+        XCTAssertEqual(localRequests.first?.minimumPixelDimension, ArtworkSize.thumbnail.rawValue)
         XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
     }
 
