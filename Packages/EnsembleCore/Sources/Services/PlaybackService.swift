@@ -6169,8 +6169,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         @available(iOS 18, *)
         @MainActor
         private func advanceAfterAppleMusicSegment(queueGeneration: UInt64) async {
-            guard isCurrentAppleMusicQueue(queueGeneration),
-                  playbackState == .playing || playbackState == .buffering else { return }
+            guard isCurrentAppleMusicQueue(
+                queueGeneration,
+                acceptsPausedPlayback: true
+            ) else { return }
             let nextIndex = currentQueueIndex + 1
             let nextItem = queue.indices.contains(nextIndex) ? queue[nextIndex] : nil
             EnsembleLogger.debug(

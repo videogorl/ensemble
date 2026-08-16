@@ -114,6 +114,19 @@ enum AppleMusicPlaybackEndPolicy {
             && playbackTime < 0.5
             && (lastPlayingTime ?? 0) >= duration - 0.5
     }
+
+    static func shouldReportFinalEntrySkipReset(
+        playbackTime: TimeInterval,
+        lastPlayingTime: TimeInterval?,
+        isFinalEntry: Bool,
+        isEndSuppressed: Bool = false
+    ) -> Bool {
+        guard let lastPlayingTime else { return false }
+        return !isEndSuppressed
+            && isFinalEntry
+            && playbackTime < 0.5
+            && lastPlayingTime >= playbackTime + 0.05
+    }
 }
 
 enum AppleMusicPlaybackItemMatchingPolicy {
@@ -435,6 +448,15 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
         publishState()
         guard player.state.playbackStatus == .playing else {
+            if !hasReportedEnd,
+               AppleMusicPlaybackEndPolicy.shouldReportFinalEntrySkipReset(
+                   playbackTime: playbackTime,
+                   lastPlayingTime: lastPlayingEndSnapshot?.playbackTime,
+                   isFinalEntry: lastPlayingEndSnapshot?.isFinalEntry == true,
+                   isEndSuppressed: isInterrupted || suppressPausedEndUntilPlaybackResumes
+               ) {
+                reportEnded()
+            }
             endStallTracker.reset()
             return
         }
@@ -699,10 +721,14 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
 
     func pause() {
         let wasPreparingQueue = isPreparingQueue
+        let wasAlreadyInactive = player.state.playbackStatus == .paused
+            || player.state.playbackStatus == .stopped
         operations.pause()
         pausedEndTask?.cancel()
         pausedEndTask = nil
-        lastPlayingEndSnapshot = nil
+        if wasPreparingQueue || !wasAlreadyInactive {
+            lastPlayingEndSnapshot = nil
+        }
         isPreparingQueue = false
         if wasPreparingQueue {
             activeQueueGeneration = nil
@@ -714,7 +740,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         } else {
             wasPlaying = false
             endStallTracker.reset()
-            player.pause()
+            if !wasAlreadyInactive { player.pause() }
         }
     }
     func resume() async throws {

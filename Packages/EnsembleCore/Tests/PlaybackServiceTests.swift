@@ -1468,6 +1468,11 @@ final class PlaybackServiceTests: XCTestCase {
             isFinalEntry: true,
             wasPlaying: true
         ))
+        XCTAssertTrue(AppleMusicPlaybackEndPolicy.shouldReportFinalEntrySkipReset(
+            playbackTime: 0,
+            lastPlayingTime: 89.9,
+            isFinalEntry: true
+        ))
     }
 
     func testAppleMusicPlaybackItemMatchingAcceptsSystemCatalogNormalization() {
