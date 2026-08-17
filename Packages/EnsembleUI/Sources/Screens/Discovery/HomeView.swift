@@ -317,11 +317,12 @@ struct HubSection: View {
             sectionHeader
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
+                LazyHStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                     ForEach(hub.items, id: \.sourceScopedID) { item in
                         HubItemCard(
                             item: item,
                             nowPlayingVM: nowPlayingVM,
+                            navigationCoordinator: navigationCoordinator,
                             playlistActionRequest: $playlistActionRequest,
                             libraryItemInfoRequest: $libraryItemInfoRequest
                         )
@@ -361,7 +362,7 @@ struct HubSection: View {
 struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    let navigationCoordinator: NavigationCoordinator
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
 

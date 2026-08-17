@@ -57,6 +57,7 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         self.accountManager = accountManager
         self.filterOptions = FilterPersistence.load(for: "MergedArtistDetail-\(displayArtist.id)")
 
+        guard displayArtist.isMerged else { return }
         setupFilterPersistence()
         observeReloadTriggers()
     }

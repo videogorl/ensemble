@@ -11,7 +11,7 @@ public struct SongsView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
     @State private var selectedAlbum: SongsStageFlowAlbum?
@@ -19,6 +19,7 @@ public struct SongsView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
+    @State private var cachedTrackSnapshot: TrackBrowseSnapshot = .empty
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -30,6 +31,13 @@ public struct SongsView: View {
         #else
             return true
         #endif
+    }
+
+    private var trackFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.tracksFilterOptions },
+            set: { libraryVM.tracksFilterOptions = $0 }
+        )
     }
 
     private var songsFilterButton: some View {
@@ -95,7 +103,7 @@ public struct SongsView: View {
         #endif
         .navigationTitle(isStageFlowActive ? "" : "Songs")
         .if(!isStageFlowActive) { view in
-            view.searchable(text: $libraryVM.tracksFilterOptions.searchText, prompt: "Filter songs")
+            view.searchable(text: trackFilterOptions.searchText, prompt: "Filter songs")
         }
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -117,6 +125,9 @@ public struct SongsView: View {
             availabilityGeneration: $availabilityGeneration
         )
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
+            if snapshot != cachedTrackSnapshot {
+                cachedTrackSnapshot = snapshot
+            }
             updateNativeTrackSections(from: snapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: snapshot.tracks)
@@ -126,13 +137,17 @@ public struct SongsView: View {
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .onAppear {
+            let snapshot = libraryVM.immediateTrackBrowseSnapshot
+            if snapshot != cachedTrackSnapshot {
+                cachedTrackSnapshot = snapshot
+            }
             updateNativeTrackSections(from: trackSnapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.tracksFilterOptions,
+                filterOptions: trackFilterOptions,
                 availableGenres: trackSnapshot.availableGenres,
                 showGenreFilter: true
             )
@@ -160,7 +175,9 @@ public struct SongsView: View {
     }
 
     private var trackSnapshot: TrackBrowseSnapshot {
-        libraryVM.immediateTrackBrowseSnapshot
+        cachedTrackSnapshot.hasVisibleContent || cachedTrackSnapshot.phase != .idle
+            ? cachedTrackSnapshot
+            : libraryVM.immediateTrackBrowseSnapshot
     }
 
     /// StageFlow carousel for landscape mode. MainTabView owns rotation and
@@ -258,8 +275,8 @@ public struct SongsView: View {
     private var songsGenreChipBar: some View {
         GenreFilterHeader(
             availableGenres: trackSnapshot.availableGenres,
-            selectedGenres: $libraryVM.tracksFilterOptions.selectedGenres,
-            excludedGenres: $libraryVM.tracksFilterOptions.excludedGenres
+            selectedGenres: trackFilterOptions.selectedGenres,
+            excludedGenres: trackFilterOptions.excludedGenres
         )
     }
 

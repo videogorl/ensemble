@@ -527,6 +527,7 @@ public struct PlaylistsView: View {
                 PlaylistRow(
                     displayPlaylist: dp,
                     chipStyle: chipStyle(for: dp),
+                    onTap: isPendingCreation ? nil : { openPlaylist(dp) },
                     isDisabled: isPendingCreation,
                     statusText: isPendingCreation ? "Creating..." : nil
                 )
@@ -653,6 +654,13 @@ public struct PlaylistsView: View {
                 server.libraries.contains(where: \.isEnabled)
             }
         }
+    }
+
+    private func openPlaylist(_ displayPlaylist: DisplayPlaylist) {
+        let destination: NavigationCoordinator.Destination = displayPlaylist.isMerged
+            ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+            : .playlistDetail(displayPlaylist.primaryPlaylist)
+        navigationCoordinator.route(to: destination)
     }
 
     private func playlistServerOptionsForDisplay() -> [PlaylistServerOption] {

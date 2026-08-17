@@ -5,13 +5,19 @@ import SwiftUI
 import AppKit
 #endif
 
+@MainActor
+private final class RootViewModelOwner: ObservableObject {
+    let library = DependencyContainer.shared.makeLibraryViewModel()
+    let home = DependencyContainer.shared.makeHomeViewModel()
+    let search = DependencyContainer.shared.makeSearchViewModel()
+    let pinned = DependencyContainer.shared.makePinnedViewModel()
+    let playlists = DependencyContainer.shared.makePlaylistViewModel()
+}
+
 /// Main tab bar view for iPhone (5-tab classic iOS style)
 public struct MainTabView: View {
-    @StateObject private var libraryVM: LibraryViewModel
+    @StateObject private var viewModels: RootViewModelOwner
     private let nowPlayingVM: NowPlayingViewModel
-    @StateObject private var homeVM: HomeViewModel
-    @StateObject private var searchVM: SearchViewModel
-    @StateObject private var pinnedVM: PinnedViewModel
     @Namespace private var mediaNavigationNamespace
     private let settingsManager = DependencyContainer.shared.settingsManager
     // Observation-extracted: networkMonitor publishes on every network state change,
@@ -54,11 +60,28 @@ public struct MainTabView: View {
 
     @MainActor
     public init(nowPlayingVM: NowPlayingViewModel) {
-        self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
+        self._viewModels = StateObject(wrappedValue: RootViewModelOwner())
         self.nowPlayingVM = nowPlayingVM
-        self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
-        self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
-        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
+    }
+
+    private var libraryVM: LibraryViewModel {
+        viewModels.library
+    }
+
+    private var homeVM: HomeViewModel {
+        viewModels.home
+    }
+
+    private var searchVM: SearchViewModel {
+        viewModels.search
+    }
+
+    private var pinnedVM: PinnedViewModel {
+        viewModels.pinned
+    }
+
+    private var playlistsVM: PlaylistViewModel {
+        viewModels.playlists
     }
 
     private var showsPhoneAuroraOverlay: Bool {
@@ -335,6 +358,7 @@ public struct MainTabView: View {
                         homeVM: homeVM,
                         searchVM: searchVM,
                         pinnedVM: pinnedVM,
+                        playlistsVM: playlistsVM,
                         mediaNavigationNamespace: mediaNavigationNamespace,
                         isMoreRoot: isMoreRoot
                     )
@@ -382,6 +406,7 @@ public struct MainTabView: View {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
+            playlistsVM: playlistsVM,
             mediaNavigationNamespace: mediaNavigationNamespace,
             isMoreRoot: isMoreRoot
         )
@@ -402,6 +427,7 @@ public struct MainTabView: View {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
+            playlistsVM: playlistsVM,
             mediaNavigationNamespace: mediaNavigationNamespace
         )
     }
@@ -577,12 +603,8 @@ public struct SidebarView: View {
         let dropTargets: [PlaylistDropTargetReference]
     }
 
-    @StateObject private var libraryVM: LibraryViewModel
+    @StateObject private var viewModels: RootViewModelOwner
     private let nowPlayingVM: NowPlayingViewModel
-    @StateObject private var homeVM: HomeViewModel
-    @StateObject private var searchVM: SearchViewModel
-    @StateObject private var pinnedVM: PinnedViewModel
-    @StateObject private var playlistsVM: PlaylistViewModel
     @Namespace private var mediaNavigationNamespace
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let settingsManager = DependencyContainer.shared.settingsManager
@@ -638,14 +660,30 @@ public struct SidebarView: View {
         selection: Binding<SidebarSelection?>,
         rootSidebarChromeRegistrationHandler: ((RootSidebarChromeRegistration) -> Void)?
     ) {
-        self._libraryVM = StateObject(wrappedValue: DependencyContainer.shared.makeLibraryViewModel())
+        self._viewModels = StateObject(wrappedValue: RootViewModelOwner())
         self.nowPlayingVM = nowPlayingVM
-        self._homeVM = StateObject(wrappedValue: DependencyContainer.shared.makeHomeViewModel())
-        self._searchVM = StateObject(wrappedValue: DependencyContainer.shared.makeSearchViewModel())
-        self._pinnedVM = StateObject(wrappedValue: DependencyContainer.shared.makePinnedViewModel())
-        self._playlistsVM = StateObject(wrappedValue: DependencyContainer.shared.makePlaylistViewModel())
         self._selection = selection
         self.rootSidebarChromeRegistrationHandler = rootSidebarChromeRegistrationHandler
+    }
+
+    private var libraryVM: LibraryViewModel {
+        viewModels.library
+    }
+
+    private var homeVM: HomeViewModel {
+        viewModels.home
+    }
+
+    private var searchVM: SearchViewModel {
+        viewModels.search
+    }
+
+    private var pinnedVM: PinnedViewModel {
+        viewModels.pinned
+    }
+
+    private var playlistsVM: PlaylistViewModel {
+        viewModels.playlists
     }
 
     private var isShowingNowPlaying: Bool {
@@ -1590,6 +1628,7 @@ public struct SidebarView: View {
                     homeVM: homeVM,
                     searchVM: searchVM,
                     pinnedVM: pinnedVM,
+                    playlistsVM: playlistsVM,
                     mediaNavigationNamespace: mediaNavigationNamespace
                 )
             }
@@ -2136,6 +2175,7 @@ public struct SidebarView: View {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
+            playlistsVM: playlistsVM,
             mediaNavigationNamespace: mediaNavigationNamespace
         )
     }
