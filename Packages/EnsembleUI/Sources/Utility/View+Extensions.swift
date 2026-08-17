@@ -186,11 +186,6 @@ public extension View {
         #endif
     }
 
-    /// Apply a wiggle animation to the view, useful for edit modes
-    func wiggle(isWiggling: Bool) -> some View {
-        self.modifier(WiggleModifier(isWiggling: isWiggling))
-    }
-
     /// Makes the view's background transparent so the aurora visualization shows through.
     /// In dark mode, hides the scroll content background so list rows are visible against
     /// the dark aurora. In light mode, keeps the system background — the aurora backdrop
@@ -361,34 +356,6 @@ private struct MiniPlayerContainerInsetter: UIViewRepresentable {
 }
 
 #endif
-
-private struct WiggleModifier: ViewModifier {
-    let isWiggling: Bool
-    @State private var isAnimating = false
-    
-    func body(content: Content) -> some View {
-        content
-            .rotationEffect(.degrees(isWiggling ? (isAnimating ? 1.0 : -1.0) : 0))
-            .offset(x: isWiggling ? (isAnimating ? 0.3 : -0.3) : 0, 
-                    y: isWiggling ? (isAnimating ? -0.3 : 0.3) : 0)
-            .onAppear {
-                if isWiggling {
-                    withAnimation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true)) {
-                        isAnimating = true
-                    }
-                }
-            }
-            .onChange(of: isWiggling) { newValue in
-                if newValue {
-                    withAnimation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true)) {
-                        isAnimating = true
-                    }
-                } else {
-                    isAnimating = false
-                }
-            }
-    }
-}
 
 public extension ToolbarItemPlacement {
     /// Keeps action toolbar items in the platform's normal trailing action cluster.

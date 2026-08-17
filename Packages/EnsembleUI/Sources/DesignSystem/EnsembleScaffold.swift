@@ -164,8 +164,6 @@ public enum EnsembleScaffold {
         public static let recentSearchRowHeight = EnsembleScaffold.UtilityRow.artworkDimension
         public static let recentSearchExtraHeight = EnsembleDesign.Spacing.lg
         public static let recentSearchCornerRadius = EnsembleDesign.Radius.control
-        public static let editControlTrailingPadding = EnsembleDesign.Spacing.xs
-        public static let editingBadgeOffset = EnsembleDesign.Spacing.sm
     }
 
     public enum ArtistDetail {

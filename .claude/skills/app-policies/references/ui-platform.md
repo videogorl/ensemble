@@ -18,6 +18,8 @@
 - Shared menus/swipes use centralized action availability and retain unavailable
   actions with a reason where the context provides a handler. Views do not infer
   provider capabilities or source ownership.
+- Search pins are reordered by direct drag and removed from their context menu.
+  A drag temporarily expands a collapsed pins grid and restores it after drop.
 - Sharing quality is one preference used by Share Audio File and external audio
   drag export. It defaults to Original; a cached local file is reusable only when
   its recorded quality matches. Empty/incomplete exports are rejected and

@@ -216,7 +216,6 @@ public enum EnsembleDesign {
         public static let recentSearchReuse = "arrow.up.left"
         public static let removeAccounts = "person.2.slash"
         public static let removeCircle = "minus.circle"
-        public static let removeCircleFilled = "minus.circle.fill"
         public static let selectionCircle = "circle"
         public static let server = "server.rack"
         public static let pin = "pin.fill"

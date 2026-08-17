@@ -8,7 +8,7 @@ public struct SearchView: View {
     @ObservedObject private var pinnedVM: PinnedViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var isPinnedExpanded = false
-    @State private var isEditingPins = false
+    @State private var collapsesPinsAfterDrag = false
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     // Targeted singleton observation for empty/no-results states
@@ -380,9 +380,12 @@ public struct SearchView: View {
             }
             .foregroundScrollActivity()
             .onAppear {
-                // Reset dragging state when view appears/reappears to prevent stuck transparency
                 pinnedVM.draggingPin = nil
                 pinnedVM.draggingPinId = nil
+                if collapsesPinsAfterDrag {
+                    isPinnedExpanded = false
+                    collapsesPinsAfterDrag = false
+                }
             }
             .refreshable {
                 await viewModel.loadExploreContent()
@@ -390,7 +393,13 @@ public struct SearchView: View {
             .refreshCommand {
                 await viewModel.loadExploreContent()
             }
-            .onDrop(of: [.text], delegate: PinnedGridBackgroundDropDelegate(viewModel: pinnedVM))
+            .onDrop(
+                of: [.text],
+                delegate: PinnedGridBackgroundDropDelegate(
+                    viewModel: pinnedVM,
+                    finish: finishPinDrag
+                )
+            )
         }
     }
 
@@ -518,23 +527,7 @@ public struct SearchView: View {
 
                     Spacer()
 
-                    if !pinnedVM.resolvedPins.isEmpty {
-                        Button {
-                            withAnimation(.spring()) {
-                                isEditingPins.toggle()
-                                if isEditingPins {
-                                    isPinnedExpanded = true
-                                }
-                            }
-                        } label: {
-                            Text(isEditingPins ? "Done" : "Edit")
-                                .font(EnsembleDesign.Typography.stateMessage)
-                                .foregroundColor(EnsembleDesign.Color.accent)
-                        }
-                        .padding(.trailing, EnsembleScaffold.Discovery.editControlTrailingPadding)
-                    }
-
-                    if pinnedVM.resolvedPins.count > 6 && !isEditingPins {
+                    if pinnedVM.resolvedPins.count > 6 {
                         Image(systemName: isPinnedExpanded ? EnsembleDesign.Icon.chevronUp : EnsembleDesign.Icon.chevronDown)
                             .font(EnsembleDesign.Typography.stateMessage)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
@@ -551,18 +544,9 @@ public struct SearchView: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .padding(.horizontal)
             } else {
-                // Grid of pinned items with drag reordering on iOS 16+
                 LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
                     ForEach(displayItems) { pin in
                         pinnedItemCard(pin)
-                            .contextMenu {
-                                // Unpin action (handles merged playlists with multiple IDs)
-                                Button(role: .destructive) {
-                                    pinnedVM.unpinAll(pin)
-                                } label: {
-                                    Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
-                                }
-                            }
                     }
                 }
                 .padding(.horizontal)
@@ -573,6 +557,7 @@ public struct SearchView: View {
     /// Background drop delegate to ensure dragging state is cleared even if dropped outside an item
     private struct PinnedGridBackgroundDropDelegate: DropDelegate {
         let viewModel: PinnedViewModel
+        let finish: () -> Void
 
         func dropEntered(info _: DropInfo) {
             // Restore dragging ID if we entered the background while dragging
@@ -585,9 +570,7 @@ public struct SearchView: View {
 
         func performDrop(info _: DropInfo) -> Bool {
             withAnimation(.spring()) {
-                viewModel.persistOrder()
-                viewModel.draggingPin = nil
-                viewModel.draggingPinId = nil
+                finish()
             }
             return true
         }
@@ -605,45 +588,43 @@ public struct SearchView: View {
     }
 
     /// Renders the appropriate route-owned card for a resolved pin.
-    /// Supports drag reordering on iOS 16+
     @ViewBuilder
     private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
-        let cardContent = pinnedItemCardContent(pin)
-            .wiggle(isWiggling: isEditingPins)
-            .overlay(alignment: .topTrailing) {
-                if isEditingPins {
-                    Button {
-                        withAnimation {
-                            pinnedVM.unpinAll(pin)
-                        }
-                    } label: {
-                        Image(systemName: EnsembleDesign.Icon.removeCircleFilled)
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(EnsembleDesign.Color.onAccent, EnsembleDesign.Color.destructive)
-                            .font(EnsembleDesign.Typography.detailSubtitle)
-                    }
-                    .offset(
-                        x: EnsembleScaffold.Discovery.editingBadgeOffset,
-                        y: -EnsembleScaffold.Discovery.editingBadgeOffset
-                    )
-                    .transition(.scale.combined(with: .opacity))
+        pinnedItemCardContent(pin)
+            .contextMenu {
+                Button(role: .destructive) {
+                    pinnedVM.unpinAll(pin)
+                } label: {
+                    Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
                 }
             }
-
-        cardContent
             .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
             .onDrag {
+                collapsesPinsAfterDrag = !isPinnedExpanded
+                if collapsesPinsAfterDrag {
+                    withAnimation(.spring()) {
+                        isPinnedExpanded = true
+                    }
+                }
                 pinnedVM.draggingPin = pin
                 pinnedVM.draggingPinId = pin.id
                 return NSItemProvider(object: pin.pinnedItem.id as NSString)
             }
-            .onDrop(of: [.text], delegate: PinnedDropDelegate(item: pin, viewModel: pinnedVM))
+            .onDrop(
+                of: [.text],
+                delegate: PinnedDropDelegate(
+                    item: pin,
+                    viewModel: pinnedVM,
+                    finish: finishPinDrag
+                )
+            )
     }
 
     /// Delegate for handling interactive grid reordering
     private struct PinnedDropDelegate: DropDelegate {
         let item: ResolvedPin
         let viewModel: PinnedViewModel
+        let finish: () -> Void
 
         func dropEntered(info _: DropInfo) {
             // Restore dragging state if we entered an item while dragging
@@ -658,25 +639,25 @@ public struct SearchView: View {
             }
         }
 
-        func dropExited(info _: DropInfo) {
-            // Safety cleanup when leaving an item area.
-            // If we enter another item or the background, they will restore draggingPinId.
-            withAnimation(.spring()) {
-                viewModel.draggingPinId = nil
-            }
-        }
-
         func dropUpdated(info _: DropInfo) -> DropProposal? {
             return DropProposal(operation: .move)
         }
 
         func performDrop(info _: DropInfo) -> Bool {
             withAnimation(.spring()) {
-                viewModel.persistOrder()
-                viewModel.draggingPin = nil
-                viewModel.draggingPinId = nil
+                finish()
             }
             return true
+        }
+    }
+
+    private func finishPinDrag() {
+        pinnedVM.persistOrder()
+        pinnedVM.draggingPin = nil
+        pinnedVM.draggingPinId = nil
+        if collapsesPinsAfterDrag {
+            isPinnedExpanded = false
+            collapsesPinsAfterDrag = false
         }
     }
 
@@ -689,7 +670,6 @@ public struct SearchView: View {
                 AlbumCard(album: album)
             }
             .buttonStyle(.plain)
-            .disabled(isEditingPins)
         case let .artist(artist, _):
             navigationCoordinator.routeLink(
                 to: .artistDetail(artist)
@@ -697,7 +677,6 @@ public struct SearchView: View {
                 ArtistCard(artist: artist)
             }
             .buttonStyle(.plain)
-            .disabled(isEditingPins)
         case let .playlist(playlist, _):
             navigationCoordinator.routeLink(
                 to: .playlistDetail(playlist)
@@ -705,7 +684,6 @@ public struct SearchView: View {
                 PlaylistCard(playlist: playlist)
             }
             .buttonStyle(.plain)
-            .disabled(isEditingPins)
         case let .mergedPlaylist(dp, _):
             navigationCoordinator.routeLink(
                 to: .mergedPlaylist(title: dp.title, isSmart: dp.isSmart)
@@ -713,7 +691,6 @@ public struct SearchView: View {
                 DisplayPlaylistCard(displayPlaylist: dp)
             }
             .buttonStyle(.plain)
-            .disabled(isEditingPins)
         }
     }
 
