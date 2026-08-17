@@ -578,6 +578,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     .accessibilityHint(albumMenuActions.editMetadataAvailability.reason ?? "")
                 }
             } else {
+                if mediaType != .playlist {
                     Button {
                         switch mediaType {
                         case .album:
@@ -607,10 +608,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .getInfo)
                     }
                     .disabled(mediaType == .artist)
+                }
 
-                    Button {
-                        if let customAction = customPinAction {
-                            customAction(isPinned)
+                Button {
+                    if let customAction = customPinAction {
+                        customAction(isPinned)
                     } else {
                         deps.pinMutationWorkflow.togglePin(
                             id: ratingKey,
@@ -710,14 +712,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
 
-            if hasHiddenMediaAction {
-                Divider()
-                HiddenMediaDetailMenuButton(
-                    candidates: hiddenCandidates,
-                    identity: hiddenIdentity
-                )
-            }
-
             if let playlistMenuActions {
                 Button {
                     playlistMenuActions.onPlayNext()
@@ -735,6 +729,21 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
                 Divider()
 
+                let playlist = Playlist(
+                    id: ratingKey,
+                    key: headerData.ratingKey ?? ratingKey,
+                    title: headerData.title,
+                    isSmart: false,
+                    trackCount: 0,
+                    duration: 0,
+                    sourceCompositeKey: sourceKey
+                )
+                Button {
+                    libraryItemInfoRequest = .playlist(playlist)
+                } label: {
+                    MediaActionLabel(kind: .getInfo)
+                }
+
                 Button {
                     playlistMenuActions.onRename()
                 } label: {
@@ -751,6 +760,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(!playlistMenuActions.editAvailability.isAvailable)
                 .accessibilityHint(playlistMenuActions.editAvailability.reason ?? "")
 
+                if hasHiddenMediaAction {
+                    HiddenMediaDetailMenuButton(
+                        candidates: hiddenCandidates,
+                        identity: hiddenIdentity
+                    )
+                }
+
                 Button(role: .destructive) {
                     playlistMenuActions.onDelete()
                 } label: {
@@ -761,7 +777,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
 
             if viewModel is AlbumDetailViewModel, let albumMenuActions {
-                Divider()
+                if hasHiddenMediaAction {
+                    HiddenMediaDetailMenuButton(
+                        candidates: hiddenCandidates,
+                        identity: hiddenIdentity
+                    )
+                }
+
                 Button(role: .destructive) {
                     albumMenuActions.onDelete()
                 } label: {
@@ -769,6 +791,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
                 .disabled(!albumMenuActions.deleteAvailability.isAvailable)
                 .accessibilityHint(albumMenuActions.deleteAvailability.reason ?? "")
+            }
+
+            if playlistMenuActions == nil, albumMenuActions == nil, hasHiddenMediaAction {
+                HiddenMediaDetailMenuButton(
+                    candidates: hiddenCandidates,
+                    identity: hiddenIdentity
+                )
             }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)

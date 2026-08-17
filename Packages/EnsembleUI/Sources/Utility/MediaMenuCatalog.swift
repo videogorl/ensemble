@@ -97,7 +97,6 @@ enum MediaMenuSectionID: String, Equatable, Hashable {
     case sharing
     case offline
     case pinning
-    case visibility
     case management
     case destructive
 }
@@ -366,21 +365,18 @@ enum MediaMenuCatalog {
             sections.append(section(.destructive, [.removeFromQueue], role: .destructive))
         }
 
-        if context.allowsTrackEditing || availability.canGetInfo {
-            var managementActions: [MediaMenuActionID] = []
-            if availability.canGetInfo {
-                managementActions.append(.getInfo)
-            }
-            if context.allowsTrackEditing, availability.canEditMetadata {
-                managementActions.append(.editMetadata)
-            }
-            if context.allowsTrackEditing, availability.canDelete {
-                managementActions.append(.deleteTrack)
-            }
-            sections.append(section(.management, managementActions, destructive: [.deleteTrack]))
+        var managementActions: [MediaMenuActionID] = []
+        if availability.canGetInfo {
+            managementActions.append(.getInfo)
         }
-
-        sections.append(section(.visibility, [.toggleHidden]))
+        if context.allowsTrackEditing, availability.canEditMetadata {
+            managementActions.append(.editMetadata)
+        }
+        managementActions.append(.toggleHidden)
+        if context.allowsTrackEditing, availability.canDelete {
+            managementActions.append(.deleteTrack)
+        }
+        sections.append(section(.management, managementActions, destructive: [.deleteTrack]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -425,21 +421,18 @@ enum MediaMenuCatalog {
         }
         sections.append(section(.offline, offlinePinning))
 
-        if context.allowsPlaylistManagement || context.allowsTrackEditing || availability.canGetInfo {
-            var management: [MediaMenuActionID] = []
-            if availability.canGetInfo {
-                management.append(.getInfo)
-            }
-            if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
-                management.append(.editMetadata)
-            }
-            if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canDelete {
-                management.append(.deleteAlbum)
-            }
-            sections.append(section(.management, management, destructive: [.deleteAlbum]))
+        var management: [MediaMenuActionID] = []
+        if availability.canGetInfo {
+            management.append(.getInfo)
         }
-
-        sections.append(section(.visibility, [.toggleHidden]))
+        if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
+            management.append(.editMetadata)
+        }
+        management.append(.toggleHidden)
+        if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canDelete {
+            management.append(.deleteAlbum)
+        }
+        sections.append(section(.management, management, destructive: [.deleteAlbum]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -464,15 +457,12 @@ enum MediaMenuCatalog {
             sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
-        if context.allowsPlaylistManagement || context.allowsTrackEditing {
-            var management: [MediaMenuActionID] = []
-            if availability.canEditMetadata {
-                management.append(.editMetadata)
-            }
-            sections.append(section(.management, management))
+        var management: [MediaMenuActionID] = []
+        if (context.allowsPlaylistManagement || context.allowsTrackEditing), availability.canEditMetadata {
+            management.append(.editMetadata)
         }
-
-        sections.append(section(.visibility, [.toggleHidden]))
+        management.append(.toggleHidden)
+        sections.append(section(.management, management))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -498,24 +488,21 @@ enum MediaMenuCatalog {
             sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
-        if availability.canGetInfo || context.allowsPlaylistManagement {
-            var management: [MediaMenuActionID] = []
-            if availability.canGetInfo {
-                management.append(.getInfo)
-            }
-            if context.allowsPlaylistManagement, availability.canRename {
-                management.append(.rename)
-            }
-            if context.allowsPlaylistManagement, availability.canEditPlaylist {
-                management.append(.editPlaylist)
-            }
-            if context.allowsPlaylistManagement, availability.canDelete {
-                management.append(.deletePlaylist)
-            }
-            sections.append(section(.management, management, destructive: [.deletePlaylist]))
+        var management: [MediaMenuActionID] = []
+        if availability.canGetInfo {
+            management.append(.getInfo)
         }
-
-        sections.append(section(.visibility, [.toggleHidden]))
+        if context.allowsPlaylistManagement, availability.canRename {
+            management.append(.rename)
+        }
+        if context.allowsPlaylistManagement, availability.canEditPlaylist {
+            management.append(.editPlaylist)
+        }
+        management.append(.toggleHidden)
+        if context.allowsPlaylistManagement, availability.canDelete {
+            management.append(.deletePlaylist)
+        }
+        sections.append(section(.management, management, destructive: [.deletePlaylist]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -537,18 +524,15 @@ enum MediaMenuCatalog {
             sections.append(section(.sharing, [.shareEnsembleLink]))
         }
 
-        if context.allowsPlaylistManagement {
-            var management: [MediaMenuActionID] = []
-            if availability.canRename {
-                management.append(.renameAll)
-            }
-            if availability.canDelete {
-                management.append(.deleteAll)
-            }
-            sections.append(section(.management, management, destructive: [.deleteAll]))
+        var management: [MediaMenuActionID] = []
+        if context.allowsPlaylistManagement, availability.canRename {
+            management.append(.renameAll)
         }
-
-        sections.append(section(.visibility, [.toggleHidden]))
+        management.append(.toggleHidden)
+        if context.allowsPlaylistManagement, availability.canDelete {
+            management.append(.deleteAll)
+        }
+        sections.append(section(.management, management, destructive: [.deleteAll]))
         return sections.filter { !$0.actions.isEmpty }
     }
 

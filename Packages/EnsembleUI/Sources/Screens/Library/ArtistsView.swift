@@ -806,7 +806,6 @@ public struct ArtistDetailView: View {
                 }
             }
 
-            Divider()
             HiddenMediaDetailMenuButton(
                 candidates: displayArtist.artists.compactMap { $0.hiddenCandidate(deps: dependencies) },
                 identity: displayArtist.isMerged ? nil : HiddenMediaIdentity(viewModel.artist)

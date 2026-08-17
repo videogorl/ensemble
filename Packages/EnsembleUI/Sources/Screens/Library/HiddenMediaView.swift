@@ -34,6 +34,7 @@ struct HiddenMediaView: View {
                 }
             }
         }
+        .miniPlayerBottomSpacing()
         .navigationTitle("Hidden")
         .toolbar {
             ToolbarItem(placement: .primaryActionIfAvailable) {
