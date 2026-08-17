@@ -538,6 +538,31 @@ struct MergedArtistHiddenContextMenu: View {
     }
 }
 
+struct HiddenMediaDetailMenuButton: View {
+    let candidates: [HiddenMediaCandidate]
+    let identity: HiddenMediaIdentity?
+
+    @Environment(\.dependencies) private var deps
+    @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
+
+    @ViewBuilder
+    var body: some View {
+        if let identity, hiddenMediaStore.snapshot.contains(identity) {
+            Button {
+                deps.hiddenMediaStore.setHidden(false, identity: identity)
+            } label: {
+                MediaActionLabel(kind: .toggleHidden(isHidden: true))
+            }
+        } else if candidates.contains(where: { !hiddenMediaStore.snapshot.contains($0.identity) }) {
+            Button {
+                deps.hiddenMediaStore.requestHide(candidates)
+            } label: {
+                MediaActionLabel(kind: .toggleHidden(isHidden: false))
+            }
+        }
+    }
+}
+
 /// Shared playlist actions used by playlist lists, search results, and pinned sidebar rows.
 struct PlaylistActionsContextMenu: View {
     let playlist: Playlist
@@ -889,7 +914,7 @@ extension Track {
     }
 }
 
-private extension Album {
+extension Album {
     @MainActor
     func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
         guard let identity = HiddenMediaIdentity(self) else { return nil }
@@ -901,7 +926,7 @@ private extension Album {
     }
 }
 
-private extension Artist {
+extension Artist {
     @MainActor
     func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
         guard let identity = HiddenMediaIdentity(self) else { return nil }
@@ -913,7 +938,7 @@ private extension Artist {
     }
 }
 
-private extension Playlist {
+extension Playlist {
     @MainActor
     func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
         guard let identity = HiddenMediaIdentity(self) else { return nil }

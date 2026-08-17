@@ -8,6 +8,7 @@ public struct LibraryItemInfoView: View {
     @StateObject private var viewModel: LibraryItemInfoViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dependencies) private var deps
 
     public init(request: LibraryItemInfoRequest) {
         _viewModel = StateObject(
@@ -33,6 +34,18 @@ public struct LibraryItemInfoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
+                if hasHiddenMediaAction {
+                    Menu {
+                        HiddenMediaDetailMenuButton(
+                            candidates: hiddenCandidates,
+                            identity: hiddenIdentity
+                        )
+                    } label: {
+                        Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
+                    }
+                }
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button("Done") {
                     dismiss()
                 }
@@ -42,6 +55,34 @@ public struct LibraryItemInfoView: View {
         .task(id: viewModel.request.id) {
             await viewModel.load()
         }
+    }
+
+    private var hiddenCandidates: [HiddenMediaCandidate] {
+        let candidate: HiddenMediaCandidate?
+        switch viewModel.request {
+        case .track(let track):
+            candidate = track.hiddenCandidate(deps: deps)
+        case .album(let album):
+            candidate = album.hiddenCandidate(deps: deps)
+        case .playlist(let playlist):
+            candidate = playlist.hiddenCandidate(deps: deps)
+        }
+        return candidate.map { [$0] } ?? []
+    }
+
+    private var hiddenIdentity: HiddenMediaIdentity? {
+        switch viewModel.request {
+        case .track(let track):
+            return track.hiddenIdentity(deps: deps)
+        case .album(let album):
+            return HiddenMediaIdentity(album)
+        case .playlist(let playlist):
+            return HiddenMediaIdentity(playlist)
+        }
+    }
+
+    private var hasHiddenMediaAction: Bool {
+        hiddenIdentity != nil || !hiddenCandidates.isEmpty
     }
 
     private var header: some View {

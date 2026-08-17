@@ -953,6 +953,8 @@ public struct PlaylistDetailView: View {
                     showTrackNumbers: false,
                     groupByDisc: false,
                     mediaType: .playlist,
+                    hiddenCandidates: viewModel.playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+                    hiddenIdentity: HiddenMediaIdentity(viewModel.playlist),
                     genreChipContent: AnyView(
                         GenreFilterHeader(
                             availableGenres: viewModel.availableGenres,

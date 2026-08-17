@@ -45,6 +45,7 @@ public struct MergedPlaylistDetailView: View {
             showTrackNumbers: false,
             groupByDisc: false,
             mediaType: .playlist,
+            hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
             genreChipContent: AnyView(
                 GenreFilterHeader(
                     availableGenres: viewModel.availableGenres,

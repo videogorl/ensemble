@@ -207,6 +207,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
+    let hiddenCandidates: [HiddenMediaCandidate]
+    let hiddenIdentity: HiddenMediaIdentity?
     let additionalFooterContent: AnyView?
     let supplementalLoad: (() async -> Void)?
     /// Custom pin/unpin action for merged playlists (pins all constituents).
@@ -252,6 +254,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
         selectedTrackId: String? = nil,
+        hiddenCandidates: [HiddenMediaCandidate] = [],
+        hiddenIdentity: HiddenMediaIdentity? = nil,
         genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
@@ -271,6 +275,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.showFilter = showFilter
         self.mediaType = mediaType
         self.selectedTrackId = selectedTrackId
+        self.hiddenCandidates = hiddenCandidates
+        self.hiddenIdentity = hiddenIdentity
         self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
@@ -582,16 +588,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
                     .disabled(!albumMenuActions.editMetadataAvailability.isAvailable)
                     .accessibilityHint(albumMenuActions.editMetadataAvailability.reason ?? "")
-
-                    Divider()
-
-                    Button(role: .destructive) {
-                        albumMenuActions.onDelete()
-                    } label: {
-                        MediaActionLabel(kind: .deleteAlbum)
-                    }
-                    .disabled(!albumMenuActions.deleteAvailability.isAvailable)
-                    .accessibilityHint(albumMenuActions.deleteAvailability.reason ?? "")
                 }
             } else {
                     Button {
@@ -726,6 +722,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 }
             }
 
+            if hasHiddenMediaAction {
+                Divider()
+                HiddenMediaDetailMenuButton(
+                    candidates: hiddenCandidates,
+                    identity: hiddenIdentity
+                )
+            }
+
             if let playlistMenuActions {
                 Button {
                     playlistMenuActions.onPlayNext()
@@ -767,9 +771,27 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 .disabled(!playlistMenuActions.deleteAvailability.isAvailable)
                 .accessibilityHint(playlistMenuActions.deleteAvailability.reason ?? "")
             }
+
+            if viewModel is AlbumDetailViewModel, let albumMenuActions {
+                Divider()
+                Button(role: .destructive) {
+                    albumMenuActions.onDelete()
+                } label: {
+                    MediaActionLabel(kind: .deleteAlbum)
+                }
+                .disabled(!albumMenuActions.deleteAvailability.isAvailable)
+                .accessibilityHint(albumMenuActions.deleteAvailability.reason ?? "")
+            }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
+    }
+
+    private var hasHiddenMediaAction: Bool {
+        if let hiddenIdentity, deps.hiddenMediaStore.snapshot.contains(hiddenIdentity) {
+            return true
+        }
+        return hiddenCandidates.contains { !deps.hiddenMediaStore.snapshot.contains($0.identity) }
     }
 
     private func presentPlaylistPicker(with tracks: [Track], title: String = "Add Album to Playlist") {

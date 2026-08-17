@@ -797,9 +797,11 @@ public struct ArtistDetailView: View {
                 }
             }
 
-            if displayArtist.isMerged {
-                MergedArtistHiddenContextMenu(displayArtist: displayArtist)
-            }
+            Divider()
+            HiddenMediaDetailMenuButton(
+                candidates: displayArtist.artists.compactMap { $0.hiddenCandidate(deps: dependencies) },
+                identity: displayArtist.isMerged ? nil : HiddenMediaIdentity(viewModel.artist)
+            )
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }

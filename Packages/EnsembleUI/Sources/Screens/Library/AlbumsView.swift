@@ -313,6 +313,8 @@ public struct AlbumDetailView: View {
             showFilter: false,
             mediaType: .album,
             selectedTrackId: selectedTrackId,
+            hiddenCandidates: album.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+            hiddenIdentity: HiddenMediaIdentity(album),
             albumMenuActions: AlbumDetailMenuActions(
                 downloadAvailability: resolvedDownloadMenuAvailability(
                     isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled(album),
