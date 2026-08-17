@@ -126,7 +126,7 @@ public final class PinnedViewModel: ObservableObject {
         }
         .store(in: &cancellables)
 
-        self.hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { await self?.loadPinnedItems() }
         }.store(in: &cancellables)
 

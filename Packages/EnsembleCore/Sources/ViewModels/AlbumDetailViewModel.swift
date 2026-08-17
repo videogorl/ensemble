@@ -69,7 +69,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()
-        hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { await self?.loadTracks() }
         }.store(in: &cancellables)
     }

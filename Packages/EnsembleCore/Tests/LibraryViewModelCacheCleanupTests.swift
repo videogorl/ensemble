@@ -258,6 +258,35 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         try await waitForArtistName(viewModel: viewModel, expectedName: "Janelle Monáe")
     }
 
+    func testHiddenItemUpdatesLoadedBrowseSnapshot() async throws {
+        let harness = makeHarness()
+        let firstSource = "plex:account-1:server-1:lib-1"
+        let secondSource = "plex:account-1:server-1:lib-2"
+        harness.accountManager.addPlexAccount(
+            makeAccount(libraries: [
+                ("lib-1", "Library One", true),
+                ("lib-2", "Library Two", true)
+            ])
+        )
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: firstSource)
+        try await seedSourceAndTrack(repository: harness.libraryRepository, sourceKey: secondSource)
+
+        let suiteName = "LibraryViewModelHiddenMediaTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let hiddenMediaStore = HiddenMediaStore(defaults: defaults)
+        let viewModel = makeViewModel(harness: harness, hiddenMediaStore: hiddenMediaStore)
+        await viewModel.loadLibrary()
+        try await waitForTrackCount(viewModel: viewModel, expectedCount: 2)
+
+        let identity = HiddenMediaIdentity(kind: .track, itemID: "track-lib-1", sourceCompositeKey: firstSource)
+        hiddenMediaStore.setHidden(true, identity: identity)
+        try await waitForTrackCount(viewModel: viewModel, expectedCount: 1)
+
+        hiddenMediaStore.setHidden(false, identity: identity)
+        try await waitForTrackCount(viewModel: viewModel, expectedCount: 2)
+    }
+
     func testLoadLibraryFiltersDisabledSourcesWithoutPurgingTheirCache() async throws {
         let cleanupRecorder = CleanupRecorder()
         let harness = makeHarness { sourceKey in
@@ -1423,6 +1452,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
 
     private func makeViewModel(
         harness: Harness,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         appReadinessCoordinator: AppReadinessCoordinator? = nil
     ) -> LibraryViewModel {
         LibraryViewModel(
@@ -1430,6 +1460,7 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
             syncCoordinator: harness.syncCoordinator,
             accountManager: harness.accountManager,
             visibilityStore: LibraryVisibilityStore(),
+            hiddenMediaStore: hiddenMediaStore,
             toastCenter: ToastCenter(),
             appReadinessCoordinator: appReadinessCoordinator
         )

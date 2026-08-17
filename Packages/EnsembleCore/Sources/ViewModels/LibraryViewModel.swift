@@ -219,6 +219,7 @@ public final class LibraryViewModel: ObservableObject {
 
         self.hiddenMediaStore.$snapshot
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.applyVisibilityToPublishedCollections() }
             .store(in: &cancellables)
 

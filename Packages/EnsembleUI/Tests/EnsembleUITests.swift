@@ -1789,6 +1789,7 @@ final class EnsembleUITests: XCTestCase {
             onShareLink: { _ in },
             onShareFile: { _ in },
             onDeleteTrack: { _ in },
+            onToggleHidden: { _ in },
             isTrackFavorited: { _ in false },
             recentPlaylistTitle: "Road Trip"
         )
@@ -1812,7 +1813,8 @@ final class EnsembleUITests: XCTestCase {
                 "Share Audio File…",
                 "Get Info…",
                 "Edit Metadata…",
-                "Delete Track"
+                "Delete Track",
+                "Hide"
             ]
         )
     }

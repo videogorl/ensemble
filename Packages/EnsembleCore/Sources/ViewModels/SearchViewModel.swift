@@ -202,6 +202,7 @@ public final class SearchViewModel: ObservableObject {
 
         self.hiddenMediaStore.$snapshot
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.applyVisibilityToSearchResults()
                 self?.applyVisibilityToExploreContent()

@@ -111,7 +111,7 @@ public final class HomeViewModel: ObservableObject {
         self.lastSourceConfigurationHadSources = initialSourceConfiguration.hasAnySources
         updateSourceAvailability(initialSourceConfiguration)
 
-        self.hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.applyVisibilityToPublishedHubs()
         }.store(in: &cancellables)
 

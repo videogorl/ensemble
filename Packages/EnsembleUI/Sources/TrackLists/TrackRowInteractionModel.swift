@@ -18,7 +18,9 @@ public struct TrackRowInteractionModel {
         public let onShareLink: (() -> Void)?
         public let onShareFile: (() -> Void)?
         public let onDeleteTrack: (() -> Void)?
+        public let onToggleHidden: (() -> Void)?
         public let isFavorited: Bool
+        public let isHidden: Bool
         public let recentPlaylistTitle: String?
         public let favoriteAvailability: MusicItemActionAvailability
         public let editMetadataAvailability: MusicItemActionAvailability
@@ -38,7 +40,8 @@ public struct TrackRowInteractionModel {
             onShareEnsembleLink != nil ||
             onShareLink != nil ||
             onShareFile != nil ||
-            onDeleteTrack != nil
+            onDeleteTrack != nil ||
+            onToggleHidden != nil
         }
     }
 
@@ -56,7 +59,10 @@ public struct TrackRowInteractionModel {
     public let onShareLink: ((Track) -> Void)?
     public let onShareFile: ((Track) -> Void)?
     public let onDeleteTrack: ((Track) -> Void)?
+    public let onToggleHidden: ((Track) -> Void)?
     public let isTrackFavorited: ((Track) -> Bool)?
+    public let isTrackHidden: ((Track) -> Bool)?
+    public let canToggleHidden: ((Track) -> Bool)?
     public let canAddToLibrary: ((Track) -> Bool)?
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
     public let canRemoveFromPlaylist: ((Track) -> Bool)?
@@ -77,7 +83,10 @@ public struct TrackRowInteractionModel {
         onShareLink: ((Track) -> Void)? = nil,
         onShareFile: ((Track) -> Void)? = nil,
         onDeleteTrack: ((Track) -> Void)? = nil,
+        onToggleHidden: ((Track) -> Void)? = nil,
         isTrackFavorited: ((Track) -> Bool)? = nil,
+        isTrackHidden: ((Track) -> Bool)? = nil,
+        canToggleHidden: ((Track) -> Bool)? = nil,
         canAddToLibrary: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         canRemoveFromPlaylist: ((Track) -> Bool)? = nil,
@@ -97,7 +106,10 @@ public struct TrackRowInteractionModel {
         self.onShareLink = onShareLink
         self.onShareFile = onShareFile
         self.onDeleteTrack = onDeleteTrack
+        self.onToggleHidden = onToggleHidden
         self.isTrackFavorited = isTrackFavorited
+        self.isTrackHidden = isTrackHidden
+        self.canToggleHidden = canToggleHidden
         self.canAddToLibrary = canAddToLibrary
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.canRemoveFromPlaylist = canRemoveFromPlaylist
@@ -133,7 +145,8 @@ public struct TrackRowInteractionModel {
             onShareEnsembleLink != nil ||
             onShareLink != nil ||
             onShareFile != nil ||
-            onDeleteTrack != nil
+            onDeleteTrack != nil ||
+            ((canToggleHidden?(track) ?? true) && onToggleHidden != nil)
     }
 
     public func resolve(for track: Track) -> ResolvedActions {
@@ -153,7 +166,9 @@ public struct TrackRowInteractionModel {
                 onShareLink: nil,
                 onShareFile: nil,
                 onDeleteTrack: nil,
+                onToggleHidden: nil,
                 isFavorited: false,
+                isHidden: false,
                 recentPlaylistTitle: nil,
                 favoriteAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
                 editMetadataAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
@@ -178,7 +193,9 @@ public struct TrackRowInteractionModel {
             onShareLink: onShareLink.map { callback in { callback(track) } },
             onShareFile: track.sourceCapabilities.supportsAudioFileSharing ? onShareFile.map { callback in { callback(track) } } : nil,
             onDeleteTrack: onDeleteTrack.map { callback in { callback(track) } },
+            onToggleHidden: (canToggleHidden?(track) ?? true) ? onToggleHidden.map { callback in { callback(track) } } : nil,
             isFavorited: isFavorited,
+            isHidden: isTrackHidden?(track) ?? false,
             recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil,
             favoriteAvailability: track.actionAvailability(for: .favorite, isFavorited: isFavorited),
             editMetadataAvailability: track.actionAvailability(for: .editMetadata),
@@ -257,8 +274,17 @@ extension TrackRowInteractionModel {
             onShareFile: { track in
                 ShareActions.shareTrackFile(track, deps: deps)
             },
+            onToggleHidden: { track in
+                track.toggleHidden(deps: deps)
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
+            },
+            isTrackHidden: { track in
+                track.hiddenIdentity(deps: deps) != nil
+            },
+            canToggleHidden: { track in
+                track.hiddenIdentity(deps: deps) != nil || track.hiddenCandidate(deps: deps) != nil
             },
             canAddToLibrary: { track in
                 nowPlayingVM.canAddTrackToLibrary(track)

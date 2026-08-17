@@ -152,22 +152,13 @@ struct TrackActionsContextMenu: View {
                 removeFromPlaylist: onRemoveFromPlaylist,
                 removeFromQueue: onRemoveFromQueue,
                 deleteTrack: onDelete,
-                toggleHidden: hiddenIdentity.map { identity in
-                    { deps.hiddenMediaStore.setHidden(false, identity: identity) }
-                } ?? track.hiddenCandidate(deps: deps).map { candidate in
-                    { deps.hiddenMediaStore.requestHide([candidate]) }
-                }
+                toggleHidden: track.hiddenToggleAction(deps: deps)
             )
         )
     }
 
     private var trackHiddenIdentity: HiddenMediaIdentity? {
-        guard let sourceKey = track.sourceCompositeKey else { return nil }
-        if let identity = HiddenMediaIdentity(track), deps.hiddenMediaStore.snapshot.contains(identity) {
-            return identity
-        }
-        guard track.key == "apple-catalog", let catalogID = track.appleMusicCatalogID else { return nil }
-        return deps.hiddenMediaStore.hiddenLibraryIdentity(catalogID: catalogID, sourceKey: sourceKey)
+        track.hiddenIdentity(deps: deps)
     }
 }
 
@@ -855,12 +846,22 @@ private extension Album {
 }
 
 @MainActor
-private func hiddenSourceDescription(_ sourceKey: String, deps: DependencyContainer) -> String {
+func hiddenSourceDescription(_ sourceKey: String, deps: DependencyContainer) -> String {
     guard let source = deps.accountManager.sourcePresentation(for: sourceKey) else { return sourceKey }
     return "\(source.serverName) · \(source.libraryName) · \(source.accountName)"
 }
 
-private extension Track {
+extension Track {
+    @MainActor
+    func hiddenIdentity(deps: DependencyContainer) -> HiddenMediaIdentity? {
+        guard let sourceKey = sourceCompositeKey else { return nil }
+        if let identity = HiddenMediaIdentity(self), deps.hiddenMediaStore.snapshot.contains(identity) {
+            return identity
+        }
+        guard key == "apple-catalog", let catalogID = appleMusicCatalogID else { return nil }
+        return deps.hiddenMediaStore.hiddenLibraryIdentity(catalogID: catalogID, sourceKey: sourceKey)
+    }
+
     @MainActor
     func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
         guard key != "apple-catalog", let identity = HiddenMediaIdentity(self) else { return nil }
@@ -870,6 +871,21 @@ private extension Track {
             source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps),
             relatedCatalogID: appleMusicCatalogID
         )
+    }
+
+    @MainActor
+    func hiddenToggleAction(deps: DependencyContainer) -> (() -> Void)? {
+        guard hiddenIdentity(deps: deps) != nil || hiddenCandidate(deps: deps) != nil else { return nil }
+        return { toggleHidden(deps: deps) }
+    }
+
+    @MainActor
+    func toggleHidden(deps: DependencyContainer) {
+        if let identity = hiddenIdentity(deps: deps) {
+            deps.hiddenMediaStore.setHidden(false, identity: identity)
+        } else if let candidate = hiddenCandidate(deps: deps) {
+            deps.hiddenMediaStore.requestHide([candidate])
+        }
     }
 }
 

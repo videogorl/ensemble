@@ -173,6 +173,7 @@ public final class PlaylistViewModel: ObservableObject {
 
         hiddenMediaStore.$snapshot
             .dropFirst()
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.applyVisibilityToPublishedPlaylists() }
             .store(in: &cancellables)
 
@@ -958,7 +959,7 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
         updateDerivedTrackState()
-        hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.updateDerivedTrackState()
         }.store(in: &cancellables)
 

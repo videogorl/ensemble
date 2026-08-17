@@ -187,7 +187,8 @@ private func nativeMediaTableMenuHandlers(
         shareAudioFile: resolvedActions.onShareFile,
         removeFromPlaylist: onRemoveFromPlaylist,
         removeFromQueue: onRemoveFromQueue,
-        deleteTrack: resolvedActions.onDeleteTrack
+        deleteTrack: resolvedActions.onDeleteTrack,
+        toggleHidden: resolvedActions.onToggleHidden
     )
 }
 
@@ -220,7 +221,8 @@ enum NativeMediaTableActionBuilder {
             ),
             state: MediaMenuState(
                 recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                isFavorited: resolvedActions.isFavorited
+                isFavorited: resolvedActions.isFavorited,
+                isHidden: resolvedActions.isHidden
             ),
             handlers: nativeMediaTableMenuHandlers(
                 for: resolvedActions,
@@ -257,7 +259,8 @@ enum NativeMediaTableActionBuilder {
             ),
             state: MediaMenuState(
                 recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
-                isFavorited: resolvedActions.isFavorited
+                isFavorited: resolvedActions.isFavorited,
+                isHidden: resolvedActions.isHidden
             ),
             handlers: nativeMediaTableMenuHandlers(
                 for: resolvedActions,

@@ -96,7 +96,7 @@ public final class ArtistDetailViewModel: ObservableObject {
         self.hiddenMediaStore = hiddenMediaStore
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "ArtistDetail")
-        hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.rebuildDisplaySnapshot()
         }.store(in: &cancellables)
 

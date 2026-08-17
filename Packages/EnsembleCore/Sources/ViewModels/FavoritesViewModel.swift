@@ -49,7 +49,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         setupFilterPersistence()
         setupFilteredTracksPipeline()
         observeReloadTriggers()
-        self.hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+        self.hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { await self?.loadTracks() }
         }.store(in: &cancellables)
 
