@@ -1380,6 +1380,11 @@ final class PlaybackServiceTests: XCTestCase {
             hasQueuedSuccessor: true,
             isStationActive: false
         ))
+        XCTAssertFalse(AppleMusicPlaybackEndPolicy.isFinalEntry(
+            hasQueuedSuccessor: false,
+            isStationActive: false,
+            isRepeatOneEnabled: true
+        ))
         XCTAssertFalse(AppleMusicPlaybackEndPolicy.shouldReportEnd(
             playbackTime: 298.84,
             duration: 298.9,

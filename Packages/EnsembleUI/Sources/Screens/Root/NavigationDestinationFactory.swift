@@ -111,22 +111,14 @@ struct NavigationDestinationFactory {
         case .playlist(let id, let sourceKey):
             return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlistDetail(let playlist, let includesHidden):
-            let detailView = PlaylistDetailView(
-                playlist: playlist,
-                nowPlayingVM: nowPlayingVM,
-                includesHidden: includesHidden
-            )
-            .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
-            #if os(iOS)
-            if #available(iOS 18.0, *), let mediaNavigationNamespace {
-                return AnyView(
-                    detailView.navigationTransition(
-                        .zoom(sourceID: playlist.sourceScopedID, in: mediaNavigationNamespace)
-                    )
+            return AnyView(
+                PlaylistDetailView(
+                    playlist: playlist,
+                    nowPlayingVM: nowPlayingVM,
+                    includesHidden: includesHidden
                 )
-            }
-            #endif
-            return AnyView(detailView)
+                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            )
         case .mergedPlaylist(let title, let isSmart):
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):

@@ -56,6 +56,10 @@ public struct ArtworkView: View {
     }
 
     private var imagePriority: ArtworkImagePriority {
+        Self.imagePriority(for: size)
+    }
+
+    private static func imagePriority(for size: ArtworkSize) -> ArtworkImagePriority {
         switch size {
         case .tiny:
             return .high
@@ -266,14 +270,20 @@ public struct ArtworkView: View {
 
 public extension ArtworkView {
     init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
+        let descriptor = ArtworkResolutionDescriptor(
+            track: track,
+            size: size.rawValue,
+            priority: Self.imagePriority(for: size)
+        )
         self.init(
-            path: track.thumbPath,
-            sourceKey: track.sourceCompositeKey,
-            ratingKey: track.id,
-            fallbackPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            cacheHint: nil,
-            fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
+            path: descriptor.path,
+            sourceKey: descriptor.sourceKey,
+            ratingKey: descriptor.ratingKey,
+            fallbackPath: descriptor.fallbackPath,
+            fallbackRatingKey: descriptor.fallbackRatingKey,
+            fallbackSourceKey: descriptor.fallbackSourceKey,
+            cacheHint: descriptor.cacheHint,
+            fallbackCacheHint: descriptor.fallbackCacheHint,
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive

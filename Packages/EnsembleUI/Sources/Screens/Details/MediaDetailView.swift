@@ -164,27 +164,12 @@ func makePlaylistHeaderFallbackArtworkDescriptor(
         )
     }
 
-    guard let track else { return nil }
-    let primaryPath = track.thumbPath?.isEmpty == false ? track.thumbPath : nil
-    let fallbackPath = track.fallbackThumbPath?.isEmpty == false ? track.fallbackThumbPath : nil
-    guard let path = primaryPath ?? fallbackPath else { return nil }
+    guard let track,
+          track.thumbPath?.isEmpty == false || track.fallbackThumbPath?.isEmpty == false else { return nil }
 
     return ArtworkResolutionDescriptor(
-        path: path,
-        sourceKey: track.sourceCompositeKey ?? fallbackSourceKey,
-        ratingKey: primaryPath == nil
-            ? (track.fallbackRatingKey ?? track.albumRatingKey ?? track.id)
-            : track.id,
-        fallbackPath: primaryPath == nil ? nil : fallbackPath,
-        fallbackRatingKey: primaryPath == nil
-            ? nil
-            : (track.fallbackRatingKey ?? track.albumRatingKey),
-        cacheHint: primaryPath == nil
-            ? PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track)
-            : nil,
-        fallbackCacheHint: primaryPath == nil
-            ? nil
-            : PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
+        track: track,
+        fallbackSourceKey: fallbackSourceKey,
         size: size,
         priority: .high
     )

@@ -356,7 +356,11 @@ final class PlaybackNowPlayingBridge {
     }
 
     private func resolvedArtworkImage(for track: Track) async -> PlatformArtworkImage? {
-        let descriptor = Self.artworkDescriptor(for: track)
+        let descriptor = ArtworkResolutionDescriptor(
+            track: track,
+            size: 600,
+            priority: .high
+        )
 
         if let cached = await ArtworkImageResolver.locallyCachedImage(
             for: descriptor,
@@ -374,20 +378,6 @@ final class PlaybackNowPlayingBridge {
         }
 
         return resolved.image
-    }
-
-    private static func artworkDescriptor(for track: Track) -> ArtworkResolutionDescriptor {
-        ArtworkResolutionDescriptor(
-            path: track.thumbPath,
-            sourceKey: track.sourceCompositeKey,
-            ratingKey: track.id,
-            fallbackPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            cacheHint: nil,
-            fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
-            size: 600,
-            priority: .high
-        )
     }
 
     func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {

@@ -1061,13 +1061,7 @@ public final class NowPlayingViewModel: ObservableObject {
 
             let deps = DependencyContainer.shared
             let descriptor = ArtworkResolutionDescriptor(
-                path: track.thumbPath,
-                sourceKey: track.sourceCompositeKey,
-                ratingKey: track.id,
-                fallbackPath: track.fallbackThumbPath,
-                fallbackRatingKey: track.fallbackRatingKey,
-                cacheHint: nil,
-                fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
+                track: track,
                 size: 600,
                 priority: .high
             )

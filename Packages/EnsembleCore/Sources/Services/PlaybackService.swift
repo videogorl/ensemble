@@ -4260,6 +4260,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private func setRepeatMode(_ mode: RepeatMode) {
         repeatMode = mode
         UserDefaults.standard.set(repeatMode.rawValue, forKey: PlaybackPreferenceKey.repeatMode)
+        #if os(iOS)
+            if #available(iOS 18, *) {
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.repeatMode == mode,
+                          self.currentTrack?.isAppleMusic == true,
+                          self.appleMusicPlaybackController?.activeQueueGeneration != nil else { return }
+                    self.appleMusicPlaybackController?.setRepeatOneEnabled(mode == .one)
+                }
+            }
+        #endif
         audioEngine?.cancelSmartMixTransition(continueIncoming: audioEngine?.hasPromotedSmartMixTransition == true)
         updateNowPlayingInfo()
     }
@@ -4555,7 +4566,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             do {
                 try await appleMusicPlaybackController?.startStation(
                     seed: seed,
-                    smartMixEnabled: isSmartMixEnabled
+                    smartMixEnabled: isSmartMixEnabled,
+                    repeatOneEnabled: repeatMode == .one
                 )
                 guard generation == playbackGenerationCounter,
                       appleMusicPlaybackController?.isStationActive == true,
@@ -6102,7 +6114,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 )
                 let unresolvedPlaybackIdentities = try await controller.play(
                     tracks: segment,
-                    startTime: startTime
+                    startTime: startTime,
+                    repeatOneEnabled: repeatMode == .one
                 )
                 guard generation == playbackGenerationCounter,
                       queue.indices.contains(currentQueueIndex),
@@ -6183,12 +6196,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     + " nextAppleMusic=\(nextItem?.track.isAppleMusic == true)"
                     + " appState=\(UIApplication.shared.applicationState)"
             )
-            if repeatMode == .one {
-                recordToHistory(queue[currentQueueIndex])
-                await playCurrentQueueItem(caller: "appleMusicSegmentEnded-repeatOne")
-                savePlaybackState()
-                return
-            }
             if Self.shouldStartAppleMusicAutoplay(nextItem: nextItem, isEnabled: isAutoplayEnabled),
                let seed = currentTrack {
                 if nextIndex < queue.count { queue.removeSubrange(nextIndex...) }
@@ -6295,6 +6302,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
             let hasContinuousAppleMusicSuccessor = appleMusicPlaybackController?.isStationActive == true
                 || appleMusicPlaybackController?.hasQueuedSuccessor == true
+                || appleMusicPlaybackController?.isRepeatOneEnabled == true
             let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
                 playbackTime: time,
                 lastPlayingTime: currentTime,
