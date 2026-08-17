@@ -30,10 +30,6 @@ struct StageFlowLayoutMetrics: Equatable {
 }
 
 private enum StageFlowChromeMetrics {
-    static let reflectionBlurRadius: CGFloat = 1.2
-    static let reflectionYOffset = EnsembleDesign.Spacing.chipVertical
-    static let reflectionTopPadding = -EnsembleDesign.Spacing.xs
-    static let reflectionHeightRatio: CGFloat = 0.48
     static let footerSpacing = EnsembleDesign.Spacing.chipVertical
     static let footerBottomPadding = EnsembleDesign.Spacing.xl
     static let footerHorizontalPadding = EnsembleDesign.Spacing.xxl
@@ -276,7 +272,7 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
                 if !(isPanelPresented && index == centeredIndex) {
                     let relativeIndex = Double(index) - currentIndex
 
-                    if abs(relativeIndex) < visibleStageDepth(for: dragVisualIntensity) {
+                    if abs(relativeIndex) < 4 {
                         let itemLayout = StageFlowLayoutModel.layout(for: relativeIndex, metrics: layoutMetrics)
                         stageCard(
                             for: item,
@@ -312,30 +308,18 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
         layout: StageFlowItemLayout,
         dragVisualIntensity: Double
     ) -> some View {
-        let reflectionHeight = stageReflectionHeight(for: itemSize)
-
-        return VStack(spacing: EnsembleDesign.Spacing.none) {
-            itemView(item)
-                .frame(width: itemSize, height: itemSize)
-
-            reflectedStageItem(for: item, itemSize: itemSize)
-        }
-        // Rasterize the composed artwork + reflection once, then transform that
-        // layer during drags so fast swipes don't look like the whole stage fades.
-        .compositingGroup()
-        .scaleEffect(layout.scale)
-        .opacity(displayOpacity(for: layout.opacity, dragVisualIntensity: dragVisualIntensity))
-        .rotation3DEffect(
-            .degrees(layout.rotation),
-            axis: (x: 0, y: 1, z: 0),
-            perspective: 0.58
-        )
-        .offset(
-            x: layout.xOffset,
-            y: reflectionHeight * 0.5
-        )
-        .zIndex(layout.zIndex)
-        .allowsHitTesting(false)
+        itemView(item)
+            .frame(width: itemSize, height: itemSize)
+            .scaleEffect(layout.scale)
+            .opacity(displayOpacity(for: layout.opacity, dragVisualIntensity: dragVisualIntensity))
+            .rotation3DEffect(
+                .degrees(layout.rotation),
+                axis: (x: 0, y: 1, z: 0),
+                perspective: 0.58
+            )
+            .offset(x: layout.xOffset)
+            .zIndex(layout.zIndex)
+            .allowsHitTesting(false)
     }
 
     /// Keep the wings more present during fast swipes so motion reads as artwork
@@ -343,42 +327,6 @@ struct StageFlowView<Item: Identifiable, ItemView: View, DetailView: View>: View
     private func displayOpacity(for baseOpacity: Double, dragVisualIntensity: Double) -> Double {
         let minimumOpacity = 0.72 + (dragVisualIntensity * 0.08)
         return min(1, max(baseOpacity, minimumOpacity))
-    }
-
-    private func visibleStageDepth(for dragVisualIntensity: Double) -> Double {
-        10 + dragVisualIntensity * 2
-    }
-
-    private func reflectedStageItem(for item: Item, itemSize: CGFloat) -> some View {
-        let reflectionHeight = stageReflectionHeight(for: itemSize)
-
-        return itemView(item)
-            .frame(width: itemSize, height: itemSize)
-            .scaleEffect(x: 1, y: -1, anchor: .center)
-            .opacity(0.28)
-            .mask(
-                LinearGradient(
-                    colors: [
-                        Color.white.opacity(0.62),
-                        Color.white.opacity(0.22),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: itemSize, height: reflectionHeight)
-                .frame(maxHeight: .infinity, alignment: .top)
-            )
-            .blur(radius: StageFlowChromeMetrics.reflectionBlurRadius)
-            .offset(y: StageFlowChromeMetrics.reflectionYOffset)
-            .padding(.top, StageFlowChromeMetrics.reflectionTopPadding)
-            .frame(width: itemSize, height: reflectionHeight, alignment: .top)
-            .clipped()
-            .allowsHitTesting(false)
-    }
-
-    private func stageReflectionHeight(for itemSize: CGFloat) -> CGFloat {
-        itemSize * StageFlowChromeMetrics.reflectionHeightRatio
     }
 
     @ViewBuilder

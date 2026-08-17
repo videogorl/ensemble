@@ -175,12 +175,16 @@ func makePlaylistHeaderFallbackArtworkDescriptor(
         ratingKey: primaryPath == nil
             ? (track.fallbackRatingKey ?? track.albumRatingKey ?? track.id)
             : track.id,
-        fallbackPath: nil,
-        fallbackRatingKey: nil,
+        fallbackPath: primaryPath == nil ? nil : fallbackPath,
+        fallbackRatingKey: primaryPath == nil
+            ? nil
+            : (track.fallbackRatingKey ?? track.albumRatingKey),
         cacheHint: primaryPath == nil
             ? PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track)
             : nil,
-        fallbackCacheHint: nil,
+        fallbackCacheHint: primaryPath == nil
+            ? nil
+            : PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
         size: size,
         priority: .high
     )

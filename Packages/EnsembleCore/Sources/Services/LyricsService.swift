@@ -481,6 +481,11 @@ public final class LyricsService: ObservableObject {
     }
 
     private func startLyricsLoad(for track: Track, clearingCache: Bool) {
+        guard !track.isAppleMusic else {
+            clearLyrics()
+            return
+        }
+
         loadTask?.cancel()
 
         currentLyrics = .loading

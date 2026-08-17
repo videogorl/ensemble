@@ -6031,7 +6031,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                           acceptsPausedPlayback: true
                       ) else { return }
                 EnsembleLogger.info("[MusicKit] Reconciled externally resumed playback")
-                self.resumeInternally(source: .system)
+                self.playbackState = .playing
+                self.updateNowPlayingInfo()
             }
             controller.onDynamicTrack = { [weak self] track, queueGeneration in
                 self?.handleAppleMusicRadioTrack(
@@ -6323,7 +6324,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 hasContinuousProviderSuccessor: hasContinuousAppleMusicSuccessor,
                 isFinalEntryReset: isFinalEntryReset
             ))
-            updateNowPlayingInfo()
         }
 
         @available(iOS 18, *)

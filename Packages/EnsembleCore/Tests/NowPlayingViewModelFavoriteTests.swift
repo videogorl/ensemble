@@ -1029,6 +1029,19 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
         XCTAssertEqual(playback.lastPlayedTrack?.rating, 10)
     }
 
+    func testAppleMusicTrackDoesNotStartLyricsFetch() async {
+        let track = Track(
+            id: "apple-track",
+            key: "apple-catalog",
+            title: "Apple Track",
+            sourceCompositeKey: MusicSourceIdentifier.appleMusic.compositeKey
+        )
+        let harness = makeViewModel(initialTrack: track)
+        await waitForProjectionPropagation()
+
+        XCTAssertEqual(harness.viewModel.lyricsState, .notAvailable)
+    }
+
     func testShufflePlayUsesOptimisticFavoriteRatings() async {
         let viewModelTuple = makeViewModel()
         let viewModel = viewModelTuple.viewModel

@@ -356,11 +356,13 @@ final class EnsembleUITests: XCTestCase {
     }
 
     func testPlaylistHeaderStillFallsBackToLoadedTrackArtwork() throws {
+        let artworkPath = "/library/metadata/album-1/thumb"
         let track = Track(
             id: "track-1",
             key: "track-1",
             title: "Track",
-            fallbackThumbPath: "/library/metadata/album-1/thumb",
+            thumbPath: artworkPath,
+            fallbackThumbPath: artworkPath,
             fallbackRatingKey: "album-1",
             sourceCompositeKey: "plex:account:server:library"
         )
@@ -371,9 +373,11 @@ final class EnsembleUITests: XCTestCase {
             fallbackSourceKey: nil
         ))
 
-        XCTAssertEqual(descriptor.path, track.fallbackThumbPath)
-        XCTAssertEqual(descriptor.ratingKey, "album-1")
-        XCTAssertEqual(descriptor.cacheHint?.kind, .album)
+        XCTAssertEqual(descriptor.path, artworkPath)
+        XCTAssertEqual(descriptor.ratingKey, "track-1")
+        XCTAssertEqual(descriptor.fallbackPath, artworkPath)
+        XCTAssertEqual(descriptor.fallbackRatingKey, "album-1")
+        XCTAssertEqual(descriptor.fallbackCacheHint?.kind, .album)
     }
 
     @MainActor

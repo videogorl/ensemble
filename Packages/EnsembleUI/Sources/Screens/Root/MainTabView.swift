@@ -77,7 +77,7 @@ public struct MainTabView: View {
         #if os(iOS)
         return MainTabStageFlowPolicy.activeRootTab(
             selectedRootTab: selectedRootTab,
-            morePath: navigationCoordinator.pathSnapshot(for: .settings),
+            navigationPath: navigationCoordinator.pathSnapshot(for: selectedRootTab),
             isPhone: UIDevice.current.userInterfaceIdiom == .phone
         )
         #else
@@ -478,7 +478,7 @@ private extension View {
 enum MainTabStageFlowPolicy {
     static func activeRootTab(
         selectedRootTab: TabItem,
-        morePath: [NavigationCoordinator.Destination],
+        navigationPath: [NavigationCoordinator.Destination],
         isPhone: Bool
     ) -> TabItem? {
         guard isPhone else {
@@ -486,22 +486,14 @@ enum MainTabStageFlowPolicy {
         }
 
         if supportsStageFlow(selectedRootTab) {
-            return selectedRootTab
+            return navigationPath.isEmpty ? selectedRootTab : nil
         }
 
-        guard selectedRootTab == .settings else {
-            return nil
-        }
-
-        return morePath
-            .compactMap { destination -> TabItem? in
-                guard case .view(let tab) = destination,
-                      supportsStageFlow(tab) else {
-                    return nil
-                }
-                return tab
-            }
-            .last
+        guard selectedRootTab == .settings,
+              navigationPath.count == 1,
+              case .view(let tab) = navigationPath[0],
+              supportsStageFlow(tab) else { return nil }
+        return tab
     }
 
     private static func supportsStageFlow(_ tab: TabItem) -> Bool {

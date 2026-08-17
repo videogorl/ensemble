@@ -75,7 +75,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .albums,
-                morePath: [],
+                navigationPath: [],
                 isPhone: true
             ),
             .albums
@@ -83,10 +83,17 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .playlists,
-                morePath: [],
+                navigationPath: [],
                 isPhone: true
             ),
             .playlists
+        )
+        XCTAssertNil(
+            MainTabStageFlowPolicy.activeRootTab(
+                selectedRootTab: .playlists,
+                navigationPath: [.playlist(id: "playlist", sourceKey: nil)],
+                isPhone: true
+            )
         )
     }
 
@@ -94,7 +101,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.albums)],
+                navigationPath: [.view(.albums)],
                 isPhone: true
             ),
             .albums
@@ -102,10 +109,10 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.albums), .album(id: "album", sourceKey: nil)],
+                navigationPath: [.view(.albums), .album(id: "album", sourceKey: nil)],
                 isPhone: true
             ),
-            .albums
+            nil
         )
     }
 
@@ -113,7 +120,7 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.playlists)],
+                navigationPath: [.view(.playlists)],
                 isPhone: true
             ),
             .playlists
@@ -121,10 +128,10 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.playlists), .playlist(id: "playlist", sourceKey: nil)],
+                navigationPath: [.view(.playlists), .playlist(id: "playlist", sourceKey: nil)],
                 isPhone: true
             ),
-            .playlists
+            nil
         )
     }
 
@@ -132,21 +139,21 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .artists,
-                morePath: [],
+                navigationPath: [],
                 isPhone: true
             )
         )
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .settings,
-                morePath: [.view(.artists)],
+                navigationPath: [.view(.artists)],
                 isPhone: true
             )
         )
         XCTAssertNil(
             MainTabStageFlowPolicy.activeRootTab(
                 selectedRootTab: .albums,
-                morePath: [],
+                navigationPath: [],
                 isPhone: false
             )
         )
