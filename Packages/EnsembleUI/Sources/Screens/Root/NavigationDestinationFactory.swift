@@ -80,14 +80,22 @@ struct NavigationDestinationFactory {
                 return AnyView(EnsembleStateScaffold(kind: .empty, title: "Genre not found"))
             }
         case .artistDetail(let artist, let includesHidden):
-            return AnyView(
-                ArtistDetailView(
-                    artist: artist,
-                    nowPlayingVM: nowPlayingVM,
-                    includesHidden: includesHidden
-                )
-                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            let detailView = ArtistDetailView(
+                artist: artist,
+                nowPlayingVM: nowPlayingVM,
+                includesHidden: includesHidden
             )
+            .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            #if os(iOS)
+            if #available(iOS 18.0, *), let mediaNavigationNamespace {
+                return AnyView(
+                    detailView.navigationTransition(
+                        .zoom(sourceID: artist.sourceScopedID, in: mediaNavigationNamespace)
+                    )
+                )
+            }
+            #endif
+            return AnyView(detailView)
         case .artist(let id, let sourceKey):
             return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .album(let id, let sourceKey):
@@ -114,14 +122,22 @@ struct NavigationDestinationFactory {
         case .playlist(let id, let sourceKey):
             return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlistDetail(let playlist, let includesHidden):
-            return AnyView(
-                PlaylistDetailView(
-                    playlist: playlist,
-                    nowPlayingVM: nowPlayingVM,
-                    includesHidden: includesHidden
-                )
-                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            let detailView = PlaylistDetailView(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                includesHidden: includesHidden
             )
+            .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            #if os(iOS)
+            if #available(iOS 18.0, *), let mediaNavigationNamespace {
+                return AnyView(
+                    detailView.navigationTransition(
+                        .zoom(sourceID: playlist.sourceScopedID, in: mediaNavigationNamespace)
+                    )
+                )
+            }
+            #endif
+            return AnyView(detailView)
         case .mergedPlaylist(let title, let isSmart):
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):

@@ -7,8 +7,19 @@ struct HiddenMediaView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var expandedSections = Set<HiddenMediaKind>()
     @State private var isEditingOrder = false
+    @State private var playlistActionRequest: PlaylistActionPresentationRequest?
+    @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 16), count: 2)
+    private let columns = [
+        GridItem(
+            .adaptive(
+                minimum: EnsembleScaffold.MediaCard.hubArtworkDimension,
+                maximum: EnsembleScaffold.MediaCard.hubArtworkDimension
+            ),
+            spacing: EnsembleScaffold.MediaCard.gridSpacing,
+            alignment: .top
+        )
+    ]
 
     var body: some View {
         Group {
@@ -44,6 +55,8 @@ struct HiddenMediaView: View {
         .sheet(isPresented: $isEditingOrder) {
             HiddenSectionOrderView(store: viewModel.store)
         }
+        .playlistActionPresentation(request: $playlistActionRequest, nowPlayingVM: nowPlayingVM)
+        .libraryItemInfoPresentation(request: $libraryItemInfoRequest)
         .onAppear { nowPlayingVM.beginHiddenPlaybackScope() }
         .onDisappear { nowPlayingVM.endHiddenPlaybackScope() }
         .task { await viewModel.load() }
@@ -74,93 +87,70 @@ struct HiddenMediaView: View {
             }
             .buttonStyle(.plain)
 
-            if kind == .track {
-                VStack(spacing: 0) {
-                    ForEach(displayed) { item in hiddenTrackRow(item) }
-                }
-            } else {
-                LazyVGrid(columns: columns, spacing: 18) {
-                    ForEach(displayed) { item in hiddenCard(item) }
+            LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
+                ForEach(displayed) { item in
+                    HubItemCard(
+                        item: item.hubItem,
+                        nowPlayingVM: nowPlayingVM,
+                        navigationCoordinator: navigationCoordinator,
+                        includesHidden: true,
+                        playlistActionRequest: $playlistActionRequest,
+                        libraryItemInfoRequest: $libraryItemInfoRequest
+                    )
                 }
             }
         }
     }
+}
 
-    @ViewBuilder
-    private func hiddenCard(_ item: ResolvedHiddenMediaItem) -> some View {
-        switch item {
+private extension ResolvedHiddenMediaItem {
+    var hubItem: HubItem {
+        switch self {
         case .playlist(let playlist):
-            navigationCoordinator.routeLink(
-                to: .playlistDetail(playlist, includesHidden: true),
-                in: .settings
-            ) {
-                card(title: playlist.title) { ArtworkView(playlist: playlist, size: .thumbnail) }
-            }
-            .buttonStyle(.plain)
-            .contextMenu { PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM) }
+            return HubItem(
+                id: playlist.id,
+                type: "playlist",
+                title: playlist.title,
+                subtitle: "\(playlist.trackCount) songs",
+                thumbPath: playlist.compositePath ?? playlist.fallbackArtworkPath,
+                year: nil,
+                sourceCompositeKey: playlist.sourceCompositeKey ?? "",
+                playlist: playlist
+            )
         case .artist(let artist):
-            navigationCoordinator.routeLink(
-                to: .artistDetail(artist, includesHidden: true),
-                in: .settings
-            ) {
-                card(title: artist.name) {
-                    ArtworkView(
-                        artist: artist,
-                        size: .thumbnail,
-                        cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
-                    )
-                }
-            }
-            .buttonStyle(.plain)
-            .contextMenu { ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM) }
+            return HubItem(
+                id: artist.id,
+                type: "artist",
+                title: artist.name,
+                subtitle: nil,
+                thumbPath: artist.thumbPath ?? artist.fallbackThumbPath,
+                year: nil,
+                sourceCompositeKey: artist.sourceCompositeKey ?? "",
+                artist: artist
+            )
         case .album(let album):
-            navigationCoordinator.routeLink(
-                to: .albumDetail(album, includesHidden: true),
-                in: .settings
-            ) {
-                card(title: album.title) { ArtworkView(album: album, size: .thumbnail) }
-            }
-            .buttonStyle(.plain)
-            .contextMenu {
-                AlbumActionsContextMenu(album: album, nowPlayingVM: nowPlayingVM)
-            }
-        case .track:
-            EmptyView()
+            return HubItem(
+                id: album.id,
+                type: "album",
+                title: album.title,
+                subtitle: album.artistName,
+                thumbPath: album.thumbPath,
+                year: album.year,
+                sourceCompositeKey: album.sourceCompositeKey ?? "",
+                album: album
+            )
+        case .track(let track):
+            return HubItem(
+                id: track.id,
+                type: "track",
+                title: track.title,
+                subtitle: track.artistName ?? track.albumName,
+                thumbPath: track.thumbPath ?? track.fallbackThumbPath,
+                year: nil,
+                sourceCompositeKey: track.sourceCompositeKey ?? "",
+                track: track
+            )
         }
-    }
-
-    @ViewBuilder
-    private func hiddenTrackRow(_ item: ResolvedHiddenMediaItem) -> some View {
-        if case .track(let track) = item {
-            Button { nowPlayingVM.playHidden(track: track) } label: {
-                HStack(spacing: 12) {
-                    ArtworkView(
-                        track: track,
-                        size: .tiny,
-                        cornerRadius: ArtworkCornerRadius.square(for: .tiny)
-                    )
-                    VStack(alignment: .leading) {
-                        Text(track.title).lineLimit(1)
-                        Text(track.artistName ?? track.albumName ?? "")
-                            .font(.caption)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                }
-                .padding(.vertical, 8)
-            }
-            .buttonStyle(.plain)
-            .contextMenu { TrackActionsContextMenu(track: track, nowPlayingVM: nowPlayingVM) }
-        }
-    }
-
-    private func card<Artwork: View>(title: String, @ViewBuilder artwork: () -> Artwork) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            artwork()
-            Text(title).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

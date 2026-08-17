@@ -323,6 +323,7 @@ struct HubSection: View {
                             item: item,
                             nowPlayingVM: nowPlayingVM,
                             navigationCoordinator: navigationCoordinator,
+                            includesHidden: false,
                             playlistActionRequest: $playlistActionRequest,
                             libraryItemInfoRequest: $libraryItemInfoRequest
                         )
@@ -363,6 +364,7 @@ struct HubItemCard: View {
     let item: HubItem
     let nowPlayingVM: NowPlayingViewModel
     let navigationCoordinator: NavigationCoordinator
+    let includesHidden: Bool
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
 
@@ -440,18 +442,18 @@ struct HubItemCard: View {
         switch item.type {
         case "album":
             if let album = item.album {
-                return .albumDetail(album)
+                return .albumDetail(album, includesHidden: includesHidden)
             } else {
                 return .album(id: item.id, sourceKey: item.sourceCompositeKey)
             }
         case "artist":
             if let artist = item.artist {
-                return .artistDetail(artist)
+                return .artistDetail(artist, includesHidden: includesHidden)
             }
             return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
             if let playlist = item.playlist {
-                return .playlistDetail(playlist)
+                return .playlistDetail(playlist, includesHidden: includesHidden)
             }
             return .playlist(id: item.id, sourceKey: item.sourceCompositeKey)
         default:
@@ -460,7 +462,7 @@ struct HubItemCard: View {
     }
 
     private var mediaNavigationTransitionID: String? {
-        item.album?.sourceScopedID ?? item.playlist?.sourceScopedID
+        item.album?.sourceScopedID ?? item.artist?.sourceScopedID ?? item.playlist?.sourceScopedID
     }
 
     private var artworkCacheHint: PersistentArtworkCacheHint? {
