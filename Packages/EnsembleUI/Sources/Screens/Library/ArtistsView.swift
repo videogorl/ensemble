@@ -796,6 +796,10 @@ public struct ArtistDetailView: View {
                     MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                 }
             }
+
+            if displayArtist.isMerged {
+                MergedArtistHiddenContextMenu(displayArtist: displayArtist)
+            }
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
         }
