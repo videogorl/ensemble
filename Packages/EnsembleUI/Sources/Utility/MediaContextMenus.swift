@@ -550,22 +550,45 @@ struct HiddenMediaDetailMenuButton: View {
     let identity: HiddenMediaIdentity?
 
     @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var requestedHideIdentities: Set<HiddenMediaIdentity> = []
 
     @ViewBuilder
     var body: some View {
-        if let action = hiddenMediaToggleAction(
-            identity: identity,
-            candidates: candidates,
-            store: hiddenMediaStore
-        ) {
-            Button(action: action) {
-                MediaActionLabel(
-                    kind: .toggleHidden(
-                        isHidden: identity.map(hiddenMediaStore.snapshot.contains) ?? false
+        Group {
+            if let action = hiddenMediaToggleAction(
+                identity: identity,
+                candidates: candidates,
+                store: hiddenMediaStore
+            ) {
+                let isHidden = identity.map(hiddenMediaStore.snapshot.contains) ?? false
+                Button {
+                    if !isHidden {
+                        requestedHideIdentities = Set(
+                            candidates.lazy
+                                .map(\.identity)
+                                .filter { !hiddenMediaStore.snapshot.contains($0) }
+                        )
+                    }
+                    action()
+                    dismissAfterHideIfNeeded()
+                } label: {
+                    MediaActionLabel(
+                        kind: .toggleHidden(isHidden: isHidden)
                     )
-                )
+                }
             }
         }
+        .onChange(of: hiddenMediaStore.snapshot) { _ in
+            dismissAfterHideIfNeeded()
+        }
+    }
+
+    private func dismissAfterHideIfNeeded() {
+        guard !requestedHideIdentities.isEmpty,
+              requestedHideIdentities.isSubset(of: hiddenMediaStore.snapshot.identities) else { return }
+        requestedHideIdentities.removeAll()
+        dismiss()
     }
 }
 
