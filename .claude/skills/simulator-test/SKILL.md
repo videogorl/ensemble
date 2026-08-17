@@ -14,6 +14,8 @@ Use this skill when the `testing` skill calls for runtime proof in the running a
 
 This skill exists so the agent can iterate without asking the user to manually operate the app.
 
+Commands below assume `ENSEMBLE_SIMULATOR_UDID` is set to the currently discovered UUID for the requested runtime.
+
 For repeatable cold-launch baselines, prefer `scripts/capture_runtime_baseline.sh --capture-startup` after the app is installed. It captures both the simulator OS log stream and the latest `PersistentLogService` session log, then prints a filtered summary.
 
 ---
@@ -25,7 +27,7 @@ Use these hooks before falling back to coordinate tapping. They route through `N
 Launch arguments:
 
 ```bash
-xcrun simctl launch booted com.videogorl.ensemble \
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble \
   -EnsembleAutomationMode YES \
   -EnsembleAutomationStartSurface profile-storage \
   -EnsembleAutomationDisableAnimations YES
@@ -44,16 +46,16 @@ Supported start surfaces: `home`, `songs`, `artists`, `albums`, `genres`, `playl
 Debug navigation deep links:
 
 ```bash
-xcrun simctl openurl booted 'ensemble://debug/open?surface=profile-storage'
-xcrun simctl openurl booted 'ensemble://debug/open?surface=playlists'
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/open?surface=profile-storage'
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://debug/open?surface=playlists'
 ```
 
 Media deep links:
 
 ```bash
-xcrun simctl openurl booted 'ensemble://artist/<artist-id>?sourceKey=<url-encoded-source-key>'
-xcrun simctl openurl booted 'ensemble://album/<album-id>?sourceKey=<url-encoded-source-key>'
-xcrun simctl openurl booted 'ensemble://playlist/<playlist-id>?sourceKey=<url-encoded-source-key>'
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://artist/<artist-id>?sourceKey=<url-encoded-source-key>'
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://album/<album-id>?sourceKey=<url-encoded-source-key>'
+xcrun simctl openurl "$ENSEMBLE_SIMULATOR_UDID" 'ensemble://playlist/<playlist-id>?sourceKey=<url-encoded-source-key>'
 ```
 
 Expected logs:
@@ -110,6 +112,23 @@ Use the iOS Simulator MCP server for interaction and state inspection:
 
 Use shell commands for build/log work, and MCP tools for interaction. That split keeps the iteration loop fast and agent-driven.
 
+### Pin The Exact Simulator
+
+When a specific runtime is requested, use its current UUID everywhere. Do not put a human-readable device name in an MCP/build-tool session profile: duplicate names can silently resolve to a newer runtime even when an ID was also supplied.
+
+```bash
+xcrun simctl list devices available
+ENSEMBLE_SIMULATOR_UDID=<ios-26.5-uuid>
+xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
+xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
+  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" build
+xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" <path-to-Ensemble.app>
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
+xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
+```
+
+Use an ID-only session profile. After every tool-driven build or launch, compare the returned destination/launch target with the requested UUID. Reject UI evidence until the fresh app was explicitly installed on that UUID and the running Ensemble process is proven there.
+
 ## Physical Device Screenshots Via iPhone Mirroring
 
 When validating on a real iPhone through iPhone Mirroring, do not use plain `screencapture` for evidence. It captures the full desktop display and can save the wrong window. Resolve the `iPhone Mirroring` window id first, then target that window explicitly:
@@ -162,25 +181,27 @@ Do not claim that the agent heard audio unless the active audio transport expose
 
 ```bash
 # 1. Build
+ENSEMBLE_SIMULATOR_UDID=<target-simulator-uuid>
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
   build
 
-# 2. Install the app with the iOS Simulator MCP server
-# install_app(app_path: "<built .app path>")
+# 2. Install the fresh app on the exact simulator
+xcrun simctl install "$ENSEMBLE_SIMULATOR_UDID" <path-to-Ensemble.app>
 
 # 3. Terminate previous instance if needed
-xcrun simctl terminate booted com.videogorl.ensemble
+xcrun simctl terminate "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 
 # 4. Start log stream → file (background)
-xcrun simctl spawn booted log stream \
+xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" log stream \
   --level debug \
   --predicate 'processImagePath CONTAINS "Ensemble" AND NOT processImagePath CONTAINS "Extension"' \
   --style compact > /tmp/ensemble-test-log.txt 2>&1 &
 LOG_PID=$!
 
-# 5. Launch with the iOS Simulator MCP server
-# launch_app(bundle_id: "com.videogorl.ensemble", terminate_running: true)
+# 5. Launch and prove the process on the exact simulator
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
+xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" launchctl list | rg 'com\.videogorl\.ensemble'
 
 # 6. Use the MCP server to inspect and drive the UI
 # ui_describe_all()
@@ -207,22 +228,23 @@ grep -E '(pattern|you|care|about)' /tmp/ensemble-test-log.txt
 ### 1. Boot Or Select The Target Simulator
 
 ```bash
-xcrun simctl list devices | grep "Booted"
+xcrun simctl list devices available
 ```
 
 If no simulator is booted, boot one:
 
 ```bash
-xcrun simctl boot "iPhone 17 Pro"
+ENSEMBLE_SIMULATOR_UDID=<target-simulator-uuid>
+xcrun simctl boot "$ENSEMBLE_SIMULATOR_UDID"
 ```
 
-Use the device name (not UUID) with `xcrun simctl` commands, or use `booted` as a shortcut when exactly one simulator is running. Use the MCP `open_simulator` and `get_booted_sim_id` tools once the device is up.
+Use the UUID with every `simctl` and build-tool command. Use the MCP `open_simulator` and `get_booted_sim_id` tools once the device is up, and reject the session if the returned ID differs.
 
 ### 2. Build the App
 
 ```bash
 xcodebuild -workspace Ensemble.xcworkspace -scheme Ensemble \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -destination "platform=iOS Simulator,id=$ENSEMBLE_SIMULATOR_UDID" \
   build 2>&1 | grep -E "error:|BUILD" | tail -5
 ```
 
@@ -232,7 +254,7 @@ Check for `BUILD SUCCEEDED`. If the build fails, fix errors before proceeding.
 
 ### 3. Install And Launch Through MCP
 
-After building, install the generated `.app` bundle with `install_app`, then launch with `launch_app(bundle_id: "com.videogorl.ensemble")`.
+After building, explicitly install the generated `.app` bundle on `$ENSEMBLE_SIMULATOR_UDID`. If using `install_app` and `launch_app`, first configure an ID-only session and confirm each returned target matches that UUID. Prove the Ensemble process is running on that simulator before accepting UI evidence.
 
 Once the app is running:
 
@@ -245,7 +267,7 @@ This is the default validation path for bug fixes and UI work.
 ### 4. Terminate Any Running Instance
 
 ```bash
-xcrun simctl terminate booted com.videogorl.ensemble 2>/dev/null
+xcrun simctl terminate "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble 2>/dev/null
 ```
 
 This ensures a clean cold launch. Ignore errors if no instance is running.
@@ -253,7 +275,7 @@ This ensures a clean cold launch. Ignore errors if no instance is running.
 ### 5. Start Debug Log Stream
 
 ```bash
-xcrun simctl spawn booted log stream \
+xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" log stream \
   --level debug \
   --predicate 'processImagePath CONTAINS "Ensemble" AND NOT processImagePath CONTAINS "Extension"' \
   --style compact > /tmp/ensemble-test-log.txt 2>&1 &
@@ -283,19 +305,19 @@ sleep 1  # Give log stream time to initialize
 ### 6. Launch the App
 
 ```bash
-xcrun simctl launch booted com.videogorl.ensemble
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 ```
 
 For launches with specific arguments or environment variables:
 
 ```bash
-xcrun simctl launch booted com.videogorl.ensemble --argument1 value1
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble --argument1 value1
 ```
 
 Prefer the Ensemble automation arguments for repeatable surface entry:
 
 ```bash
-xcrun simctl launch booted com.videogorl.ensemble \
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble \
   -EnsembleAutomationMode YES \
   -EnsembleAutomationStartSurface downloads
 ```
@@ -352,13 +374,13 @@ Copy-paste this block for a standard cold-launch capture:
 
 ```bash
 # Build, launch, and capture 10s of cold-launch logs
-xcrun simctl terminate booted com.videogorl.ensemble 2>/dev/null
-xcrun simctl spawn booted log stream --level debug \
+xcrun simctl terminate "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble 2>/dev/null
+xcrun simctl spawn "$ENSEMBLE_SIMULATOR_UDID" log stream --level debug \
   --predicate 'processImagePath CONTAINS "Ensemble" AND NOT processImagePath CONTAINS "Extension"' \
   --style compact > /tmp/ensemble-test-log.txt 2>&1 &
 LOG_PID=$!
 sleep 1
-xcrun simctl launch booted com.videogorl.ensemble
+xcrun simctl launch "$ENSEMBLE_SIMULATOR_UDID" com.videogorl.ensemble
 sleep 10
 kill $LOG_PID 2>/dev/null
 echo "=== Captured $(wc -l < /tmp/ensemble-test-log.txt) lines ==="
