@@ -294,6 +294,56 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.sourceDisplaySnapshot(for: viewModel.sourceSections[1]).filteredTracks.isEmpty)
     }
 
+    func testHidingLoadedAlbumRemovesItFromMergedArtistSnapshots() async throws {
+        let source = "plex:subscriber:server:3"
+        let otherSource = "plex:free:server:3"
+        let artists = [
+            Artist(id: "11617", key: "/library/metadata/11617", name: "Janelle Monáe", sourceCompositeKey: source),
+            Artist(id: "42", key: "/library/metadata/42", name: "Janelle Monáe", sourceCompositeKey: otherSource)
+        ]
+        let displayArtist = DisplayArtist.group(artists).first!
+        let repository = LibraryRepositorySpy()
+        repository.albumsByArtistSource[LibraryRepositorySpy.key(artists[0].id, source)] = [
+            makeAlbum(ratingKey: "200", title: "The ArchAndroid", sourceCompositeKey: source)
+        ]
+        repository.albumsByArtistSource[LibraryRepositorySpy.key(artists[1].id, otherSource)] = [
+            makeAlbum(ratingKey: "300", title: "Dirty Computer", sourceCompositeKey: otherSource)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key(artists[0].id, source)] = [
+            makeTrack(ratingKey: "201", title: "Suite II Overture", sourceCompositeKey: source)
+        ]
+        repository.tracksByArtistSource[LibraryRepositorySpy.key(artists[1].id, otherSource)] = [
+            makeTrack(ratingKey: "301", title: "Make Me Feel", sourceCompositeKey: otherSource)
+        ]
+        let accountManager = makeAccountManager()
+        let suiteName = "MergedArtistDetailViewModelTests.hidden.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let hiddenMediaStore = HiddenMediaStore(defaults: defaults)
+        let viewModel = MergedArtistDetailViewModel(
+            displayArtist: displayArtist,
+            libraryRepository: repository,
+            syncCoordinator: makeSyncCoordinator(accountManager: accountManager, libraryRepository: repository),
+            accountManager: accountManager,
+            hiddenMediaStore: hiddenMediaStore
+        )
+
+        await viewModel.load()
+        XCTAssertEqual(viewModel.filteredAlbums.map(\.id), ["200", "300"])
+
+        hiddenMediaStore.setHidden(
+            true,
+            identity: HiddenMediaIdentity(kind: .album, itemID: "200", sourceCompositeKey: source)
+        )
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+
+        XCTAssertEqual(viewModel.filteredAlbums.map(\.id), ["300"])
+        XCTAssertTrue(viewModel.filteredAlbums(for: viewModel.sourceSections[0]).isEmpty)
+        XCTAssertEqual(viewModel.filteredAlbums(for: viewModel.sourceSections[1]).map(\.id), ["300"])
+    }
+
     func testArtistDetailDisplaySnapshotCachesFilteredReleaseAndFavoriteCollections() {
         var filterOptions = FilterOptions()
         filterOptions.searchText = "maybe"

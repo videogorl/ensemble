@@ -624,7 +624,10 @@ public struct ArtistDetailView: View {
             )
         )
         self._mergedViewModel = StateObject(
-            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
+            wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(
+                displayArtist: displayArtist,
+                includesHidden: includesHidden
+            )
         )
         self.nowPlayingVM = nowPlayingVM
         let pinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
@@ -1460,7 +1463,7 @@ public struct ArtistDetailView: View {
                         .font(EnsembleDesign.Typography.sectionTitle)
                         .foregroundColor(EnsembleDesign.Color.primaryText)
 
-                    Text(sourceSectionMetadata(section, snapshot: snapshot, totalTracks: section.tracks))
+                    Text(sourceSectionMetadata(section, snapshot: snapshot, totalTracks: snapshot.filteredTracks))
                         .font(EnsembleDesign.Typography.rowSecondary)
                         .foregroundColor(EnsembleDesign.Color.secondaryText)
                 }

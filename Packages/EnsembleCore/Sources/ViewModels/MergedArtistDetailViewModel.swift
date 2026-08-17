@@ -43,19 +43,30 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let accountManager: AccountManager
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         displayArtist: DisplayArtist,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        accountManager: AccountManager
+        accountManager: AccountManager,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.displayArtist = displayArtist
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "MergedArtistDetail-\(displayArtist.id)")
+
+        hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.rebuildDisplaySnapshots()
+        }.store(in: &cancellables)
 
         setupFilterPersistence()
         observeReloadTriggers()
@@ -172,15 +183,14 @@ public final class MergedArtistDetailViewModel: ObservableObject {
     private func rebuildDisplaySnapshots() {
         let allAlbums = sourceSections.flatMap(\.albums)
         let allTracks = sourceSections.flatMap(\.tracks)
-        let nextDisplay = ArtistDetailDisplaySnapshot(albums: allAlbums, tracks: allTracks, filterOptions: filterOptions)
+        let nextDisplay = makeDisplaySnapshot(albums: allAlbums, tracks: allTracks)
         let nextSourceDisplays = Dictionary(
             uniqueKeysWithValues: sourceSections.map { section in
                 (
                     section.id,
-                    ArtistDetailDisplaySnapshot(
+                    makeDisplaySnapshot(
                         albums: section.albums,
-                        tracks: section.tracks,
-                        filterOptions: filterOptions
+                        tracks: section.tracks
                     )
                 )
             }
@@ -192,6 +202,14 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         if sourceDisplaySnapshots != nextSourceDisplays {
             sourceDisplaySnapshots = nextSourceDisplays
         }
+    }
+
+    private func makeDisplaySnapshot(albums: [Album], tracks: [Track]) -> ArtistDetailDisplaySnapshot {
+        ArtistDetailDisplaySnapshot(
+            albums: includesHidden ? albums : albums.filter { !hiddenMediaStore.snapshot.isHidden($0) },
+            tracks: includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks),
+            filterOptions: filterOptions
+        )
     }
 
     private func albums(for artist: Artist) async throws -> [Album] {

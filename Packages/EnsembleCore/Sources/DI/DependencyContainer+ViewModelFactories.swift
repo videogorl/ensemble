@@ -83,12 +83,17 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeMergedArtistDetailViewModel(displayArtist: DisplayArtist) -> MergedArtistDetailViewModel {
+    func makeMergedArtistDetailViewModel(
+        displayArtist: DisplayArtist,
+        includesHidden: Bool = false
+    ) -> MergedArtistDetailViewModel {
         MergedArtistDetailViewModel(
             displayArtist: displayArtist,
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            accountManager: accountManager
+            accountManager: accountManager,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
