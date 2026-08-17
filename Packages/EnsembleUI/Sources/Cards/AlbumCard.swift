@@ -165,6 +165,7 @@ public struct AlbumGrid: View {
     let onAlbumTap: ((Album) -> Void)?
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
+    let includesHidden: Bool
 
     @Environment(\.dependencies) private var deps
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -178,6 +179,7 @@ public struct AlbumGrid: View {
         navigationCoordinator: NavigationCoordinator,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
+        includesHidden: Bool = false,
         onAlbumTap: ((Album) -> Void)? = nil
     ) {
         self.albums = albums
@@ -185,6 +187,7 @@ public struct AlbumGrid: View {
         self.navigationCoordinator = navigationCoordinator
         self.layout = layout
         self.horizontalPadding = horizontalPadding
+        self.includesHidden = includesHidden
         self.onAlbumTap = onAlbumTap
     }
 
@@ -203,7 +206,9 @@ public struct AlbumGrid: View {
                         albumContextMenu(for: album)
                     }
                 } else {
-                    navigationCoordinator.routeLink(to: .albumDetail(album)) {
+                    navigationCoordinator.routeLink(
+                        to: .albumDetail(album, includesHidden: includesHidden)
+                    ) {
                         AlbumCard(album: album, layout: layout)
                     }
                     .buttonStyle(.plain)

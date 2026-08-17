@@ -209,6 +209,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let albumMenuActions: AlbumDetailMenuActions?
     let hiddenCandidates: [HiddenMediaCandidate]
     let hiddenIdentity: HiddenMediaIdentity?
+    let includesHidden: Bool
     let additionalFooterContent: AnyView?
     let supplementalLoad: (() async -> Void)?
     /// Custom pin/unpin action for merged playlists (pins all constituents).
@@ -256,6 +257,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         selectedTrackId: String? = nil,
         hiddenCandidates: [HiddenMediaCandidate] = [],
         hiddenIdentity: HiddenMediaIdentity? = nil,
+        includesHidden: Bool = false,
         genreChipContent: AnyView? = nil,
         playlistMenuActions: PlaylistDetailMenuActions? = nil,
         albumMenuActions: AlbumDetailMenuActions? = nil,
@@ -277,6 +279,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.selectedTrackId = selectedTrackId
         self.hiddenCandidates = hiddenCandidates
         self.hiddenIdentity = hiddenIdentity
+        self.includesHidden = includesHidden
         self.genreChipContent = genreChipContent
         self.playlistMenuActions = playlistMenuActions
         self.albumMenuActions = albumMenuActions
@@ -1154,7 +1157,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     to: .artistNamed(
                         name: subtitle,
                         fallbackID: artistId,
-                        sourceKey: headerData.sourceKey
+                        sourceKey: headerData.sourceKey,
+                        includesHidden: includesHidden
                     )
                 ) {
                     Text(subtitle)

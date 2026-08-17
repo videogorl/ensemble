@@ -42,16 +42,27 @@ struct NavigationDestinationFactory {
             } else {
                 return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
             }
-        case .artistNamed(let name, let fallbackID, let sourceKey):
+        case .artistNamed(let name, let fallbackID, let sourceKey, let includesHidden):
             if let displayArtist = displayArtist(named: name, libraryVM: libraryVM) {
-                return AnyView(ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM))
+                return AnyView(
+                    ArtistDetailView(
+                        displayArtist: displayArtist,
+                        nowPlayingVM: nowPlayingVM,
+                        includesHidden: includesHidden
+                    )
+                    .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+                )
             }
             if let fallbackID {
-                return AnyView(ArtistDetailLoader(
-                    artistId: fallbackID,
-                    artistSourceKey: sourceKey,
-                    nowPlayingVM: nowPlayingVM
-                ))
+                return AnyView(
+                    ArtistDetailLoader(
+                        artistId: fallbackID,
+                        artistSourceKey: sourceKey,
+                        nowPlayingVM: nowPlayingVM,
+                        includesHidden: includesHidden
+                    )
+                    .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+                )
             }
             return AnyView(EnsembleStateScaffold(kind: .empty, title: "Artist not found"))
         case .displayGenre(let id):
@@ -71,8 +82,13 @@ struct NavigationDestinationFactory {
             return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .album(let id, let sourceKey):
             return AnyView(AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
-        case .albumDetail(let album):
-            let detailView = AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+        case .albumDetail(let album, let includesHidden):
+            let detailView = AlbumDetailView(
+                album: album,
+                nowPlayingVM: nowPlayingVM,
+                includesHidden: includesHidden
+            )
+            .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
             #if os(iOS)
             if #available(iOS 18.0, *), let mediaNavigationNamespace {
                 return AnyView(
@@ -167,9 +183,13 @@ struct NavigationDestinationFactory {
 }
 
 private extension View {
-    func hiddenPlaybackScope(_ nowPlayingVM: NowPlayingViewModel) -> some View {
-        onAppear { nowPlayingVM.beginHiddenPlaybackScope() }
-            .onDisappear { nowPlayingVM.endHiddenPlaybackScope() }
+    func hiddenPlaybackScope(_ nowPlayingVM: NowPlayingViewModel, isEnabled: Bool = true) -> some View {
+        onAppear {
+            if isEnabled { nowPlayingVM.beginHiddenPlaybackScope() }
+        }
+        .onDisappear {
+            if isEnabled { nowPlayingVM.endHiddenPlaybackScope() }
+        }
     }
 }
 

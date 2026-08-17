@@ -274,6 +274,7 @@ public struct AlbumDetailView: View {
 
     private let album: Album
     private let selectedTrackId: String?
+    private let includesHidden: Bool
 
     public init(
         album: Album,
@@ -284,6 +285,7 @@ public struct AlbumDetailView: View {
     ) {
         self.album = album
         self.selectedTrackId = selectedTrackId
+        self.includesHidden = includesHidden
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
                 album: album,
@@ -297,6 +299,7 @@ public struct AlbumDetailView: View {
     public init(viewModel: AlbumDetailViewModel, nowPlayingVM: NowPlayingViewModel) {
         self.album = viewModel.album
         self.selectedTrackId = nil
+        self.includesHidden = false
         self._viewModel = StateObject(wrappedValue: viewModel)
         self.nowPlayingVM = nowPlayingVM
     }
@@ -315,6 +318,7 @@ public struct AlbumDetailView: View {
             selectedTrackId: selectedTrackId,
             hiddenCandidates: album.hiddenCandidate(deps: deps).map { [$0] } ?? [],
             hiddenIdentity: HiddenMediaIdentity(album),
+            includesHidden: includesHidden,
             albumMenuActions: AlbumDetailMenuActions(
                 downloadAvailability: resolvedDownloadMenuAvailability(
                     isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled(album),
@@ -551,7 +555,9 @@ public struct AlbumDetailView: View {
 
     @ViewBuilder
     private func albumCardLink(for scrollAlbum: Album) -> some View {
-        navigationCoordinator.routeLink(to: .albumDetail(scrollAlbum)) {
+        navigationCoordinator.routeLink(
+            to: .albumDetail(scrollAlbum, includesHidden: includesHidden)
+        ) {
             AlbumCard(album: scrollAlbum, layout: .shelf)
         }
         .buttonStyle(.plain)

@@ -37,12 +37,12 @@ public final class NavigationCoordinator: ObservableObject {
     /// Represents a navigation destination using IDs for hashability and deep linking
     public enum Destination: Hashable {
         case displayArtist(id: String)
-        case artistNamed(name: String, fallbackID: String?, sourceKey: String?)
+        case artistNamed(name: String, fallbackID: String?, sourceKey: String?, includesHidden: Bool = false)
         case displayGenre(id: String)
         case artistDetail(Artist)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
-        case albumDetail(Album)
+        case albumDetail(Album, includesHidden: Bool = false)
         case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
         case playlistDetail(Playlist)

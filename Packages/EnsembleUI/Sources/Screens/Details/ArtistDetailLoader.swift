@@ -5,22 +5,29 @@ struct ArtistDetailLoader: View {
     let artistId: String
     let artistSourceKey: String?
     let nowPlayingVM: NowPlayingViewModel
+    let includesHidden: Bool
     @State private var artist: Artist?
     @State private var isLoading = true
     @State private var error: Error?
     
     @Environment(\.dependencies) private var deps
 
-    init(artistId: String, artistSourceKey: String? = nil, nowPlayingVM: NowPlayingViewModel) {
+    init(
+        artistId: String,
+        artistSourceKey: String? = nil,
+        nowPlayingVM: NowPlayingViewModel,
+        includesHidden: Bool = false
+    ) {
         self.artistId = artistId
         self.artistSourceKey = artistSourceKey
         self.nowPlayingVM = nowPlayingVM
+        self.includesHidden = includesHidden
     }
     
     var body: some View {
         Group {
             if let artist = artist {
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM, includesHidden: includesHidden)
             } else if isLoading {
                 MediaDetailSurface<EmptyView>.LoadingState(title: "Loading artist…")
             } else if let error = error {

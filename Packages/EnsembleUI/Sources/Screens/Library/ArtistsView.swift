@@ -575,6 +575,7 @@ public struct ArtistDetailView: View {
     @StateObject private var mergedViewModel: MergedArtistDetailViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     private let displayArtist: DisplayArtist
+    private let includesHidden: Bool
     let nowPlayingVM: NowPlayingViewModel
 
     @Environment(\.dependencies) private var dependencies
@@ -617,6 +618,7 @@ public struct ArtistDetailView: View {
     ) {
         let artist = displayArtist.primaryArtist
         self.displayArtist = displayArtist
+        self.includesHidden = includesHidden
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(
                 artist: artist,
@@ -1536,7 +1538,8 @@ public struct ArtistDetailView: View {
             AlbumGrid(
                 albums: albums,
                 nowPlayingVM: nowPlayingVM,
-                navigationCoordinator: navigationCoordinator
+                navigationCoordinator: navigationCoordinator,
+                includesHidden: includesHidden
             )
         }
     }

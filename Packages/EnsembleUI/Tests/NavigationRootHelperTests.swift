@@ -280,6 +280,28 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
     }
 
+    func testNestedDetailDestinationsKeepHiddenCollectionScope() {
+        let album = Self.album()
+
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.albumDetail(album),
+            .albumDetail(album, includesHidden: true)
+        )
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.artistNamed(
+                name: "Artist",
+                fallbackID: "artist",
+                sourceKey: "server/library"
+            ),
+            .artistNamed(
+                name: "Artist",
+                fallbackID: "artist",
+                sourceKey: "server/library",
+                includesHidden: true
+            )
+        )
+    }
+
     func testConcreteArtistDetailDestinationTargetsArtists() {
         XCTAssertEqual(NavigationCoordinator.targetTab(for: .artistDetail(Self.artist())), .artists)
     }
