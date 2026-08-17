@@ -6,6 +6,7 @@
 
 // Re-export dependencies
 @_exported import EnsembleAPI
+@_exported import EnsembleDomain
 @_exported import EnsemblePersistence
 
 #if os(iOS)

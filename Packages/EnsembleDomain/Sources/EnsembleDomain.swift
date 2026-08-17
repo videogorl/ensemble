@@ -1,5 +1,56 @@
 import Foundation
 
+public enum HiddenMediaKind: String, Codable, CaseIterable, Identifiable, Sendable {
+    case playlist
+    case artist
+    case album
+    case track
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .playlist: return "Playlists"
+        case .artist: return "Artists"
+        case .album: return "Albums"
+        case .track: return "Tracks"
+        }
+    }
+}
+
+public struct HiddenMediaIdentity: Codable, Hashable, Identifiable, Sendable {
+    public let kind: HiddenMediaKind
+    public let itemID: String
+    public let sourceCompositeKey: String
+
+    public init(kind: HiddenMediaKind, itemID: String, sourceCompositeKey: String) {
+        self.kind = kind
+        self.itemID = itemID
+        self.sourceCompositeKey = sourceCompositeKey
+    }
+
+    public var id: String { "\(kind.rawValue)||\(sourceCompositeKey)||\(itemID)" }
+}
+
+public struct HiddenMediaMutation: Codable, Equatable, Sendable {
+    public let identity: HiddenMediaIdentity
+    public let isHidden: Bool
+    public let modifiedAt: Date
+    public let relatedCatalogID: String?
+
+    public init(
+        identity: HiddenMediaIdentity,
+        isHidden: Bool,
+        modifiedAt: Date = Date(),
+        relatedCatalogID: String? = nil
+    ) {
+        self.identity = identity
+        self.isHidden = isHidden
+        self.modifiedAt = modifiedAt
+        self.relatedCatalogID = relatedCatalogID
+    }
+}
+
 /// Watch-portable account credential decoded from Ensemble's synchronizable
 /// iCloud Keychain payload.
 public struct EnsembleAccountCredential: Codable, Equatable, Sendable, Identifiable {
@@ -86,6 +137,8 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
     public let kind: EnsembleMediaKind
     public let title: String
     public let subtitle: String?
+    public let albumID: String?
+    public let artistID: String?
     public let artworkPath: String?
     public let sourceKey: String
     public let isSmart: Bool?
@@ -95,6 +148,8 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
         kind: EnsembleMediaKind,
         title: String,
         subtitle: String? = nil,
+        albumID: String? = nil,
+        artistID: String? = nil,
         artworkPath: String? = nil,
         sourceKey: String,
         isSmart: Bool? = nil
@@ -103,6 +158,8 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
         self.kind = kind
         self.title = title
         self.subtitle = subtitle
+        self.albumID = albumID
+        self.artistID = artistID
         self.artworkPath = artworkPath
         self.sourceKey = sourceKey
         self.isSmart = isSmart
@@ -116,6 +173,7 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
     public let title: String
     public let artistName: String?
     public let albumID: String?
+    public let artistID: String?
     public let albumTitle: String?
     public let trackNumber: Int?
     public let discNumber: Int?
@@ -130,6 +188,7 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
         title: String,
         artistName: String? = nil,
         albumID: String? = nil,
+        artistID: String? = nil,
         albumTitle: String? = nil,
         trackNumber: Int? = nil,
         discNumber: Int? = nil,
@@ -143,6 +202,7 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
         self.title = title
         self.artistName = artistName
         self.albumID = albumID
+        self.artistID = artistID
         self.albumTitle = albumTitle
         self.trackNumber = trackNumber
         self.discNumber = discNumber
@@ -187,6 +247,8 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
             kind: .track,
             title: title,
             subtitle: artistName,
+            albumID: albumID,
+            artistID: artistID,
             artworkPath: artworkPath,
             sourceKey: sourceKey
         )

@@ -607,6 +607,7 @@ private extension PlexAlbum {
             kind: .album,
             title: title,
             subtitle: parentTitle,
+            artistID: parentRatingKey,
             artworkPath: thumb ?? art,
             sourceKey: sourceKey
         )
@@ -645,6 +646,8 @@ private extension PlexHubMetadata {
             kind: kind,
             title: displayTitle,
             subtitle: subtitle,
+            albumID: kind == .track ? parentRatingKey : nil,
+            artistID: kind == .album ? parentRatingKey : (kind == .track ? grandparentRatingKey : nil),
             artworkPath: thumb ?? parentThumb ?? grandparentThumb ?? art,
             sourceKey: sourceKey
         )
@@ -659,6 +662,7 @@ extension PlexTrack {
             title: title,
             artistName: originalTitle ?? grandparentTitle,
             albumID: parentRatingKey,
+            artistID: grandparentRatingKey,
             albumTitle: parentTitle,
             trackNumber: index,
             discNumber: parentIndex,

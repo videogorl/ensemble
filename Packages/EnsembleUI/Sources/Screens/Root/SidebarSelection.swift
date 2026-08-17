@@ -32,15 +32,15 @@ public enum SidebarSelection: Hashable {
         fallback: SidebarSelection?
     ) -> SidebarSelection {
         switch destination {
-        case .displayArtist, .artistNamed, .artistDetail, .artist, .hiddenArtistDetail:
+        case .displayArtist, .artistNamed, .artistDetail, .artist:
             return .library(.artists)
         case .displayGenre:
             return .library(.genres)
-        case .album, .albumDetail, .song, .hiddenAlbumDetail:
+        case .album, .albumDetail, .song:
             return .library(.albums)
         case .playlist(let id, let sourceKey):
             return .playlist(id: id, sourceKey: sourceKey)
-        case .playlistDetail(let playlist), .hiddenPlaylistDetail(let playlist):
+        case .playlistDetail(let playlist, _):
             return .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
         case .mergedPlaylist(let title, let isSmart):
             return .mergedPlaylist(title: title, isSmart: isSmart)

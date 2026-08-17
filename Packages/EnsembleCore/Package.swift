@@ -16,6 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../EnsembleSupport"),
+        .package(path: "../EnsembleDomain"),
         .package(path: "../EnsembleAPI"),
         .package(path: "../EnsemblePersistence"),
         .package(path: "../EnsembleSiriShared"),
@@ -26,6 +27,7 @@ let package = Package(
             name: "EnsembleCore",
             dependencies: [
                 "EnsembleSupport",
+                "EnsembleDomain",
                 "EnsembleAPI",
                 "EnsemblePersistence",
                 "EnsembleSiriShared",

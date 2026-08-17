@@ -89,13 +89,19 @@ struct HiddenMediaView: View {
     private func hiddenCard(_ item: ResolvedHiddenMediaItem) -> some View {
         switch item {
         case .playlist(let playlist):
-            navigationCoordinator.routeLink(to: .hiddenPlaylistDetail(playlist), in: .settings) {
+            navigationCoordinator.routeLink(
+                to: .playlistDetail(playlist, includesHidden: true),
+                in: .settings
+            ) {
                 card(title: playlist.title) { ArtworkView(playlist: playlist, size: .thumbnail) }
             }
             .buttonStyle(.plain)
             .contextMenu { PlaylistActionsContextMenu(playlist: playlist, nowPlayingVM: nowPlayingVM) }
         case .artist(let artist):
-            navigationCoordinator.routeLink(to: .hiddenArtistDetail(artist), in: .settings) {
+            navigationCoordinator.routeLink(
+                to: .artistDetail(artist, includesHidden: true),
+                in: .settings
+            ) {
                 card(title: artist.name) {
                     ArtworkView(
                         artist: artist,
@@ -107,7 +113,10 @@ struct HiddenMediaView: View {
             .buttonStyle(.plain)
             .contextMenu { ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM) }
         case .album(let album):
-            navigationCoordinator.routeLink(to: .hiddenAlbumDetail(album), in: .settings) {
+            navigationCoordinator.routeLink(
+                to: .albumDetail(album, includesHidden: true),
+                in: .settings
+            ) {
                 card(title: album.title) { ArtworkView(album: album, size: .thumbnail) }
             }
             .buttonStyle(.plain)

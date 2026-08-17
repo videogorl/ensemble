@@ -76,8 +76,15 @@ struct NavigationDestinationFactory {
             } else {
                 return AnyView(EnsembleStateScaffold(kind: .empty, title: "Genre not found"))
             }
-        case .artistDetail(let artist):
-            return AnyView(ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM))
+        case .artistDetail(let artist, let includesHidden):
+            return AnyView(
+                ArtistDetailView(
+                    artist: artist,
+                    nowPlayingVM: nowPlayingVM,
+                    includesHidden: includesHidden
+                )
+                .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
+            )
         case .artist(let id, let sourceKey):
             return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .album(let id, let sourceKey):
@@ -103,8 +110,13 @@ struct NavigationDestinationFactory {
             return AnyView(SongPermalinkLoader(songId: id, songSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .playlist(let id, let sourceKey):
             return AnyView(PlaylistDetailLoader(playlistId: id, playlistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
-        case .playlistDetail(let playlist):
-            let detailView = PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
+        case .playlistDetail(let playlist, let includesHidden):
+            let detailView = PlaylistDetailView(
+                playlist: playlist,
+                nowPlayingVM: nowPlayingVM,
+                includesHidden: includesHidden
+            )
+            .hiddenPlaybackScope(nowPlayingVM, isEnabled: includesHidden)
             #if os(iOS)
             if #available(iOS 18.0, *), let mediaNavigationNamespace {
                 return AnyView(
@@ -115,21 +127,6 @@ struct NavigationDestinationFactory {
             }
             #endif
             return AnyView(detailView)
-        case .hiddenArtistDetail(let artist):
-            return AnyView(
-                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM, includesHidden: true)
-                    .hiddenPlaybackScope(nowPlayingVM)
-            )
-        case .hiddenAlbumDetail(let album):
-            return AnyView(
-                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM, includesHidden: true)
-                    .hiddenPlaybackScope(nowPlayingVM)
-            )
-        case .hiddenPlaylistDetail(let playlist):
-            return AnyView(
-                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM, includesHidden: true)
-                    .hiddenPlaybackScope(nowPlayingVM)
-            )
         case .mergedPlaylist(let title, let isSmart):
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):

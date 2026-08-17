@@ -1,4 +1,5 @@
 import CloudKit
+import EnsembleDomain
 import Foundation
 #if os(macOS)
 import Security
@@ -333,7 +334,7 @@ public actor CloudSyncService {
         _ lhs: [HiddenMediaMutation],
         _ rhs: [HiddenMediaMutation]
     ) -> [HiddenMediaMutation] {
-        Dictionary((lhs + rhs).map { ($0.identity.id, $0) }, uniquingKeysWith: { current, candidate in
+        Dictionary((lhs + rhs).map { ($0.identity, $0) }, uniquingKeysWith: { current, candidate in
             current.modifiedAt >= candidate.modifiedAt ? current : candidate
         }).values.sorted { $0.identity.id < $1.identity.id }
     }

@@ -39,16 +39,13 @@ public final class NavigationCoordinator: ObservableObject {
         case displayArtist(id: String)
         case artistNamed(name: String, fallbackID: String?, sourceKey: String?, includesHidden: Bool = false)
         case displayGenre(id: String)
-        case artistDetail(Artist)
+        case artistDetail(Artist, includesHidden: Bool = false)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
         case albumDetail(Album, includesHidden: Bool = false)
         case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
-        case playlistDetail(Playlist)
-        case hiddenArtistDetail(Artist)
-        case hiddenAlbumDetail(Album)
-        case hiddenPlaylistDetail(Playlist)
+        case playlistDetail(Playlist, includesHidden: Bool = false)
         case hidden
         case mergedPlaylist(title: String, isSmart: Bool)
         case moodTracks(mood: Mood)
@@ -57,13 +54,13 @@ public final class NavigationCoordinator: ObservableObject {
 
         var journeyLogDescription: String {
             switch self {
-            case .displayArtist, .artistNamed, .artistDetail, .artist, .hiddenArtistDetail:
+            case .displayArtist, .artistNamed, .artistDetail, .artist:
                 return "artist"
             case .displayGenre:
                 return "genre"
-            case .album, .albumDetail, .song, .hiddenAlbumDetail:
+            case .album, .albumDetail, .song:
                 return "album"
-            case .playlist, .playlistDetail, .hiddenPlaylistDetail:
+            case .playlist, .playlistDetail:
                 return "playlist"
             case .mergedPlaylist(_, let isSmart):
                 return isSmart ? "smartPlaylist" : "playlist"
@@ -142,15 +139,15 @@ public final class NavigationCoordinator: ObservableObject {
 
     public nonisolated static func targetTab(for destination: Destination) -> TabItem {
         switch destination {
-        case .displayArtist, .artistNamed, .artistDetail, .hiddenArtistDetail:
+        case .displayArtist, .artistNamed, .artistDetail:
             return .artists
         case .displayGenre:
             return .genres
         case .artist:
             return .artists
-        case .album, .albumDetail, .song, .hiddenAlbumDetail:
+        case .album, .albumDetail, .song:
             return .albums
-        case .playlist, .playlistDetail, .mergedPlaylist, .hiddenPlaylistDetail:
+        case .playlist, .playlistDetail, .mergedPlaylist:
             return .playlists
         case .moodTracks:
             return .home

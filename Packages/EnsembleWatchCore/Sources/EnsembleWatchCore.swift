@@ -753,28 +753,16 @@ public final class WatchPlaybackController: ObservableObject {
     }
 }
 
-private struct WatchHiddenIdentity: Codable, Hashable {
-    let kind: String
-    let itemID: String
-    let sourceCompositeKey: String
-}
-
-private struct WatchHiddenMutation: Codable {
-    let identity: WatchHiddenIdentity
-    let isHidden: Bool
-    let modifiedAt: Date
-}
-
 private actor WatchHiddenMediaCloudStore {
     private let recordID = CKRecord.ID(recordName: "currentHiddenMediaState")
 
-    func activeIdentities() async -> Set<WatchHiddenIdentity> {
+    func activeIdentities() async -> Set<HiddenMediaIdentity> {
         #if os(watchOS)
         do {
             let database = CKContainer(identifier: "iCloud.com.videogorl.ensemble").privateCloudDatabase
             let record = try await database.record(for: recordID)
             guard let data = record["mutations"] as? Data,
-                  let mutations = try? JSONDecoder().decode([WatchHiddenMutation].self, from: data) else { return [] }
+                  let mutations = try? JSONDecoder().decode([HiddenMediaMutation].self, from: data) else { return [] }
             return Set(mutations.filter(\.isHidden).map(\.identity))
         } catch {
             return []
@@ -807,7 +795,7 @@ public final class WatchExperienceModel: ObservableObject {
     private let cloudPreferences: WatchCloudPreferenceStore
     private let authService: PlexAuthService
     private let hiddenMediaCloud = WatchHiddenMediaCloudStore()
-    private var hiddenIdentities: Set<WatchHiddenIdentity> = []
+    private var hiddenIdentities: Set<HiddenMediaIdentity> = []
 
     private var discoveredServers: [EnsemblePlexServer] = []
     private var bootstrapTask: Task<Void, Never>?
@@ -1240,25 +1228,42 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func isHidden(_ item: EnsembleMediaSummary) -> Bool {
-        hiddenIdentities.contains(WatchHiddenIdentity(
-            kind: item.kind.rawValue,
-            itemID: item.id,
-            sourceCompositeKey: item.sourceKey
-        ))
+        Self.isHidden(item, hiddenIdentities: hiddenIdentities)
     }
 
     private func isHidden(_ track: EnsembleTrack) -> Bool {
-        hiddenIdentities.contains(WatchHiddenIdentity(
-            kind: "track",
-            itemID: track.id,
-            sourceCompositeKey: track.sourceKey
-        )) || track.albumID.map { albumID in
-            hiddenIdentities.contains(WatchHiddenIdentity(
-                kind: "album",
+        Self.isHidden(track, hiddenIdentities: hiddenIdentities)
+    }
+
+    nonisolated static func isHidden(
+        _ item: EnsembleMediaSummary,
+        hiddenIdentities: Set<HiddenMediaIdentity>
+    ) -> Bool {
+        guard let kind = HiddenMediaKind(rawValue: item.kind.rawValue) else { return false }
+        return hiddenIdentities.contains(.init(
+            kind: kind,
+            itemID: item.id,
+            sourceCompositeKey: item.sourceKey
+        )) || item.albumID.map { albumID in
+            hiddenIdentities.contains(.init(
+                kind: .album,
                 itemID: albumID,
-                sourceCompositeKey: track.sourceKey
+                sourceCompositeKey: item.sourceKey
+            ))
+        } == true || item.artistID.map { artistID in
+            hiddenIdentities.contains(.init(
+                kind: .artist,
+                itemID: artistID,
+                sourceCompositeKey: item.sourceKey
             ))
         } == true
+    }
+
+    nonisolated static func isHidden(
+        _ track: EnsembleTrack,
+        hiddenIdentities: Set<HiddenMediaIdentity>
+    ) -> Bool {
+        isHidden(track.summary, hiddenIdentities: hiddenIdentities)
     }
 
     nonisolated static func trackLoadStatus(trackCount: Int, failureCount: Int) -> String {

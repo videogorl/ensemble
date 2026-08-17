@@ -275,7 +275,7 @@ extension TrackRowInteractionModel {
                 ShareActions.shareTrackFile(track, deps: deps)
             },
             onToggleHidden: { track in
-                track.toggleHidden(deps: deps)
+                track.hiddenToggleAction(deps: deps)?()
             },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)

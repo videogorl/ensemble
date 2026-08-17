@@ -297,15 +297,11 @@ struct AlbumActionsContextMenu: View {
                     ShareActions.shareAlbumLink(album, deps: deps)
                 },
                 deleteAlbum: onDelete,
-                toggleHidden: hiddenIdentity.map { identity in
-                    {
-                        if isHidden {
-                            deps.hiddenMediaStore.setHidden(false, identity: identity)
-                        } else if let candidate = album.hiddenCandidate(deps: deps) {
-                            deps.hiddenMediaStore.requestHide([candidate])
-                        }
-                    }
-                }
+                toggleHidden: hiddenMediaToggleAction(
+                    identity: hiddenIdentity,
+                    candidates: album.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+                    store: deps.hiddenMediaStore
+                )
             )
         )
     }
@@ -476,15 +472,11 @@ struct ArtistActionsContextMenu: View {
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(artist, deps: deps)
                 },
-                toggleHidden: hiddenIdentity.map { identity in
-                    {
-                        if isHidden {
-                            deps.hiddenMediaStore.setHidden(false, identity: identity)
-                        } else if let candidate = artist.hiddenCandidate(deps: deps) {
-                            deps.hiddenMediaStore.requestHide([candidate])
-                        }
-                    }
-                }
+                toggleHidden: hiddenMediaToggleAction(
+                    identity: hiddenIdentity,
+                    candidates: artist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+                    store: deps.hiddenMediaStore
+                )
             )
         )
     }
@@ -527,37 +519,51 @@ struct MergedArtistHiddenContextMenu: View {
     let displayArtist: DisplayArtist
     @Environment(\.dependencies) private var deps
 
+    @ViewBuilder
     var body: some View {
-        Button {
-            deps.hiddenMediaStore.requestHide(
-                displayArtist.artists.compactMap { $0.hiddenCandidate(deps: deps) }
-            )
-        } label: {
-            MediaActionLabel(kind: .toggleHidden(isHidden: false))
+        if let action = hiddenMediaToggleAction(
+            candidates: displayArtist.artists.compactMap { $0.hiddenCandidate(deps: deps) },
+            store: deps.hiddenMediaStore
+        ) {
+            Button(action: action) {
+                MediaActionLabel(kind: .toggleHidden(isHidden: false))
+            }
         }
     }
+}
+
+@MainActor
+func hiddenMediaToggleAction(
+    identity: HiddenMediaIdentity? = nil,
+    candidates: [HiddenMediaCandidate],
+    store: HiddenMediaStore
+) -> (() -> Void)? {
+    if let identity, store.snapshot.contains(identity) {
+        return { store.setHidden(false, identity: identity) }
+    }
+    guard candidates.contains(where: { !store.snapshot.contains($0.identity) }) else { return nil }
+    return { store.requestHide(candidates) }
 }
 
 struct HiddenMediaDetailMenuButton: View {
     let candidates: [HiddenMediaCandidate]
     let identity: HiddenMediaIdentity?
 
-    @Environment(\.dependencies) private var deps
     @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
 
     @ViewBuilder
     var body: some View {
-        if let identity, hiddenMediaStore.snapshot.contains(identity) {
-            Button {
-                deps.hiddenMediaStore.setHidden(false, identity: identity)
-            } label: {
-                MediaActionLabel(kind: .toggleHidden(isHidden: true))
-            }
-        } else if candidates.contains(where: { !hiddenMediaStore.snapshot.contains($0.identity) }) {
-            Button {
-                deps.hiddenMediaStore.requestHide(candidates)
-            } label: {
-                MediaActionLabel(kind: .toggleHidden(isHidden: false))
+        if let action = hiddenMediaToggleAction(
+            identity: identity,
+            candidates: candidates,
+            store: hiddenMediaStore
+        ) {
+            Button(action: action) {
+                MediaActionLabel(
+                    kind: .toggleHidden(
+                        isHidden: identity.map(hiddenMediaStore.snapshot.contains) ?? false
+                    )
+                )
             }
         }
     }
@@ -669,15 +675,11 @@ struct PlaylistActionsContextMenu: View {
                     ShareActions.shareEnsembleLink(playlist, deps: deps)
                 },
                 deletePlaylist: onDelete,
-                toggleHidden: hiddenIdentity.map { identity in
-                    {
-                        if isHidden {
-                            deps.hiddenMediaStore.setHidden(false, identity: identity)
-                        } else if let candidate = playlist.hiddenCandidate(deps: deps) {
-                            deps.hiddenMediaStore.requestHide([candidate])
-                        }
-                    }
-                }
+                toggleHidden: hiddenMediaToggleAction(
+                    identity: hiddenIdentity,
+                    candidates: playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
+                    store: deps.hiddenMediaStore
+                )
             )
         )
     }
@@ -818,9 +820,10 @@ struct MergedPlaylistActionsContextMenu: View {
                     ShareActions.shareEnsembleLink(displayPlaylist, deps: deps)
                 },
                 deleteAll: onDelete,
-                toggleHidden: {
-                    deps.hiddenMediaStore.requestHide(candidates)
-                }
+                toggleHidden: hiddenMediaToggleAction(
+                    candidates: candidates,
+                    store: deps.hiddenMediaStore
+                )
             )
         )
     }
@@ -900,17 +903,11 @@ extension Track {
 
     @MainActor
     func hiddenToggleAction(deps: DependencyContainer) -> (() -> Void)? {
-        guard hiddenIdentity(deps: deps) != nil || hiddenCandidate(deps: deps) != nil else { return nil }
-        return { toggleHidden(deps: deps) }
-    }
-
-    @MainActor
-    func toggleHidden(deps: DependencyContainer) {
-        if let identity = hiddenIdentity(deps: deps) {
-            deps.hiddenMediaStore.setHidden(false, identity: identity)
-        } else if let candidate = hiddenCandidate(deps: deps) {
-            deps.hiddenMediaStore.requestHide([candidate])
-        }
+        hiddenMediaToggleAction(
+            identity: hiddenIdentity(deps: deps),
+            candidates: hiddenCandidate(deps: deps).map { [$0] } ?? [],
+            store: deps.hiddenMediaStore
+        )
     }
 }
 

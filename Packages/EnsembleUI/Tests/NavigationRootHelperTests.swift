@@ -282,10 +282,20 @@ final class NavigationRootHelperTests: XCTestCase {
 
     func testNestedDetailDestinationsKeepHiddenCollectionScope() {
         let album = Self.album()
+        let artist = Self.artist()
+        let playlist = Self.playlist()
 
         XCTAssertNotEqual(
             NavigationCoordinator.Destination.albumDetail(album),
             .albumDetail(album, includesHidden: true)
+        )
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.artistDetail(artist),
+            .artistDetail(artist, includesHidden: true)
+        )
+        XCTAssertNotEqual(
+            NavigationCoordinator.Destination.playlistDetail(playlist),
+            .playlistDetail(playlist, includesHidden: true)
         )
         XCTAssertNotEqual(
             NavigationCoordinator.Destination.artistNamed(
@@ -300,6 +310,31 @@ final class NavigationRootHelperTests: XCTestCase {
                 includesHidden: true
             )
         )
+    }
+
+    @MainActor
+    func testSharedHiddenActionHidesAndUnhidesAnExactIdentity() throws {
+        let suiteName = "NavigationRootHelperTests.hidden.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = HiddenMediaStore(defaults: defaults)
+        let identity = HiddenMediaIdentity(
+            kind: .album,
+            itemID: "album",
+            sourceCompositeKey: "plex:account:server:library"
+        )
+        let candidate = HiddenMediaCandidate(
+            identity: identity,
+            title: "Album",
+            source: "Server · Library · Account"
+        )
+
+        try XCTUnwrap(hiddenMediaToggleAction(candidates: [candidate], store: store))()
+        XCTAssertTrue(store.snapshot.contains(identity))
+
+        try XCTUnwrap(hiddenMediaToggleAction(identity: identity, candidates: [], store: store))()
+        XCTAssertFalse(store.snapshot.contains(identity))
+        XCTAssertNil(hiddenMediaToggleAction(candidates: [], store: store))
     }
 
     func testConcreteArtistDetailDestinationTargetsArtists() {

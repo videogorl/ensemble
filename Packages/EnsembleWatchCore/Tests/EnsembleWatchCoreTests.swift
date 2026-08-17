@@ -125,6 +125,44 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(filtered.playlists.map(\.sourceKey), ["plex:account:server"])
     }
 
+    func testHiddenMediaUsesExactIdentityAndCascadesFromArtistsAndAlbums() {
+        let sourceKey = "plex:account:server:3"
+        let artist = HiddenMediaIdentity(kind: .artist, itemID: "artist", sourceCompositeKey: sourceKey)
+        let album = HiddenMediaIdentity(kind: .album, itemID: "album", sourceCompositeKey: sourceKey)
+        let playlist = HiddenMediaIdentity(kind: .playlist, itemID: "playlist", sourceCompositeKey: sourceKey)
+        let hiddenTrack = HiddenMediaIdentity(kind: .track, itemID: "track", sourceCompositeKey: sourceKey)
+        let albumSummary = EnsembleMediaSummary(
+            id: "album",
+            kind: .album,
+            title: "Album",
+            artistID: "artist",
+            sourceKey: sourceKey
+        )
+        let track = EnsembleTrack(
+            id: "track",
+            title: "Track",
+            albumID: "album",
+            artistID: "artist",
+            sourceKey: sourceKey
+        )
+        let playlistSummary = EnsembleMediaSummary(
+            id: "playlist",
+            kind: .playlist,
+            title: "Playlist",
+            sourceKey: sourceKey
+        )
+
+        XCTAssertTrue(WatchExperienceModel.isHidden(albumSummary, hiddenIdentities: [artist]))
+        XCTAssertTrue(WatchExperienceModel.isHidden(albumSummary, hiddenIdentities: [album]))
+        XCTAssertTrue(WatchExperienceModel.isHidden(playlistSummary, hiddenIdentities: [playlist]))
+        XCTAssertTrue(WatchExperienceModel.isHidden(track, hiddenIdentities: [hiddenTrack]))
+        XCTAssertTrue(WatchExperienceModel.isHidden(track, hiddenIdentities: [artist]))
+        XCTAssertTrue(WatchExperienceModel.isHidden(track, hiddenIdentities: [album]))
+        XCTAssertFalse(WatchExperienceModel.isHidden(track, hiddenIdentities: [
+            HiddenMediaIdentity(kind: .artist, itemID: "artist", sourceCompositeKey: "plex:other:source")
+        ]))
+    }
+
     func testClockFormatting() {
         XCTAssertEqual(TimeInterval(65).ensembleWatchClockText, "1:05")
     }

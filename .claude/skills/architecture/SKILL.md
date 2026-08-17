@@ -14,14 +14,14 @@ Layer 3: EnsembleUI
 Layer 2: EnsembleCore
 Layer 1: EnsembleAPI + EnsemblePersistence
 Layer 0: EnsembleSupport
-Shared: EnsembleSiriShared
+Shared: EnsembleDomain + EnsembleSiriShared
 Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore
 ```
 
 Dependency flow is one-way:
 
 - UI depends on Core.
-- Core depends on API, Persistence, SiriShared, and Nuke.
+- Core depends on Domain, API, Persistence, SiriShared, and Nuke.
 - API and Persistence do not depend on Core or UI.
 - API, Persistence, Core, UI, SiriShared, app targets, and watch packages may depend on EnsembleSupport for pure Foundation utilities.
 - Watch packages stay portable and do not import full `EnsembleCore` or `EnsembleUI`.
@@ -34,7 +34,7 @@ Dependency flow is one-way:
 | `EnsembleAPI` | Plex auth, request building, API models, transport, connection policy, WebSocket transport, endpoint grouping. |
 | `EnsemblePersistence` | CoreData model/stack, repositories, download/artwork persistence, SwiftPM compiled model bundle. |
 | `EnsembleSiriShared` | Pure Siri/system-media identity, index models, payload codecs, phrase normalization/scoring, query variants, resolver logic, App Group constants. |
-| `EnsembleDomain` | Watch-portable account, media, category, and playback-status models. |
+| `EnsembleDomain` | Cross-client hidden-media wire identity plus Watch-portable account, media, category, and playback-status models. |
 | `EnsemblePlex` | Watch-portable Plex discovery/catalog/detail/stream facade using `EnsembleAPI`. |
 | `EnsembleWatchCore` | Watch bootstrap, Plex Link fallback, credential restore, KVS hints, catalog cache, local playback, local/remote Now Playing target state. |
 | `EnsembleCore` | ViewModels, services, DI, domain models, sync, playback, offline downloads, metadata mutations, profile/cloud, navigation state. |

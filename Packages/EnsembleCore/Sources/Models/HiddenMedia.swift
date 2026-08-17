@@ -1,56 +1,6 @@
 import Combine
+import EnsembleDomain
 import Foundation
-
-public enum HiddenMediaKind: String, Codable, CaseIterable, Identifiable, Sendable {
-    case playlist
-    case artist
-    case album
-    case track
-
-    public var id: String { rawValue }
-
-    public var title: String {
-        switch self {
-        case .playlist: return "Playlists"
-        case .artist: return "Artists"
-        case .album: return "Albums"
-        case .track: return "Tracks"
-        }
-    }
-}
-
-public struct HiddenMediaIdentity: Codable, Hashable, Identifiable, Sendable {
-    public let kind: HiddenMediaKind
-    public let itemID: String
-    public let sourceCompositeKey: String
-
-    public init(kind: HiddenMediaKind, itemID: String, sourceCompositeKey: String) {
-        self.kind = kind
-        self.itemID = itemID
-        self.sourceCompositeKey = sourceCompositeKey
-    }
-
-    public var id: String { "\(kind.rawValue)||\(sourceCompositeKey)||\(itemID)" }
-}
-
-public struct HiddenMediaMutation: Codable, Equatable, Sendable {
-    public let identity: HiddenMediaIdentity
-    public let isHidden: Bool
-    public let modifiedAt: Date
-    public let relatedCatalogID: String?
-
-    public init(
-        identity: HiddenMediaIdentity,
-        isHidden: Bool,
-        modifiedAt: Date = Date(),
-        relatedCatalogID: String? = nil
-    ) {
-        self.identity = identity
-        self.isHidden = isHidden
-        self.modifiedAt = modifiedAt
-        self.relatedCatalogID = relatedCatalogID
-    }
-}
 
 public struct HiddenMediaSnapshot: Equatable, Sendable {
     public static let empty = HiddenMediaSnapshot(identities: [])
@@ -83,37 +33,17 @@ public struct HiddenMediaSnapshot: Equatable, Sendable {
     }
 
     public func isHidden(_ artist: Artist) -> Bool {
-        identity(for: artist).map(contains) ?? false
+        HiddenMediaIdentity(artist).map(contains) ?? false
     }
 
     public func isHidden(_ playlist: Playlist) -> Bool {
-        identity(for: playlist).map(contains) ?? false
+        HiddenMediaIdentity(playlist).map(contains) ?? false
     }
 
     public func visibleTracks(_ tracks: [Track]) -> [Track] {
         tracks.filter { !isHidden($0) }
     }
 
-    public func identity(for track: Track) -> HiddenMediaIdentity? {
-        Self.identity(kind: .track, id: track.id, sourceKey: track.sourceCompositeKey)
-    }
-
-    public func identity(for album: Album) -> HiddenMediaIdentity? {
-        Self.identity(kind: .album, id: album.id, sourceKey: album.sourceCompositeKey)
-    }
-
-    public func identity(for artist: Artist) -> HiddenMediaIdentity? {
-        Self.identity(kind: .artist, id: artist.id, sourceKey: artist.sourceCompositeKey)
-    }
-
-    public func identity(for playlist: Playlist) -> HiddenMediaIdentity? {
-        Self.identity(kind: .playlist, id: playlist.id, sourceKey: playlist.sourceCompositeKey)
-    }
-
-    private static func identity(kind: HiddenMediaKind, id: String, sourceKey: String?) -> HiddenMediaIdentity? {
-        guard let sourceKey, !sourceKey.isEmpty else { return nil }
-        return HiddenMediaIdentity(kind: kind, itemID: id, sourceCompositeKey: sourceKey)
-    }
 }
 
 public struct HiddenMediaCandidate: Identifiable, Equatable, Sendable {
@@ -150,7 +80,7 @@ public final class HiddenMediaStore: ObservableObject {
     private let defaults: UserDefaults
     private let recordsKey: String
     private let orderKey: String
-    private var mutations: [String: HiddenMediaMutation] = [:]
+    private var mutations: [HiddenMediaIdentity: HiddenMediaMutation] = [:]
 
     public init(
         defaults: UserDefaults = .standard,
@@ -178,7 +108,7 @@ public final class HiddenMediaStore: ObservableObject {
             identity: identity,
             isHidden: isHidden,
             modifiedAt: date,
-            relatedCatalogID: relatedCatalogID ?? mutations[identity.id]?.relatedCatalogID
+            relatedCatalogID: relatedCatalogID ?? mutations[identity]?.relatedCatalogID
         ))
     }
 
@@ -205,9 +135,9 @@ public final class HiddenMediaStore: ObservableObject {
         lastRemoteApplyTime = Date()
         var changed = false
         for mutation in remote {
-            let current = mutations[mutation.identity.id]
+            let current = mutations[mutation.identity]
             guard current == nil || current!.modifiedAt < mutation.modifiedAt else { continue }
-            mutations[mutation.identity.id] = mutation
+            mutations[mutation.identity] = mutation
             changed = true
         }
         if changed { save() }
@@ -241,15 +171,15 @@ public final class HiddenMediaStore: ObservableObject {
     }
 
     private func apply(_ mutation: HiddenMediaMutation) {
-        guard mutations[mutation.identity.id]?.modifiedAt ?? .distantPast < mutation.modifiedAt else { return }
-        mutations[mutation.identity.id] = mutation
+        guard mutations[mutation.identity]?.modifiedAt ?? .distantPast < mutation.modifiedAt else { return }
+        mutations[mutation.identity] = mutation
         save()
     }
 
     private func load() {
         guard let data = defaults.data(forKey: recordsKey),
               let values = try? JSONDecoder().decode([HiddenMediaMutation].self, from: data) else { return }
-        mutations = Dictionary(values.map { ($0.identity.id, $0) }, uniquingKeysWith: { lhs, rhs in
+        mutations = Dictionary(values.map { ($0.identity, $0) }, uniquingKeysWith: { lhs, rhs in
             lhs.modifiedAt >= rhs.modifiedAt ? lhs : rhs
         })
         updateSnapshot()
@@ -274,22 +204,22 @@ public final class HiddenMediaStore: ObservableObject {
 
 public extension HiddenMediaIdentity {
     init?(_ track: Track) {
-        guard let sourceKey = track.sourceCompositeKey else { return nil }
+        guard let sourceKey = track.sourceCompositeKey, !sourceKey.isEmpty else { return nil }
         self.init(kind: .track, itemID: track.id, sourceCompositeKey: sourceKey)
     }
 
     init?(_ album: Album) {
-        guard let sourceKey = album.sourceCompositeKey else { return nil }
+        guard let sourceKey = album.sourceCompositeKey, !sourceKey.isEmpty else { return nil }
         self.init(kind: .album, itemID: album.id, sourceCompositeKey: sourceKey)
     }
 
     init?(_ artist: Artist) {
-        guard let sourceKey = artist.sourceCompositeKey else { return nil }
+        guard let sourceKey = artist.sourceCompositeKey, !sourceKey.isEmpty else { return nil }
         self.init(kind: .artist, itemID: artist.id, sourceCompositeKey: sourceKey)
     }
 
     init?(_ playlist: Playlist) {
-        guard let sourceKey = playlist.sourceCompositeKey else { return nil }
+        guard let sourceKey = playlist.sourceCompositeKey, !sourceKey.isEmpty else { return nil }
         self.init(kind: .playlist, itemID: playlist.id, sourceCompositeKey: sourceKey)
     }
 }

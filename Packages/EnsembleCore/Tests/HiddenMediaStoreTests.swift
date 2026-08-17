@@ -42,4 +42,11 @@ final class HiddenMediaStoreTests: XCTestCase {
         store.removeMissing(kind: .track, sourceKey: source, survivingItemIDs: [readded.id])
         XCTAssertFalse(store.snapshot.isHidden(track))
     }
+
+    func testMediaIdentitiesRejectEmptySourceKeys() {
+        XCTAssertNil(HiddenMediaIdentity(Track(id: "track", key: "/track", title: "Track", sourceCompositeKey: "")))
+        XCTAssertNil(HiddenMediaIdentity(Album(id: "album", key: "/album", title: "Album", sourceCompositeKey: "")))
+        XCTAssertNil(HiddenMediaIdentity(Artist(id: "artist", key: "/artist", name: "Artist", sourceCompositeKey: "")))
+        XCTAssertNil(HiddenMediaIdentity(Playlist(id: "playlist", key: "/playlist", title: "Playlist", sourceCompositeKey: "")))
+    }
 }
