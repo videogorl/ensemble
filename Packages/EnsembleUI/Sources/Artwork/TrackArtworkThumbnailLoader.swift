@@ -12,13 +12,7 @@ enum TrackArtworkThumbnailLoader {
         }
 
         let descriptor = ArtworkResolutionDescriptor(
-            path: track.thumbPath,
-            sourceKey: track.sourceCompositeKey,
-            ratingKey: track.id,
-            fallbackPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            cacheHint: nil,
-            fallbackCacheHint: PersistentArtworkCacheHint(fallbackAlbumArtworkFor: track),
+            track: track,
             size: ArtworkSize.thumbnail.rawValue,
             priority: .high
         )

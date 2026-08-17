@@ -361,9 +361,9 @@ final class EnsembleUITests: XCTestCase {
             id: "track-1",
             key: "track-1",
             title: "Track",
+            albumRatingKey: "album-1",
             thumbPath: artworkPath,
             fallbackThumbPath: artworkPath,
-            fallbackRatingKey: "album-1",
             sourceCompositeKey: "plex:account:server:library"
         )
 
@@ -378,6 +378,8 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(descriptor.fallbackPath, artworkPath)
         XCTAssertEqual(descriptor.fallbackRatingKey, "album-1")
         XCTAssertEqual(descriptor.fallbackCacheHint?.kind, .album)
+        XCTAssertEqual(descriptor.fallbackCacheHint?.ratingKey, "album-1")
+        XCTAssertEqual(descriptor.fallbackCacheHint?.sourceCompositeKey, "plex:account:server:library")
     }
 
     @MainActor

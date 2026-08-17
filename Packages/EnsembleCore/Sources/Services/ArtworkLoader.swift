@@ -107,15 +107,6 @@ public extension PersistentArtworkCacheHint {
         )
     }
 
-    init?(fallbackAlbumArtworkFor track: Track) {
-        self.init(
-            ratingKey: track.fallbackRatingKey,
-            kind: .album,
-            sourcePath: track.fallbackThumbPath,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
-    }
-
     func scoped(to sourceCompositeKey: String?) -> Self {
         Self(
             ratingKey: ratingKey,

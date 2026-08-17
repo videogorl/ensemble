@@ -43,6 +43,32 @@ public struct ArtworkResolutionDescriptor: Sendable {
         self.priority = priority
     }
 
+    public init(
+        track: Track,
+        fallbackSourceKey: String? = nil,
+        size: Int,
+        priority: ArtworkImagePriority
+    ) {
+        let sourceKey = track.sourceCompositeKey ?? fallbackSourceKey
+        let albumRatingKey = track.fallbackRatingKey ?? track.albumRatingKey
+        self.init(
+            path: track.thumbPath,
+            sourceKey: sourceKey,
+            ratingKey: track.id,
+            fallbackPath: track.fallbackThumbPath,
+            fallbackRatingKey: albumRatingKey,
+            cacheHint: nil,
+            fallbackCacheHint: PersistentArtworkCacheHint(
+                ratingKey: albumRatingKey,
+                kind: .album,
+                sourcePath: track.fallbackThumbPath,
+                sourceCompositeKey: sourceKey
+            ),
+            size: size,
+            priority: priority
+        )
+    }
+
     var effectiveCacheHint: PersistentArtworkCacheHint? {
         if let path, !path.isEmpty {
             return cacheHint

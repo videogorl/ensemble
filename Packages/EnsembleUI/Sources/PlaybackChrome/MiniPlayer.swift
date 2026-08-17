@@ -354,16 +354,7 @@ private struct MiniPlayerTrackInfo: View {
             // Artwork
             ZStack {
                 ArtworkView(
-                    path: track.thumbPath,
-                    sourceKey: track.sourceCompositeKey,
-                    ratingKey: track.id,
-                    fallbackPath: track.fallbackThumbPath,
-                    fallbackRatingKey: track.fallbackRatingKey,
-                    fallbackCacheHint: PersistentArtworkCacheHint(
-                        ratingKey: track.fallbackRatingKey,
-                        kind: .album,
-                        sourcePath: track.fallbackThumbPath
-                    ),
+                    track: track,
                     size: .tiny,
                     cornerRadius: artworkCornerRadius,
                     isResponsive: true
