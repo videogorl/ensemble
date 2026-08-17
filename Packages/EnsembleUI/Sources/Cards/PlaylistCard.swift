@@ -4,10 +4,16 @@ import SwiftUI
 public struct PlaylistCard: View {
     let playlist: Playlist
     let onTap: (() -> Void)?
+    let allowsDragExport: Bool
 
-    public init(playlist: Playlist, onTap: (() -> Void)? = nil) {
+    public init(
+        playlist: Playlist,
+        onTap: (() -> Void)? = nil,
+        allowsDragExport: Bool = true
+    ) {
         self.playlist = playlist
         self.onTap = onTap
+        self.allowsDragExport = allowsDragExport
     }
 
     public var body: some View {
@@ -32,8 +38,10 @@ public struct PlaylistCard: View {
                 onTap?()
             }
         }
-        .onDrag {
-            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.playlist(playlist))
+        .if(allowsDragExport) { view in
+            view.onDrag {
+                MediaDragExportPolicy.itemProvider(for: MediaDragPayload.playlist(playlist))
+            }
         }
     }
 }

@@ -590,7 +590,43 @@ public struct SearchView: View {
     /// Renders the appropriate route-owned card for a resolved pin.
     @ViewBuilder
     private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
-        pinnedItemCardContent(pin)
+        switch pin {
+        case let .album(album, _):
+            navigationCoordinator.routeLink(to: .albumDetail(album)) {
+                pinnedItemCardLabel(
+                    AlbumCard(album: album, allowsDragExport: false),
+                    pin: pin
+                )
+            }
+            .buttonStyle(.plain)
+        case let .artist(artist, _):
+            navigationCoordinator.routeLink(to: .artistDetail(artist)) {
+                pinnedItemCardLabel(ArtistCard(artist: artist), pin: pin)
+            }
+            .buttonStyle(.plain)
+        case let .playlist(playlist, _):
+            navigationCoordinator.routeLink(to: .playlistDetail(playlist)) {
+                pinnedItemCardLabel(
+                    PlaylistCard(playlist: playlist, allowsDragExport: false),
+                    pin: pin
+                )
+            }
+            .buttonStyle(.plain)
+        case let .mergedPlaylist(displayPlaylist, _):
+            navigationCoordinator.routeLink(
+                to: .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+            ) {
+                pinnedItemCardLabel(
+                    DisplayPlaylistCard(displayPlaylist: displayPlaylist),
+                    pin: pin
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func pinnedItemCardLabel<Content: View>(_ content: Content, pin: ResolvedPin) -> some View {
+        content
             .contextMenu {
                 Button(role: .destructive) {
                     pinnedVM.unpinAll(pin)
@@ -658,39 +694,6 @@ public struct SearchView: View {
         if collapsesPinsAfterDrag {
             isPinnedExpanded = false
             collapsesPinsAfterDrag = false
-        }
-    }
-
-    /// The actual route-owned card content without drag modifiers.
-    @ViewBuilder
-    private func pinnedItemCardContent(_ pin: ResolvedPin) -> some View {
-        switch pin {
-        case let .album(album, _):
-            navigationCoordinator.routeLink(to: .albumDetail(album)) {
-                AlbumCard(album: album)
-            }
-            .buttonStyle(.plain)
-        case let .artist(artist, _):
-            navigationCoordinator.routeLink(
-                to: .artistDetail(artist)
-            ) {
-                ArtistCard(artist: artist)
-            }
-            .buttonStyle(.plain)
-        case let .playlist(playlist, _):
-            navigationCoordinator.routeLink(
-                to: .playlistDetail(playlist)
-            ) {
-                PlaylistCard(playlist: playlist)
-            }
-            .buttonStyle(.plain)
-        case let .mergedPlaylist(dp, _):
-            navigationCoordinator.routeLink(
-                to: .mergedPlaylist(title: dp.title, isSmart: dp.isSmart)
-            ) {
-                DisplayPlaylistCard(displayPlaylist: dp)
-            }
-            .buttonStyle(.plain)
         }
     }
 

@@ -67,13 +67,16 @@ public enum AlbumCardLayoutMetrics {
 public struct AlbumCard: View {
     let album: Album
     let layout: AlbumCardLayoutMetrics
+    let allowsDragExport: Bool
 
     public init(
         album: Album,
-        layout: AlbumCardLayoutMetrics = .compact
+        layout: AlbumCardLayoutMetrics = .compact,
+        allowsDragExport: Bool = true
     ) {
         self.album = album
         self.layout = layout
+        self.allowsDragExport = allowsDragExport
     }
 
     public var body: some View {
@@ -135,8 +138,10 @@ public struct AlbumCard: View {
                     .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
-        .onDrag {
-            MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
+        .if(allowsDragExport) { view in
+            view.onDrag {
+                MediaDragExportPolicy.itemProvider(for: MediaDragPayload.album(album))
+            }
         }
     }
 
