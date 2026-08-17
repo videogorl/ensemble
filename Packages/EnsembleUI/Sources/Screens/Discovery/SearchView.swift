@@ -9,6 +9,7 @@ public struct SearchView: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var isPinnedExpanded = false
     @State private var collapsesPinsAfterDrag = false
+    @State private var pinDragSource: ResolvedPin?
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     // Targeted singleton observation for empty/no-results states
@@ -380,6 +381,7 @@ public struct SearchView: View {
             }
             .foregroundScrollActivity()
             .onAppear {
+                pinDragSource = nil
                 pinnedVM.draggingPin = nil
                 pinnedVM.draggingPinId = nil
                 if collapsesPinsAfterDrag {
@@ -397,7 +399,8 @@ public struct SearchView: View {
                 of: [.text],
                 delegate: PinnedGridBackgroundDropDelegate(
                     viewModel: pinnedVM,
-                    finish: schedulePinDragFinish
+                    begin: beginPinDrag,
+                    finish: finishPinDrag
                 )
             )
         }
@@ -557,9 +560,11 @@ public struct SearchView: View {
     /// Background drop delegate to ensure dragging state is cleared even if dropped outside an item
     private struct PinnedGridBackgroundDropDelegate: DropDelegate {
         let viewModel: PinnedViewModel
+        let begin: () -> Void
         let finish: () -> Void
 
         func dropEntered(info _: DropInfo) {
+            begin()
             // Restore dragging ID if we entered the background while dragging
             if let draggingPin = viewModel.draggingPin {
                 withAnimation(.spring()) {
@@ -634,17 +639,7 @@ public struct SearchView: View {
             }
             .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
             .onDrag {
-                // SwiftUI may request the provider multiple times for one drag.
-                if pinnedVM.draggingPin == nil {
-                    collapsesPinsAfterDrag = !isPinnedExpanded
-                    if collapsesPinsAfterDrag {
-                        withAnimation(.spring()) {
-                            isPinnedExpanded = true
-                        }
-                    }
-                    pinnedVM.draggingPin = pin
-                    pinnedVM.draggingPinId = pin.id
-                }
+                pinDragSource = pin
                 return NSItemProvider(object: pin.pinnedItem.id as NSString)
             }
             .onDrop(
@@ -652,7 +647,8 @@ public struct SearchView: View {
                 delegate: PinnedDropDelegate(
                     item: pin,
                     viewModel: pinnedVM,
-                    finish: schedulePinDragFinish
+                    begin: beginPinDrag,
+                    finish: finishPinDrag
                 )
             )
     }
@@ -661,9 +657,11 @@ public struct SearchView: View {
     private struct PinnedDropDelegate: DropDelegate {
         let item: ResolvedPin
         let viewModel: PinnedViewModel
+        let begin: () -> Void
         let finish: () -> Void
 
         func dropEntered(info _: DropInfo) {
+            begin()
             // Restore dragging state if we entered an item while dragging
             if let draggingPin = viewModel.draggingPin {
                 withAnimation(.spring()) {
@@ -686,12 +684,14 @@ public struct SearchView: View {
         }
     }
 
-    private func schedulePinDragFinish() {
-        // A final provider request can arrive after performDrop; clear state after it.
-        Task { @MainActor in
-            await Task.yield()
+    private func beginPinDrag() {
+        guard pinnedVM.draggingPin == nil, let pinDragSource else { return }
+        collapsesPinsAfterDrag = !isPinnedExpanded
+        pinnedVM.draggingPin = pinDragSource
+        pinnedVM.draggingPinId = pinDragSource.id
+        if collapsesPinsAfterDrag {
             withAnimation(.spring()) {
-                finishPinDrag()
+                isPinnedExpanded = true
             }
         }
     }
@@ -700,9 +700,12 @@ public struct SearchView: View {
         pinnedVM.persistOrder()
         pinnedVM.draggingPin = nil
         pinnedVM.draggingPinId = nil
+        pinDragSource = nil
         if collapsesPinsAfterDrag {
-            isPinnedExpanded = false
-            collapsesPinsAfterDrag = false
+            withAnimation(.spring()) {
+                isPinnedExpanded = false
+                collapsesPinsAfterDrag = false
+            }
         }
     }
 
