@@ -397,7 +397,7 @@ public struct SearchView: View {
                 of: [.text],
                 delegate: PinnedGridBackgroundDropDelegate(
                     viewModel: pinnedVM,
-                    finish: finishPinDrag
+                    finish: schedulePinDragFinish
                 )
             )
         }
@@ -569,9 +569,7 @@ public struct SearchView: View {
         }
 
         func performDrop(info _: DropInfo) -> Bool {
-            withAnimation(.spring()) {
-                finish()
-            }
+            finish()
             return true
         }
 
@@ -636,14 +634,17 @@ public struct SearchView: View {
             }
             .opacity(pinnedVM.draggingPinId == pin.id ? 0.1 : 1.0)
             .onDrag {
-                collapsesPinsAfterDrag = !isPinnedExpanded
-                if collapsesPinsAfterDrag {
-                    withAnimation(.spring()) {
-                        isPinnedExpanded = true
+                // SwiftUI may request the provider multiple times for one drag.
+                if pinnedVM.draggingPin == nil {
+                    collapsesPinsAfterDrag = !isPinnedExpanded
+                    if collapsesPinsAfterDrag {
+                        withAnimation(.spring()) {
+                            isPinnedExpanded = true
+                        }
                     }
+                    pinnedVM.draggingPin = pin
+                    pinnedVM.draggingPinId = pin.id
                 }
-                pinnedVM.draggingPin = pin
-                pinnedVM.draggingPinId = pin.id
                 return NSItemProvider(object: pin.pinnedItem.id as NSString)
             }
             .onDrop(
@@ -651,7 +652,7 @@ public struct SearchView: View {
                 delegate: PinnedDropDelegate(
                     item: pin,
                     viewModel: pinnedVM,
-                    finish: finishPinDrag
+                    finish: schedulePinDragFinish
                 )
             )
     }
@@ -680,10 +681,18 @@ public struct SearchView: View {
         }
 
         func performDrop(info _: DropInfo) -> Bool {
-            withAnimation(.spring()) {
-                finish()
-            }
+            finish()
             return true
+        }
+    }
+
+    private func schedulePinDragFinish() {
+        // A final provider request can arrive after performDrop; clear state after it.
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation(.spring()) {
+                finishPinDrag()
+            }
         }
     }
 
