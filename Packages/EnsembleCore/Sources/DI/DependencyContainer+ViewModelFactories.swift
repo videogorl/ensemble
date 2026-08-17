@@ -4,6 +4,16 @@ import Foundation
 // MARK: - View Model Factories
 
 public extension DependencyContainer {
+    @MainActor
+    func makeHiddenMediaViewModel() -> HiddenMediaViewModel {
+        HiddenMediaViewModel(
+            store: hiddenMediaStore,
+            libraryRepository: libraryRepository,
+            playlistRepository: playlistRepository,
+            accountManager: accountManager
+        )
+    }
+
     /// The active NowPlayingViewModel from the main UI.
     /// Set by MainTabView/SidebarView so the external display SceneDelegate
     /// can observe the same instance for AirPlay screen mirroring.
@@ -24,6 +34,7 @@ public extension DependencyContainer {
             syncCoordinator: syncCoordinator,
             accountManager: accountManager,
             visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
             toastCenter: toastCenter,
             appReadinessCoordinator: appReadinessCoordinator
         )
@@ -44,7 +55,8 @@ public extension DependencyContainer {
             playlistMutationWorkflow: playlistMutationWorkflow,
             trackRatingMutationWorkflow: trackRatingMutationWorkflow,
             trackAvailabilityResolver: trackAvailabilityResolver,
-            lyricsService: lyricsService
+            lyricsService: lyricsService,
+            hiddenMediaStore: hiddenMediaStore
         )
     }
 
@@ -60,11 +72,13 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeArtistDetailViewModel(artist: Artist) -> ArtistDetailViewModel {
+    func makeArtistDetailViewModel(artist: Artist, includesHidden: Bool = false) -> ArtistDetailViewModel {
         ArtistDetailViewModel(
             artist: artist,
             libraryRepository: libraryRepository,
-            syncCoordinator: syncCoordinator
+            syncCoordinator: syncCoordinator,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
@@ -79,12 +93,18 @@ public extension DependencyContainer {
     }
 
     @MainActor
-    func makeAlbumDetailViewModel(album: Album, initialTracks: [Track]? = nil) -> AlbumDetailViewModel {
+    func makeAlbumDetailViewModel(
+        album: Album,
+        initialTracks: [Track]? = nil,
+        includesHidden: Bool = false
+    ) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
             album: album,
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
-            initialTracks: initialTracks
+            initialTracks: initialTracks,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
@@ -97,6 +117,7 @@ public extension DependencyContainer {
             toastCenter: toastCenter,
             accountManager: accountManager,
             visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
             observesExternalChanges: observesExternalChanges
         )
     }
@@ -106,7 +127,8 @@ public extension DependencyContainer {
         playlist: Playlist,
         initialTracks: [Track]? = nil,
         initialItems: [PlaylistItem]? = nil,
-        observesExternalChanges: Bool = true
+        observesExternalChanges: Bool = true,
+        includesHidden: Bool = false
     ) -> PlaylistDetailViewModel {
         PlaylistDetailViewModel(
             playlist: playlist,
@@ -115,7 +137,9 @@ public extension DependencyContainer {
             mutationCoordinator: mutationCoordinator,
             initialTracks: initialTracks,
             initialItems: initialItems,
-            observesExternalChanges: observesExternalChanges
+            observesExternalChanges: observesExternalChanges,
+            hiddenMediaStore: hiddenMediaStore,
+            includesHidden: includesHidden
         )
     }
 
@@ -137,7 +161,8 @@ public extension DependencyContainer {
             hubRepository: hubRepository,
             moodRepository: moodRepository,
             accountManager: accountManager,
-            visibilityStore: libraryVisibilityStore
+            visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore
         )
     }
 
@@ -214,7 +239,7 @@ public extension DependencyContainer {
 
     @MainActor
     func makeFavoritesViewModel() -> FavoritesViewModel {
-        FavoritesViewModel(libraryRepository: libraryRepository)
+        FavoritesViewModel(libraryRepository: libraryRepository, hiddenMediaStore: hiddenMediaStore)
     }
 
     @MainActor
@@ -225,7 +250,8 @@ public extension DependencyContainer {
             libraryRepository: libraryRepository,
             playlistRepository: playlistRepository,
             accountManager: accountManager,
-            visibilityStore: libraryVisibilityStore
+            visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore
         )
     }
 
@@ -249,6 +275,7 @@ public extension DependencyContainer {
             playlistRepository: playlistRepository,
             hubOrderManager: hubOrderManager,
             visibilityStore: libraryVisibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
             appReadinessCoordinator: appReadinessCoordinator
         )
     }

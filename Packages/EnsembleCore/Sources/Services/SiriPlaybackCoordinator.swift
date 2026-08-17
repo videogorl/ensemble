@@ -49,17 +49,20 @@ public final class SiriPlaybackCoordinator {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let playbackService: PlaybackServiceProtocol
+    private let hiddenMediaStore: HiddenMediaStore
 
     public init(
         accountManager: AccountManager,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        playbackService: PlaybackServiceProtocol
+        playbackService: PlaybackServiceProtocol,
+        hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.accountManager = accountManager
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.playbackService = playbackService
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
     }
 
     /// Decodes and executes a Siri payload routed through NSUserActivity.
@@ -630,7 +633,7 @@ public final class SiriPlaybackCoordinator {
 
     private func isPlayable(track: Track, enabledSourceKeys: Set<String>) -> Bool {
         guard let sourceCompositeKey = track.sourceCompositeKey else { return false }
-        return enabledSourceKeys.contains(sourceCompositeKey)
+        return enabledSourceKeys.contains(sourceCompositeKey) && !hiddenMediaStore.snapshot.isHidden(track)
     }
 
     private func sourceMatches(requestSource: String?, candidateSource: String?) -> Bool {

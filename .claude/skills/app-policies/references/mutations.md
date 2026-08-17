@@ -33,9 +33,15 @@
 - Ratings/favorites and scrobbles remain source-exact. Apple favorites use the
   provider's binary truth; unsupported removal/dislike operations stay visibly
   unavailable rather than simulated.
-- Pins and visibility preferences are local reversible mutations. Focus-based
-  overrides are temporary and restore the saved preference when Focus ends;
-  they do not discard already queued mutations.
+- Pins and source-visibility preferences are local reversible mutations.
+  Focus-based overrides are temporary and restore the saved preference when
+  Focus ends; they do not discard already queued mutations.
+- Hidden selections are exact source-scoped roots. Artists derive their albums
+  and tracks, albums derive their tracks, and playlists derive nothing. They
+  affect newly generated queues but never rewrite the active playback queue.
+- Hidden records use last-writer-wins tombstones and may sync independently of
+  source credentials through private CloudKit. Unavailable exact identities stay
+  dormant; only explicit unhide or a complete authoritative inventory removes one.
 - Destructive mutation feedback is explicit and centralized. A failed or partial
   destructive operation never dismisses as full success or silently deletes
   additional local data.

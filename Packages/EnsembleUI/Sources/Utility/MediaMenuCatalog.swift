@@ -77,6 +77,7 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case favorite
     case pin
     case unpinAll
+    case toggleHidden
     case shareEnsembleLink
     case shareLink
     case shareAudioFile
@@ -96,6 +97,7 @@ enum MediaMenuSectionID: String, Equatable, Hashable {
     case sharing
     case offline
     case pinning
+    case visibility
     case management
     case destructive
 }
@@ -165,6 +167,7 @@ struct MediaMenuHandlers {
     var deleteAlbum: (() -> Void)?
     var deletePlaylist: (() -> Void)?
     var deleteAll: (() -> Void)?
+    var toggleHidden: (() -> Void)?
 
     func handler(for actionID: MediaMenuActionID) -> (() -> Void)? {
         switch actionID {
@@ -192,6 +195,7 @@ struct MediaMenuHandlers {
         case .favorite: return favorite
         case .pin: return pin
         case .unpinAll: return unpinAll
+        case .toggleHidden: return toggleHidden
         case .shareEnsembleLink: return shareEnsembleLink
         case .shareLink: return shareLink
         case .shareAudioFile: return shareAudioFile
@@ -256,6 +260,7 @@ struct MediaMenuState: Equatable {
     var isFavorited = false
     var isDownloaded = false
     var isPinned = false
+    var isHidden = false
     var isShuffleEnabled = false
     var repeatMode: RepeatMode = .off
 }
@@ -375,6 +380,7 @@ enum MediaMenuCatalog {
             sections.append(section(.management, managementActions, destructive: [.deleteTrack]))
         }
 
+        sections.append(section(.visibility, [.toggleHidden]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -433,6 +439,7 @@ enum MediaMenuCatalog {
             sections.append(section(.management, management, destructive: [.deleteAlbum]))
         }
 
+        sections.append(section(.visibility, [.toggleHidden]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -465,6 +472,7 @@ enum MediaMenuCatalog {
             sections.append(section(.management, management))
         }
 
+        sections.append(section(.visibility, [.toggleHidden]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -507,6 +515,7 @@ enum MediaMenuCatalog {
             sections.append(section(.management, management, destructive: [.deletePlaylist]))
         }
 
+        sections.append(section(.visibility, [.toggleHidden]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -539,6 +548,7 @@ enum MediaMenuCatalog {
             sections.append(section(.management, management, destructive: [.deleteAll]))
         }
 
+        sections.append(section(.visibility, [.toggleHidden]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -630,6 +640,11 @@ extension MediaMenuActionDescriptor {
             )
         case .unpinAll:
             return MediaMenuLabel(title: "Unpin All", systemImage: EnsembleDesign.Icon.unpin)
+        case .toggleHidden:
+            return MediaMenuLabel(
+                title: state.isHidden ? "Unhide" : "Hide",
+                systemImage: state.isHidden ? "eye" : "eye.slash"
+            )
         case .shareEnsembleLink:
             return MediaMenuLabel(title: "Share Ensemble Link…", systemImage: EnsembleDesign.Icon.shareLink)
         case .shareLink:
@@ -679,6 +694,7 @@ extension MediaMenuActionDescriptor {
         case .favorite: return .favorite(isFavorited: state.isFavorited, usesFilledIcon: false)
         case .pin: return .pin(isPinned: state.isPinned)
         case .unpinAll: return .unpinAll
+        case .toggleHidden: return .toggleHidden(isHidden: state.isHidden)
         case .shareEnsembleLink: return .shareEnsembleLink
         case .shareLink: return .shareLink
         case .shareAudioFile: return .shareAudioFile

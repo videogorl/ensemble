@@ -14,6 +14,7 @@ import AppKit
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
@@ -70,6 +71,12 @@ public struct RootView: View {
             mainContentView
         }
         .auxiliaryPresentationSheets()
+        .sheet(isPresented: Binding(
+            get: { !hiddenMediaStore.pendingCandidates.isEmpty },
+            set: { if !$0 { hiddenMediaStore.pendingCandidates = [] } }
+        )) {
+            HiddenSourcePicker(store: hiddenMediaStore)
+        }
         .alert("Replace Queue?", isPresented: Binding(
             get: { nowPlayingVM.isQueueReplacementConfirmationPresented },
             set: { isPresented in
@@ -451,6 +458,36 @@ public struct RootView: View {
 
         navigationCoordinator.selectedTab = targetTab
         navigationCoordinator.push(pending.destination, in: targetTab)
+    }
+}
+
+private struct HiddenSourcePicker: View {
+    @ObservedObject var store: HiddenMediaStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List(store.pendingCandidates) { candidate in
+                Button {
+                    store.choose(candidate)
+                    dismiss()
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(candidate.title)
+                            .foregroundColor(EnsembleDesign.Color.primaryText)
+                        Text(candidate.source)
+                            .font(.caption)
+                            .foregroundColor(EnsembleDesign.Color.secondaryText)
+                    }
+                }
+            }
+            .navigationTitle("Hide Item")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
     }
 }
 

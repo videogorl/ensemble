@@ -908,14 +908,16 @@ public struct PlaylistDetailView: View {
         startInEditMode: Bool = false,
         initialTracks: [Track]? = nil,
         initialItems: [PlaylistItem]? = nil,
-        initialArtworkImage: PlatformImage? = nil
+        initialArtworkImage: PlatformImage? = nil,
+        includesHidden: Bool = false
     ) {
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makePlaylistDetailViewModel(
                 playlist: playlist,
                 initialTracks: initialTracks,
                 initialItems: initialItems,
-                observesExternalChanges: !startInEditMode
+                observesExternalChanges: !startInEditMode,
+                includesHidden: includesHidden
             )
         )
         self.nowPlayingVM = nowPlayingVM

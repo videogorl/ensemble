@@ -84,6 +84,7 @@ public final class PlaylistViewModel: ObservableObject {
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager?
     private let visibilityStore: LibraryVisibilityStore
+    private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
     private var allPlaylists: [Playlist] = []
     private var coalescedReloadTask: Task<Void, Never>?
@@ -108,6 +109,7 @@ public final class PlaylistViewModel: ObservableObject {
         toastCenter: ToastCenter,
         accountManager: AccountManager? = nil,
         visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         observesExternalChanges: Bool = true
     ) {
         self.playlistRepository = playlistRepository
@@ -116,6 +118,7 @@ public final class PlaylistViewModel: ObservableObject {
         self.toastCenter = toastCenter
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.lastObservedSourceConfiguration = accountManager?.sourceConfigurationSnapshot
         self.isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
         let savedFilters = FilterPersistence.load(for: "Playlists")
@@ -166,6 +169,11 @@ public final class PlaylistViewModel: ObservableObject {
                     self?.scheduleCoalescedPlaylistReload(reason: "sync-complete")
                 }
             }
+            .store(in: &cancellables)
+
+        hiddenMediaStore.$snapshot
+            .dropFirst()
+            .sink { [weak self] _ in self?.applyVisibilityToPublishedPlaylists() }
             .store(in: &cancellables)
 
         // Auto-reload when playlists are refreshed after a mutation (e.g. track counts changed)
@@ -620,6 +628,7 @@ public final class PlaylistViewModel: ObservableObject {
             enabledSourceCompositeKeys: sourceConfiguration?.enabledSourceKeys ?? []
         )
         let visiblePlaylists = configuredPlaylists.filter { playlist in
+            guard !hiddenMediaStore.snapshot.isHidden(playlist) else { return false }
             guard let sourceKey = playlist.sourceCompositeKey else { return false }
             return !LibraryVisibilityFiltering.isHiddenSourceKey(
                 sourceKey,
@@ -913,6 +922,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     private let playlistRepository: PlaylistRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let mutationCoordinator: MutationCoordinator
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
     private var shouldSkipNextLoadAfterLocalEdit = false
 
@@ -923,8 +934,11 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         mutationCoordinator: MutationCoordinator,
         initialTracks: [Track]? = nil,
         initialItems: [PlaylistItem]? = nil,
-        observesExternalChanges: Bool = true
+        observesExternalChanges: Bool = true,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.playlist = playlist
         if let initialItems {
             self.playlistItems = initialItems
@@ -940,8 +954,13 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
         self.playlistRepository = playlistRepository
         self.syncCoordinator = syncCoordinator
         self.mutationCoordinator = mutationCoordinator
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "PlaylistDetail-\(playlist.id)")
         updateDerivedTrackState()
+        hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+            self?.updateDerivedTrackState()
+        }.store(in: &cancellables)
 
         // Save filter options when they change
         setupFilterPersistence()
@@ -1059,7 +1078,8 @@ public final class PlaylistDetailViewModel: ObservableObject, MediaDetailViewMod
     // MARK: - Filtered Collections
 
     private func updateDerivedTrackState() {
-        PlaylistDetailTrackDerivation.make(tracks: tracks, filterOptions: filterOptions)
+        let visibleTracks = includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
+        PlaylistDetailTrackDerivation.make(tracks: visibleTracks, filterOptions: filterOptions)
             .publishChanges(
                 filteredTracks: &filteredTracks,
                 availableGenres: &availableGenres,

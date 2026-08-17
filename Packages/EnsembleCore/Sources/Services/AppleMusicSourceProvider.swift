@@ -290,6 +290,11 @@ public actor AppleMusicSourceProvider:
         let removedArtists = try await repository.removeOrphanedArtists(notIn: artistKeys, forSource: sourceKey)
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumKeys, forSource: sourceKey)
         let removedTracks = try await repository.removeOrphanedTracks(notIn: trackKeys, forSource: sourceKey)
+        await MainActor.run {
+            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: artistKeys)
+            HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: albumKeys)
+            HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: trackKeys)
+        }
         try await repository.updateMusicSourceSyncTimestamp(compositeKey: sourceKey)
         Self.recordAuthoritativeLibraryInventory(completedAt: Date())
         progressHandler(1)
@@ -625,6 +630,9 @@ public actor AppleMusicSourceProvider:
             "🎵 Apple Music playlist inventory \(validIDs.count); fetched \(fetchedBodies) bodies, rewrote \(rewrittenBodies) bodies, wrote \(headerWrites) headers, ignored \(ignoredStaleBodies) stale responses"
         )
         let removed = try await repository.removeOrphanedPlaylists(notIn: validIDs, forSource: sourceKey)
+        await MainActor.run {
+            HiddenMediaStore.shared.removeMissing(kind: .playlist, sourceKey: sourceKey, survivingItemIDs: validIDs)
+        }
         progressHandler(1)
         return PlaylistSyncResult(changedPlaylists: changedPlaylists, removedPlaylists: removed)
     }

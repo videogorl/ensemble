@@ -432,6 +432,8 @@ private struct DisplayArtistGrid: View {
                     presentArtistMetadataEditor(displayArtist.primaryArtist)
                 }
             )
+        } else {
+            MergedArtistHiddenContextMenu(displayArtist: displayArtist)
         }
     }
 
@@ -602,18 +604,25 @@ public struct ArtistDetailView: View {
 
     public init(
         artist: Artist,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        includesHidden: Bool = false
     ) {
-        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM)
+        self.init(displayArtist: .single(artist), nowPlayingVM: nowPlayingVM, includesHidden: includesHidden)
     }
 
     public init(
         displayArtist: DisplayArtist,
-        nowPlayingVM: NowPlayingViewModel
+        nowPlayingVM: NowPlayingViewModel,
+        includesHidden: Bool = false
     ) {
         let artist = displayArtist.primaryArtist
         self.displayArtist = displayArtist
-        self._viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(artist: artist))
+        self._viewModel = StateObject(
+            wrappedValue: DependencyContainer.shared.makeArtistDetailViewModel(
+                artist: artist,
+                includesHidden: includesHidden
+            )
+        )
         self._mergedViewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeMergedArtistDetailViewModel(displayArtist: displayArtist)
         )

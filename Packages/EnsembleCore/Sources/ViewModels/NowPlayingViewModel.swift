@@ -197,8 +197,10 @@ public final class NowPlayingViewModel: ObservableObject {
     private let trackRatingMutationWorkflow: TrackRatingMutationWorkflow
     private let trackAvailabilityResolver: TrackAvailabilityResolver
     private let lyricsService: LyricsService
+    private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
     private var currentQueueIdentity: [String]?
+    private var hiddenPlaybackScopeDepth = 0
 
     public let playbackProjection = NowPlayingPlaybackProjection()
     public let queueProjection = NowPlayingQueueProjection()
@@ -231,7 +233,8 @@ public final class NowPlayingViewModel: ObservableObject {
         playlistMutationWorkflow: PlaylistMutationWorkflow? = nil,
         trackRatingMutationWorkflow: TrackRatingMutationWorkflow? = nil,
         trackAvailabilityResolver: TrackAvailabilityResolver,
-        lyricsService: LyricsService
+        lyricsService: LyricsService,
+        hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.playbackService = playbackService
         self.syncCoordinator = syncCoordinator
@@ -243,6 +246,7 @@ public final class NowPlayingViewModel: ObservableObject {
         self.trackRatingMutationWorkflow = trackRatingMutationWorkflow ?? TrackRatingMutationWorkflow(mutator: mutationCoordinator)
         self.trackAvailabilityResolver = trackAvailabilityResolver
         self.lyricsService = lyricsService
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         lyricsProjection = NowPlayingLyricsProjection(isInstrumentalModeSupported: InstrumentalModeCapability.isSupported)
         lastPlaylistTarget = syncCoordinator.lastPlaylistTarget
         setupBindings()
@@ -1209,7 +1213,12 @@ public final class NowPlayingViewModel: ObservableObject {
         play(track: track, context: .userInitiated)
     }
 
+    public func playHidden(track: Track) {
+        requestPlayback(.track(track: trackWithDisplayRating(track), context: .userInitiated))
+    }
+
     public func play(track: Track, context: PlaybackStartContext) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         let playableTrack = trackWithDisplayRating(track)
         requestPlayback(.track(track: playableTrack, context: context))
     }
@@ -1219,8 +1228,17 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func play(tracks: [Track], startingAt index: Int = 0, context: PlaybackStartContext) {
-        let playableTracks = tracksWithDisplayRatings(tracks)
-        requestPlayback(.play(tracks: playableTracks, startingAt: index, context: context))
+        let visibleTracks = tracksForNewQueue(tracks)
+        guard !visibleTracks.isEmpty else { return }
+        let selectedIdentity = tracks.indices.contains(index) ? tracks[index].sourceScopedID : nil
+        let visibleIndex = selectedIdentity.flatMap { selected in
+            visibleTracks.firstIndex { $0.sourceScopedID == selected }
+        } ?? 0
+        requestPlayback(.play(
+            tracks: tracksWithDisplayRatings(visibleTracks),
+            startingAt: visibleIndex,
+            context: context
+        ))
     }
 
     public func shufflePlay(tracks: [Track]) {
@@ -1228,7 +1246,8 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func shufflePlay(tracks: [Track], context: PlaybackStartContext) {
-        let playableTracks = tracksWithDisplayRatings(tracks)
+        let playableTracks = tracksWithDisplayRatings(tracksForNewQueue(tracks))
+        guard !playableTracks.isEmpty else { return }
         requestPlayback(.shuffle(tracks: playableTracks, context: context))
     }
 
@@ -1402,27 +1421,30 @@ public final class NowPlayingViewModel: ObservableObject {
     // MARK: - Queue Management
 
     public func addToQueue(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.addToQueue(track)
     }
 
     public func addToQueue(_ tracks: [Track]) {
-        playbackService.addToQueue(tracks)
+        playbackService.addToQueue(tracksForNewQueue(tracks))
     }
 
     public func playNext(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.playNext(track)
     }
 
     public func playNext(_ tracks: [Track]) {
-        playbackService.playNext(tracks)
+        playbackService.playNext(tracksForNewQueue(tracks))
     }
 
     public func playLast(_ track: Track) {
+        guard hiddenPlaybackScopeDepth > 0 || !hiddenMediaStore.snapshot.isHidden(track) else { return }
         playbackService.playLast(track)
     }
 
     public func playLast(_ tracks: [Track]) {
-        playbackService.playLast(tracks)
+        playbackService.playLast(tracksForNewQueue(tracks))
     }
 
     public func moveQueueItem(byId itemId: String, from sourceIndex: Int, to destinationIndex: Int, destinationSource: QueueItemSource? = nil) {
@@ -1692,8 +1714,22 @@ public final class NowPlayingViewModel: ObservableObject {
     }
 
     public func enableRadio(tracks: [Track]) {
+        let tracks = tracksForNewQueue(tracks)
         EnsembleLogger.debug("🎙️ NowPlayingViewModel.enableRadio() called with \(tracks.count) tracks")
+        guard !tracks.isEmpty else { return }
         requestPlayback(.radio(tracks: tracks))
+    }
+
+    public func beginHiddenPlaybackScope() {
+        hiddenPlaybackScopeDepth += 1
+    }
+
+    public func endHiddenPlaybackScope() {
+        hiddenPlaybackScopeDepth = max(0, hiddenPlaybackScopeDepth - 1)
+    }
+
+    private func tracksForNewQueue(_ tracks: [Track]) -> [Track] {
+        hiddenPlaybackScopeDepth > 0 ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
     }
 
     // MARK: - Rating Management

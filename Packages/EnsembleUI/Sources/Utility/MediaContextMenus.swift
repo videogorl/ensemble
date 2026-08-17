@@ -27,6 +27,7 @@ struct TrackActionsContextMenu: View {
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     var body: some View {
+        let hiddenIdentity = trackHiddenIdentity
         let isFavorited = nowPlayingVM.isTrackFavorited(track)
         let favoriteAvailability = track.actionAvailability(for: .favorite, isFavorited: isFavorited)
         let editAvailability = track.actionAvailability(for: .editMetadata)
@@ -74,6 +75,7 @@ struct TrackActionsContextMenu: View {
             state: MediaMenuState(
                 recentPlaylistTitle: recentTitle,
                 isFavorited: isFavorited,
+                isHidden: hiddenIdentity != nil,
                 isShuffleEnabled: nowPlayingVM.isShuffleEnabled,
                 repeatMode: nowPlayingVM.repeatMode
             ),
@@ -149,9 +151,23 @@ struct TrackActionsContextMenu: View {
                 },
                 removeFromPlaylist: onRemoveFromPlaylist,
                 removeFromQueue: onRemoveFromQueue,
-                deleteTrack: onDelete
+                deleteTrack: onDelete,
+                toggleHidden: hiddenIdentity.map { identity in
+                    { deps.hiddenMediaStore.setHidden(false, identity: identity) }
+                } ?? track.hiddenCandidate(deps: deps).map { candidate in
+                    { deps.hiddenMediaStore.requestHide([candidate]) }
+                }
             )
         )
+    }
+
+    private var trackHiddenIdentity: HiddenMediaIdentity? {
+        guard let sourceKey = track.sourceCompositeKey else { return nil }
+        if let identity = HiddenMediaIdentity(track), deps.hiddenMediaStore.snapshot.contains(identity) {
+            return identity
+        }
+        guard track.key == "apple-catalog", let catalogID = track.appleMusicCatalogID else { return nil }
+        return deps.hiddenMediaStore.hiddenLibraryIdentity(catalogID: catalogID, sourceKey: sourceKey)
     }
 }
 
@@ -159,7 +175,7 @@ struct TrackActionsContextMenu: View {
 struct AlbumActionsContextMenu: View {
     let album: Album
     let nowPlayingVM: NowPlayingViewModel
-    let presentPlaylistPicker: ([Track], String) -> Void
+    var presentPlaylistPicker: (([Track], String) -> Void)? = nil
     var toastNamespace: String = "album-menu"
     var navigateToArtist: ((String) -> Void)? = nil
     var onGetInfo: (() -> Void)? = nil
@@ -172,6 +188,8 @@ struct AlbumActionsContextMenu: View {
     private let pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
+        let hiddenIdentity = HiddenMediaIdentity(album)
+        let isHidden = hiddenIdentity.map(deps.hiddenMediaStore.snapshot.contains) ?? false
         let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
         let downloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
@@ -223,7 +241,8 @@ struct AlbumActionsContextMenu: View {
             state: MediaMenuState(
                 recentPlaylistTitle: recentPlaylistTitle,
                 isDownloaded: isDownloaded,
-                isPinned: isPinned
+                isPinned: isPinned,
+                isHidden: isHidden
             ),
             handlers: MediaMenuHandlers(
                 play: {
@@ -252,9 +271,11 @@ struct AlbumActionsContextMenu: View {
                     }
                 },
                 addToRecentPlaylist: addToRecentPlaylist,
-                addToPlaylist: {
-                    withAlbumTracks(album) { tracks in
-                        presentPlaylistPicker(tracks, "Add Album to Playlist")
+                addToPlaylist: presentPlaylistPicker.map { present in
+                    {
+                        withAlbumTracks(album) { tracks in
+                            present(tracks, "Add Album to Playlist")
+                        }
                     }
                 },
                 goToArtist: goToArtist,
@@ -284,7 +305,16 @@ struct AlbumActionsContextMenu: View {
                 shareLink: {
                     ShareActions.shareAlbumLink(album, deps: deps)
                 },
-                deleteAlbum: onDelete
+                deleteAlbum: onDelete,
+                toggleHidden: hiddenIdentity.map { identity in
+                    {
+                        if isHidden {
+                            deps.hiddenMediaStore.setHidden(false, identity: identity)
+                        } else if let candidate = album.hiddenCandidate(deps: deps) {
+                            deps.hiddenMediaStore.requestHide([candidate])
+                        }
+                    }
+                }
             )
         )
     }
@@ -377,6 +407,8 @@ struct ArtistActionsContextMenu: View {
     private let pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
+        let hiddenIdentity = HiddenMediaIdentity(artist)
+        let isHidden = hiddenIdentity.map(deps.hiddenMediaStore.snapshot.contains) ?? false
         let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
         let downloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
@@ -412,7 +444,8 @@ struct ArtistActionsContextMenu: View {
             ),
             state: MediaMenuState(
                 isDownloaded: isDownloaded,
-                isPinned: isPinned
+                isPinned: isPinned,
+                isHidden: isHidden
             ),
             handlers: MediaMenuHandlers(
                 play: {
@@ -451,6 +484,15 @@ struct ArtistActionsContextMenu: View {
                 },
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(artist, deps: deps)
+                },
+                toggleHidden: hiddenIdentity.map { identity in
+                    {
+                        if isHidden {
+                            deps.hiddenMediaStore.setHidden(false, identity: identity)
+                        } else if let candidate = artist.hiddenCandidate(deps: deps) {
+                            deps.hiddenMediaStore.requestHide([candidate])
+                        }
+                    }
                 }
             )
         )
@@ -490,6 +532,21 @@ struct ArtistActionsContextMenu: View {
     }
 }
 
+struct MergedArtistHiddenContextMenu: View {
+    let displayArtist: DisplayArtist
+    @Environment(\.dependencies) private var deps
+
+    var body: some View {
+        Button {
+            deps.hiddenMediaStore.requestHide(
+                displayArtist.artists.compactMap { $0.hiddenCandidate(deps: deps) }
+            )
+        } label: {
+            MediaActionLabel(kind: .toggleHidden(isHidden: false))
+        }
+    }
+}
+
 /// Shared playlist actions used by playlist lists, search results, and pinned sidebar rows.
 struct PlaylistActionsContextMenu: View {
     let playlist: Playlist
@@ -505,6 +562,8 @@ struct PlaylistActionsContextMenu: View {
     private let pinManager = DependencyContainer.shared.pinManager
 
     var body: some View {
+        let hiddenIdentity = HiddenMediaIdentity(playlist)
+        let isHidden = hiddenIdentity.map(deps.hiddenMediaStore.snapshot.contains) ?? false
         let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
         let downloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
@@ -545,7 +604,8 @@ struct PlaylistActionsContextMenu: View {
             ),
             state: MediaMenuState(
                 isDownloaded: isDownloaded,
-                isPinned: isPinned
+                isPinned: isPinned,
+                isHidden: isHidden
             ),
             handlers: MediaMenuHandlers(
                 play: {
@@ -592,7 +652,16 @@ struct PlaylistActionsContextMenu: View {
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(playlist, deps: deps)
                 },
-                deletePlaylist: onDelete
+                deletePlaylist: onDelete,
+                toggleHidden: hiddenIdentity.map { identity in
+                    {
+                        if isHidden {
+                            deps.hiddenMediaStore.setHidden(false, identity: identity)
+                        } else if let candidate = playlist.hiddenCandidate(deps: deps) {
+                            deps.hiddenMediaStore.requestHide([candidate])
+                        }
+                    }
+                }
             )
         )
     }
@@ -641,6 +710,7 @@ struct MergedPlaylistActionsContextMenu: View {
     @Environment(\.dependencies) private var deps
 
     var body: some View {
+        let candidates = displayPlaylist.playlists.compactMap { $0.hiddenCandidate(deps: deps) }
         let downloadablePlaylists = displayPlaylist.playlists.filter { playlist in
             playlist.actionAvailability(for: .download).isAvailable
         }
@@ -731,7 +801,10 @@ struct MergedPlaylistActionsContextMenu: View {
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(displayPlaylist, deps: deps)
                 },
-                deleteAll: onDelete
+                deleteAll: onDelete,
+                toggleHidden: {
+                    deps.hiddenMediaStore.requestHide(candidates)
+                }
             )
         )
     }
@@ -777,6 +850,61 @@ private extension Album {
             artistRatingKey: artistRatingKey,
             thumbPath: thumbPath,
             sourceCompositeKey: sourceCompositeKey
+        )
+    }
+}
+
+@MainActor
+private func hiddenSourceDescription(_ sourceKey: String, deps: DependencyContainer) -> String {
+    guard let source = deps.accountManager.sourcePresentation(for: sourceKey) else { return sourceKey }
+    return "\(source.serverName) · \(source.libraryName) · \(source.accountName)"
+}
+
+private extension Track {
+    @MainActor
+    func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
+        guard key != "apple-catalog", let identity = HiddenMediaIdentity(self) else { return nil }
+        return HiddenMediaCandidate(
+            identity: identity,
+            title: title,
+            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps),
+            relatedCatalogID: appleMusicCatalogID
+        )
+    }
+}
+
+private extension Album {
+    @MainActor
+    func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
+        guard let identity = HiddenMediaIdentity(self) else { return nil }
+        return HiddenMediaCandidate(
+            identity: identity,
+            title: title,
+            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps)
+        )
+    }
+}
+
+private extension Artist {
+    @MainActor
+    func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
+        guard let identity = HiddenMediaIdentity(self) else { return nil }
+        return HiddenMediaCandidate(
+            identity: identity,
+            title: name,
+            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps)
+        )
+    }
+}
+
+private extension Playlist {
+    @MainActor
+    func hiddenCandidate(deps: DependencyContainer) -> HiddenMediaCandidate? {
+        guard let identity = HiddenMediaIdentity(self) else { return nil }
+        return HiddenMediaCandidate(
+            identity: identity,
+            title: title,
+            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps)
         )
     }
 }

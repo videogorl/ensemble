@@ -66,6 +66,7 @@ public final class SyncSettingsManager: ObservableObject {
         case sources = "sources"
         case libraries = "libraries"
         case pins = "pins"
+        case hiddenItems = "hiddenItems"
         case accentColor = "accentColor"
         case swipeActions = "swipeActions"
 
@@ -77,6 +78,7 @@ public final class SyncSettingsManager: ObservableObject {
             case .sources: return "Sources"
             case .libraries: return "Libraries"
             case .pins: return "Pins"
+            case .hiddenItems: return "Hidden Items"
             case .accentColor: return "Accent Color"
             case .swipeActions: return "Swipe Actions"
             }
@@ -88,6 +90,7 @@ public final class SyncSettingsManager: ObservableObject {
             case .sources: return "Plex accounts and server credentials"
             case .libraries: return "Which libraries are enabled for each source"
             case .pins: return "Pinned albums, artists, and playlists"
+            case .hiddenItems: return "Hidden playlists, artists, albums, and tracks"
             case .accentColor: return "App accent color preference"
             case .swipeActions: return "Track swipe action layout"
             }

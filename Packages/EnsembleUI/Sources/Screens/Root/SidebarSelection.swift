@@ -5,6 +5,7 @@ public enum SidebarSelection: Hashable {
     case playlist(id: String, sourceKey: String?)
     case mergedPlaylist(title: String, isSmart: Bool)
     case pin(id: String, sourceKey: String?, type: PinnedItemType)
+    case hidden
 
     /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
     /// Returns nil for pinned items which don't map to a standard tab.
@@ -14,7 +15,7 @@ public enum SidebarSelection: Hashable {
             return tab
         case .playlist, .mergedPlaylist:
             return .playlists
-        case .pin:
+        case .pin, .hidden:
             return nil
         }
     }
@@ -31,20 +32,22 @@ public enum SidebarSelection: Hashable {
         fallback: SidebarSelection?
     ) -> SidebarSelection {
         switch destination {
-        case .displayArtist, .artistNamed, .artistDetail, .artist:
+        case .displayArtist, .artistNamed, .artistDetail, .artist, .hiddenArtistDetail:
             return .library(.artists)
         case .displayGenre:
             return .library(.genres)
-        case .album, .albumDetail, .song:
+        case .album, .albumDetail, .song, .hiddenAlbumDetail:
             return .library(.albums)
         case .playlist(let id, let sourceKey):
             return .playlist(id: id, sourceKey: sourceKey)
-        case .playlistDetail(let playlist):
+        case .playlistDetail(let playlist), .hiddenPlaylistDetail(let playlist):
             return .playlist(id: playlist.id, sourceKey: playlist.sourceCompositeKey)
         case .mergedPlaylist(let title, let isSmart):
             return .mergedPlaylist(title: title, isSmart: isSmart)
         case .moodTracks:
             return .library(.home)
+        case .hidden:
+            return .hidden
         case .searchResults:
             return .library(.search)
         case .view(let tab):

@@ -70,6 +70,7 @@ public final class SearchViewModel: ObservableObject {
     private let moodRepository: MoodRepository
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
+    private let hiddenMediaStore: HiddenMediaStore
     private let playlistMergeDefaults: UserDefaults
     private let appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     private var searchTask: Task<Void, Never>?
@@ -99,6 +100,7 @@ public final class SearchViewModel: ObservableObject {
         moodRepository: MoodRepository,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         playlistMergeDefaults: UserDefaults = .standard
     ) {
         self.init(
@@ -108,6 +110,7 @@ public final class SearchViewModel: ObservableObject {
             moodRepository: moodRepository,
             accountManager: accountManager,
             visibilityStore: visibilityStore,
+            hiddenMediaStore: hiddenMediaStore,
             playlistMergeDefaults: playlistMergeDefaults,
             appleMusicCatalogSearch: .live
         )
@@ -120,6 +123,7 @@ public final class SearchViewModel: ObservableObject {
         moodRepository: MoodRepository,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         playlistMergeDefaults: UserDefaults = .standard,
         appleMusicCatalogSearch: AppleMusicCatalogSearchClient
     ) {
@@ -129,6 +133,7 @@ public final class SearchViewModel: ObservableObject {
         self.moodRepository = moodRepository
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.playlistMergeDefaults = playlistMergeDefaults
         self.appleMusicCatalogSearch = appleMusicCatalogSearch
         self.isPlaylistMergeEnabled = SettingsManager.storedPlaylistMergeEnabled(in: playlistMergeDefaults)
@@ -189,6 +194,14 @@ public final class SearchViewModel: ObservableObject {
         )
             .dropFirst()
             .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.applyVisibilityToSearchResults()
+                self?.applyVisibilityToExploreContent()
+            }
+            .store(in: &cancellables)
+
+        self.hiddenMediaStore.$snapshot
+            .dropFirst()
             .sink { [weak self] _ in
                 self?.applyVisibilityToSearchResults()
                 self?.applyVisibilityToExploreContent()
@@ -562,26 +575,31 @@ public final class SearchViewModel: ObservableObject {
         let cachedSourceFilter = scope == .appleMusic
             ? sourceConfiguration
             : sourceConfigurationForCachedFiltering(sourceConfiguration)
+        let hiddenMedia = scope == .library ? hiddenMediaStore.snapshot : .empty
         trackResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredTrackResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMedia
         )
         artistResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredArtistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMedia
         )
         displayArtistResults = DisplayArtist.group(artistResults)
         albumResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredAlbumResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMedia
         )
         let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
             unfilteredPlaylistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMedia
         )
         playlistResults = visiblePlaylists
         let nextDisplayPlaylists = Self.displayPlaylists(
@@ -622,22 +640,26 @@ public final class SearchViewModel: ObservableObject {
         recentlyPlayedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: sourceConfiguration
+            sourceConfiguration: sourceConfiguration,
+            hiddenMedia: hiddenMediaStore.snapshot
         ).prefix(6))
         recentlyPlayedArtists = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedArtists,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: sourceConfiguration
+            sourceConfiguration: sourceConfiguration,
+            hiddenMedia: hiddenMediaStore.snapshot
         ).prefix(6))
         recentlyAddedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyAddedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: sourceConfiguration
+            sourceConfiguration: sourceConfiguration,
+            hiddenMedia: hiddenMediaStore.snapshot
         ).prefix(6))
         recommendedItems = Array(Self.filterHubItemsForVisibility(
             unfilteredRecommendedItems,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: sourceConfiguration
+            sourceConfiguration: sourceConfiguration,
+            hiddenMedia: hiddenMediaStore.snapshot
         ).prefix(6))
         allMoods = Self.filterMoodsForVisibility(
             unfilteredMoods,
@@ -655,12 +677,17 @@ public final class SearchViewModel: ObservableObject {
     internal static func filterHubItemsForVisibility(
         _ items: [HubItem],
         hiddenSourceCompositeKeys: Set<String>,
-        sourceConfiguration: SourceConfigurationSnapshot? = nil
+        sourceConfiguration: SourceConfigurationSnapshot? = nil,
+        hiddenMedia: HiddenMediaSnapshot = .empty
     ) -> [HubItem] {
         items.filter { item in
             MediaSourceIdentity.parse(item.sourceCompositeKey) != nil &&
                 (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
-                !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
+                !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey) &&
+                item.album.map { !hiddenMedia.isHidden($0) } ?? true &&
+                item.track.map { !hiddenMedia.isHidden($0) } ?? true &&
+                item.artist.map { !hiddenMedia.isHidden($0) } ?? true &&
+                item.playlist.map { !hiddenMedia.isHidden($0) } ?? true
         }
     }
 

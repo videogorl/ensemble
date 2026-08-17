@@ -153,6 +153,7 @@ public final class LibraryViewModel: ObservableObject {
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager
     private let visibilityStore: LibraryVisibilityStore
+    private let hiddenMediaStore: HiddenMediaStore
     private let appReadinessCoordinator: AppReadinessCoordinator?
     private var cancellables = Set<AnyCancellable>()
     private var allArtists: [Artist] = []
@@ -168,6 +169,7 @@ public final class LibraryViewModel: ObservableObject {
         syncCoordinator: SyncCoordinator,
         accountManager: AccountManager,
         visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         toastCenter: ToastCenter,
         appReadinessCoordinator: AppReadinessCoordinator? = nil
     ) {
@@ -175,6 +177,7 @@ public final class LibraryViewModel: ObservableObject {
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.toastCenter = toastCenter
         self.appReadinessCoordinator = appReadinessCoordinator
         self.isRestoringCloudSources = accountManager.isAwaitingCloudSources
@@ -212,6 +215,11 @@ public final class LibraryViewModel: ObservableObject {
                 self.hasAnySources = configuration.hasAnySources
                 self.hasEnabledLibraries = !configuration.enabledSources.isEmpty
             }
+            .store(in: &cancellables)
+
+        self.hiddenMediaStore.$snapshot
+            .dropFirst()
+            .sink { [weak self] _ in self?.applyVisibilityToPublishedCollections() }
             .store(in: &cancellables)
 
         accountManager.$isAwaitingCloudSources
@@ -818,17 +826,20 @@ public final class LibraryViewModel: ObservableObject {
         let newArtists = LibraryVisibilityFiltering.visibleItems(
             allArtists,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
         let newAlbums = LibraryVisibilityFiltering.visibleItems(
             allAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
         let newTracks = LibraryVisibilityFiltering.visibleItems(
             allTracks,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
-            sourceConfiguration: cachedSourceFilter
+            sourceConfiguration: cachedSourceFilter,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
         let newGenres = LibraryVisibilityFiltering.visibleItems(
             allGenres,

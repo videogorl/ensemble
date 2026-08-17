@@ -772,7 +772,11 @@ public struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        ArtistActionsContextMenu(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
+                        if displayArtist.isMerged {
+                            MergedArtistHiddenContextMenu(displayArtist: displayArtist)
+                        } else {
+                            ArtistActionsContextMenu(artist: displayArtist.primaryArtist, nowPlayingVM: nowPlayingVM)
+                        }
                     }
                 }
             }

@@ -29,10 +29,12 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     @Published public private(set) var totalDuration: String = "0 min"
 
     private let libraryRepository: LibraryRepositoryProtocol
+    private let hiddenMediaStore: HiddenMediaStore
     private var cancellables = Set<AnyCancellable>()
 
-    public init(libraryRepository: LibraryRepositoryProtocol) {
+    public init(libraryRepository: LibraryRepositoryProtocol, hiddenMediaStore: HiddenMediaStore? = nil) {
         self.libraryRepository = libraryRepository
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
 
         let savedFilters = FilterPersistence.load(for: "Favorites")
         self.filterOptions = savedFilters
@@ -47,6 +49,9 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         setupFilterPersistence()
         setupFilteredTracksPipeline()
         observeReloadTriggers()
+        self.hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+            Task { await self?.loadTracks() }
+        }.store(in: &cancellables)
 
         // Initial load
         Task {
@@ -87,7 +92,7 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
             // Favorites can reopen while the view context still holds stale sync placeholders.
             await libraryRepository.refreshContext()
             let favoriteTracks = try await libraryRepository.fetchFavoriteTracks()
-            let nextTracks = favoriteTracks.map { Track(from: $0) }
+            let nextTracks = hiddenMediaStore.snapshot.visibleTracks(favoriteTracks.map { Track(from: $0) })
             publishTracksIfChanged(nextTracks)
             updateLastGoodSnapshot(nextTracks)
         } catch {

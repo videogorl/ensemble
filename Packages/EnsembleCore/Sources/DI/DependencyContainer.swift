@@ -50,6 +50,7 @@ public final class DependencyContainer: @unchecked Sendable {
     public let foregroundWorkScheduler: ForegroundWorkScheduler
     public let hubOrderManager: HubOrderManager
     public let pinManager: PinManager
+    public let hiddenMediaStore: HiddenMediaStore
     public let pinMutationWorkflow: PinMutationWorkflow
     public let toastCenter: ToastCenter
     public let libraryVisibilityStore: LibraryVisibilityStore
@@ -131,6 +132,7 @@ public final class DependencyContainer: @unchecked Sendable {
         let navigationCoordinator: NavigationCoordinator
         let hubOrderManager: HubOrderManager
         let pinManager: PinManager
+        let hiddenMediaStore: HiddenMediaStore
         let pinMutationWorkflow: PinMutationWorkflow
         let toastCenter: ToastCenter
         let libraryVisibilityStore: LibraryVisibilityStore
@@ -244,6 +246,7 @@ public final class DependencyContainer: @unchecked Sendable {
         foregroundWorkScheduler = builtForegroundWorkScheduler
         hubOrderManager = core.hubOrderManager
         pinManager = core.pinManager
+        hiddenMediaStore = core.hiddenMediaStore
         pinMutationWorkflow = core.pinMutationWorkflow
         toastCenter = core.toastCenter
         libraryVisibilityStore = core.libraryVisibilityStore
@@ -399,6 +402,7 @@ public final class DependencyContainer: @unchecked Sendable {
             navigationCoordinator: MainActor.assumeIsolated { NavigationCoordinator() },
             hubOrderManager: HubOrderManager(),
             pinManager: pinManager,
+            hiddenMediaStore: MainActor.assumeIsolated { .shared },
             pinMutationWorkflow: MainActor.assumeIsolated { PinMutationWorkflow(pinManager: pinManager) },
             toastCenter: MainActor.assumeIsolated { ToastCenter() },
             libraryVisibilityStore: MainActor.assumeIsolated { LibraryVisibilityStore() },
@@ -641,7 +645,8 @@ public final class DependencyContainer: @unchecked Sendable {
             SiriMediaIndexStore(
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
-                enabledSourceKeysProvider: enabledSystemMediaSourceKeys
+                enabledSourceKeysProvider: enabledSystemMediaSourceKeys,
+                hiddenMediaStore: core.hiddenMediaStore
             )
         }
         let siriPlaybackCoordinator = MainActor.assumeIsolated {
@@ -649,7 +654,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 accountManager: network.accountManager,
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository,
-                playbackService: playback.playbackService
+                playbackService: playback.playbackService,
+                hiddenMediaStore: core.hiddenMediaStore
             )
         }
         let siriAffinityCoordinator = MainActor.assumeIsolated {
@@ -962,6 +968,7 @@ public final class DependencyContainer: @unchecked Sendable {
         }
 
         let profileStore = userProfileStore
+        let hiddenStore = hiddenMediaStore
         let syncSettings = syncSettingsManager
         Task { [weak cloudSyncService] in
             await cloudSyncService?.setRemoteChangeHandler { [profileStore] profile, imageData in
@@ -974,8 +981,44 @@ public final class DependencyContainer: @unchecked Sendable {
                     )
                 }
             }
+            await cloudSyncService?.setHiddenMediaChangeHandler { [hiddenStore, syncSettings] mutations in
+                await MainActor.run {
+                    guard syncSettings.isFeatureEnabled(.hiddenItems) else { return }
+                    hiddenStore.applyRemote(mutations)
+                    syncSettings.recordFeatureActivity(
+                        for: .hiddenItems,
+                        state: .appliedRemote,
+                        direction: .pulledFromICloud,
+                        detail: "Pulled hidden items from iCloud."
+                    )
+                }
+            }
             await cloudSyncService?.subscribeToChanges()
         }
+
+        hiddenMediaStore.$snapshot
+            .dropFirst()
+            .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+            .sink { [weak hiddenMediaStore, weak cloudSyncService, weak syncSettingsManager] _ in
+                guard let hiddenMediaStore, let cloudSyncService, let syncSettingsManager else { return }
+                guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else { return }
+                if let lastApply = hiddenMediaStore.lastRemoteApplyTime,
+                   Date().timeIntervalSince(lastApply) < 2 { return }
+                let mutations = hiddenMediaStore.exportMutations()
+                Task {
+                    guard let merged = await cloudSyncService.pushHiddenMedia(mutations) else { return }
+                    await MainActor.run {
+                        hiddenMediaStore.applyRemote(merged)
+                        syncSettingsManager.recordFeatureActivity(
+                            for: .hiddenItems,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed hidden items from this device."
+                        )
+                    }
+                }
+            }
+            .store(in: &kvsSyncCancellables)
     }
 
     @MainActor
@@ -1486,6 +1529,8 @@ public final class DependencyContainer: @unchecked Sendable {
             return await bootstrapSwipeActions(reason: reason)
         case .pins:
             return await bootstrapPins(reason: reason)
+        case .hiddenItems:
+            return await bootstrapHiddenMedia(reason: reason)
         case .sources:
             return bootstrapSources(reason: reason)
         case .libraries:
@@ -1705,6 +1750,46 @@ public final class DependencyContainer: @unchecked Sendable {
             detail: "Pushed pins from this device."
         )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.pins)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapHiddenMedia(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.hiddenItems) else {
+            syncSettingsManager.setFeatureState(.idle, for: .hiddenItems)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .hiddenItems)
+        if let remote = await cloudSyncService.pullHiddenMedia(), !remote.isEmpty {
+            hiddenMediaStore.applyRemote(remote)
+            syncSettingsManager.recordFeatureActivity(
+                for: .hiddenItems,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled hidden items from iCloud."
+            )
+            if let merged = await cloudSyncService.pushHiddenMedia(hiddenMediaStore.exportMutations()) {
+                hiddenMediaStore.applyRemote(merged)
+            }
+            return true
+        }
+
+        guard !hiddenMediaStore.exportMutations().isEmpty else {
+            syncSettingsManager.setFeatureState(.idle, for: .hiddenItems)
+            return true
+        }
+        guard let merged = await cloudSyncService.pushHiddenMedia(hiddenMediaStore.exportMutations()) else {
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .hiddenItems)
+            return false
+        }
+        hiddenMediaStore.applyRemote(merged)
+        syncSettingsManager.recordFeatureActivity(
+            for: .hiddenItems,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed hidden items from this device after \(reason)."
+        )
         return true
     }
 

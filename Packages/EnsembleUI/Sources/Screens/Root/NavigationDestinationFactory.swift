@@ -99,10 +99,27 @@ struct NavigationDestinationFactory {
             }
             #endif
             return AnyView(detailView)
+        case .hiddenArtistDetail(let artist):
+            return AnyView(
+                ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM, includesHidden: true)
+                    .hiddenPlaybackScope(nowPlayingVM)
+            )
+        case .hiddenAlbumDetail(let album):
+            return AnyView(
+                AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM, includesHidden: true)
+                    .hiddenPlaybackScope(nowPlayingVM)
+            )
+        case .hiddenPlaylistDetail(let playlist):
+            return AnyView(
+                PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM, includesHidden: true)
+                    .hiddenPlaybackScope(nowPlayingVM)
+            )
         case .mergedPlaylist(let title, let isSmart):
             return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
         case .moodTracks(let mood):
             return AnyView(MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM))
+        case .hidden:
+            return AnyView(HiddenMediaView(nowPlayingVM: nowPlayingVM))
         case .searchResults(let section):
             return AnyView(SearchView(
                 nowPlayingVM: nowPlayingVM,
@@ -146,6 +163,13 @@ struct NavigationDestinationFactory {
     @MainActor
     private static func displayGenre(for id: String, libraryVM: LibraryViewModel) -> DisplayGenre? {
         libraryVM.immediateGenreBrowseSnapshot.displayGenres.first { $0.id == id }
+    }
+}
+
+private extension View {
+    func hiddenPlaybackScope(_ nowPlayingVM: NowPlayingViewModel) -> some View {
+        onAppear { nowPlayingVM.beginHiddenPlaybackScope() }
+            .onDisappear { nowPlayingVM.endHiddenPlaybackScope() }
     }
 }
 

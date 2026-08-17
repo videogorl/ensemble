@@ -391,6 +391,8 @@ public struct SyncSettingsView: View {
             return EnsembleDesign.Icon.libraryStack
         case .pins:
             return EnsembleDesign.Icon.pin
+        case .hiddenItems:
+            return "eye.slash"
         case .accentColor:
             return EnsembleDesign.Icon.paintPalette
         case .swipeActions:

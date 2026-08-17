@@ -30,12 +30,19 @@ public actor CloudSyncService {
 
     /// Fixed record ID for the single user profile record
     private static let profileRecordID = CKRecord.ID(recordName: "currentUserProfile")
+    // ponytail: one record keeps v1 reconciliation atomic; split by identity if its payload approaches CloudKit limits.
+    private static let hiddenMediaRecordType = "HiddenMediaState"
+    private static let hiddenMediaRecordID = CKRecord.ID(recordName: "currentHiddenMediaState")
 
     /// Field keys for the profile record
     private enum ProfileField {
         static let displayName = "displayName"
         static let profileImage = "profileImage"
         static let lastModified = "lastModified"
+    }
+
+    private enum HiddenMediaField {
+        static let mutations = "mutations"
     }
 
     // MARK: - State
@@ -48,6 +55,7 @@ public actor CloudSyncService {
 
     /// Called on the main actor when a remote profile change is received
     public var onRemoteProfileChanged: (@Sendable (UserProfile, Data?) async -> Void)?
+    public var onRemoteHiddenMediaChanged: (@Sendable ([HiddenMediaMutation]) async -> Void)?
 
     // MARK: - Initialization
 
@@ -74,6 +82,12 @@ public actor CloudSyncService {
     /// Set the remote change callback (actor-isolated setter)
     public func setRemoteChangeHandler(_ handler: @escaping @Sendable (UserProfile, Data?) async -> Void) {
         onRemoteProfileChanged = handler
+    }
+
+    public func setHiddenMediaChangeHandler(
+        _ handler: @escaping @Sendable ([HiddenMediaMutation]) async -> Void
+    ) {
+        onRemoteHiddenMediaChanged = handler
     }
 
     public func currentProfileTransportState() -> ProfileTransportState {
@@ -236,8 +250,12 @@ public actor CloudSyncService {
 
     /// Handle a CloudKit remote notification — fetches changes and calls the callback
     public func handleRemoteNotification() async {
-        guard let result = await pullProfile() else { return }
-        await onRemoteProfileChanged?(result.profile, result.imageData)
+        if let result = await pullProfile() {
+            await onRemoteProfileChanged?(result.profile, result.imageData)
+        }
+        if let mutations = await pullHiddenMedia() {
+            await onRemoteHiddenMediaChanged?(mutations)
+        }
     }
 
     /// Handles an iOS remote notification payload and returns true when it matches
@@ -259,6 +277,65 @@ public actor CloudSyncService {
     public func refreshProfileFromCloud() async {
         guard let result = await pullProfile() else { return }
         await onRemoteProfileChanged?(result.profile, result.imageData)
+    }
+
+    // MARK: - Hidden Media Sync
+
+    public func pullHiddenMedia() async -> [HiddenMediaMutation]? {
+        guard let database else { return nil }
+        do {
+            let record = try await database.record(for: Self.hiddenMediaRecordID)
+            guard let data = record[HiddenMediaField.mutations] as? Data else { return [] }
+            return try JSONDecoder().decode([HiddenMediaMutation].self, from: data)
+        } catch let error as CKError where error.code == .unknownItem {
+            return []
+        } catch {
+            await updateTransportState(for: error)
+            Self.logCloudKitError(error, context: "pullHiddenMedia")
+            return nil
+        }
+    }
+
+    public func pushHiddenMedia(_ local: [HiddenMediaMutation]) async -> [HiddenMediaMutation]? {
+        guard let database else { return nil }
+        for attempt in 0..<3 {
+            do {
+                let record: CKRecord
+                do {
+                    record = try await database.record(for: Self.hiddenMediaRecordID)
+                } catch let error as CKError where error.code == .unknownItem {
+                    record = CKRecord(recordType: Self.hiddenMediaRecordType, recordID: Self.hiddenMediaRecordID)
+                }
+
+                let remote: [HiddenMediaMutation]
+                if let data = record[HiddenMediaField.mutations] as? Data {
+                    remote = (try? JSONDecoder().decode([HiddenMediaMutation].self, from: data)) ?? []
+                } else {
+                    remote = []
+                }
+                let merged = Self.mergeHiddenMedia(local, remote)
+                record[HiddenMediaField.mutations] = try JSONEncoder().encode(merged) as CKRecordValue
+                _ = try await database.save(record)
+                profileTransportState = .available
+                return merged
+            } catch let error as CKError where error.code == .serverRecordChanged && attempt < 2 {
+                continue
+            } catch {
+                await updateTransportState(for: error)
+                Self.logCloudKitError(error, context: "pushHiddenMedia")
+                return nil
+            }
+        }
+        return nil
+    }
+
+    public static func mergeHiddenMedia(
+        _ lhs: [HiddenMediaMutation],
+        _ rhs: [HiddenMediaMutation]
+    ) -> [HiddenMediaMutation] {
+        Dictionary((lhs + rhs).map { ($0.identity.id, $0) }, uniquingKeysWith: { current, candidate in
+            current.modifiedAt >= candidate.modifiedAt ? current : candidate
+        }).values.sorted { $0.identity.id < $1.identity.id }
     }
 
     // MARK: - Helpers

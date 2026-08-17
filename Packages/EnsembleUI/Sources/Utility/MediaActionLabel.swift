@@ -28,6 +28,7 @@ struct MediaActionLabel: View {
         case favorite(isFavorited: Bool, usesFilledIcon: Bool)
         case pin(isPinned: Bool)
         case unpinAll
+        case toggleHidden(isHidden: Bool)
         case shareEnsembleLink
         case shareLink
         case shareAudioFile
@@ -94,6 +95,8 @@ struct MediaActionLabel: View {
             return isPinned ? "Unpin" : "Pin"
         case .unpinAll:
             return "Unpin All"
+        case .toggleHidden(let isHidden):
+            return isHidden ? "Unhide" : "Hide"
         case .shareEnsembleLink:
             return "Share Ensemble Link…"
         case .shareLink:
@@ -164,6 +167,8 @@ struct MediaActionLabel: View {
             return isPinned ? EnsembleDesign.Icon.unpin : EnsembleDesign.Icon.pin
         case .unpinAll:
             return EnsembleDesign.Icon.unpin
+        case .toggleHidden(let isHidden):
+            return isHidden ? "eye" : "eye.slash"
         case .shareEnsembleLink, .shareLink:
             return EnsembleDesign.Icon.shareLink
         case .shareAudioFile:

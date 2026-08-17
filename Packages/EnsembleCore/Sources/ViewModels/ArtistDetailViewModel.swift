@@ -78,17 +78,27 @@ public final class ArtistDetailViewModel: ObservableObject {
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         artist: Artist,
         libraryRepository: LibraryRepositoryProtocol,
-        syncCoordinator: SyncCoordinator
+        syncCoordinator: SyncCoordinator,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.artist = artist
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "ArtistDetail")
+        hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+            self?.rebuildDisplaySnapshot()
+        }.store(in: &cancellables)
 
         // Save filter options when they change
         setupFilterPersistence()
@@ -253,7 +263,9 @@ public final class ArtistDetailViewModel: ObservableObject {
     }
 
     private func rebuildDisplaySnapshot() {
-        let next = ArtistDetailDisplaySnapshot(albums: albums, tracks: tracks, filterOptions: filterOptions)
+        let visibleAlbums = includesHidden ? albums : albums.filter { !hiddenMediaStore.snapshot.isHidden($0) }
+        let visibleTracks = includesHidden ? tracks : hiddenMediaStore.snapshot.visibleTracks(tracks)
+        let next = ArtistDetailDisplaySnapshot(albums: visibleAlbums, tracks: visibleTracks, filterOptions: filterOptions)
         if displaySnapshot != next {
             displaySnapshot = next
         }

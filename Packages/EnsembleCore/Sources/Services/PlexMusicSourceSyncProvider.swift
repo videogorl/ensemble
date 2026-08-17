@@ -678,6 +678,14 @@ public final class PlexMusicSourceSyncProvider:
             removedTracks = try await repository.removeOrphanedTracks(notIn: trackRatingKeys, forSource: sourceKey)
             removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
             removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
+            let survivingArtistIDs = artistRatingKeys
+            let survivingAlbumIDs = albumRatingKeys
+            let survivingTrackIDs = trackRatingKeys
+            await MainActor.run {
+                HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: survivingArtistIDs)
+                HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: survivingAlbumIDs)
+                HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: survivingTrackIDs)
+            }
             if fullMetadataReconciliationDue {
                 try await syncCursorRepository?.recordFullSync(
                     scopeKey: sourceKey,
@@ -991,6 +999,14 @@ public final class PlexMusicSourceSyncProvider:
         let removedAlbums = try await repository.removeOrphanedAlbums(notIn: albumRatingKeys, forSource: sourceKey)
         let removedArtists = try await repository.removeOrphanedArtists(notIn: artistRatingKeys, forSource: sourceKey)
         let removedGenres = try await repository.removeOrphanedGenres(notIn: genreRatingKeys, forSource: sourceKey)
+        let survivingArtistIDs = artistRatingKeys
+        let survivingAlbumIDs = albumRatingKeys
+        let survivingTrackIDs = trackRatingKeys
+        await MainActor.run {
+            HiddenMediaStore.shared.removeMissing(kind: .artist, sourceKey: sourceKey, survivingItemIDs: survivingArtistIDs)
+            HiddenMediaStore.shared.removeMissing(kind: .album, sourceKey: sourceKey, survivingItemIDs: survivingAlbumIDs)
+            HiddenMediaStore.shared.removeMissing(kind: .track, sourceKey: sourceKey, survivingItemIDs: survivingTrackIDs)
+        }
 
         if removedArtists + removedAlbums + removedTracks + removedGenres > 0 {
             EnsembleLogger.debug("🧹 Removed orphans: \(removedArtists) artists, \(removedAlbums) albums, \(removedTracks) tracks, \(removedGenres) genres")
@@ -1077,6 +1093,13 @@ public final class PlexMusicSourceSyncProvider:
             notIn: validPlaylistKeys,
             forSource: serverSourceKey
         )
+        await MainActor.run {
+            HiddenMediaStore.shared.removeMissing(
+                kind: .playlist,
+                sourceKey: serverSourceKey,
+                survivingItemIDs: validPlaylistKeys
+            )
+        }
         if removedPlaylists > 0 {
             EnsembleLogger.debug("🧹 Full playlist sync removed \(removedPlaylists) orphaned playlists")
         }
@@ -1215,6 +1238,13 @@ public final class PlexMusicSourceSyncProvider:
             progressHandler(0.85)
 
             removedPlaylists = try await repository.removeOrphanedPlaylists(notIn: validPlaylistKeys, forSource: serverSourceKey)
+            await MainActor.run {
+                HiddenMediaStore.shared.removeMissing(
+                    kind: .playlist,
+                    sourceKey: serverSourceKey,
+                    survivingItemIDs: validPlaylistKeys
+                )
+            }
             let inventorySyncedAt = Date()
             UserDefaults.standard.set(inventorySyncedAt.timeIntervalSince1970, forKey: orphanTimestampKey)
             try await syncCursorRepository?.recordInventorySync(

@@ -279,14 +279,16 @@ public struct AlbumDetailView: View {
         album: Album,
         nowPlayingVM: NowPlayingViewModel,
         initialTracks: [Track]? = nil,
-        selectedTrackId: String? = nil
+        selectedTrackId: String? = nil,
+        includesHidden: Bool = false
     ) {
         self.album = album
         self.selectedTrackId = selectedTrackId
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
                 album: album,
-                initialTracks: initialTracks
+                initialTracks: initialTracks,
+                includesHidden: includesHidden
             )
         )
         self.nowPlayingVM = nowPlayingVM

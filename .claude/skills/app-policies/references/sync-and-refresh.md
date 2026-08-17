@@ -6,9 +6,9 @@
 - Bootstrap/no-source/disabled/empty decisions come from settled readiness, not
   transient account, provider, hub, playlist, or row arrays. Credential and
   discovery failures preserve provisionally scoped cache until explicit removal.
-- Provider data and identity remain source-scoped. Apple Music is an iOS/iPadOS
-  18+ device-local source and does not enter KVS, CloudKit, Plex credential sync,
-  or Watch library payloads.
+- Provider data and identity remain source-scoped. Apple Music authorization,
+  tokens, enablement, caches, playback state, and library payloads remain device
+  local. Exact typed Hidden references may sync through private CloudKit only.
 - Each provider maps normalized hubs and metadata at its boundary.
   `HomeHubLoader` alone merges, globally orders, and saves the combined Feed
   snapshot; Search reads it rather than creating a second fetch/save path.

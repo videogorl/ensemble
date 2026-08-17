@@ -46,6 +46,10 @@ public final class NavigationCoordinator: ObservableObject {
         case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
         case playlistDetail(Playlist)
+        case hiddenArtistDetail(Artist)
+        case hiddenAlbumDetail(Album)
+        case hiddenPlaylistDetail(Playlist)
+        case hidden
         case mergedPlaylist(title: String, isSmart: Bool)
         case moodTracks(mood: Mood)
         case searchResults(section: SearchSection)
@@ -53,18 +57,20 @@ public final class NavigationCoordinator: ObservableObject {
 
         var journeyLogDescription: String {
             switch self {
-            case .displayArtist, .artistNamed, .artistDetail, .artist:
+            case .displayArtist, .artistNamed, .artistDetail, .artist, .hiddenArtistDetail:
                 return "artist"
             case .displayGenre:
                 return "genre"
-            case .album, .albumDetail, .song:
+            case .album, .albumDetail, .song, .hiddenAlbumDetail:
                 return "album"
-            case .playlist, .playlistDetail:
+            case .playlist, .playlistDetail, .hiddenPlaylistDetail:
                 return "playlist"
             case .mergedPlaylist(_, let isSmart):
                 return isSmart ? "smartPlaylist" : "playlist"
             case .moodTracks:
                 return "moodTracks"
+            case .hidden:
+                return "hidden"
             case .searchResults(let section):
                 return "searchResults(\(section.rawValue))"
             case .view(let tab):
@@ -136,18 +142,20 @@ public final class NavigationCoordinator: ObservableObject {
 
     public nonisolated static func targetTab(for destination: Destination) -> TabItem {
         switch destination {
-        case .displayArtist, .artistNamed, .artistDetail:
+        case .displayArtist, .artistNamed, .artistDetail, .hiddenArtistDetail:
             return .artists
         case .displayGenre:
             return .genres
         case .artist:
             return .artists
-        case .album, .albumDetail, .song:
+        case .album, .albumDetail, .song, .hiddenAlbumDetail:
             return .albums
-        case .playlist, .playlistDetail, .mergedPlaylist:
+        case .playlist, .playlistDetail, .mergedPlaylist, .hiddenPlaylistDetail:
             return .playlists
         case .moodTracks:
             return .home
+        case .hidden:
+            return .settings
         case .searchResults:
             return .search
         case .view(let tab):

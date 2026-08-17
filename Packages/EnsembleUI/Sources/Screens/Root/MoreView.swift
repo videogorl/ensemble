@@ -61,6 +61,11 @@ public struct MoreView: View {
     private var browseView: some View {
         List {
             Section {
+                navigationCoordinator.routeLink(to: .hidden, in: .settings) {
+                    Label("Hidden", systemImage: "eye.slash")
+                }
+                .foregroundColor(EnsembleDesign.Color.primaryText)
+
                 ForEach(moreTabs.filter { isLibraryTab($0) }) { tab in
                     navigationCoordinator.routeLink(to: .view(tab), in: .settings) {
                         moreTabRowLabel(for: tab)

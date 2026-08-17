@@ -57,15 +57,18 @@ public final class SiriMediaIndexStore {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider?
+    private let hiddenMediaStore: HiddenMediaStore
 
     public init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil
+        enabledSourceKeysProvider: SystemMediaEnabledSourceKeysProvider? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.enabledSourceKeysProvider = enabledSourceKeysProvider
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
     }
 
     /// Loads a fresh-enough Siri index from disk.
@@ -103,15 +106,19 @@ public final class SiriMediaIndexStore {
             }
             let artists = Array(try await libraryRepository.fetchArtists()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .filter { !hiddenMediaStore.snapshot.isHidden(Artist(from: $0)) }
                 .prefix(1500))
             let albums = Array(try await libraryRepository.fetchAlbums()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .filter { !hiddenMediaStore.snapshot.isHidden(Album(from: $0)) }
                 .prefix(1500))
             let tracks = Array(try await libraryRepository.fetchSiriEligibleTracks()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: enabledLibrarySourceKeys) }
+                .filter { !hiddenMediaStore.snapshot.isHidden(Track(from: $0)) }
                 .prefix(1000))
             let playlists = Array(try await playlistRepository.fetchPlaylists()
                 .filter { SystemMediaSourceScope.allows($0.sourceCompositeKey, within: playlistSourceKeys) }
+                .filter { !hiddenMediaStore.snapshot.isHidden(Playlist(from: $0)) }
                 .prefix(500))
 
             var items: [SiriMediaIndexItem] = []

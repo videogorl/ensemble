@@ -687,6 +687,8 @@ public struct SidebarView: View {
             return navigationCoordinator.pathSnapshot(for: tab).isEmpty
         case .playlist, .mergedPlaylist, .pin:
             return false
+        case .hidden:
+            return navigationCoordinator.pathSnapshot(for: .settings).isEmpty
         }
     }
 
@@ -1151,7 +1153,7 @@ public struct SidebarView: View {
         case .pin:
             guard !pinnedDetailPath.isEmpty else { return }
             pinnedDetailPath.removeAll()
-        case .library, .none:
+        case .library, .hidden, .none:
             return
         }
     }
@@ -1199,6 +1201,9 @@ public struct SidebarView: View {
                 sidebarLibraryRow("Albums", systemImage: EnsembleDesign.Icon.album, tab: .albums)
                 sidebarLibraryRow("Genres", systemImage: EnsembleDesign.Icon.genreEmpty, tab: .genres)
                 sidebarLibraryRow("Favorites", systemImage: EnsembleDesign.Icon.favoriteFilled, tab: .favorites)
+                Label("Hidden", systemImage: "eye.slash")
+                    .tag(SidebarSelection.hidden)
+                    .sidebarAccessibilityAction { selectSidebar(.hidden) }
             }
 
             // Pins section (collapsible — native Section header style)
@@ -1375,6 +1380,8 @@ public struct SidebarView: View {
             )
         case .pin(let id, let sourceKey, let type):
             pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)
+        case .hidden:
+            HiddenMediaView(nowPlayingVM: nowPlayingVM)
         case .none:
             sidebarContentView(for: .home)
         }
@@ -1395,6 +1402,8 @@ public struct SidebarView: View {
             return navigationCoordinator.pathSnapshot(for: .playlists)
         case .pin:
             return pinnedDetailPath
+        case .hidden:
+            return navigationCoordinator.pathSnapshot(for: .settings)
         case .none:
             return navigationCoordinator.pathSnapshot(for: .home)
         }
@@ -1416,6 +1425,8 @@ public struct SidebarView: View {
         case .pin:
             guard pinnedDetailPath != newPath else { return }
             pinnedDetailPath = newPath
+        case .hidden:
+            navigationCoordinator.setPath(newPath, for: .settings)
         case .none:
             navigationCoordinator.setPath(newPath, for: .home)
         }

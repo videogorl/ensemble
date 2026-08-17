@@ -39,21 +39,28 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
+    private let hiddenMediaStore: HiddenMediaStore
+    private let includesHidden: Bool
     private var cancellables = Set<AnyCancellable>()
 
     public init(
         album: Album,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
-        initialTracks: [Track]? = nil
+        initialTracks: [Track]? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        includesHidden: Bool = false
     ) {
+        let hiddenMediaStore = hiddenMediaStore ?? .shared
         self.album = album
         if let initialTracks {
-            self.tracks = initialTracks
+            self.tracks = includesHidden ? initialTracks : hiddenMediaStore.snapshot.visibleTracks(initialTracks)
             self.hasLoadedTracks = true
         }
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
+        self.hiddenMediaStore = hiddenMediaStore
+        self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "AlbumDetail")
         
         // Save filter options when they change
@@ -62,6 +69,9 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         // Re-fetch tracks when download state changes so offline dimming is accurate
         observeDownloadChanges()
         observeMetadataChanges()
+        hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+            Task { await self?.loadTracks() }
+        }.store(in: &cancellables)
     }
     
     private func setupFilterPersistence() {
@@ -88,7 +98,8 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             )
 
             if !cachedTracks.isEmpty {
-                let mapped = cachedTracks.map { Track(from: $0) }
+                let loaded = cachedTracks.map { Track(from: $0) }
+                let mapped = includesHidden ? loaded : hiddenMediaStore.snapshot.visibleTracks(loaded)
                 // Diagnostic: detect "Unknown Track" entries to trace empty-title source
                 let unknownCount = mapped.lazy.filter { $0.title == "Unknown Track" }.count
                 if unknownCount > 0 {
@@ -98,7 +109,8 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
             } else {
                 // If not found and we have a source key, try to fetch from API
                 EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
-                let apiTracks = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
+                let loaded = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
+                let apiTracks = includesHidden ? loaded : hiddenMediaStore.snapshot.visibleTracks(loaded)
                 if tracks != apiTracks { tracks = apiTracks }
             }
         } catch {

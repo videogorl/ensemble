@@ -2,22 +2,35 @@ import Foundation
 
 protocol LibraryVisibilitySourceIdentifiable {
     var sourceCompositeKey: String? { get }
+    func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool
 }
 
-extension Track: LibraryVisibilitySourceIdentifiable {}
-extension Artist: LibraryVisibilitySourceIdentifiable {}
-extension Album: LibraryVisibilitySourceIdentifiable {}
-extension Genre: LibraryVisibilitySourceIdentifiable {}
-extension Playlist: LibraryVisibilitySourceIdentifiable {}
+extension Track: LibraryVisibilitySourceIdentifiable {
+    func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool { snapshot.isHidden(self) }
+}
+extension Artist: LibraryVisibilitySourceIdentifiable {
+    func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool { snapshot.isHidden(self) }
+}
+extension Album: LibraryVisibilitySourceIdentifiable {
+    func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool { snapshot.isHidden(self) }
+}
+extension Genre: LibraryVisibilitySourceIdentifiable {
+    func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool { false }
+}
+extension Playlist: LibraryVisibilitySourceIdentifiable {
+    func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool { snapshot.isHidden(self) }
+}
 
 enum LibraryVisibilityFiltering {
     static func visibleItems<Item: LibraryVisibilitySourceIdentifiable>(
         _ items: [Item],
         hiddenSourceCompositeKeys: Set<String>,
-        sourceConfiguration: SourceConfigurationSnapshot? = nil
+        sourceConfiguration: SourceConfigurationSnapshot? = nil,
+        hiddenMedia: HiddenMediaSnapshot = .empty
     ) -> [Item] {
         var visibilityBySourceKey: [String: Bool] = [:]
         return items.filter { item in
+            guard !item.isHidden(in: hiddenMedia) else { return false }
             guard let sourceKey = item.sourceCompositeKey else { return false }
             if let isVisible = visibilityBySourceKey[sourceKey] {
                 return isVisible

@@ -1328,12 +1328,13 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
+        XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management, .visibility])
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToLibrary, .addToRecentPlaylist, .addToPlaylist, .favorite])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink, .shareAudioFile])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteTrack])
+        XCTAssertEqual(sections.actions(in: .visibility), [.toggleHidden])
         XCTAssertEqual(sections.role(for: .deleteTrack), .destructive)
     }
 
@@ -1477,13 +1478,14 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .offline, .management])
+        XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .offline, .management, .visibility])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .deleteAlbum])
+        XCTAssertEqual(sections.actions(in: .visibility), [.toggleHidden])
         XCTAssertEqual(sections.role(for: .deleteAlbum), .destructive)
     }
 
@@ -1494,10 +1496,11 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing, .visibility])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
+        XCTAssertEqual(sections.actions(in: .visibility), [.toggleHidden])
         XCTAssertNil(sections.first { $0.id == .management })
     }
 
@@ -1508,11 +1511,12 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing, .management])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing, .management, .visibility])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo])
+        XCTAssertEqual(sections.actions(in: .visibility), [.toggleHidden])
     }
 
     func testMediaMenuCatalogSearchMergedPlaylistIsNonDestructive() {
@@ -1522,10 +1526,11 @@ final class EnsembleUITests: XCTestCase {
             availability: .full
         )
 
-        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing])
+        XCTAssertEqual(sections.ids, [.playback, .offline, .sharing, .visibility])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .offline), [.downloadAll, .removeDownloads])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
+        XCTAssertEqual(sections.actions(in: .visibility), [.toggleHidden])
         XCTAssertNil(sections.first { $0.id == .management })
     }
 

@@ -1,5 +1,6 @@
 import AVFoundation
 import Combine
+import CloudKit
 import EnsembleAPI
 import EnsembleDomain
 import EnsemblePlex
@@ -752,6 +753,38 @@ public final class WatchPlaybackController: ObservableObject {
     }
 }
 
+private struct WatchHiddenIdentity: Codable, Hashable {
+    let kind: String
+    let itemID: String
+    let sourceCompositeKey: String
+}
+
+private struct WatchHiddenMutation: Codable {
+    let identity: WatchHiddenIdentity
+    let isHidden: Bool
+    let modifiedAt: Date
+}
+
+private actor WatchHiddenMediaCloudStore {
+    private let recordID = CKRecord.ID(recordName: "currentHiddenMediaState")
+
+    func activeIdentities() async -> Set<WatchHiddenIdentity> {
+        #if os(watchOS)
+        do {
+            let database = CKContainer(identifier: "iCloud.com.videogorl.ensemble").privateCloudDatabase
+            let record = try await database.record(for: recordID)
+            guard let data = record["mutations"] as? Data,
+                  let mutations = try? JSONDecoder().decode([WatchHiddenMutation].self, from: data) else { return [] }
+            return Set(mutations.filter(\.isHidden).map(\.identity))
+        } catch {
+            return []
+        }
+        #else
+        return []
+        #endif
+    }
+}
+
 @MainActor
 public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var bootstrapState: WatchBootstrapState = .idle
@@ -773,6 +806,8 @@ public final class WatchExperienceModel: ObservableObject {
     private let catalogStore: WatchCatalogStore
     private let cloudPreferences: WatchCloudPreferenceStore
     private let authService: PlexAuthService
+    private let hiddenMediaCloud = WatchHiddenMediaCloudStore()
+    private var hiddenIdentities: Set<WatchHiddenIdentity> = []
 
     private var discoveredServers: [EnsemblePlexServer] = []
     private var bootstrapTask: Task<Void, Never>?
@@ -833,7 +868,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public var playlistGroups: [WatchPlaylistGroup] {
-        WatchPlaylistGroup.grouped(catalogSnapshot?.playlists ?? [])
+        WatchPlaylistGroup.grouped((catalogSnapshot?.playlists ?? []).filter { !isHidden($0) })
     }
 
     public func playlistGroup(containing item: EnsembleMediaSummary) -> WatchPlaylistGroup? {
@@ -845,11 +880,13 @@ public final class WatchExperienceModel: ObservableObject {
 
     public func start() {
         guard bootstrapTask == nil else { return }
+        refreshHiddenMedia()
         startBootstrapTask(forceRefresh: false)
     }
 
     public func refresh() {
         bootstrapTask?.cancel()
+        refreshHiddenMedia()
         startBootstrapTask(forceRefresh: true)
     }
 
@@ -879,8 +916,9 @@ public final class WatchExperienceModel: ObservableObject {
             do {
                 let tracks = try await catalog.tracks(for: item, in: libraries)
                 guard !Task.isCancelled, detailRequestID == requestID else { return }
-                detailTracks = tracks
-                detailStatusMessage = tracks.isEmpty ? "No tracks found." : "Ready"
+                let visibleTracks = tracks.filter { !self.isHidden($0) }
+                detailTracks = visibleTracks
+                detailStatusMessage = visibleTracks.isEmpty ? "No tracks found." : "Ready"
             } catch {
                 guard !Task.isCancelled, detailRequestID == requestID else { return }
                 detailTracks = []
@@ -910,14 +948,15 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func play(_ track: EnsembleTrack, in queue: [EnsembleTrack]) {
+        guard !isHidden(track) else { return }
         queuePreparationTask?.cancel()
-        replacePlaybackQueue(with: queue, startingAt: track)
+        replacePlaybackQueue(with: queue.filter { !isHidden($0) }, startingAt: track)
     }
 
     public func play(_ tracks: [EnsembleTrack], shuffled: Bool = false) {
         queuePreparationTask?.cancel()
         playbackTask?.cancel()
-        replacePlaybackQueue(with: tracks, shuffled: shuffled)
+        replacePlaybackQueue(with: tracks.filter { !isHidden($0) }, shuffled: shuffled)
     }
 
     public func play(_ item: EnsembleMediaSummary, shuffled: Bool = false) {
@@ -930,11 +969,12 @@ public final class WatchExperienceModel: ObservableObject {
             do {
                 let tracks = try await catalog.tracks(for: item, in: libraries)
                 guard !Task.isCancelled else { return }
-                guard !tracks.isEmpty else {
+                let visibleTracks = tracks.filter { !self.isHidden($0) }
+                guard !visibleTracks.isEmpty else {
                     playbackStatusMessage = "No tracks found."
                     return
                 }
-                replacePlaybackQueue(with: tracks, shuffled: shuffled)
+                replacePlaybackQueue(with: visibleTracks, shuffled: shuffled)
             } catch is CancellationError {
                 return
             } catch {
@@ -1172,8 +1212,53 @@ public final class WatchExperienceModel: ObservableObject {
                 trackSets[index] = tracks ?? []
                 failureCount += failed ? 1 : 0
             }
-            return (PlexPlaylistMergeRules.interleaved(trackSets), failureCount)
+            return (PlexPlaylistMergeRules.interleaved(trackSets).filter { !self.isHidden($0) }, failureCount)
         }
+    }
+
+    private func refreshHiddenMedia() {
+        Task { [weak self] in
+            guard let self else { return }
+            hiddenIdentities = await hiddenMediaCloud.activeIdentities()
+            applyHiddenMediaFilter()
+        }
+    }
+
+    private func applyHiddenMediaFilter() {
+        guard let snapshot = catalogStore.loadSnapshot() else { return }
+        let selected = Self.filteredSnapshot(snapshot, for: libraries)
+        catalogSnapshot = EnsemblePlexCatalogSnapshot(
+            fetchedAt: selected.fetchedAt,
+            libraries: selected.libraries,
+            pins: selected.pins.filter { !isHidden($0) },
+            albums: selected.albums.filter { !isHidden($0) },
+            artists: selected.artists.filter { !isHidden($0) },
+            playlists: selected.playlists.filter { !isHidden($0) },
+            recentlyAdded: selected.recentlyAdded.filter { !isHidden($0) }
+        )
+        detailTracks = detailTracks.filter { !isHidden($0) }
+    }
+
+    private func isHidden(_ item: EnsembleMediaSummary) -> Bool {
+        hiddenIdentities.contains(WatchHiddenIdentity(
+            kind: item.kind.rawValue,
+            itemID: item.id,
+            sourceCompositeKey: item.sourceKey
+        ))
+    }
+
+    private func isHidden(_ track: EnsembleTrack) -> Bool {
+        hiddenIdentities.contains(WatchHiddenIdentity(
+            kind: "track",
+            itemID: track.id,
+            sourceCompositeKey: track.sourceKey
+        )) || track.albumID.map { albumID in
+            hiddenIdentities.contains(WatchHiddenIdentity(
+                kind: "album",
+                itemID: albumID,
+                sourceCompositeKey: track.sourceKey
+            ))
+        } == true
     }
 
     nonisolated static func trackLoadStatus(trackCount: Int, failureCount: Int) -> String {
@@ -1251,6 +1336,7 @@ public final class WatchExperienceModel: ObservableObject {
             if snapshot != selectedSnapshot {
                 catalogStore.saveSnapshot(selectedSnapshot)
             }
+            applyHiddenMediaFilter()
             bootstrapState = .ready
             statusMessage = "Refreshing"
 
@@ -1320,6 +1406,7 @@ public final class WatchExperienceModel: ObservableObject {
         catalogSnapshot = snapshot
         catalogStore.saveSnapshot(snapshot)
         applyPinnedReferences(pinnedReferences)
+        applyHiddenMediaFilter()
         statusMessage = "Ready"
     }
 

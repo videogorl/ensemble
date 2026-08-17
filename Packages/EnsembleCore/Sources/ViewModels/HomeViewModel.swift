@@ -32,6 +32,7 @@ public final class HomeViewModel: ObservableObject {
     private let hubLoader: HomeHubLoaderProtocol
     private let hubOrderManager: HubOrderManager
     private let visibilityStore: LibraryVisibilityStore
+    private let hiddenMediaStore: HiddenMediaStore
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let appReadinessCoordinator: AppReadinessCoordinator?
@@ -91,6 +92,7 @@ public final class HomeViewModel: ObservableObject {
         playlistRepository: PlaylistRepositoryProtocol,
         hubOrderManager: HubOrderManager = HubOrderManager(),
         visibilityStore: LibraryVisibilityStore? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
         appReadinessCoordinator: AppReadinessCoordinator? = nil
     ) {
         self.accountManager = accountManager
@@ -100,6 +102,7 @@ public final class HomeViewModel: ObservableObject {
         self.playlistRepository = playlistRepository
         self.hubOrderManager = hubOrderManager
         self.visibilityStore = visibilityStore ?? .shared
+        self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.appReadinessCoordinator = appReadinessCoordinator
         self.readinessSnapshot = appReadinessCoordinator?.snapshot ?? AppReadinessSnapshot()
         let initialSourceConfiguration = accountManager.sourceConfigurationSnapshot
@@ -107,6 +110,10 @@ public final class HomeViewModel: ObservableObject {
         self.lastEnabledSourceKeys = initialSourceConfiguration.enabledSourceKeys
         self.lastSourceConfigurationHadSources = initialSourceConfiguration.hasAnySources
         updateSourceAvailability(initialSourceConfiguration)
+
+        self.hiddenMediaStore.$snapshot.dropFirst().sink { [weak self] _ in
+            self?.applyVisibilityToPublishedHubs()
+        }.store(in: &cancellables)
 
         appReadinessCoordinator?.$snapshot
             .receive(on: DispatchQueue.main)
@@ -369,7 +376,8 @@ public final class HomeViewModel: ObservableObject {
                         enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
                     ),
                     sourceConfiguration: sourceConfiguration,
-                    preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot
+                    preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot,
+                    hiddenMedia: hiddenMediaStore.snapshot
                 )
                 EnsembleStartupTiming.logTTFMP(milestone: "Cached hubs visible (\(hubs.count) hubs)")
             } else {
@@ -509,7 +517,8 @@ public final class HomeViewModel: ObservableObject {
                 enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
             ),
             sourceConfiguration: sourceConfiguration,
-            preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot
+            preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
 
         EnsembleLogger.debug("🏠 Applying hub snapshot source=\(source) count=\(visibleSnapshot.count)")
@@ -525,7 +534,8 @@ public final class HomeViewModel: ObservableObject {
                 enabledSourceCompositeKeys: sourceConfiguration.enabledSourceKeys
             ),
             sourceConfiguration: sourceConfiguration,
-            preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot
+            preservesAuthoritativeEmptySourceSnapshot: preservesAuthoritativeEmptySourceSnapshot,
+            hiddenMedia: hiddenMediaStore.snapshot
         )
 
         hubs = visibleHubs
@@ -593,7 +603,8 @@ public final class HomeViewModel: ObservableObject {
         _ hubs: [Hub],
         hiddenSourceCompositeKeys: Set<String>,
         sourceConfiguration: SourceConfigurationSnapshot? = nil,
-        preservesAuthoritativeEmptySourceSnapshot: Bool = true
+        preservesAuthoritativeEmptySourceSnapshot: Bool = true,
+        hiddenMedia: HiddenMediaSnapshot = .empty
     ) -> [Hub] {
         // A fully authoritative empty credential snapshot does not prove that
         // last-good browse data was deleted. Explicit source cleanup owns that.
@@ -606,7 +617,11 @@ public final class HomeViewModel: ObservableObject {
             let visibleItems = hub.items.filter { item in
                 MediaSourceIdentity.parse(item.sourceCompositeKey) != nil &&
                     (sourceConfiguration?.shouldPreserveSourceKey(item.sourceCompositeKey) ?? true) &&
-                    !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey)
+                    !hiddenSourceCompositeKeys.contains(item.sourceCompositeKey) &&
+                    item.album.map { !hiddenMedia.isHidden($0) } ?? true &&
+                    item.track.map { !hiddenMedia.isHidden($0) } ?? true &&
+                    item.artist.map { !hiddenMedia.isHidden($0) } ?? true &&
+                    item.playlist.map { !hiddenMedia.isHidden($0) } ?? true
             }
 
             guard !visibleItems.isEmpty else { return nil }
