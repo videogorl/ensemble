@@ -64,6 +64,8 @@ public final class MergedArtistDetailViewModel: ObservableObject {
         self.includesHidden = includesHidden
         self.filterOptions = FilterPersistence.load(for: "MergedArtistDetail-\(displayArtist.id)")
 
+        guard displayArtist.isMerged else { return }
+
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.rebuildDisplaySnapshots()
         }.store(in: &cancellables)

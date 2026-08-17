@@ -10,6 +10,7 @@ struct NavigationDestinationFactory {
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil,
+        playlistsVM: PlaylistViewModel,
         mediaNavigationNamespace: Namespace.ID? = nil,
         isMoreRoot: Bool = false
     ) -> AnyView {
@@ -20,6 +21,7 @@ struct NavigationDestinationFactory {
             homeVM: homeVM,
             searchVM: searchVM,
             pinnedVM: pinnedVM,
+            playlistsVM: playlistsVM,
             mediaNavigationNamespace: mediaNavigationNamespace,
             isMoreRoot: isMoreRoot
         ))
@@ -33,6 +35,7 @@ struct NavigationDestinationFactory {
         homeVM: HomeViewModel? = nil,
         searchVM: SearchViewModel,
         pinnedVM: PinnedViewModel? = nil,
+        playlistsVM: PlaylistViewModel,
         mediaNavigationNamespace: Namespace.ID? = nil
     ) -> AnyView {
         switch destination {
@@ -140,6 +143,7 @@ struct NavigationDestinationFactory {
                 homeVM: homeVM,
                 searchVM: searchVM,
                 pinnedVM: pinnedVM,
+                playlistsVM: playlistsVM,
                 mediaNavigationNamespace: mediaNavigationNamespace,
                 isMoreRoot: false
             ))
@@ -189,12 +193,13 @@ private struct NavigationTabContentView: View {
     let homeVM: HomeViewModel?
     let searchVM: SearchViewModel
     let pinnedVM: PinnedViewModel?
+    let playlistsVM: PlaylistViewModel
     let mediaNavigationNamespace: Namespace.ID?
     let isMoreRoot: Bool
 
     var body: some View {
         if isMoreRoot {
-            MoreView(libraryVM: libraryVM)
+            MoreView()
         } else {
             tabBody
         }
@@ -214,7 +219,7 @@ private struct NavigationTabContentView: View {
         case .genres:
             GenresView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .playlists:
-            PlaylistsView(nowPlayingVM: nowPlayingVM)
+            PlaylistsView(nowPlayingVM: nowPlayingVM, viewModel: playlistsVM)
         case .favorites:
             FavoritesView(libraryVM: libraryVM, nowPlayingVM: nowPlayingVM)
         case .search:

@@ -7,11 +7,12 @@ public struct GenresView: View {
         case selectionColumn
     }
 
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedGenre: Binding<DisplayGenre?>?
     @State private var localSelectedGenre: DisplayGenre?
+    @State private var cachedGenreSnapshot: GenreBrowseSnapshot = .empty
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
@@ -30,6 +31,13 @@ public struct GenresView: View {
         genreSnapshot.displayGenres
     }
 
+    private var genreFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.genresFilterOptions },
+            set: { libraryVM.genresFilterOptions = $0 }
+        )
+    }
+
     public var body: some View {
         Group {
             if genreSnapshot.phase != .idle && !genreSnapshot.hasVisibleContent {
@@ -43,7 +51,7 @@ public struct GenresView: View {
         .navigationTitle("Genres")
         .genreBrowseSearchable(
             isVisible: isGenreBrowseSearchVisible,
-            text: $libraryVM.genresFilterOptions.searchText
+            text: genreFilterOptions.searchText
         )
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -51,10 +59,23 @@ public struct GenresView: View {
         .refreshCommand {
             await libraryVM.refreshFromServer()
         }
+        .onReceive(libraryVM.$genreBrowseSnapshot) { snapshot in
+            if snapshot != cachedGenreSnapshot {
+                cachedGenreSnapshot = snapshot
+            }
+        }
+        .onAppear {
+            let snapshot = libraryVM.immediateGenreBrowseSnapshot
+            if snapshot != cachedGenreSnapshot {
+                cachedGenreSnapshot = snapshot
+            }
+        }
     }
 
     private var genreSnapshot: GenreBrowseSnapshot {
-        libraryVM.immediateGenreBrowseSnapshot
+        cachedGenreSnapshot.hasVisibleContent || cachedGenreSnapshot.phase != .idle
+            ? cachedGenreSnapshot
+            : libraryVM.immediateGenreBrowseSnapshot
     }
 
     private var isGenreBrowseSearchVisible: Bool {

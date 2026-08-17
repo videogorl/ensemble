@@ -48,7 +48,6 @@ public struct PlaylistRow: View {
     let onTap: (() -> Void)?
     let isDisabled: Bool
     let statusText: String?
-    @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
         displayPlaylist: DisplayPlaylist,
@@ -65,29 +64,13 @@ public struct PlaylistRow: View {
     }
 
     public var body: some View {
-        if let onTap {
-            playlistRowContent
-                .onTapGesture(perform: onTap)
-        } else {
-            Group {
-                if isDisabled {
-                    playlistRowContent
-                } else if displayPlaylist.isMerged {
-                    navigationCoordinator.routeLink(
-                        to: .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
-                    ) {
-                        playlistRowContent
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    navigationCoordinator.routeLink(
-                        to: .playlistDetail(displayPlaylist.primaryPlaylist)
-                    ) {
-                        playlistRowContent
-                    }
-                    .buttonStyle(.plain)
-                }
+        if let onTap, !isDisabled {
+            Button(action: onTap) {
+                playlistRowContent
             }
+            .buttonStyle(.plain)
+        } else {
+            playlistRowContent
         }
     }
 

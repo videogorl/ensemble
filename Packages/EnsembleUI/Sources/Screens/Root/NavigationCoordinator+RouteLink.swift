@@ -13,10 +13,18 @@ extension NavigationCoordinator {
         @ViewBuilder label: () -> Label
     ) -> some View {
         Button {
-            self.pushFromRouteLink(destination, in: tab)
+            self.route(to: destination, in: tab)
         } label: {
             label()
         }
+    }
+
+    /// Routes a direct user selection through the same transition bookkeeping as a route link.
+    func route(to destination: Destination, in tab: TabItem? = nil) {
+        let targetTab = tab ?? selectedTab
+        beginRouteTransition(in: targetTab)
+        markRouteInteraction()
+        push(destination, in: targetTab)
     }
 
     /// Routes actions chosen from menus after the native menu has time to dismiss.
@@ -42,13 +50,6 @@ extension NavigationCoordinator {
 }
 
 private extension NavigationCoordinator {
-    func pushFromRouteLink(_ destination: Destination, in tab: TabItem?) {
-        let targetTab = tab ?? selectedTab
-        beginRouteTransition(in: targetTab)
-        markRouteInteraction()
-        push(destination, in: targetTab)
-    }
-
     func scheduleAfterMenuDismissal(_ action: @escaping @MainActor () -> Void) {
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(180)) {
             Task { @MainActor in

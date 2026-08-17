@@ -3,17 +3,12 @@ import SwiftUI
 
 /// The "More" tab containing additional sections not in the main tab bar
 public struct MoreView: View {
-    @ObservedObject var libraryVM: LibraryViewModel
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     @State private var isEditing = false
 
-    public init(
-        libraryVM: LibraryViewModel
-    ) {
-        self.libraryVM = libraryVM
-    }
+    public init() {}
 
     private var barTabs: [TabItem] {
         Array(settingsManager.enabledTabs.prefix(EnsembleScaffold.TabEditor.maximumTabBarItems))

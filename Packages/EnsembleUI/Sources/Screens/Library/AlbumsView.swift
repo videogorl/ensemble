@@ -2,13 +2,14 @@ import EnsembleCore
 import SwiftUI
 
 public struct AlbumsView: View {
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @Environment(\.dependencies) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
     @State private var selectedAlbum: Album?
+    @State private var cachedAlbumSnapshot: AlbumBrowseSnapshot = .empty
 
     public init(
         libraryVM: LibraryViewModel,
@@ -25,7 +26,16 @@ public struct AlbumsView: View {
     }
 
     private var albumSnapshot: AlbumBrowseSnapshot {
-        libraryVM.immediateAlbumBrowseSnapshot
+        cachedAlbumSnapshot.hasVisibleContent || cachedAlbumSnapshot.phase != .idle
+            ? cachedAlbumSnapshot
+            : libraryVM.immediateAlbumBrowseSnapshot
+    }
+
+    private var albumFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.albumsFilterOptions },
+            set: { libraryVM.albumsFilterOptions = $0 }
+        )
     }
 
     private var albumFilterButton: some View {
@@ -89,7 +99,7 @@ public struct AlbumsView: View {
         #endif
         .navigationTitle(isStageFlowActive ? "" : "Albums")
         .if(!isStageFlowActive) { view in
-            view.searchable(text: $libraryVM.albumsFilterOptions.searchText, prompt: "Filter albums")
+            view.searchable(text: albumFilterOptions.searchText, prompt: "Filter albums")
         }
         .refreshable {
             await libraryVM.refreshFromServer()
@@ -105,7 +115,7 @@ public struct AlbumsView: View {
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.albumsFilterOptions,
+                filterOptions: albumFilterOptions,
                 availableArtists: availableArtists,
                 availableGenres: albumSnapshot.availableGenres,
                 showYearFilter: true,
@@ -113,6 +123,17 @@ public struct AlbumsView: View {
                 showGenreFilter: true,
                 showHideSingles: true
             )
+        }
+        .onReceive(libraryVM.$albumBrowseSnapshot) { snapshot in
+            if snapshot != cachedAlbumSnapshot {
+                cachedAlbumSnapshot = snapshot
+            }
+        }
+        .onAppear {
+            let snapshot = libraryVM.immediateAlbumBrowseSnapshot
+            if snapshot != cachedAlbumSnapshot {
+                cachedAlbumSnapshot = snapshot
+            }
         }
     }
 
@@ -249,8 +270,8 @@ public struct AlbumsView: View {
     private var albumGenreChipBar: some View {
         GenreFilterHeader(
             availableGenres: albumSnapshot.availableGenres,
-            selectedGenres: $libraryVM.albumsFilterOptions.selectedGenres,
-            excludedGenres: $libraryVM.albumsFilterOptions.excludedGenres
+            selectedGenres: albumFilterOptions.selectedGenres,
+            excludedGenres: albumFilterOptions.excludedGenres
         )
     }
 

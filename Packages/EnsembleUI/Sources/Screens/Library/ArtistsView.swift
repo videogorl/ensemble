@@ -35,7 +35,7 @@ public struct ArtistsView: View {
         case selectionColumn
     }
 
-    @ObservedObject var libraryVM: LibraryViewModel
+    let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     private let presentationMode: PresentationMode
     private let externalSelectedArtist: Binding<DisplayArtist?>?
@@ -43,6 +43,13 @@ public struct ArtistsView: View {
     @State private var showFilterSheet = false
     @State private var localSelectedArtist: DisplayArtist?
     @State private var cachedArtistSnapshot: ArtistBrowseSnapshot = .empty
+
+    private var artistFilterOptions: Binding<FilterOptions> {
+        Binding(
+            get: { libraryVM.artistsFilterOptions },
+            set: { libraryVM.artistsFilterOptions = $0 }
+        )
+    }
 
     public init(
         libraryVM: LibraryViewModel,
@@ -67,7 +74,7 @@ public struct ArtistsView: View {
             }
         }
         .navigationTitle("Artists")
-        .searchable(text: $libraryVM.artistsFilterOptions.searchText, prompt: "Filter artists")
+        .searchable(text: artistFilterOptions.searchText, prompt: "Filter artists")
         .refreshable {
             await libraryVM.refreshFromServer()
         }
@@ -85,7 +92,7 @@ public struct ArtistsView: View {
         }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(
-                filterOptions: $libraryVM.artistsFilterOptions,
+                filterOptions: artistFilterOptions,
                 availableGenres: artistSnapshot.availableGenres,
                 showGenreFilter: true
             )
@@ -339,8 +346,8 @@ public struct ArtistsView: View {
     private var artistGenreChipBar: some View {
         GenreFilterHeader(
             availableGenres: artistSnapshot.availableGenres,
-            selectedGenres: $libraryVM.artistsFilterOptions.selectedGenres,
-            excludedGenres: $libraryVM.artistsFilterOptions.excludedGenres
+            selectedGenres: artistFilterOptions.selectedGenres,
+            excludedGenres: artistFilterOptions.excludedGenres
         )
     }
 
