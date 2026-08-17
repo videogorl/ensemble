@@ -49,9 +49,10 @@ enum AppleMusicPlaybackResolutionPolicy {
 enum AppleMusicPlaybackEndPolicy {
     static func isFinalEntry(
         hasQueuedSuccessor: Bool,
-        isStationActive: Bool
+        isStationActive: Bool,
+        isRepeatOneEnabled: Bool = false
     ) -> Bool {
-        !isStationActive && !hasQueuedSuccessor
+        !isStationActive && !hasQueuedSuccessor && !isRepeatOneEnabled
     }
 
     static func shouldReportEnd(
@@ -338,6 +339,7 @@ private struct AppleMusicPlaybackEndSnapshot {
 @MainActor
 protocol AppleMusicPlaybackControlling: AnyObject {
     var isStationActive: Bool { get }
+    var isRepeatOneEnabled: Bool { get }
     var hasQueuedSuccessor: Bool { get }
     var activeQueueGeneration: UInt64? { get }
     var onTrackChanged: ((String, UInt64) -> Void)? { get set }
@@ -350,14 +352,20 @@ protocol AppleMusicPlaybackControlling: AnyObject {
     var onDynamicQueueChanged: (([Track], UInt64) -> Void)? { get set }
     func play(
         tracks: [Track],
-        startTime: TimeInterval?
+        startTime: TimeInterval?,
+        repeatOneEnabled: Bool
     ) async throws -> Set<String>
     func pause()
     func resume() async throws
     func stop()
     func seek(to time: TimeInterval)
+    func setRepeatOneEnabled(_ enabled: Bool)
     func setInterruptionActive(_ isActive: Bool)
-    func startStation(seed: Track, smartMixEnabled: Bool) async throws
+    func startStation(
+        seed: Track,
+        smartMixEnabled: Bool,
+        repeatOneEnabled: Bool
+    ) async throws
     func skipToNextEntry() async throws
     func discardUpcomingEntries() -> Bool
     func removeFirstUpcomingEntry(catalogID: String) -> Bool
@@ -391,6 +399,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
 
     private(set) var isStationActive = false
+    private(set) var isRepeatOneEnabled = false
     var hasQueuedSuccessor: Bool {
         guard let currentEntry else { return false }
         let entries = player.queue.entries
@@ -462,7 +471,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         }
         let isFinalEntry = AppleMusicPlaybackEndPolicy.isFinalEntry(
             hasQueuedSuccessor: hasQueuedSuccessor,
-            isStationActive: isStationActive
+            isStationActive: isStationActive,
+            isRepeatOneEnabled: isRepeatOneEnabled
         )
         let isEndSuppressed = isInterrupted || suppressPausedEndUntilPlaybackResumes
         let isFinalEntryReset = AppleMusicPlaybackEndPolicy.shouldReportFinalEntryReset(
@@ -502,7 +512,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
 
     func play(
         tracks: [Track],
-        startTime: TimeInterval?
+        startTime: TimeInterval?,
+        repeatOneEnabled: Bool
     ) async throws -> Set<String> {
         try await runOperation(
             staleResult: [],
@@ -514,6 +525,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             return try await self.performPlay(
                 tracks: tracks,
                 startTime: startTime,
+                repeatOneEnabled: repeatOneEnabled,
                 generation: generation
             )
         }
@@ -523,6 +535,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func performPlay(
         tracks: [Track],
         startTime: TimeInterval?,
+        repeatOneEnabled: Bool,
         generation: UInt64
     ) async throws -> Set<String> {
         beginQueuePreparation()
@@ -550,7 +563,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         lastPublishedEntryID = nil
         activeQueueGeneration = generation
         player.transition = .none
-        player.state.repeatMode = MusicPlayer.RepeatMode.none
+        isRepeatOneEnabled = repeatOneEnabled
+        player.state.repeatMode = repeatOneEnabled ? .one : MusicPlayer.RepeatMode.none
         player.state.shuffleMode = .off
         player.queue = ApplicationMusicPlayer.Queue(for: songs, startingAt: first)
         if let current = resolvedTracks.first {
@@ -766,6 +780,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         endStallTracker.reset()
         isPreparingQueue = false
         isStationActive = false
+        isRepeatOneEnabled = false
         activeQueueGeneration = nil
         player.stop()
         player.queue.entries = []
@@ -787,7 +802,22 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     }
     func seek(to time: TimeInterval) { player.playbackTime = time }
 
-    func startStation(seed: Track, smartMixEnabled: Bool) async throws {
+    func setRepeatOneEnabled(_ enabled: Bool) {
+        isRepeatOneEnabled = enabled
+        player.state.repeatMode = enabled ? .one : MusicPlayer.RepeatMode.none
+        if enabled {
+            pausedEndTask?.cancel()
+            pausedEndTask = nil
+            lastPlayingEndSnapshot = nil
+            endStallTracker.reset()
+        }
+    }
+
+    func startStation(
+        seed: Track,
+        smartMixEnabled: Bool,
+        repeatOneEnabled: Bool
+    ) async throws {
         try await runOperation(
             staleResult: (),
             replacingQueue: true,
@@ -798,6 +828,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
             try await self.performStartStation(
                 seed: seed,
                 smartMixEnabled: smartMixEnabled,
+                repeatOneEnabled: repeatOneEnabled,
                 generation: generation
             )
         }
@@ -807,6 +838,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
     private func performStartStation(
         seed: Track,
         smartMixEnabled: Bool,
+        repeatOneEnabled: Bool,
         generation: UInt64
     ) async throws {
         beginQueuePreparation()
@@ -831,6 +863,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         enrichedArtwork = nil
         lastPublishedEntryID = nil
         player.transition = smartMixEnabled ? .crossfade : .none
+        isRepeatOneEnabled = repeatOneEnabled
+        player.state.repeatMode = repeatOneEnabled ? .one : MusicPlayer.RepeatMode.none
         activeQueueGeneration = generation
         player.queue = ApplicationMusicPlayer.Queue(for: [station])
         try await AppleMusicStationStartSequence.startAfterSeed(on: player) { [weak self] in
@@ -929,6 +963,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         lastPlayingEndSnapshot = nil
         isPreparingQueue = true
         activeQueueGeneration = nil
+        isRepeatOneEnabled = false
         wasPlaying = false
         hasReportedEnd = true
         player.stop()
@@ -949,6 +984,7 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
         activeQueueGeneration = nil
         isPreparingQueue = false
         isStationActive = false
+        isRepeatOneEnabled = false
         submittedTracks = []
         artworkRequestMusicID = nil
         enrichedArtwork = nil
@@ -1213,7 +1249,8 @@ final class AppleMusicPlaybackController: AppleMusicPlaybackControlling {
                duration: duration,
                isFinalEntry: AppleMusicPlaybackEndPolicy.isFinalEntry(
                    hasQueuedSuccessor: hasQueuedSuccessor,
-                   isStationActive: isStationActive
+                   isStationActive: isStationActive,
+                   isRepeatOneEnabled: isRepeatOneEnabled
                ),
                wasPlaying: wasPlaying,
                isEndSuppressed: isEndSuppressed

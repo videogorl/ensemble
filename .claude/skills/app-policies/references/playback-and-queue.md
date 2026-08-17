@@ -17,6 +17,8 @@
 - MusicKit owns Apple audio rendering, route behavior, and its native station
   queue. Ensemble owns logical sequencing and provider-neutral Now Playing and
   remote command availability.
+- Ensemble mirrors Repeat One to MusicKit for the active Apple item so native
+  playback owns the loop. Repeat All remains Ensemble-owned across providers.
 - Regular Play starts at the requested item with shuffle off. Shuffle preserves
   original order, keeps the current item when toggled, excludes autoplay and
   already-played candidates, and restores original order when disabled.
