@@ -17,6 +17,8 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     private var lastPublishedSnapshot: WatchCompanionSessionSnapshot?
     private var hasActivatedSession = false
     private var cachedArtwork: (trackID: String, source: MPMediaItemArtwork, data: Data)?
+    private var queueRevision = 0
+    private var lastQueueSignature: [String] = []
 
     private override init() {
         super.init()
@@ -140,7 +142,40 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             queueCount: playbackService.queue.count,
             isShuffleEnabled: playbackService.isShuffleEnabled,
             repeatMode: WatchCompanionRepeatMode(rawValue: playbackService.repeatMode.rawValue) ?? .off,
-            updatedAt: Date()
+            updatedAt: Date(),
+            queueRevision: currentQueueRevision(for: playbackService),
+            isAutoplayEnabled: playbackService.isAutoplayEnabled,
+            enabledSourceKeys: playbackServiceSourceKeys(playbackService)
+        )
+    }
+
+    private func playbackServiceSourceKeys(_ playbackService: PlaybackService) -> [String] {
+        playbackService.sourceConfigurationSnapshot.enabledSourceKeys.sorted()
+    }
+
+    private func currentQueueRevision(for playbackService: PlaybackService) -> Int {
+        let signature = playbackService.queue.map { "\($0.id):\($0.source.rawValue)" }
+            + ["index:\(playbackService.currentQueueIndex)"]
+        guard signature != lastQueueSignature else { return queueRevision }
+        lastQueueSignature = signature
+        queueRevision &+= 1
+        return queueRevision
+    }
+
+    private func makeQueueSnapshot(for playbackService: PlaybackService) -> WatchCompanionQueueSnapshot {
+        WatchCompanionQueueSnapshot(
+            items: playbackService.queue.map { item in
+                WatchCompanionQueueItemSnapshot(
+                    id: item.id,
+                    source: item.source.rawValue,
+                    title: item.track.title,
+                    artistName: item.track.artistName,
+                    albumTitle: item.track.albumName,
+                    artworkData: currentArtworkData(for: item.track.id, title: item.track.title)
+                )
+            },
+            currentQueueIndex: playbackService.currentQueueIndex,
+            revision: currentQueueRevision(for: playbackService)
         )
     }
 
@@ -197,15 +232,91 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             }
             playbackService.seek(to: time)
 
+        case .play, .shuffle, .radio, .playNext, .playLast:
+            guard let payloads = command.tracks, !payloads.isEmpty else {
+                return WatchCompanionCommandResponse(accepted: false, errorMessage: "Missing tracks.")
+            }
+            let tracks = payloads.map(Self.track(from:))
+            switch command.kind {
+            case .play:
+                await playbackService.play(tracks: tracks, startingAt: 0)
+            case .shuffle:
+                await playbackService.shufflePlay(tracks: tracks)
+            case .radio:
+                await playbackService.enableRadio(tracks: tracks)
+            case .playNext:
+                playbackService.playNext(tracks)
+            case .playLast:
+                playbackService.playLast(tracks)
+            default:
+                break
+            }
+
         case .toggleShuffle:
             playbackService.toggleShuffle()
 
         case .cycleRepeatMode:
             playbackService.cycleRepeatMode()
+
+        case .requestQueue:
+            break
+
+        case .playQueueItem:
+            guard let itemID = command.itemID else {
+                return WatchCompanionCommandResponse(
+                    accepted: false,
+                    errorMessage: "Missing queue item."
+                )
+            }
+            let revision = currentQueueRevision(for: playbackService)
+            if let commandRevision = command.queueRevision, commandRevision != revision {
+                return WatchCompanionCommandResponse(
+                    accepted: false,
+                    snapshot: makeSnapshot(),
+                    queue: makeQueueSnapshot(for: playbackService)
+                )
+            }
+            guard let index = playbackService.queue.firstIndex(where: { $0.id == itemID }) else {
+                return WatchCompanionCommandResponse(
+                    accepted: false,
+                    snapshot: makeSnapshot(),
+                    queue: makeQueueSnapshot(for: playbackService)
+                )
+            }
+            await playbackService.playQueueIndex(index)
+
+        case .toggleAutoplay:
+            playbackService.toggleAutoplay()
         }
 
         publishSnapshot()
-        return WatchCompanionCommandResponse(accepted: true)
+        let snapshot = makeSnapshot()
+        let queue: WatchCompanionQueueSnapshot?
+        switch command.kind {
+        case .requestQueue, .playQueueItem:
+            queue = makeQueueSnapshot(for: playbackService)
+        default:
+            queue = nil
+        }
+        return WatchCompanionCommandResponse(accepted: true, snapshot: snapshot, queue: queue)
+    }
+
+    private static func track(from payload: WatchCompanionTrackPayload) -> Track {
+        Track(
+            id: payload.id,
+            key: payload.streamKey ?? "/library/metadata/\(payload.id)",
+            title: payload.title,
+            artistName: payload.artistName,
+            albumName: payload.albumTitle,
+            albumRatingKey: payload.albumID,
+            artistRatingKey: payload.artistID,
+            trackNumber: payload.trackNumber ?? 0,
+            discNumber: payload.discNumber ?? 1,
+            duration: payload.duration,
+            thumbPath: payload.artworkPath,
+            streamKey: payload.streamKey,
+            sourceCompositeKey: payload.sourceKey
+        )
     }
 
     nonisolated func session(

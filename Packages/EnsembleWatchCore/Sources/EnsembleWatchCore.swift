@@ -115,6 +115,7 @@ public struct WatchPlaylistGroup: Identifiable, Equatable, Sendable {
 public enum WatchKVSKey {
     public static let pins = "ensemble.sync.pins"
     public static let libraryFlags = "ensemble.sync.libraryFlags"
+    public static let accentColor = "ensemble.sync.accentColor"
 }
 
 public struct WatchPinnedReference: Codable, Equatable, Sendable {
@@ -225,7 +226,7 @@ public actor WatchCloudPreferenceStore {
               let pins = try? JSONDecoder().decode([WatchPinnedReference].self, from: data) else {
             return []
         }
-        return pins.sorted { $0.pinnedDate < $1.pinnedDate }
+        return pins
     }
 
     public func savePinnedReferences(_ pins: [WatchPinnedReference]) {
@@ -234,25 +235,65 @@ public actor WatchCloudPreferenceStore {
         NSUbiquitousKeyValueStore.default.set(data, forKey: WatchKVSKey.pins)
         synchronize()
     }
+
+    public func accentColorName() -> String {
+        guard #available(watchOS 9.0, *) else { return "blue" }
+        synchronize()
+        return NSUbiquitousKeyValueStore.default.string(forKey: WatchKVSKey.accentColor) ?? "blue"
+    }
+
+    public func saveAccentColorName(_ name: String) {
+        guard #available(watchOS 9.0, *) else { return }
+        NSUbiquitousKeyValueStore.default.set(name, forKey: WatchKVSKey.accentColor)
+        synchronize()
+    }
 }
 
 struct WatchPlaybackQueue {
+    static let displayLimit = 50
+    private(set) var items: [WatchQueueItem] = []
+    private(set) var originalItems: [WatchQueueItem] = []
+    private(set) var history: [WatchQueueItem] = []
     private(set) var tracks: [EnsembleTrack] = []
     private(set) var currentIndex: Int?
+    private(set) var currentTime: TimeInterval = 0
+    private(set) var isShuffleEnabled = false
+    private(set) var repeatMode: WatchQueueRepeatMode = .off
+    private(set) var isAutoplayEnabled = false
+    private(set) var hasUserQueueEdits = false
+
+    init(snapshot: WatchPlaybackQueueSnapshot? = nil) {
+        guard let snapshot else { return }
+        items = snapshot.queue
+        originalItems = snapshot.originalQueue
+        history = snapshot.history
+        currentIndex = snapshot.currentIndex
+        currentTime = snapshot.currentTime
+        isShuffleEnabled = snapshot.isShuffleEnabled
+        repeatMode = snapshot.repeatMode
+        isAutoplayEnabled = snapshot.isAutoplayEnabled
+        hasUserQueueEdits = snapshot.hasUserQueueEdits
+        syncTracks()
+    }
 
     var currentTrack: EnsembleTrack? {
-        guard let currentIndex, tracks.indices.contains(currentIndex) else { return nil }
-        return tracks[currentIndex]
+        guard let currentIndex, items.indices.contains(currentIndex) else { return nil }
+        return items[currentIndex].track
+    }
+
+    var currentItem: WatchQueueItem? {
+        guard let currentIndex, items.indices.contains(currentIndex) else { return nil }
+        return items[currentIndex]
     }
 
     var canAdvance: Bool {
         guard let currentIndex else { return false }
-        return tracks.indices.contains(currentIndex + 1)
+        return items.indices.contains(currentIndex + 1)
     }
 
     var nextTrack: EnsembleTrack? {
-        guard let currentIndex, tracks.indices.contains(currentIndex + 1) else { return nil }
-        return tracks[currentIndex + 1]
+        guard let currentIndex, items.indices.contains(currentIndex + 1) else { return nil }
+        return items[currentIndex + 1].track
     }
 
     mutating func replace(
@@ -261,39 +302,188 @@ struct WatchPlaybackQueue {
         shuffled: Bool = false
     ) -> EnsembleTrack? {
         guard !tracks.isEmpty else {
+            items = []
+            originalItems = []
+            history = []
             self.tracks = []
             currentIndex = nil
+            currentTime = 0
+            hasUserQueueEdits = false
             return nil
         }
 
+        let newItems = tracks.map { WatchQueueItem(track: $0) }
         if shuffled {
-            self.tracks = tracks.shuffled()
+            items = newItems.shuffled()
             currentIndex = 0
         } else if let requestedTrack,
                   let requestedIndex = tracks.firstIndex(where: { Self.sameTrack($0, requestedTrack) }) {
-            self.tracks = tracks
+            items = newItems
             currentIndex = requestedIndex
         } else if let requestedTrack {
-            self.tracks = [requestedTrack]
+            items = [WatchQueueItem(track: requestedTrack)]
             currentIndex = 0
         } else {
-            self.tracks = tracks
+            items = newItems
             currentIndex = 0
         }
 
+        originalItems = newItems
+        history = []
+        currentTime = 0
+        isShuffleEnabled = shuffled
+        hasUserQueueEdits = false
+        syncTracks()
         return currentTrack
     }
 
     mutating func advance() -> EnsembleTrack? {
         guard canAdvance, let currentIndex else { return nil }
+        recordCurrentToHistory()
         self.currentIndex = currentIndex + 1
+        currentTime = 0
+        syncTracks()
         return currentTrack
     }
 
     mutating func movePrevious() -> EnsembleTrack? {
         guard let currentIndex, currentIndex > 0 else { return nil }
+        if !history.isEmpty { history.removeLast() }
         self.currentIndex = currentIndex - 1
+        currentTime = 0
+        syncTracks()
         return currentTrack
+    }
+
+    mutating func previous() -> EnsembleTrack? {
+        if let track = movePrevious() { return track }
+        guard let historyItem = history.popLast() else { return nil }
+        if let index = items.firstIndex(where: { $0.id == historyItem.id }) {
+            currentIndex = index
+        } else {
+            let insertionIndex = min(max(currentIndex ?? 0, 0), items.count)
+            items.insert(historyItem, at: insertionIndex)
+            originalItems.insert(historyItem, at: min(insertionIndex, originalItems.count))
+            currentIndex = insertionIndex
+        }
+        currentTime = 0
+        syncTracks()
+        return currentTrack
+    }
+
+    mutating func select(index: Int) -> EnsembleTrack? {
+        guard items.indices.contains(index) else { return nil }
+        if index > (currentIndex ?? 0) {
+            recordCurrentAndSkippedItems(before: index)
+        }
+        items[index].source = .continuePlaying
+        currentIndex = index
+        currentTime = 0
+        syncTracks()
+        return currentTrack
+    }
+
+    mutating func appendAutoplay(_ tracks: [EnsembleTrack]) {
+        var existingIDs = Set(items.map { "\($0.track.sourceKey):\($0.track.id)" })
+        let newItems = tracks.compactMap { track -> WatchQueueItem? in
+            let identity = "\(track.sourceKey):\(track.id)"
+            guard !existingIDs.contains(identity) else { return nil }
+            existingIDs.insert(identity)
+            return WatchQueueItem(track: track, source: .autoplay)
+        }
+        guard !newItems.isEmpty else { return }
+        items.append(contentsOf: newItems)
+        syncTracks()
+    }
+
+    mutating func insert(
+        _ tracks: [EnsembleTrack],
+        source: EnsembleQueueItemSource,
+        playNext: Bool
+    ) {
+        guard !tracks.isEmpty else { return }
+        let newItems = tracks.map { WatchQueueItem(track: $0, source: source) }
+        let firstUpcomingIndex = min(max((currentIndex ?? -1) + 1, 0), items.count)
+        let insertionIndex: Int
+        if playNext {
+            insertionIndex = items.indices.last(where: {
+                $0 >= firstUpcomingIndex && items[$0].source == .upNext
+            }).map { $0 + 1 } ?? firstUpcomingIndex
+        } else {
+            insertionIndex = items.indices.first(where: {
+                $0 >= firstUpcomingIndex && items[$0].source == .autoplay
+            }) ?? items.count
+        }
+        items.insert(contentsOf: newItems, at: insertionIndex)
+        originalItems.insert(contentsOf: newItems, at: min(insertionIndex, originalItems.count))
+        hasUserQueueEdits = true
+        syncTracks()
+    }
+
+    mutating func toggleShuffle() {
+        guard let currentItem else { return }
+        isShuffleEnabled.toggle()
+        if isShuffleEnabled {
+            let currentID = currentItem.id
+            let upcoming = originalItems.filter { $0.id != currentID }.shuffled()
+            items = [currentItem] + upcoming
+            currentIndex = 0
+        } else {
+            let currentID = currentItem.id
+            items = originalItems
+            currentIndex = items.firstIndex { $0.id == currentID } ?? 0
+        }
+        syncTracks()
+    }
+
+    mutating func cycleRepeatMode() {
+        repeatMode = WatchQueueRepeatMode(rawValue: (repeatMode.rawValue + 1) % WatchQueueRepeatMode.allCases.count) ?? .off
+    }
+
+    mutating func toggleAutoplay() {
+        isAutoplayEnabled.toggle()
+    }
+
+    mutating func setAutoplayEnabled(_ enabled: Bool) {
+        isAutoplayEnabled = enabled
+    }
+
+    mutating func setCurrentTime(_ time: TimeInterval) {
+        currentTime = max(0, time)
+    }
+
+    func snapshot() -> WatchPlaybackQueueSnapshot {
+        WatchPlaybackQueueSnapshot(
+            queue: items,
+            originalQueue: originalItems,
+            history: history,
+            currentIndex: currentIndex,
+            currentTime: currentTime,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode,
+            isAutoplayEnabled: isAutoplayEnabled,
+            hasUserQueueEdits: hasUserQueueEdits
+        )
+    }
+
+    func snapshotForPersistence() -> WatchPlaybackQueueSnapshot {
+        let currentIndex = currentIndex
+        let retainedIDs = Set(items.enumerated().filter { index, item in
+            item.source != .autoplay || index <= (currentIndex ?? -1)
+        }.map(\.element.id))
+        let persistedItems = items.filter { retainedIDs.contains($0.id) }
+        let persistedOriginalItems = originalItems.filter { retainedIDs.contains($0.id) }
+        return WatchPlaybackQueueSnapshot(
+            queue: persistedItems,
+            originalQueue: persistedOriginalItems,
+            history: history,
+            currentIndex: currentIndex,
+            currentTime: currentTime,
+            isShuffleEnabled: isShuffleEnabled,
+            repeatMode: repeatMode,
+            isAutoplayEnabled: isAutoplayEnabled,
+            hasUserQueueEdits: hasUserQueueEdits
+        )
     }
 
     func isNext(_ track: EnsembleTrack) -> Bool {
@@ -302,6 +492,32 @@ struct WatchPlaybackQueue {
 
     static func sameTrack(_ lhs: EnsembleTrack, _ rhs: EnsembleTrack) -> Bool {
         lhs.id == rhs.id && lhs.playlistItemID == rhs.playlistItemID && lhs.sourceKey == rhs.sourceKey
+    }
+
+    private mutating func recordCurrentToHistory() {
+        guard let currentItem else { return }
+        var historyItem = currentItem
+        historyItem.source = .continuePlaying
+        guard history.last?.track != historyItem.track else { return }
+        history.append(historyItem)
+        if history.count > 100 { history.removeFirst() }
+    }
+
+    private mutating func recordCurrentAndSkippedItems(before targetIndex: Int) {
+        guard let currentIndex, targetIndex > currentIndex else { return }
+        for index in currentIndex ..< min(targetIndex, items.count) {
+            var item = items[index]
+            item.source = .continuePlaying
+            guard history.last?.track != item.track else { continue }
+            history.append(item)
+        }
+        if history.count > 100 {
+            history.removeFirst(history.count - 100)
+        }
+    }
+
+    private mutating func syncTracks() {
+        tracks = items.map(\.track)
     }
 }
 
@@ -331,6 +547,7 @@ public final class WatchPlaybackController: ObservableObject {
     var playbackAdvancedHandler: ((EnsembleTrack) -> Void)?
     var playNextHandler: (() -> Void)?
     var playPreviousHandler: (() -> Void)?
+    var resumeHandler: (() -> Void)?
 
     public init() {
         #if os(watchOS)
@@ -350,6 +567,10 @@ public final class WatchPlaybackController: ObservableObject {
 
     public var isPlaying: Bool {
         status == .playing
+    }
+
+    public var hasActivePlayer: Bool {
+        player != nil
     }
 
     public var progress: Double {
@@ -379,7 +600,22 @@ public final class WatchPlaybackController: ObservableObject {
         updateNowPlayingInfo()
     }
 
-    public func play(track: EnsembleTrack, url: URL) {
+    public func restore(track: EnsembleTrack, time: TimeInterval) {
+        player?.pause()
+        tearDownPlaybackObservers()
+        player = nil
+        currentItem = nil
+        preloadedItem = nil
+        preloadedTrack = nil
+        nowPlayingArtwork = nil
+        currentTrack = track
+        currentTime = max(0, min(time, track.duration > 0 ? track.duration : time))
+        errorMessage = nil
+        status = .paused
+        updateNowPlayingInfo()
+    }
+
+    public func play(track: EnsembleTrack, url: URL, startTime: TimeInterval = 0) {
         prepare(track: track)
 
         let item = AVPlayerItem(url: url)
@@ -388,6 +624,10 @@ public final class WatchPlaybackController: ObservableObject {
         self.player = player
         currentItem = item
         observe(player: player, item: item)
+        if startTime > 0 {
+            currentTime = startTime
+            player.seek(to: CMTime(seconds: startTime, preferredTimescale: 600))
+        }
         start(player)
     }
 
@@ -419,7 +659,10 @@ public final class WatchPlaybackController: ObservableObject {
     }
 
     public func togglePlayPause() {
-        guard let player else { return }
+        guard let player else {
+            resumeHandler?()
+            return
+        }
         if status == .playing {
             player.pause()
             status = .paused
@@ -430,7 +673,12 @@ public final class WatchPlaybackController: ObservableObject {
     }
 
     public func restart() {
-        guard let player else { return }
+        guard let player else {
+            currentTime = 0
+            updateNowPlayingInfo()
+            resumeHandler?()
+            return
+        }
         player.seek(to: .zero)
         currentTime = 0
         updateNowPlayingInfo()
@@ -785,23 +1033,34 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var statusMessage = "Loading Ensemble"
     @Published public private(set) var detailStatusMessage = "Loading"
     @Published public private(set) var playbackStatusMessage = "Ready"
-    @Published public var playbackTarget: EnsemblePlaybackTarget = .local
+    @Published public private(set) var playlistTargets: [EnsemblePlexPlaylistTarget] = []
+    @Published public private(set) var accentColorName = "blue"
+    @Published public var playbackTarget: EnsemblePlaybackTarget =
+        EnsemblePlaybackTarget(rawValue: UserDefaults.standard.string(forKey: "ensemble.watch.playbackTarget") ?? "") ?? .local {
+        didSet {
+            UserDefaults.standard.set(playbackTarget.rawValue, forKey: "ensemble.watch.playbackTarget")
+        }
+    }
+    @Published public private(set) var queueRevision = 0
 
     public let playback = WatchPlaybackController()
 
     private let discovery: EnsemblePlexDiscoveryService
     private let catalog: EnsemblePlexCatalogService
     private let catalogStore: WatchCatalogStore
+    private let playbackQueueStore: WatchPlaybackQueueStore
     private let cloudPreferences: WatchCloudPreferenceStore
     private let authService: PlexAuthService
     private let hiddenMediaCloud = WatchHiddenMediaCloudStore()
     private var hiddenIdentities: Set<HiddenMediaIdentity> = []
+    private var allCatalogSnapshot: EnsemblePlexCatalogSnapshot?
 
     private var discoveredServers: [EnsemblePlexServer] = []
     private var bootstrapTask: Task<Void, Never>?
     private var bootstrapTaskID: UUID?
     private var linkPollTask: Task<Void, Never>?
     private var playbackStatusCancellable: AnyCancellable?
+    private var playbackTimeCancellable: AnyCancellable?
     private var queuePreparationTask: Task<Void, Never>?
     private var detailTask: Task<Void, Never>?
     private var detailRequestID: UUID?
@@ -809,25 +1068,30 @@ public final class WatchExperienceModel: ObservableObject {
     private var playbackPrefetchTask: Task<Void, Never>?
     private var playbackRequestID: UUID?
     private var playbackPrefetchRequestID: UUID?
-    private var playbackQueue = WatchPlaybackQueue()
+    private var playbackQueue: WatchPlaybackQueue
 
     public init(
         discovery: EnsemblePlexDiscoveryService = EnsemblePlexDiscoveryService(),
         catalog: EnsemblePlexCatalogService = EnsemblePlexCatalogService(),
         catalogStore: WatchCatalogStore = WatchCatalogStore(),
+        playbackQueueStore: WatchPlaybackQueueStore = WatchPlaybackQueueStore(),
         cloudPreferences: WatchCloudPreferenceStore = WatchCloudPreferenceStore(),
         authService: PlexAuthService = PlexAuthService(productName: "Ensemble Watch")
     ) {
         self.discovery = discovery
         self.catalog = catalog
         self.catalogStore = catalogStore
+        self.playbackQueueStore = playbackQueueStore
+        self.playbackQueue = WatchPlaybackQueue(snapshot: playbackQueueStore.load())
         self.cloudPreferences = cloudPreferences
         self.authService = authService
-        self.catalogSnapshot = catalogStore.loadSnapshot()
-        if let catalogSnapshot {
+        let cachedSnapshot = catalogStore.loadSnapshot()
+        self.catalogSnapshot = cachedSnapshot
+        self.allCatalogSnapshot = cachedSnapshot
+        if let cachedSnapshot {
             bootstrapState = .ready
             statusMessage = "Ready"
-            pinnedItemIDs = Set(catalogSnapshot.pins.map {
+            pinnedItemIDs = Set(cachedSnapshot.pins.map {
                 Self.pinIdentity(id: $0.id, sourceKey: $0.sourceKey)
             })
         }
@@ -843,11 +1107,28 @@ public final class WatchExperienceModel: ObservableObject {
         playback.playPreviousHandler = { [weak self] in
             self?.playPrevious()
         }
+        playback.resumeHandler = { [weak self] in
+            self?.resumeCurrentPlayback()
+        }
+        if let restoredTrack = playbackQueue.currentTrack {
+            playback.restore(track: restoredTrack, time: playbackQueue.currentTime)
+        }
         self.playbackStatusCancellable = playback.$status
             .dropFirst()
             .sink { [weak self] status in
                 self?.playbackStatusMessage = Self.playbackStatusMessage(for: status)
             }
+        self.playbackTimeCancellable = playback.$currentTime
+            .throttle(for: .seconds(5), scheduler: RunLoop.main, latest: true)
+            .sink { [weak self] time in
+                guard let self else { return }
+                playbackQueue.setCurrentTime(time)
+                persistPlaybackQueue()
+            }
+
+        if playbackQueue.isAutoplayEnabled {
+            refreshAutoplayQueue()
+        }
     }
 
     public var isReady: Bool {
@@ -855,8 +1136,48 @@ public final class WatchExperienceModel: ObservableObject {
         return false
     }
 
+    public var currentQueueItem: WatchQueueItem? { playbackQueue.currentItem }
+
+    public var upcomingQueueItems: [WatchQueueItem] {
+        guard let currentIndex = playbackQueue.currentIndex else { return playbackQueue.items }
+        return Array(playbackQueue.items.dropFirst(currentIndex + 1))
+    }
+
+    public var queueCount: Int { playbackQueue.items.count }
+    public var queueIndex: Int? { playbackQueue.currentIndex }
+    public var isShuffleEnabled: Bool { playbackQueue.isShuffleEnabled }
+    public var repeatMode: WatchQueueRepeatMode { playbackQueue.repeatMode }
+    public var isAutoplayEnabled: Bool { playbackQueue.isAutoplayEnabled }
+    public var queueDisplayLimit: Int { WatchPlaybackQueue.displayLimit }
+
+    public func persistPlaybackQueue() {
+        playbackQueue.setCurrentTime(playback.currentTime)
+        playbackQueueStore.save(playbackQueue.snapshotForPersistence())
+    }
+
     public var playlistGroups: [WatchPlaylistGroup] {
         WatchPlaylistGroup.grouped((catalogSnapshot?.playlists ?? []).filter { !isHidden($0) })
+    }
+
+    public var libraryTracks: [EnsembleTrack] {
+        catalogSnapshot?.tracks.filter { !isHidden($0) } ?? []
+    }
+
+    public var libraryGenres: [EnsembleGenreSummary] {
+        catalogSnapshot?.genres ?? []
+    }
+
+    public var hiddenItems: [EnsembleMediaSummary] {
+        guard let snapshot = allCatalogSnapshot else { return [] }
+        let candidates = snapshot.albums + snapshot.artists + snapshot.playlists + snapshot.tracks.map(\.summary)
+        return hiddenIdentities.compactMap { identity in
+            candidates.first {
+                $0.id == identity.itemID
+                    && $0.sourceKey == identity.sourceCompositeKey
+                    && $0.kind.rawValue == identity.kind.rawValue
+            }
+        }
+        .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
     }
 
     public func playlistGroup(containing item: EnsembleMediaSummary) -> WatchPlaylistGroup? {
@@ -869,6 +1190,10 @@ public final class WatchExperienceModel: ObservableObject {
     public func start() {
         guard bootstrapTask == nil else { return }
         refreshHiddenMedia()
+        Task { [weak self] in
+            guard let self else { return }
+            accentColorName = await cloudPreferences.accentColorName()
+        }
         startBootstrapTask(forceRefresh: false)
     }
 
@@ -883,7 +1208,15 @@ public final class WatchExperienceModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             applyPinnedReferences(await cloudPreferences.pinnedReferences())
+            accentColorName = await cloudPreferences.accentColorName()
         }
+    }
+
+    public func setAccentColorName(_ name: String) {
+        let allowed = ["purple", "blue", "pink", "red", "orange", "yellow", "green"]
+        guard allowed.contains(name) else { return }
+        accentColorName = name
+        Task { await cloudPreferences.saveAccentColorName(name) }
     }
 
     public func startLinkFlow() {
@@ -915,6 +1248,71 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
+    public func loadTracks(for item: EnsembleMediaSummary) async -> [EnsembleTrack] {
+        guard let tracks = try? await catalog.tracks(for: item, in: libraries) else { return [] }
+        return tracks.filter { !isHidden($0) }
+    }
+
+    public func loadTracks(for group: WatchPlaylistGroup) async -> [EnsembleTrack] {
+        await mergedTracks(for: group).tracks
+    }
+
+    public func loadTracks(for genre: EnsembleGenreSummary) async -> [EnsembleTrack] {
+        (try? await catalog.tracks(for: genre, in: libraries)) ?? []
+    }
+
+    public func loadPlaylistTargets() async {
+        guard !libraries.isEmpty else { return }
+        playlistTargets = (try? await catalog.playlistTargets(in: libraries)) ?? []
+    }
+
+    public var recentPlaylistTarget: EnsemblePlexPlaylistTarget? {
+        playlistTargets.max {
+            ($0.updatedAt ?? 0, $0.id) < ($1.updatedAt ?? 0, $1.id)
+        }
+    }
+
+    @discardableResult
+    public func addToPlaylist(_ tracks: [EnsembleTrack], target: EnsemblePlexPlaylistTarget) async -> Int? {
+        do {
+            let count = try await catalog.addTracks(tracks, to: target, in: libraries)
+            statusMessage = count == 0 ? "Already in \(target.title)" : "Added to \(target.title)"
+            return count
+        } catch {
+            statusMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    public func createPlaylist(title: String, tracks: [EnsembleTrack], sourceKey: String) async -> Bool {
+        do {
+            let target = try await catalog.createPlaylist(
+                title: title,
+                tracks: tracks,
+                sourceKey: sourceKey,
+                in: libraries
+            )
+            playlistTargets.append(target)
+            statusMessage = "Created \(target.title)"
+            return true
+        } catch {
+            statusMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    public func toggleFavorite(_ track: EnsembleTrack) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await catalog.rateTrack(track, rating: track.isFavorite == true ? nil : 10, in: libraries)
+                statusMessage = track.isFavorite == true ? "Unfavorited \(track.title)" : "Favorited \(track.title)"
+            } catch {
+                statusMessage = error.localizedDescription
+            }
+        }
+    }
+
     public func tracks(for group: WatchPlaylistGroup) {
         detailTask?.cancel()
         let requestID = UUID()
@@ -927,6 +1325,28 @@ public final class WatchExperienceModel: ObservableObject {
             guard !Task.isCancelled, detailRequestID == requestID else { return }
             detailTracks = result.tracks
             detailStatusMessage = Self.trackLoadStatus(trackCount: result.tracks.count, failureCount: result.failureCount)
+        }
+    }
+
+    public func tracks(for genre: EnsembleGenreSummary) {
+        detailTask?.cancel()
+        let requestID = UUID()
+        detailRequestID = requestID
+        detailStatusMessage = "Loading \(genre.title)"
+        detailTracks = []
+        detailTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let tracks = try await catalog.tracks(for: genre, in: libraries)
+                guard !Task.isCancelled, detailRequestID == requestID else { return }
+                let visibleTracks = tracks.filter { !self.isHidden($0) }
+                detailTracks = visibleTracks
+                detailStatusMessage = visibleTracks.isEmpty ? "No tracks found." : "Ready"
+            } catch {
+                guard !Task.isCancelled, detailRequestID == requestID else { return }
+                detailTracks = []
+                detailStatusMessage = error.localizedDescription
+            }
         }
     }
 
@@ -945,6 +1365,65 @@ public final class WatchExperienceModel: ObservableObject {
         queuePreparationTask?.cancel()
         playbackTask?.cancel()
         replacePlaybackQueue(with: tracks.filter { !isHidden($0) }, shuffled: shuffled)
+    }
+
+    public func playNext(_ tracks: [EnsembleTrack]) {
+        let visibleTracks = tracks.filter { !isHidden($0) }
+        guard !visibleTracks.isEmpty else { return }
+        guard playbackQueue.currentTrack != nil else {
+            play(visibleTracks)
+            return
+        }
+        playbackQueue.insert(visibleTracks, source: .upNext, playNext: true)
+        markQueueChanged()
+    }
+
+    public func playLast(_ tracks: [EnsembleTrack]) {
+        let visibleTracks = tracks.filter { !isHidden($0) }
+        guard !visibleTracks.isEmpty else { return }
+        guard playbackQueue.currentTrack != nil else {
+            play(visibleTracks)
+            return
+        }
+        playbackQueue.insert(visibleTracks, source: .continuePlaying, playNext: false)
+        markQueueChanged()
+    }
+
+    public func playQueueItem(id: String) {
+        guard let index = playbackQueue.items.firstIndex(where: { $0.id == id }),
+              let track = playbackQueue.select(index: index) else { return }
+        playbackTarget = .local
+        markQueueChanged()
+        startPlayback(track)
+    }
+
+    public func toggleShuffle() {
+        playbackQueue.toggleShuffle()
+        markQueueChanged()
+        playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.items.count)
+        preloadNextTrack()
+    }
+
+    public func cycleRepeatMode() {
+        playbackQueue.cycleRepeatMode()
+        markQueueChanged()
+    }
+
+    public func toggleAutoplay() {
+        playbackQueue.toggleAutoplay()
+        markQueueChanged()
+        if playbackQueue.isAutoplayEnabled {
+            refreshAutoplayQueue()
+        }
+    }
+
+    public func playRadio(_ tracks: [EnsembleTrack]) {
+        let visibleTracks = tracks.filter { !isHidden($0) }
+        guard !visibleTracks.isEmpty else { return }
+        replacePlaybackQueue(with: visibleTracks, shuffled: true)
+        playbackQueue.setAutoplayEnabled(true)
+        markQueueChanged()
+        refreshAutoplayQueue()
     }
 
     public func play(_ item: EnsembleMediaSummary, shuffled: Bool = false) {
@@ -994,7 +1473,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public var canPlayNext: Bool {
-        playbackQueue.canAdvance
+        playbackQueue.canAdvance || playbackQueue.repeatMode != .off
     }
 
     public func playPrevious() {
@@ -1004,17 +1483,31 @@ public final class WatchExperienceModel: ObservableObject {
             return
         }
 
-        guard let track = playbackQueue.movePrevious() else {
+        guard let track = playbackQueue.previous() else {
             playback.restart()
             return
         }
+        markQueueChanged()
         startPlayback(track)
     }
 
     public func playNext() {
-        guard let track = playbackQueue.nextTrack else { return }
+        guard let track = playbackQueue.nextTrack else {
+            switch playbackQueue.repeatMode {
+            case .one:
+                playback.restart()
+            case .all:
+                guard let firstTrack = playbackQueue.select(index: 0) else { return }
+                markQueueChanged()
+                startPlayback(firstTrack)
+            case .off:
+                break
+            }
+            return
+        }
         if playback.advanceToPreloadedTrack(track) { return }
         _ = playbackQueue.advance()
+        markQueueChanged()
         startPlayback(track)
     }
 
@@ -1032,10 +1525,11 @@ public final class WatchExperienceModel: ObservableObject {
             playbackStatusMessage = "No tracks found."
             return
         }
+        markQueueChanged()
         startPlayback(track)
     }
 
-    private func startPlayback(_ track: EnsembleTrack) {
+    private func startPlayback(_ track: EnsembleTrack, restoringTime: TimeInterval? = nil) {
         playbackTask?.cancel()
         playbackPrefetchTask?.cancel()
         let requestID = UUID()
@@ -1049,7 +1543,7 @@ public final class WatchExperienceModel: ObservableObject {
             do {
                 let url = try await catalog.streamURL(for: track, in: libraries)
                 guard !Task.isCancelled, playbackRequestID == requestID else { return }
-                playback.play(track: track, url: url)
+                playback.play(track: track, url: url, startTime: restoringTime ?? 0)
                 playbackStatusMessage = "Playing on Apple Watch"
                 preloadNextTrack()
             } catch is CancellationError {
@@ -1085,14 +1579,61 @@ public final class WatchExperienceModel: ObservableObject {
     private func didAdvancePlayback(to track: EnsembleTrack) {
         guard playbackQueue.isNext(track) else { return }
         _ = playbackQueue.advance()
+        markQueueChanged()
         playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.tracks.count)
         playbackStatusMessage = "Playing on Apple Watch"
         preloadNextTrack()
     }
 
     private func advanceAfterPlaybackEnded() {
-        guard let track = playbackQueue.advance() else { return }
-        startPlayback(track)
+        if playbackQueue.repeatMode == .one {
+            playback.restart()
+        } else if let track = playbackQueue.advance() {
+            markQueueChanged()
+            startPlayback(track)
+        } else if playbackQueue.repeatMode == .all,
+                  let track = playbackQueue.select(index: 0) {
+            markQueueChanged()
+            startPlayback(track)
+        }
+        if playbackQueue.isAutoplayEnabled {
+            refreshAutoplayQueue()
+        }
+    }
+
+    private func refreshAutoplayQueue() {
+        guard playbackQueue.isAutoplayEnabled,
+              let seed = playbackQueue.items.last(where: { $0.source != .autoplay })?.track else { return }
+        let catalog = catalog
+        let libraries = libraries
+        Task { [weak self] in
+            guard let self else { return }
+            guard let recommendations = try? await catalog.recommendedTracks(
+                for: seed,
+                in: libraries,
+                limit: 10
+            ) else { return }
+            let unique = recommendations.filter { candidate in
+                !self.playbackQueue.items.contains {
+                    $0.track.id == candidate.id && $0.track.sourceKey == candidate.sourceKey
+                }
+            }
+            guard !unique.isEmpty else { return }
+            playbackQueue.appendAutoplay(unique)
+            markQueueChanged()
+            preloadNextTrack()
+        }
+    }
+
+    private func resumeCurrentPlayback() {
+        guard let track = playbackQueue.currentTrack else { return }
+        playbackTarget = .local
+        startPlayback(track, restoringTime: playback.currentTime)
+    }
+
+    private func markQueueChanged() {
+        queueRevision &+= 1
+        persistPlaybackQueue()
     }
 
     public func isPinned(_ item: EnsembleMediaSummary) -> Bool {
@@ -1213,8 +1754,8 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func applyHiddenMediaFilter() {
-        guard let snapshot = catalogStore.loadSnapshot() else { return }
-        let selected = Self.filteredSnapshot(snapshot, for: libraries)
+        guard let rawSnapshot = allCatalogSnapshot ?? catalogStore.loadSnapshot() else { return }
+        let selected = Self.filteredSnapshot(rawSnapshot, for: libraries)
         catalogSnapshot = EnsemblePlexCatalogSnapshot(
             fetchedAt: selected.fetchedAt,
             libraries: selected.libraries,
@@ -1222,7 +1763,9 @@ public final class WatchExperienceModel: ObservableObject {
             albums: selected.albums.filter { !isHidden($0) },
             artists: selected.artists.filter { !isHidden($0) },
             playlists: selected.playlists.filter { !isHidden($0) },
-            recentlyAdded: selected.recentlyAdded.filter { !isHidden($0) }
+            recentlyAdded: selected.recentlyAdded.filter { !isHidden($0) },
+            tracks: selected.tracks.filter { !isHidden($0) },
+            genres: selected.genres
         )
         detailTracks = detailTracks.filter { !isHidden($0) }
     }
@@ -1331,9 +1874,11 @@ public final class WatchExperienceModel: ObservableObject {
         discoveredServers = flaggedServers
         sourceAccounts = Self.buildSourceAccounts(from: flaggedServers)
         libraries = try catalog.selectedLibraries(from: flaggedServers, fallbackToAllDiscovered: false)
+        await loadPlaylistTargets()
 
         let cachedSnapshot = catalogStore.loadSnapshot()
         if let snapshot = cachedSnapshot {
+            allCatalogSnapshot = snapshot
             let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
             if catalogSnapshot != selectedSnapshot {
                 catalogSnapshot = selectedSnapshot
@@ -1393,7 +1938,7 @@ public final class WatchExperienceModel: ObservableObject {
 
     private func refreshSelectedCatalog() async throws {
         guard !libraries.isEmpty else {
-            catalogSnapshot = EnsemblePlexCatalogSnapshot(
+            let emptySnapshot = EnsemblePlexCatalogSnapshot(
                 libraries: [],
                 pins: [],
                 albums: [],
@@ -1401,6 +1946,8 @@ public final class WatchExperienceModel: ObservableObject {
                 playlists: [],
                 recentlyAdded: []
             )
+            allCatalogSnapshot = emptySnapshot
+            catalogSnapshot = emptySnapshot
             statusMessage = "Enable at least one library."
             return
         }
@@ -1408,6 +1955,7 @@ public final class WatchExperienceModel: ObservableObject {
         statusMessage = "Syncing selected libraries"
         let pinnedReferences = await cloudPreferences.pinnedReferences()
         let snapshot = try await catalog.refreshSnapshot(libraries: libraries)
+        allCatalogSnapshot = snapshot
         catalogSnapshot = snapshot
         catalogStore.saveSnapshot(snapshot)
         applyPinnedReferences(pinnedReferences)
@@ -1418,23 +1966,26 @@ public final class WatchExperienceModel: ObservableObject {
     private func applyPinnedReferences(_ pins: [WatchPinnedReference]) {
         pinnedItemIDs = Set(pins.map { Self.pinIdentity(id: $0.id, sourceKey: $0.sourceCompositeKey) })
 
-        guard let snapshot = catalogSnapshot else { return }
+        guard let snapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
         let pinnedItems = Self.mergedPinnedItems(Self.resolvedPinnedItems(pins, in: snapshot))
 
         let updatedSnapshot = EnsemblePlexCatalogSnapshot(
             fetchedAt: snapshot.fetchedAt,
             libraries: snapshot.libraries,
-            pins: Array(pinnedItems.prefix(12)),
+            pins: pinnedItems,
             albums: snapshot.albums,
             artists: snapshot.artists,
             playlists: snapshot.playlists,
-            recentlyAdded: snapshot.recentlyAdded
+            recentlyAdded: snapshot.recentlyAdded,
+            tracks: snapshot.tracks,
+            genres: snapshot.genres
         )
 
         if updatedSnapshot != snapshot {
-            catalogSnapshot = updatedSnapshot
+            allCatalogSnapshot = updatedSnapshot
             catalogStore.saveSnapshot(updatedSnapshot)
         }
+        applyHiddenMediaFilter()
     }
 
     nonisolated static func resolvedPinnedItems(
@@ -1616,7 +2167,9 @@ public final class WatchExperienceModel: ObservableObject {
                 albums: [],
                 artists: [],
                 playlists: [],
-                recentlyAdded: []
+                recentlyAdded: [],
+                tracks: [],
+                genres: []
             )
         }
 
@@ -1650,7 +2203,9 @@ public final class WatchExperienceModel: ObservableObject {
             albums: snapshot.albums.filter { selectedSourceKeys.contains($0.sourceKey) },
             artists: snapshot.artists.filter { selectedSourceKeys.contains($0.sourceKey) },
             playlists: playlists,
-            recentlyAdded: snapshot.recentlyAdded.filter { selectedSourceKeys.contains($0.sourceKey) }
+            recentlyAdded: snapshot.recentlyAdded.filter { selectedSourceKeys.contains($0.sourceKey) },
+            tracks: snapshot.tracks.filter { selectedSourceKeys.contains($0.sourceKey) },
+            genres: snapshot.genres.filter { selectedSourceKeys.contains($0.sourceKey) }
         )
     }
 }

@@ -4,6 +4,7 @@ import EnsembleAPI
 import EnsemblePersistence
 import EnsembleSiriShared
 import Foundation
+import EnsembleDomain
 import MediaPlayer
 import Nuke
 #if canImport(QuartzCore)
@@ -75,12 +76,8 @@ public enum RepeatMode: Int, CaseIterable, Sendable {
 
 // MARK: - Queue Item Source
 
-/// Identifies which logical section of the queue an item belongs to
-public enum QueueItemSource: String, Codable, Sendable {
-    case upNext // User explicitly inserted via "Play Next"
-    case continuePlaying // Original album/playlist/artist queue
-    case autoplay // Auto-generated recommendations
-}
+/// iPhone name for the shared queue-source contract.
+public typealias QueueItemSource = EnsembleQueueItemSource
 
 // MARK: - Queue Item
 
@@ -715,9 +712,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         _ snapshot: PlaybackQueueSnapshot,
         configuration: SourceConfigurationSnapshot
     ) -> PlaybackQueueSnapshot {
+        let savedOriginalQueue = snapshot.originalQueue ?? snapshot.queue
         let result = pruneQueueForSourceConfiguration(
             queue: snapshot.queue,
-            originalQueue: snapshot.queue,
+            originalQueue: savedOriginalQueue,
             playbackHistory: snapshot.history,
             currentQueueIndex: snapshot.currentIndex,
             configuration: configuration
@@ -730,6 +728,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 !result.queue.indices.contains(result.nextCurrentQueueIndex)
                 ? 0
                 : snapshot.currentTime,
+            originalQueue: result.originalQueue,
+            shuffleEnabled: snapshot.shuffleEnabled,
             hasUserQueueEdits: snapshot.hasUserQueueEdits
         )
     }
@@ -886,6 +886,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     public var currentTimeValue: TimeInterval {
         currentTime
+    }
+
+    @MainActor
+    public var sourceConfigurationSnapshot: SourceConfigurationSnapshot {
+        syncCoordinator.accountManager.sourceConfigurationSnapshot
     }
 
     public var presentationTimePublisher: AnyPublisher<TimeInterval, Never> {
@@ -6929,11 +6934,22 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     /// main/audio thread is never blocked.
     private func savePlaybackState() {
         lastPlaybackSnapshotTime = currentTime
+        let currentItemID = queue.indices.contains(currentQueueIndex) ? queue[currentQueueIndex].id : nil
+        let persistedQueue = PlaybackQueueController.queueForPersistence(
+            queue,
+            currentItemID: currentItemID
+        )
+        let persistedOriginalQueue = PlaybackQueueController.queueForPersistence(
+            originalQueue,
+            currentItemID: currentItemID
+        )
         queueController.saveSnapshot(
-            queue: queue,
+            queue: persistedQueue,
             history: playbackHistory,
             currentIndex: currentQueueIndex,
             currentTime: currentTime,
+            originalQueue: persistedOriginalQueue,
+            shuffleEnabled: isShuffleEnabled,
             hasUserQueueEdits: hasUserQueueEdits
         )
     }
@@ -6984,6 +7000,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 history: snapshot.history,
                 currentIndex: snapshot.currentIndex,
                 currentTime: snapshot.currentTime,
+                originalQueue: snapshot.originalQueue,
+                shuffleEnabled: snapshot.shuffleEnabled,
                 hasUserQueueEdits: snapshot.hasUserQueueEdits
             )
         }
@@ -7069,16 +7087,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             )
         }
 
-        if decision.shouldDisableShuffle {
-            isShuffleEnabled = false
-            UserDefaults.standard.set(false, forKey: PlaybackPreferenceKey.shuffleEnabled)
-        }
-
         queue = decision.queue
-        originalQueue = decision.queue
+        originalQueue = decision.originalQueue
         currentQueueIndex = decision.currentIndex
+        isShuffleEnabled = decision.shuffleEnabled
+        UserDefaults.standard.set(isShuffleEnabled, forKey: PlaybackPreferenceKey.shuffleEnabled)
         setQueueProtection(
-            snapshot.hasUserQueueEdits || snapshot.queue.contains { $0.source == .upNext },
+            snapshot.hasUserQueueEdits || snapshot.queue.contains(where: { $0.source == .upNext }),
             reason: "restore"
         )
         currentTrack = decision.track
@@ -7113,6 +7128,12 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             }
         }
 
+        if isAutoplayEnabled {
+            Task { @MainActor [weak self] in
+                await self?.refreshAutoplayQueue()
+            }
+        }
+
         EnsembleLogger.debug("🔄 Restoration complete - paused at \(snapshot.currentTime)s")
     }
 
@@ -7126,6 +7147,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             history: snapshot.history,
             currentIndex: snapshot.currentIndex,
             currentTime: snapshot.currentTime,
+            originalQueue: snapshot.originalQueue,
+            shuffleEnabled: snapshot.shuffleEnabled,
             hasUserQueueEdits: snapshot.hasUserQueueEdits
         )
     }

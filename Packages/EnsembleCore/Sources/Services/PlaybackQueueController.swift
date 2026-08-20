@@ -1,4 +1,5 @@
 import Foundation
+import EnsembleDomain
 
 struct PlaybackQueueDownloadRefreshResult: Equatable {
     let changedTrackIds: Set<String>
@@ -123,20 +124,22 @@ final class PlaybackQueueController {
         currentQueueIndex: Int,
         queue: inout [QueueItem]
     ) {
-        let start = currentQueueIndex + 1
-        guard start < queue.count else { return }
-
-        for i in start ..< min(index, queue.count) where queue[i].source == .autoplay {
-            queue[i].source = .continuePlaying
+        EnsembleQueuePolicy.promoteAutoplayItemsBeforeInsertion(
+            index,
+            currentQueueIndex: currentQueueIndex,
+            queue: &queue,
+            source: { $0.source }
+        ) { item in
+            item.source = .continuePlaying
         }
     }
 
     func playNextInsertionIndex(in queue: [QueueItem], currentQueueIndex: Int) -> Int {
-        let firstUpcomingIndex = min(max(currentQueueIndex + 1, 0), queue.count)
-        let lastUpNextIndex = queue.indices.last {
-            $0 >= firstUpcomingIndex && queue[$0].source == .upNext
-        }
-        return lastUpNextIndex.map { $0 + 1 } ?? firstUpcomingIndex
+        EnsembleQueuePolicy.playNextInsertionIndex(
+            in: queue,
+            currentQueueIndex: currentQueueIndex,
+            source: { $0.source }
+        )
     }
 
     func enableShuffle(
@@ -220,9 +223,10 @@ final class PlaybackQueueController {
         currentQueueIndex: Int,
         shuffleEnabled: Bool
     ) {
-        let insertIndex = firstFutureAutoplayIndex(
+        let insertIndex = EnsembleQueuePolicy.firstFutureAutoplayIndex(
             in: queue,
-            currentQueueIndex: currentQueueIndex
+            currentQueueIndex: currentQueueIndex,
+            source: { $0.source }
         )
         queue.insert(contentsOf: items, at: insertIndex)
         flattenAutoplayItemsBeforeIndex(
@@ -405,6 +409,55 @@ final class PlaybackQueueController {
         return Array(autoplayIndices.dropFirst(max(0, maximumCount)))
     }
 
+    static func pruneFutureAutoplayItems(
+        queue: [QueueItem],
+        currentQueueIndex: Int
+    ) -> PlaybackFutureAutoplayPruneResult {
+        guard !queue.isEmpty else {
+            return PlaybackFutureAutoplayPruneResult(
+                queue: [],
+                removedTrackIds: [],
+                removedItemCount: 0
+            )
+        }
+
+        let futureStartIndex = max(0, min(currentQueueIndex + 1, queue.count))
+        var retained = Array(queue.prefix(futureStartIndex))
+        var removedTrackIds = Set<String>()
+        var removedItemCount = 0
+
+        for item in queue.dropFirst(futureStartIndex) {
+            if item.source == .autoplay {
+                removedTrackIds.insert(item.track.playbackIdentity)
+                removedItemCount += 1
+            } else {
+                retained.append(item)
+            }
+        }
+
+        return PlaybackFutureAutoplayPruneResult(
+            queue: retained,
+            removedTrackIds: removedTrackIds,
+            removedItemCount: removedItemCount
+        )
+    }
+
+    /// Generated future items are rebuilt from the current seed on restore; manually
+    /// queued future items remain part of the persisted queue.
+    static func queueForPersistence(
+        _ queue: [QueueItem],
+        currentItemID: String?
+    ) -> [QueueItem] {
+        guard let currentItemID,
+              let currentIndex = queue.firstIndex(where: { $0.id == currentItemID }) else {
+            return queue.filter { $0.source != .autoplay }
+        }
+
+        return queue.enumerated().compactMap { index, item in
+            index <= currentIndex || item.source != .autoplay ? item : nil
+        }
+    }
+
     private struct AutoplayVisibleTrackIdentity: Hashable {
         let normalizedTitle: String
         let normalizedArtist: String
@@ -517,6 +570,8 @@ final class PlaybackQueueController {
         history: [QueueItem],
         currentIndex: Int,
         currentTime: TimeInterval,
+        originalQueue: [QueueItem]? = nil,
+        shuffleEnabled: Bool? = nil,
         hasUserQueueEdits: Bool = false
     ) {
         queueStore.save(
@@ -524,6 +579,8 @@ final class PlaybackQueueController {
             history: history,
             currentIndex: currentIndex,
             currentTime: currentTime,
+            originalQueue: originalQueue,
+            shuffleEnabled: shuffleEnabled,
             hasUserQueueEdits: hasUserQueueEdits
         )
     }

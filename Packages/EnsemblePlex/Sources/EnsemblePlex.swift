@@ -22,6 +22,40 @@ public enum EnsemblePlexError: Error, LocalizedError, Equatable {
     }
 }
 
+public struct EnsemblePlexPlaylistTarget: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let sourceKey: String
+    public let isSmart: Bool
+    public let updatedAt: Int?
+
+    public init(id: String, title: String, sourceKey: String, isSmart: Bool, updatedAt: Int? = nil) {
+        self.id = id
+        self.title = title
+        self.sourceKey = sourceKey
+        self.isSmart = isSmart
+        self.updatedAt = updatedAt
+    }
+}
+
+public enum EnsemblePlexPlaylistMutationError: Error, LocalizedError, Equatable {
+    case noCompatibleSource
+    case smartPlaylistReadOnly
+    case emptySelection
+    case invalidTitle
+    case createdPlaylistUnavailable
+
+    public var errorDescription: String? {
+        switch self {
+        case .noCompatibleSource: return "No matching Plex source is available."
+        case .smartPlaylistReadOnly: return "Smart playlists are read-only."
+        case .emptySelection: return "Select at least one track."
+        case .invalidTitle: return "Enter a playlist name."
+        case .createdPlaylistUnavailable: return "The new playlist could not be found."
+        }
+    }
+}
+
 public struct EnsemblePlexServer: Equatable, Sendable, Identifiable {
     public let account: EnsembleAccountCredential
     public let id: String
@@ -103,6 +137,12 @@ public struct EnsemblePlexCatalogSnapshot: Codable, Equatable, Sendable {
     public let artists: [EnsembleMediaSummary]
     public let playlists: [EnsembleMediaSummary]
     public let recentlyAdded: [EnsembleMediaSummary]
+    public let tracks: [EnsembleTrack]
+    public let genres: [EnsembleGenreSummary]
+
+    private enum CodingKeys: String, CodingKey {
+        case fetchedAt, libraries, pins, albums, artists, playlists, recentlyAdded, tracks, genres
+    }
 
     public init(
         fetchedAt: Date = Date(),
@@ -111,7 +151,9 @@ public struct EnsemblePlexCatalogSnapshot: Codable, Equatable, Sendable {
         albums: [EnsembleMediaSummary],
         artists: [EnsembleMediaSummary],
         playlists: [EnsembleMediaSummary],
-        recentlyAdded: [EnsembleMediaSummary]
+        recentlyAdded: [EnsembleMediaSummary],
+        tracks: [EnsembleTrack] = [],
+        genres: [EnsembleGenreSummary] = []
     ) {
         self.fetchedAt = fetchedAt
         self.libraries = libraries
@@ -120,6 +162,21 @@ public struct EnsemblePlexCatalogSnapshot: Codable, Equatable, Sendable {
         self.artists = artists
         self.playlists = playlists
         self.recentlyAdded = recentlyAdded
+        self.tracks = tracks
+        self.genres = genres
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        fetchedAt = try container.decode(Date.self, forKey: .fetchedAt)
+        libraries = try container.decode([EnsembleLibraryReference].self, forKey: .libraries)
+        pins = try container.decode([EnsembleMediaSummary].self, forKey: .pins)
+        albums = try container.decode([EnsembleMediaSummary].self, forKey: .albums)
+        artists = try container.decode([EnsembleMediaSummary].self, forKey: .artists)
+        playlists = try container.decode([EnsembleMediaSummary].self, forKey: .playlists)
+        recentlyAdded = try container.decode([EnsembleMediaSummary].self, forKey: .recentlyAdded)
+        tracks = try container.decodeIfPresent([EnsembleTrack].self, forKey: .tracks) ?? []
+        genres = try container.decodeIfPresent([EnsembleGenreSummary].self, forKey: .genres) ?? []
     }
 }
 
@@ -431,6 +488,8 @@ public actor EnsemblePlexCatalogService {
         var albums: [EnsembleMediaSummary] = []
         var artists: [EnsembleMediaSummary] = []
         var playlists: [EnsembleMediaSummary] = []
+        var tracks: [EnsembleTrack] = []
+        var genres: [EnsembleGenreSummary] = []
         var recentlyAdded: [RecentlyAddedItem] = []
         var fetchedPlaylistSourceKeys = Set<String>()
 
@@ -440,12 +499,16 @@ public actor EnsemblePlexCatalogService {
 
             async let libraryArtists = client.getArtists(sectionKey: library.key)
             async let libraryAlbums = client.getAlbums(sectionKey: library.key)
+            async let libraryTracks = client.getTracks(sectionKey: library.key)
+            async let libraryGenres = client.getGenres(sectionKey: library.key)
             let shouldFetchPlaylists = fetchedPlaylistSourceKeys.insert(library.server.sourceKey).inserted
             async let serverPlaylists: [PlexPlaylist] = shouldFetchPlaylists ? client.getPlaylists() : []
             async let hubItems = recentlyAddedItems(client: client, library: library, limit: limits.recentlyAdded)
 
             let sourceKey = library.sourceKey
             let fetchedAlbums = try await libraryAlbums
+            let fetchedTracks = try await libraryTracks
+            let fetchedGenres = try await libraryGenres
             let mappedArtists = Self.albumArtists(try await libraryArtists, albums: fetchedAlbums)
                 .map { $0.watchSummary(sourceKey: sourceKey) }
                 .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
@@ -460,6 +523,10 @@ public actor EnsemblePlexCatalogService {
             artists.append(contentsOf: mappedArtists)
             albums.append(contentsOf: mappedAlbums)
             playlists.append(contentsOf: mappedPlaylists)
+            tracks.append(contentsOf: fetchedTracks.map { $0.watchTrack(sourceKey: sourceKey) })
+            genres.append(contentsOf: fetchedGenres.map {
+                EnsembleGenreSummary(id: $0.id, title: $0.title, sourceKey: sourceKey)
+            })
             recentlyAdded.append(contentsOf: mappedRecent)
         }
 
@@ -475,7 +542,9 @@ public actor EnsemblePlexCatalogService {
                     return $0.summary.title.localizedStandardCompare($1.summary.title) == .orderedAscending
                 }
                 .prefix(limits.recentlyAdded)
-                .map(\.summary)
+                .map(\.summary),
+            tracks: tracks,
+            genres: genres
         )
     }
 
@@ -506,6 +575,122 @@ public actor EnsemblePlexCatalogService {
             }
         }
         return tracks.map { $0.watchTrack(sourceKey: item.sourceKey) }
+    }
+
+    public func tracks(for genre: EnsembleGenreSummary, in libraries: [EnsemblePlexLibrary]) async throws -> [EnsembleTrack] {
+        guard let library = Self.library(for: genre.sourceKey, in: libraries) else { return [] }
+        return try await EnsemblePlexDiscoveryService.client(for: library)
+            .getTracksByGenre(sectionKey: library.key, genreKey: genre.id)
+            .map { $0.watchTrack(sourceKey: genre.sourceKey) }
+    }
+
+    public func recommendedTracks(
+        for track: EnsembleTrack,
+        in libraries: [EnsemblePlexLibrary],
+        limit: Int = 10
+    ) async throws -> [EnsembleTrack] {
+        guard let library = Self.library(for: track.sourceKey, in: libraries),
+              let recommendations = try await EnsemblePlexDiscoveryService.client(for: library)
+                .getSimilarTracks(ratingKey: track.id, limit: limit) else {
+            return []
+        }
+        return recommendations.map { $0.watchTrack(sourceKey: track.sourceKey) }
+    }
+
+    public func playlistTargets(in libraries: [EnsemblePlexLibrary]) async throws -> [EnsemblePlexPlaylistTarget] {
+        var targets: [EnsemblePlexPlaylistTarget] = []
+        var seenServers = Set<String>()
+        for library in libraries where seenServers.insert(library.server.sourceKey).inserted {
+            let client = EnsemblePlexDiscoveryService.client(for: library)
+            targets.append(contentsOf: try await client.getPlaylists().map {
+                EnsemblePlexPlaylistTarget(
+                    id: $0.ratingKey,
+                    title: $0.title,
+                    sourceKey: library.server.sourceKey,
+                    isSmart: $0.smart == true,
+                    updatedAt: $0.updatedAt
+                )
+            })
+        }
+        return targets.sorted {
+            let titleOrder = $0.title.localizedStandardCompare($1.title)
+            return titleOrder == .orderedSame ? $0.id < $1.id : titleOrder == .orderedAscending
+        }
+    }
+
+    @discardableResult
+    public func addTracks(
+        _ tracks: [EnsembleTrack],
+        to playlist: EnsemblePlexPlaylistTarget,
+        in libraries: [EnsemblePlexLibrary]
+    ) async throws -> Int {
+        guard !tracks.isEmpty else { throw EnsemblePlexPlaylistMutationError.emptySelection }
+        guard !playlist.isSmart else { throw EnsemblePlexPlaylistMutationError.smartPlaylistReadOnly }
+        guard let library = Self.library(for: playlist.sourceKey, in: libraries),
+              tracks.allSatisfy({ Self.isTrackCompatible($0, with: playlist.sourceKey) }) else {
+            throw EnsemblePlexPlaylistMutationError.noCompatibleSource
+        }
+
+        let client = EnsemblePlexDiscoveryService.client(for: library)
+        let existingIDs = Set(try await client.getPlaylistTracks(playlistKey: playlist.id).map(\.ratingKey))
+        let newTracks = tracks.filter { !existingIDs.contains($0.id) }
+        guard !newTracks.isEmpty else { return 0 }
+        try await client.addItemsToPlaylist(
+            playlistId: playlist.id,
+            trackRatingKeys: newTracks.map(\.id),
+            serverIdentifier: library.server.id
+        )
+        return newTracks.count
+    }
+
+    public func createPlaylist(
+        title: String,
+        tracks: [EnsembleTrack],
+        sourceKey: String,
+        in libraries: [EnsemblePlexLibrary]
+    ) async throws -> EnsemblePlexPlaylistTarget {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { throw EnsemblePlexPlaylistMutationError.invalidTitle }
+        guard !tracks.isEmpty else { throw EnsemblePlexPlaylistMutationError.emptySelection }
+        guard let library = Self.library(for: sourceKey, in: libraries),
+              tracks.allSatisfy({ Self.isTrackCompatible($0, with: library.server.sourceKey) }) else {
+            throw EnsemblePlexPlaylistMutationError.noCompatibleSource
+        }
+
+        let client = EnsemblePlexDiscoveryService.client(for: library)
+        try await client.createPlaylist(
+            title: trimmedTitle,
+            trackRatingKeys: tracks.map(\.id),
+            serverIdentifier: library.server.id
+        )
+        guard let created = try await client.getPlaylists().first(where: { $0.title == trimmedTitle }) else {
+            throw EnsemblePlexPlaylistMutationError.createdPlaylistUnavailable
+        }
+        return EnsemblePlexPlaylistTarget(
+            id: created.ratingKey,
+            title: created.title,
+            sourceKey: library.server.sourceKey,
+            isSmart: created.smart == true,
+            updatedAt: created.updatedAt
+        )
+    }
+
+    public func rateTrack(
+        _ track: EnsembleTrack,
+        rating: Int?,
+        in libraries: [EnsemblePlexLibrary]
+    ) async throws {
+        guard let library = Self.library(for: track.sourceKey, in: libraries) else {
+            throw EnsemblePlexPlaylistMutationError.noCompatibleSource
+        }
+        try await EnsemblePlexDiscoveryService.client(for: library).rateTrack(
+            ratingKey: track.id,
+            rating: rating
+        )
+    }
+
+    private static func isTrackCompatible(_ track: EnsembleTrack, with serverSourceKey: String) -> Bool {
+        track.sourceKey == serverSourceKey || track.sourceKey.hasPrefix(serverSourceKey + ":")
     }
 
     public nonisolated func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) -> URL? {
@@ -669,7 +854,8 @@ extension PlexTrack {
             duration: durationSeconds,
             artworkPath: thumb ?? parentThumb ?? grandparentThumb ?? art,
             streamKey: streamURL,
-            sourceKey: sourceKey
+            sourceKey: sourceKey,
+            isFavorite: (userRating ?? 0) > 0
         )
     }
 }

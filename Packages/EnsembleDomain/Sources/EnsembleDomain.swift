@@ -131,6 +131,18 @@ public enum EnsembleMediaKind: String, Codable, Equatable, Sendable {
     case track
 }
 
+public struct EnsembleGenreSummary: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let title: String
+    public let sourceKey: String
+
+    public init(id: String, title: String, sourceKey: String) {
+        self.id = id
+        self.title = title
+        self.sourceKey = sourceKey
+    }
+}
+
 /// Compact media item used by watch lists, pins, and cached snapshots.
 public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
     public let id: String
@@ -181,6 +193,7 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
     public let artworkPath: String?
     public let streamKey: String?
     public let sourceKey: String
+    public let isFavorite: Bool?
 
     public init(
         id: String,
@@ -195,7 +208,8 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
         duration: TimeInterval = 0,
         artworkPath: String? = nil,
         streamKey: String? = nil,
-        sourceKey: String
+        sourceKey: String,
+        isFavorite: Bool? = nil
     ) {
         self.id = id
         self.playlistItemID = playlistItemID
@@ -210,6 +224,7 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
         self.artworkPath = artworkPath
         self.streamKey = streamKey
         self.sourceKey = sourceKey
+        self.isFavorite = isFavorite
     }
 
     public init(
@@ -223,7 +238,8 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
         duration: TimeInterval = 0,
         artworkPath: String? = nil,
         streamKey: String? = nil,
-        sourceKey: String
+        sourceKey: String,
+        isFavorite: Bool? = nil
     ) {
         self.init(
             id: id,
@@ -237,7 +253,8 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
             duration: duration,
             artworkPath: artworkPath,
             streamKey: streamKey,
-            sourceKey: sourceKey
+            sourceKey: sourceKey,
+            isFavorite: isFavorite
         )
     }
 
@@ -256,27 +273,39 @@ public struct EnsembleTrack: Codable, Equatable, Sendable, Identifiable {
 }
 
 public enum EnsembleLibraryCategory: String, Codable, CaseIterable, Equatable, Sendable, Identifiable {
-    case albums
+    case songs
     case artists
+    case albums
+    case genres
     case playlists
+    case favorites
+    case hidden
     case recentlyAdded
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .albums: return "Albums"
+        case .songs: return "Songs"
         case .artists: return "Artists"
+        case .albums: return "Albums"
+        case .genres: return "Genres"
         case .playlists: return "Playlists"
+        case .favorites: return "Favorites"
+        case .hidden: return "Hidden"
         case .recentlyAdded: return "Recently Added"
         }
     }
 
     public var systemImage: String {
         switch self {
+        case .songs: return "music.note"
+        case .artists: return "person.2"
         case .albums: return "square.stack"
-        case .artists: return "music.mic"
+        case .genres: return "guitars"
         case .playlists: return "music.note.list"
+        case .favorites: return "heart"
+        case .hidden: return "eye.slash"
         case .recentlyAdded: return "clock"
         }
     }

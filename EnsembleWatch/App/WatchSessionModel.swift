@@ -7,16 +7,15 @@ import WatchConnectivity
 @MainActor
 final class WatchSessionModel: NSObject, ObservableObject {
     @Published private(set) var snapshot: WatchCompanionSessionSnapshot?
+    @Published private(set) var queueSnapshot: WatchCompanionQueueSnapshot?
     @Published private(set) var isReachable = false
     @Published private(set) var statusMessage = "Open Ensemble on iPhone to connect."
 
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    #if targetEnvironment(simulator)
     private var isSystemNowPlayingProxyEnabled = false
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
     private var systemArtwork: (data: Data, artwork: MPMediaItemArtwork)?
-    #endif
 
     override init() {
         super.init()
@@ -60,6 +59,14 @@ final class WatchSessionModel: NSObject, ObservableObject {
         return "-" + formatTime(max(0, snapshot.duration - snapshot.currentTime))
     }
 
+    func canControl(_ tracks: [WatchCompanionTrackPayload]) -> Bool {
+        guard let enabledSourceKeys = snapshot?.enabledSourceKeys, !tracks.isEmpty else { return false }
+        return tracks.allSatisfy { track in
+            enabledSourceKeys.contains(track.sourceKey)
+                || enabledSourceKeys.contains(where: { track.sourceKey.hasPrefix($0 + ":") })
+        }
+    }
+
     func activate() {
         guard WCSession.isSupported() else {
             statusMessage = "Watch Connectivity is unavailable."
@@ -72,14 +79,30 @@ final class WatchSessionModel: NSObject, ObservableObject {
         isReachable = session.isReachable
     }
 
-    func send(_ kind: WatchCompanionCommandKind, time: TimeInterval? = nil) {
+    func send(
+        _ kind: WatchCompanionCommandKind,
+        time: TimeInterval? = nil,
+        itemID: String? = nil,
+        queueRevision: Int? = nil,
+        tracks: [WatchCompanionTrackPayload]? = nil
+    ) {
         guard WCSession.isSupported() else { return }
+        if let tracks, !canControl(tracks) {
+            statusMessage = "Source is not synced to iPhone."
+            return
+        }
         guard WCSession.default.activationState == .activated else {
             statusMessage = "Waiting for iPhone connection."
             return
         }
 
-        let command = WatchCompanionCommand(kind: kind, time: time)
+        let command = WatchCompanionCommand(
+            kind: kind,
+            time: time,
+            itemID: itemID,
+            queueRevision: queueRevision,
+            tracks: tracks
+        )
 
         do {
             let payload = try encoder.encode(command)
@@ -101,8 +124,12 @@ final class WatchSessionModel: NSObject, ObservableObject {
         }
     }
 
+    func requestQueue() {
+        queueSnapshot = nil
+        send(.requestQueue)
+    }
+
     func setSystemNowPlayingProxyEnabled(_ isEnabled: Bool) {
-        #if targetEnvironment(simulator)
         guard isEnabled != isSystemNowPlayingProxyEnabled else {
             updateSystemNowPlayingProxy()
             return
@@ -115,7 +142,6 @@ final class WatchSessionModel: NSObject, ObservableObject {
         } else {
             removeSystemRemoteCommands()
         }
-        #endif
     }
 
     private func handleReply(_ reply: [String: Any]) {
@@ -123,6 +149,12 @@ final class WatchSessionModel: NSObject, ObservableObject {
 
         do {
             let response = try decoder.decode(WatchCompanionCommandResponse.self, from: responseData)
+            if let responseSnapshot = response.snapshot {
+                snapshot = responseSnapshot
+            }
+            if let responseQueue = response.queue {
+                queueSnapshot = responseQueue
+            }
             if let errorMessage = response.errorMessage, !response.accepted {
                 statusMessage = errorMessage
             }
@@ -148,7 +180,6 @@ final class WatchSessionModel: NSObject, ObservableObject {
         return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 
-    #if targetEnvironment(simulator)
     private func configureSystemRemoteCommands() {
         guard remoteCommandTargets.isEmpty else { return }
         let commandCenter = MPRemoteCommandCenter.shared()
@@ -226,9 +257,6 @@ final class WatchSessionModel: NSObject, ObservableObject {
         systemArtwork = (data, artwork)
         return artwork
     }
-    #else
-    private func updateSystemNowPlayingProxy() {}
-    #endif
 }
 
 extension WatchSessionModel: WCSessionDelegate {

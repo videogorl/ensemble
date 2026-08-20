@@ -5,6 +5,11 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
     let history: [QueueItem]
     let currentIndex: Int
     let currentTime: TimeInterval
+    /// The unshuffled queue used to restore the exact shuffled presentation.
+    /// Optional so snapshots written before shuffle restoration support remain valid.
+    let originalQueue: [QueueItem]?
+    /// The shuffle state captured with the queue rather than inferred from preferences.
+    let shuffleEnabled: Bool?
     /// Whether the queue has been manually edited since it was last replaced.
     /// Older snapshots did not store this value, so they decode as unprotected.
     let hasUserQueueEdits: Bool
@@ -13,12 +18,16 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         history: [QueueItem],
         currentIndex: Int,
         currentTime: TimeInterval,
+        originalQueue: [QueueItem]? = nil,
+        shuffleEnabled: Bool? = nil,
         hasUserQueueEdits: Bool = false
     ) {
         self.queue = queue
         self.history = history
         self.currentIndex = currentIndex
         self.currentTime = currentTime
+        self.originalQueue = originalQueue
+        self.shuffleEnabled = shuffleEnabled
         self.hasUserQueueEdits = hasUserQueueEdits
     }
 
@@ -27,6 +36,8 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         case history
         case currentIndex
         case currentTime
+        case originalQueue
+        case shuffleEnabled
         case hasUserQueueEdits
     }
 
@@ -36,6 +47,8 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
         history = try container.decode([QueueItem].self, forKey: .history)
         currentIndex = try container.decode(Int.self, forKey: .currentIndex)
         currentTime = try container.decode(TimeInterval.self, forKey: .currentTime)
+        originalQueue = try container.decodeIfPresent([QueueItem].self, forKey: .originalQueue)
+        shuffleEnabled = try container.decodeIfPresent(Bool.self, forKey: .shuffleEnabled)
         hasUserQueueEdits = try container.decodeIfPresent(Bool.self, forKey: .hasUserQueueEdits) ?? false
     }
 }
@@ -77,6 +90,8 @@ final class PlaybackQueueStore {
         history: [QueueItem],
         currentIndex: Int,
         currentTime: TimeInterval,
+        originalQueue: [QueueItem]? = nil,
+        shuffleEnabled: Bool? = nil,
         hasUserQueueEdits: Bool = false
     ) {
         let snapshot = PlaybackQueueSnapshot(
@@ -84,6 +99,8 @@ final class PlaybackQueueStore {
             history: history,
             currentIndex: currentIndex,
             currentTime: currentTime,
+            originalQueue: originalQueue,
+            shuffleEnabled: shuffleEnabled,
             hasUserQueueEdits: hasUserQueueEdits
         )
         persistenceQueue.async {
@@ -214,6 +231,8 @@ private extension PlaybackQueueSnapshot {
             history: history,
             currentIndex: currentIndex,
             currentTime: currentTime,
+            originalQueue: originalQueue,
+            shuffleEnabled: shuffleEnabled,
             hasUserQueueEdits: hasUserQueueEdits
         )
     }

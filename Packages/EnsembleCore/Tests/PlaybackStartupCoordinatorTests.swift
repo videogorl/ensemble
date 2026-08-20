@@ -44,7 +44,7 @@ final class PlaybackStartupCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(decision?.prebufferMode, .immediateLocal)
         XCTAssertEqual(decision?.restoredTime, 88)
-        XCTAssertEqual(decision?.shouldDisableShuffle, true)
+        XCTAssertEqual(decision?.shuffleEnabled, true)
     }
 
     func testRestoreDecisionRequestsDeferredPrebufferForStreamingTrackWhenServerReady() {

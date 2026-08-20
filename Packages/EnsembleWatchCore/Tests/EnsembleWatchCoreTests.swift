@@ -32,6 +32,51 @@ final class EnsembleWatchCoreTests: XCTestCase {
         ])
     }
 
+    func testWatchPlaybackQueueStoreRoundTripsAllQueueState() {
+        let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = WatchPlaybackQueueStore(defaults: defaults)
+        let item = WatchQueueItem(
+            id: "current",
+            track: makeTrack(id: "track"),
+            source: .continuePlaying
+        )
+        let snapshot = WatchPlaybackQueueSnapshot(
+            queue: [item],
+            originalQueue: [item],
+            history: [item],
+            currentIndex: 0,
+            currentTime: 42,
+            isShuffleEnabled: true,
+            repeatMode: .one,
+            isAutoplayEnabled: true,
+            hasUserQueueEdits: true
+        )
+
+        store.save(snapshot)
+
+        XCTAssertEqual(store.load(), snapshot)
+    }
+
+    func testWatchPlaybackQueuePersistenceDropsOnlyFutureAutoplayItems() {
+        let manual = makeTrack(id: "manual")
+        let currentAutoplay = makeTrack(id: "current-autoplay")
+        let futureAutoplay = makeTrack(id: "future-autoplay")
+        var queue = WatchPlaybackQueue()
+
+        _ = queue.replace(with: [manual, currentAutoplay])
+        queue.appendAutoplay([futureAutoplay])
+        _ = queue.advance()
+
+        let persisted = queue.snapshotForPersistence()
+
+        XCTAssertEqual(persisted.queue.map(\.track.id), ["manual", "current-autoplay"])
+        XCTAssertEqual(persisted.originalQueue.map(\.track.id), ["manual", "current-autoplay"])
+        XCTAssertEqual(persisted.currentIndex, 1)
+        XCTAssertTrue(persisted.isAutoplayEnabled == false)
+    }
+
     func testWatchSourceLibraryFlagKeyMatchesAppKVSShape() {
         XCTAssertEqual(
             WatchSourceLibraryRow.flagKey(accountId: "account", serverId: "server", libraryKey: "3"),
@@ -198,6 +243,24 @@ final class EnsembleWatchCoreTests: XCTestCase {
 
         XCTAssertEqual(resolved.map(\.sourceKey), [otherSource])
         XCTAssertEqual(resolved.map(\.id), ["album-50"])
+    }
+
+    func testPinnedItemsHaveNoWatchDisplayCap() {
+        let sourceKey = "plex:account:server:3"
+        let albums = (1...13).map { makeSummary(id: "album-\($0)", sourceKey: sourceKey) }
+        let snapshot = EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [],
+            albums: albums,
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        )
+        let pins = albums.map {
+            WatchPinnedReference(id: $0.id, sourceCompositeKey: sourceKey, type: "album", title: $0.title)
+        }
+
+        XCTAssertEqual(WatchExperienceModel.resolvedPinnedItems(pins, in: snapshot).count, 13)
     }
 
     func testPlaybackStatusMessagesFollowPauseAndResume() {

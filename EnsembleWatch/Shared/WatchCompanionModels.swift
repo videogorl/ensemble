@@ -38,6 +38,9 @@ struct WatchCompanionSessionSnapshot: Codable, Equatable {
     let isShuffleEnabled: Bool
     let repeatMode: WatchCompanionRepeatMode
     let updatedAt: Date
+    var queueRevision: Int? = nil
+    var isAutoplayEnabled: Bool? = nil
+    var enabledSourceKeys: [String]? = nil
 
     var progress: Double {
         guard duration > 0 else { return 0 }
@@ -45,41 +48,95 @@ struct WatchCompanionSessionSnapshot: Codable, Equatable {
     }
 }
 
+struct WatchCompanionQueueItemSnapshot: Codable, Equatable {
+    let id: String
+    let source: String
+    let title: String
+    let artistName: String?
+    let albumTitle: String?
+    let artworkData: Data?
+}
+
+struct WatchCompanionQueueSnapshot: Codable, Equatable {
+    let items: [WatchCompanionQueueItemSnapshot]
+    let currentQueueIndex: Int
+    let revision: Int
+}
+
+struct WatchCompanionTrackPayload: Codable, Equatable {
+    let id: String
+    let playlistItemID: String?
+    let title: String
+    let artistName: String?
+    let albumID: String?
+    let artistID: String?
+    let albumTitle: String?
+    let trackNumber: Int?
+    let discNumber: Int?
+    let duration: TimeInterval
+    let artworkPath: String?
+    let streamKey: String?
+    let sourceKey: String
+}
+
 enum WatchCompanionCommandKind: String, Codable {
     case togglePlayPause
     case next
     case previous
     case seek
+    case play
+    case shuffle
+    case radio
+    case playNext
+    case playLast
     case toggleShuffle
     case cycleRepeatMode
+    case requestQueue
+    case playQueueItem
+    case toggleAutoplay
 }
 
 struct WatchCompanionCommand: Codable {
     let id: UUID
     let kind: WatchCompanionCommandKind
     let time: TimeInterval?
+    let itemID: String?
+    let queueRevision: Int?
+    let tracks: [WatchCompanionTrackPayload]?
 
     init(
         id: UUID = UUID(),
         kind: WatchCompanionCommandKind,
-        time: TimeInterval? = nil
+        time: TimeInterval? = nil,
+        itemID: String? = nil,
+        queueRevision: Int? = nil,
+        tracks: [WatchCompanionTrackPayload]? = nil
     ) {
         self.id = id
         self.kind = kind
         self.time = time
+        self.itemID = itemID
+        self.queueRevision = queueRevision
+        self.tracks = tracks
     }
 }
 
 struct WatchCompanionCommandResponse: Codable {
     let accepted: Bool
     let errorMessage: String?
+    let snapshot: WatchCompanionSessionSnapshot?
+    let queue: WatchCompanionQueueSnapshot?
 
     init(
         accepted: Bool,
-        errorMessage: String? = nil
+        errorMessage: String? = nil,
+        snapshot: WatchCompanionSessionSnapshot? = nil,
+        queue: WatchCompanionQueueSnapshot? = nil
     ) {
         self.accepted = accepted
         self.errorMessage = errorMessage
+        self.snapshot = snapshot
+        self.queue = queue
     }
 }
 

@@ -17,11 +17,12 @@ enum PlaybackStartupRestoreStatus: Equatable {
 
 struct PlaybackStartupRestoreDecision: Equatable {
     let queue: [QueueItem]
+    let originalQueue: [QueueItem]
     let track: Track
     let currentIndex: Int
     let restoredTime: TimeInterval
     let removedAutoplayCount: Int
-    let shouldDisableShuffle: Bool
+    let shuffleEnabled: Bool
     let prebufferMode: PlaybackStartupPrebufferMode
 }
 
@@ -46,12 +47,20 @@ final class PlaybackStartupCoordinator {
             return nil
         }
 
-        let pruneResult = PlaybackQueueController.pruneDuplicateFutureAutoplayItems(
+        let pruneResult = PlaybackQueueController.pruneFutureAutoplayItems(
             queue: snapshot.queue,
             currentQueueIndex: snapshot.currentIndex
         )
         let restoredQueue = pruneResult.queue
         guard snapshot.currentIndex < restoredQueue.count else { return nil }
+
+        let currentItemID = snapshot.queue[snapshot.currentIndex].id
+        let savedOriginalQueue = snapshot.originalQueue ?? snapshot.queue
+        let originalCurrentIndex = savedOriginalQueue.firstIndex { $0.id == currentItemID } ?? -1
+        let originalPruneResult = PlaybackQueueController.pruneFutureAutoplayItems(
+            queue: savedOriginalQueue,
+            currentQueueIndex: originalCurrentIndex
+        )
 
         let restoredTime = PlaybackService.restoredPausedSeekTime(
             savedTime: snapshot.currentTime,
@@ -61,11 +70,12 @@ final class PlaybackStartupCoordinator {
 
         return PlaybackStartupRestoreDecision(
             queue: restoredQueue,
+            originalQueue: originalPruneResult.queue,
             track: resolvedTrack,
             currentIndex: snapshot.currentIndex,
             restoredTime: restoredTime,
-            removedAutoplayCount: pruneResult.removedItemCount,
-            shouldDisableShuffle: isShuffleEnabled,
+            removedAutoplayCount: pruneResult.removedItemCount + originalPruneResult.removedItemCount,
+            shuffleEnabled: snapshot.shuffleEnabled ?? isShuffleEnabled,
             prebufferMode: prebufferMode
         )
     }
