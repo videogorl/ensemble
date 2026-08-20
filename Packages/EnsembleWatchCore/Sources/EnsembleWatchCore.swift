@@ -1301,6 +1301,19 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    public func delete(_ item: EnsembleMediaSummary) async -> Bool {
+        do {
+            try await catalog.delete(item, in: libraries)
+            statusMessage = "Deleted \(item.title)"
+            refresh()
+            return true
+        } catch {
+            statusMessage = error.localizedDescription
+            return false
+        }
+    }
+
     public func toggleFavorite(_ track: EnsembleTrack) {
         Task { [weak self] in
             guard let self else { return }

@@ -13,15 +13,19 @@ struct WatchRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var experience = WatchExperienceModel()
     @StateObject private var remoteSession = WatchSessionModel()
+    @State private var navigationPath = NavigationPath()
     @State private var showsNowPlaying = false
     @State private var selectedPin: EnsembleMediaSummary?
     @State private var hasHandledRemotePresentationForActivePhase = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             rootContent
                 .navigationDestination(isPresented: showsPinDetail) {
                     selectedPinDestination
+                }
+                .navigationDestination(for: WatchMediaActionDestination.self) { destination in
+                    WatchMediaDetailView(item: destination.mediaSummary)
                 }
         }
         .tint(accentColor)
@@ -33,6 +37,9 @@ struct WatchRootView: View {
         .environmentObject(experience)
         .environmentObject(experience.playback)
         .environmentObject(remoteSession)
+        .environment(\.watchNavigateToMedia) { destination in
+            navigationPath.append(destination)
+        }
         .environment(\.watchOpenNowPlaying) {
             selectNowPlayingSource()
             showsNowPlaying = true
@@ -877,6 +884,98 @@ private enum WatchMediaActionTarget: Identifiable {
         }
     }
 
+    var albumDestination: WatchMediaActionDestination? {
+        guard case .track(let track, _) = self,
+              let albumID = track.albumID, !albumID.isEmpty,
+              let albumTitle = track.albumTitle, !albumTitle.isEmpty else {
+            return nil
+        }
+
+        return WatchMediaActionDestination(
+            item: EnsembleMediaSummary(
+                id: albumID,
+                kind: .album,
+                title: albumTitle,
+                subtitle: track.artistName,
+                artistID: track.artistID,
+                artworkPath: track.artworkPath,
+                sourceKey: track.sourceKey
+            )
+        )
+    }
+
+    var artistDestination: WatchMediaActionDestination? {
+        switch self {
+        case .media(let item):
+            guard let artistID = item.artistID,
+                  let artistTitle = item.subtitle,
+                  !artistID.isEmpty,
+                  !artistTitle.isEmpty else {
+                return nil
+            }
+            return WatchMediaActionDestination(
+                item: EnsembleMediaSummary(
+                    id: artistID,
+                    kind: .artist,
+                    title: artistTitle,
+                    artworkPath: item.artworkPath,
+                    sourceKey: item.sourceKey
+                )
+            )
+        case .track(let track, _):
+            guard let artistID = track.artistID,
+                  let artistTitle = track.artistName,
+                  !artistID.isEmpty,
+                  !artistTitle.isEmpty else {
+                return nil
+            }
+            return WatchMediaActionDestination(
+                item: EnsembleMediaSummary(
+                    id: artistID,
+                    kind: .artist,
+                    title: artistTitle,
+                    artworkPath: track.artworkPath,
+                    sourceKey: track.sourceKey
+                )
+            )
+        case .artistAlbum(let album):
+            guard let track = album.representativeTrack,
+                  let artistID = track.artistID,
+                  let artistTitle = track.artistName,
+                  !artistID.isEmpty,
+                  !artistTitle.isEmpty else {
+                return nil
+            }
+            return WatchMediaActionDestination(
+                item: EnsembleMediaSummary(
+                    id: artistID,
+                    kind: .artist,
+                    title: artistTitle,
+                    artworkPath: track.artworkPath,
+                    sourceKey: track.sourceKey
+                )
+            )
+        case .playlistGroup, .genre:
+            return nil
+        }
+    }
+
+    var deletionItem: EnsembleMediaSummary? {
+        switch self {
+        case .media(let item):
+            return item.kind == .playlist && item.isSmart == true ? nil : item
+        case .playlistGroup(let group):
+            guard !group.isMerged, !group.isSmart else { return nil }
+            return group.primaryPlaylist
+        case .artistAlbum(let album):
+            return album.mediaSummary
+        case .track(let track, _):
+            return track.summary
+        case .genre:
+            return nil
+        }
+    }
+
     @MainActor
     func canPin(in experience: WatchExperienceModel) -> Bool {
         switch self {
@@ -1098,18 +1197,44 @@ private extension View {
         _ target: WatchMediaActionTarget,
         isPresented: Binding<Bool>
     ) -> some View {
-        confirmationDialog(target.title, isPresented: isPresented, titleVisibility: .visible) {
-            WatchMediaActionButtons(target: target)
-        }
+        modifier(WatchMediaActionsModifier(target: target, isPresented: isPresented))
     }
 
+}
+
+private struct WatchMediaActionsModifier: ViewModifier {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let target: WatchMediaActionTarget
+    @Binding var isPresented: Bool
+    @State private var showsDeleteConfirmation = false
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(target.title, isPresented: $isPresented, titleVisibility: .visible) {
+                WatchMediaActionButtons(target: target) {
+                    showsDeleteConfirmation = true
+                }
+            }
+            .alert("Delete \(target.title)?", isPresented: $showsDeleteConfirmation) {
+                if let item = target.deletionItem {
+                    Button("Delete", role: .destructive) {
+                        Task { _ = await experience.delete(item) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes it from your Plex library.")
+            }
+    }
 }
 
 private struct WatchMediaActionButtons: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     @EnvironmentObject private var remoteSession: WatchSessionModel
+    @Environment(\.watchNavigateToMedia) private var navigateToMedia
     @Environment(\.watchOpenNowPlaying) private var openNowPlaying
     let target: WatchMediaActionTarget
+    let requestDelete: () -> Void
     @State private var playlistTracks: [EnsembleTrack] = []
     @State private var showsPlaylistPicker = false
 
@@ -1200,6 +1325,22 @@ private struct WatchMediaActionButtons: View {
                 }
             }
 
+            if let destination = target.albumDestination {
+                Button {
+                    navigateToMedia(destination)
+                } label: {
+                    Label("Go to Album", systemImage: "rectangle.stack")
+                }
+            }
+
+            if let destination = target.artistDestination {
+                Button {
+                    navigateToMedia(destination)
+                } label: {
+                    Label("Go to Artist", systemImage: "person")
+                }
+            }
+
             if let shareURL = target.shareURL {
                 ShareLink(item: shareURL) {
                     Label("Share Ensemble Link", systemImage: "square.and.arrow.up")
@@ -1224,6 +1365,12 @@ private struct WatchMediaActionButtons: View {
                         target.isPinned(in: experience) ? "Unpin" : "Pin",
                         systemImage: target.isPinned(in: experience) ? "pin.slash" : "pin"
                     )
+                }
+            }
+
+            if target.deletionItem != nil {
+                Button(role: .destructive, action: requestDelete) {
+                    Label("Delete", systemImage: "trash")
                 }
             }
         }
@@ -1469,11 +1616,58 @@ private struct WatchCollectionHeaderSection: View {
     }
 }
 
+private struct WatchMediaActionDestination: Hashable {
+    let id: String
+    let kindRawValue: String
+    let title: String
+    let subtitle: String?
+    let albumID: String?
+    let artistID: String?
+    let artworkPath: String?
+    let sourceKey: String
+    let isSmart: Bool?
+
+    init(item: EnsembleMediaSummary) {
+        id = item.id
+        kindRawValue = item.kind.rawValue
+        title = item.title
+        subtitle = item.subtitle
+        albumID = item.albumID
+        artistID = item.artistID
+        artworkPath = item.artworkPath
+        sourceKey = item.sourceKey
+        isSmart = item.isSmart
+    }
+
+    var mediaSummary: EnsembleMediaSummary {
+        EnsembleMediaSummary(
+            id: id,
+            kind: EnsembleMediaKind(rawValue: kindRawValue) ?? .track,
+            title: title,
+            subtitle: subtitle,
+            albumID: albumID,
+            artistID: artistID,
+            artworkPath: artworkPath,
+            sourceKey: sourceKey,
+            isSmart: isSmart
+        )
+    }
+}
+
+private struct WatchNavigateToMediaKey: EnvironmentKey {
+    static let defaultValue: (WatchMediaActionDestination) -> Void = { _ in }
+}
+
 private struct WatchOpenNowPlayingKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
 private extension EnvironmentValues {
+    var watchNavigateToMedia: (WatchMediaActionDestination) -> Void {
+        get { self[WatchNavigateToMediaKey.self] }
+        set { self[WatchNavigateToMediaKey.self] = newValue }
+    }
+
     var watchOpenNowPlaying: () -> Void {
         get { self[WatchOpenNowPlayingKey.self] }
         set { self[WatchOpenNowPlayingKey.self] = newValue }

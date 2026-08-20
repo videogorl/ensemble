@@ -56,6 +56,20 @@ public enum EnsemblePlexPlaylistMutationError: Error, LocalizedError, Equatable 
     }
 }
 
+public enum EnsemblePlexDeletionError: Error, LocalizedError, Equatable {
+    case noCompatibleSource
+    case smartPlaylistReadOnly
+
+    public var errorDescription: String? {
+        switch self {
+        case .noCompatibleSource:
+            return "No matching Plex source is available."
+        case .smartPlaylistReadOnly:
+            return "Smart playlists are read-only."
+        }
+    }
+}
+
 public struct EnsemblePlexServer: Equatable, Sendable, Identifiable {
     public let account: EnsembleAccountCredential
     public let id: String
@@ -687,6 +701,26 @@ public actor EnsemblePlexCatalogService {
             ratingKey: track.id,
             rating: rating
         )
+    }
+
+    public func delete(
+        _ item: EnsembleMediaSummary,
+        in libraries: [EnsemblePlexLibrary]
+    ) async throws {
+        guard let library = Self.library(for: item.sourceKey, in: libraries) else {
+            throw EnsemblePlexDeletionError.noCompatibleSource
+        }
+
+        let client = EnsemblePlexDiscoveryService.client(for: library)
+        switch item.kind {
+        case .playlist:
+            guard item.isSmart != true else {
+                throw EnsemblePlexDeletionError.smartPlaylistReadOnly
+            }
+            try await client.deletePlaylist(playlistId: item.id)
+        case .album, .artist, .track:
+            try await client.deleteMetadata(ids: [item.id])
+        }
     }
 
     private static func isTrackCompatible(_ track: EnsembleTrack, with serverSourceKey: String) -> Bool {

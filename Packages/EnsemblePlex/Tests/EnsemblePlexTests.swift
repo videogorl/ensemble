@@ -160,6 +160,26 @@ final class EnsemblePlexTests: XCTestCase {
         XCTAssertEqual(resolved?.sourceKey, library.sourceKey)
     }
 
+    func testDeletionRejectsSmartPlaylistsBeforeMutation() async {
+        let library = makeLibrary(accountId: "account", serverId: "server", libraryKey: "3")
+        let item = EnsembleMediaSummary(
+            id: "smart-playlist",
+            kind: .playlist,
+            title: "Smart Playlist",
+            sourceKey: library.server.sourceKey,
+            isSmart: true
+        )
+
+        do {
+            try await EnsemblePlexCatalogService().delete(item, in: [library])
+            XCTFail("Expected smart playlists to be read-only")
+        } catch let error as EnsemblePlexDeletionError {
+            XCTAssertEqual(error, .smartPlaylistReadOnly)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     private func makeLibrary(
         accountId: String,
         serverId: String,
