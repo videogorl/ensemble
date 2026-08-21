@@ -1169,6 +1169,7 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var detailTracks: [EnsembleTrack] = []
     @Published public private(set) var pinnedItemIDs: Set<String> = []
     @Published public private(set) var statusMessage = "Loading Ensemble"
+    @Published public private(set) var isCatalogSyncing = false
     @Published public private(set) var detailStatusMessage = "Loading"
     @Published public private(set) var playbackStatusMessage = "Ready"
     @Published public private(set) var playlistTargets: [EnsemblePlexPlaylistTarget] = []
@@ -1408,7 +1409,7 @@ public final class WatchExperienceModel: ObservableObject {
         let requestID = UUID()
         detailRequestID = requestID
         detailStatusMessage = "Loading \(item.title)"
-        detailTracks = []
+        detailTracks = cachedTracks(for: item)
         detailTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -1419,8 +1420,7 @@ public final class WatchExperienceModel: ObservableObject {
                 detailStatusMessage = visibleTracks.isEmpty ? "No tracks found." : "Ready"
             } catch {
                 guard !Task.isCancelled, detailRequestID == requestID else { return }
-                detailTracks = []
-                detailStatusMessage = error.localizedDescription
+                detailStatusMessage = detailTracks.isEmpty ? error.localizedDescription : "Using cached tracks."
             }
         }
     }
@@ -1956,8 +1956,11 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func syncSelectedLibraries() {
+        guard !isCatalogSyncing else { return }
+        isCatalogSyncing = true
         Task { [weak self] in
             guard let self else { return }
+            defer { isCatalogSyncing = false }
             do {
                 try await refreshSelectedCatalog()
             } catch {
@@ -2000,9 +2003,12 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
-    private func applyHiddenMediaFilter() {
+    private func applyHiddenMediaFilter(preservingCachedContent: Bool? = nil) {
         guard let rawSnapshot = allCatalogSnapshot ?? catalogStore.loadSnapshot() else { return }
-        let selected = Self.filteredSnapshot(rawSnapshot, for: libraries)
+        let filtered = Self.filteredSnapshot(rawSnapshot, for: libraries)
+        let selected = preservingCachedContent ?? isCatalogSyncing
+            ? Self.snapshotDuringRefresh(previous: catalogSnapshot, selected: filtered)
+            : filtered
         catalogSnapshot = EnsemblePlexCatalogSnapshot(
             fetchedAt: selected.fetchedAt,
             libraries: selected.libraries,
@@ -2086,9 +2092,11 @@ public final class WatchExperienceModel: ObservableObject {
         if catalogSnapshot != nil {
             bootstrapState = .ready
             statusMessage = "Refreshing"
+            isCatalogSyncing = true
         } else {
             bootstrapState = .loading
         }
+        defer { isCatalogSyncing = false }
         statusMessage = "Checking iCloud credentials"
 
         do {
@@ -2128,14 +2136,20 @@ public final class WatchExperienceModel: ObservableObject {
         if let snapshot = cachedSnapshot {
             allCatalogSnapshot = snapshot
             let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
-            if catalogSnapshot != selectedSnapshot {
-                catalogSnapshot = selectedSnapshot
-            }
+            let needsRefresh = forceRefresh
+                || Self.catalogNeedsRefresh(selectedSnapshot)
+                || (!libraries.isEmpty
+                    && Self.hasBrowseContent(snapshot)
+                    && !Self.hasBrowseContent(selectedSnapshot))
+            let visibleSnapshot = needsRefresh
+                ? Self.snapshotDuringRefresh(previous: catalogSnapshot, selected: selectedSnapshot)
+                : selectedSnapshot
+            if catalogSnapshot != visibleSnapshot { catalogSnapshot = visibleSnapshot }
             applyHiddenMediaFilter()
             bootstrapState = .ready
             statusMessage = "Refreshing"
 
-            if !forceRefresh, !Self.catalogNeedsRefresh(selectedSnapshot) {
+            if !needsRefresh {
                 if let pins = await cloudPreferences.pinnedReferences() {
                     applyPinnedReferences(pins)
                 }
@@ -2193,7 +2207,6 @@ public final class WatchExperienceModel: ObservableObject {
                 playlists: [],
                 recentlyAdded: []
             )
-            allCatalogSnapshot = emptySnapshot
             catalogSnapshot = emptySnapshot
             statusMessage = "Enable at least one library."
             return
@@ -2213,7 +2226,7 @@ public final class WatchExperienceModel: ObservableObject {
         } else {
             replacePins(cachedPins)
         }
-        applyHiddenMediaFilter()
+        applyHiddenMediaFilter(preservingCachedContent: false)
         statusMessage = "Ready"
     }
 
@@ -2297,6 +2310,24 @@ public final class WatchExperienceModel: ObservableObject {
         now.timeIntervalSince(snapshot.fetchedAt) >= 10 * 60
     }
 
+    nonisolated static func snapshotDuringRefresh(
+        previous: EnsemblePlexCatalogSnapshot?,
+        selected: EnsemblePlexCatalogSnapshot
+    ) -> EnsemblePlexCatalogSnapshot {
+        guard !hasBrowseContent(selected), let previous, hasBrowseContent(previous) else { return selected }
+        return previous
+    }
+
+    nonisolated static func hasBrowseContent(_ snapshot: EnsemblePlexCatalogSnapshot) -> Bool {
+        !snapshot.pins.isEmpty
+            || !snapshot.albums.isEmpty
+            || !snapshot.artists.isEmpty
+            || !snapshot.playlists.isEmpty
+            || !snapshot.recentlyAdded.isEmpty
+            || !snapshot.tracks.isEmpty
+            || !snapshot.genres.isEmpty
+    }
+
     nonisolated static func containsPinnedItem(
         _ items: [EnsembleMediaSummary],
         pinnedItemIDs: Set<String>
@@ -2316,6 +2347,20 @@ public final class WatchExperienceModel: ObservableObject {
         }
 
         applyHiddenMediaFilter()
+    }
+
+    private func cachedTracks(for item: EnsembleMediaSummary) -> [EnsembleTrack] {
+        let tracks = (allCatalogSnapshot ?? catalogSnapshot)?.tracks ?? []
+        return tracks.filter { track in
+            guard track.sourceKey == item.sourceKey else { return false }
+            switch item.kind {
+            case .album: return track.albumID == item.id
+            case .artist: return track.artistID == item.id
+            case .track: return track.id == item.id
+            case .playlist: return false
+            }
+        }
+        .filter { !isHidden($0) }
     }
 
     private func applyStoredLibraryFlags(to servers: [EnsemblePlexServer]) async -> [EnsemblePlexServer] {

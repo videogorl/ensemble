@@ -521,6 +521,35 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertTrue(model.isPinned(pinnedAlbum))
     }
 
+    func testRefreshKeepsLastGoodCatalogUntilSelectedContentArrives() {
+        let cachedAlbum = makeSummary(id: "cached", sourceKey: "plex:account:server:3")
+        let cached = EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [cachedAlbum],
+            albums: [cachedAlbum],
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        )
+        let empty = EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [],
+            albums: [],
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        )
+
+        XCTAssertEqual(
+            WatchExperienceModel.snapshotDuringRefresh(previous: cached, selected: empty),
+            cached
+        )
+        XCTAssertEqual(
+            WatchExperienceModel.snapshotDuringRefresh(previous: empty, selected: cached),
+            cached
+        )
+    }
+
     private func makeLibrary(
         accountId: String,
         serverId: String,

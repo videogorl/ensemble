@@ -220,6 +220,20 @@ struct WatchRootView: View {
 
     private var homeView: some View {
         List {
+            if experience.isCatalogSyncing {
+                Section {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Syncing Libraries")
+                            Text(experience.statusMessage)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
             if let snapshot = experience.catalogSnapshot, !snapshot.pins.isEmpty {
                 Section("Pins") {
                     LazyVGrid(columns: WatchPinsGrid.columns, spacing: WatchPinsGrid.spacing) {
@@ -238,7 +252,10 @@ struct WatchRootView: View {
             Section("Menu") {
                 ForEach([
                     EnsembleLibraryCategory.songs,
+                    .artists,
+                    .albums,
                     .genres,
+                    .playlists,
                     .favorites,
                     .hidden
                 ]) { category in
@@ -331,63 +348,48 @@ private struct WatchSourceSettingsView: View {
 
     var body: some View {
         List {
-            Section {
-                NavigationLink(destination: WatchAddSourceView()) {
-                    Label("Add Another Plex Source", systemImage: "plus.circle")
-                }
-            }
-
-            if experience.sourceAccounts.isEmpty {
-                Section {
+            Section("Music Sources") {
+                if experience.sourceAccounts.isEmpty {
                     Text("No sources found.")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                }
-            } else {
-                Section {
-                    Button {
-                        experience.syncSelectedLibraries()
-                    } label: {
-                        Label("Sync Selected Libraries", systemImage: "arrow.clockwise")
-                    }
-                    .disabled(experience.libraries.isEmpty)
-                }
-
-                Section("Sources") {
+                } else {
                     ForEach(experience.sourceAccounts) { account in
-                        ForEach(account.servers) { server in
-                            NavigationLink {
-                                WatchLibrarySettingsView(
-                                    accountTitle: account.title,
-                                    serverTitle: server.title,
-                                    libraries: server.libraries
-                                )
-                            } label: {
+                        NavigationLink {
+                            WatchSourceAccountView(account: account)
+                        } label: {
+                            Label {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(server.title)
+                                    Text("Plex")
                                     Text(account.title)
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 }
+                            } icon: {
+                                Image(systemName: "server.rack")
                             }
                         }
                     }
                 }
 
-                Section {
-                    NavigationLink(destination: WatchCloudSettingsView()) {
-                        Label("iCloud Sync", systemImage: "icloud")
-                    }
-                    NavigationLink(destination: WatchPersonalizationView()) {
-                        Label("Personalization", systemImage: "paintpalette")
-                    }
+                NavigationLink(destination: WatchAddSourceView()) {
+                    Label("Add Source", systemImage: "plus.circle")
                 }
+            }
 
-                Section {
-                    Text(experience.statusMessage)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
+            Section {
+                NavigationLink(destination: WatchCloudSettingsView()) {
+                    Label("iCloud Sync", systemImage: "icloud")
                 }
+                NavigationLink(destination: WatchPersonalizationView()) {
+                    Label("Personalization", systemImage: "paintpalette")
+                }
+            }
+
+            Section {
+                Text(experience.statusMessage)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
             }
         }
         .navigationTitle("Settings")
@@ -395,34 +397,42 @@ private struct WatchSourceSettingsView: View {
     }
 }
 
-private struct WatchLibrarySettingsView: View {
+private struct WatchSourceAccountView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
-    let accountTitle: String
-    let serverTitle: String
-    let libraries: [WatchSourceLibraryRow]
+    let account: WatchSourceAccountSection
 
     var body: some View {
-        List(libraries) { library in
-            Toggle(isOn: Binding(
-                get: { library.isEnabled },
-                set: { _ in experience.toggleLibrarySelection(library) }
-            )) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(library.title)
-                    Text(library.isEnabled ? "Synced" : "Not synced")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+        List {
+            ForEach(account.servers) { server in
+                Section(server.title) {
+                    ForEach(server.libraries) { library in
+                        Toggle(isOn: Binding(
+                            get: { library.isEnabled },
+                            set: { _ in experience.toggleLibrarySelection(library) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(library.title)
+                                Text(library.isEnabled ? "Synced" : "Not synced")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
             }
-        }
-        .navigationTitle(serverTitle)
-        .toolbar {
-            ToolbarItem(placement: .bottomBar) {
-                Text(accountTitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+
+            Section {
+                Button {
+                    experience.syncSelectedLibraries()
+                } label: {
+                    Label("Sync Libraries", systemImage: "arrow.clockwise")
+                }
+                .disabled(experience.libraries.isEmpty || experience.isCatalogSyncing)
+            } footer: {
+                Text(experience.isCatalogSyncing ? experience.statusMessage : account.title)
             }
         }
+        .navigationTitle("Plex")
         .watchNowPlayingToolbar()
     }
 }
@@ -519,6 +529,7 @@ private struct WatchCategoryView: View {
                 }
             } else if #available(watchOS 26.0, *) {
                 List {
+                    if sections.isEmpty { emptyCategoryRow }
                     ForEach(sections, id: \.letter) { section in
                         Section(section.letter) {
                             rows(for: section.items)
@@ -529,6 +540,7 @@ private struct WatchCategoryView: View {
                 .listSectionIndexVisibility(.visible)
             } else {
                 List {
+                    if sections.isEmpty { emptyCategoryRow }
                     ForEach(sections, id: \.letter) { section in
                         Section(section.letter) {
                             rows(for: section.items)
@@ -547,9 +559,12 @@ private struct WatchCategoryView: View {
             let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
 
             if albums.isEmpty {
-                Text("No Albums")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 6) {
+                    if experience.isCatalogSyncing { ProgressView() }
+                    Text(experience.isCatalogSyncing ? "Syncing Albums" : "No Albums")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 WatchCrownAlbumStack(
                     albums: albums,
@@ -563,6 +578,7 @@ private struct WatchCategoryView: View {
 
     private var genreList: some View {
         List {
+            if sortedGenres.isEmpty { emptyCategoryRow }
             ForEach(sortedGenres) { genre in
                 NavigationLink(destination: WatchTrackCollectionDetailView(
                     title: genre.title,
@@ -578,8 +594,7 @@ private struct WatchCategoryView: View {
     private var songList: some View {
         List {
             if songTracks.isEmpty {
-                Text(category == .favorites ? "No Favorites" : "No Songs")
-                    .foregroundStyle(.secondary)
+                emptyCategoryRow
             } else {
                 ForEach(songSections, id: \.letter) { section in
                     Section(section.letter) {
@@ -611,6 +626,7 @@ private struct WatchCategoryView: View {
     private var playlistList: some View {
         if #available(watchOS 26.0, *) {
             List {
+                if playlistSections.isEmpty { emptyCategoryRow }
                 ForEach(playlistSections, id: \.letter) { section in
                     Section(section.letter) {
                         playlistRows(for: section.groups)
@@ -621,6 +637,7 @@ private struct WatchCategoryView: View {
             .listSectionIndexVisibility(.visible)
         } else {
             List {
+                if playlistSections.isEmpty { emptyCategoryRow }
                 ForEach(playlistSections, id: \.letter) { section in
                     Section(section.letter) {
                         playlistRows(for: section.groups)
@@ -675,6 +692,13 @@ private struct WatchCategoryView: View {
             let comparison = $0.title.localizedStandardCompare($1.title)
             return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
         }
+    }
+
+    @ViewBuilder
+    private var emptyCategoryRow: some View {
+        if experience.isCatalogSyncing { ProgressView() }
+        Text(experience.isCatalogSyncing ? "Syncing Libraries" : "No \(category.title)")
+            .foregroundStyle(.secondary)
     }
 
     private var songTracks: [EnsembleTrack] {
