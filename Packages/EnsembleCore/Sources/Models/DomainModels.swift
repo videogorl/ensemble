@@ -1,3 +1,4 @@
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
 

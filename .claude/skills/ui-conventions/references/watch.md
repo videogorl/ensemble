@@ -5,11 +5,9 @@
   current standalone scope.
 - Keep navigation shallow: Pins and library categories lead to native detail
   lists, with persistent top-trailing access to Now Playing.
-- Watch Albums use the existing fixed two-cover Crown experience. Slow detents
-  move one album; fast input moves among alphabetical section starts. The system
-  owns Crown detents, haptics, accessory appearance, and transient visibility.
-  Do not add a ScrollView, page indicator, drag recognizer, or manual offset
-  tracker to the album cards.
+- Watch Albums use native searchable lists with alphabetical section indexing
+  and system-owned Digital Crown scrolling. Do not add a custom album stack,
+  drag recognizer, or manual Crown offset tracker.
 - Album and playlist details use the native vertical-page `TabView`: fixed hero
   page followed by the native track list. Keep requests scoped/cancellable so an
   older destination cannot replace the active detail.

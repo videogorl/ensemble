@@ -1,70 +1,9 @@
+import EnsembleDomain
 import Foundation
 
-/// Source-normalized actions shared by media models and presentation layers.
-public enum MusicItemAction: String, Sendable, Hashable, Codable {
-    case addItems
-    case rename
-    case reorder
-    case delete
-    case download
-    case favorite
-    case editMetadata
-}
-
-/// Whether a concrete media item can perform an action, including the reason
-/// presentation layers should show when the action cannot be performed.
-public enum MusicItemActionAvailability: Sendable, Equatable, Hashable, Codable {
-    case available
-    case readOnly(reason: String)
-    case unavailable(reason: String)
-
-    public var isAvailable: Bool {
-        self == .available
-    }
-
-    public var reason: String? {
-        switch self {
-        case .available:
-            nil
-        case .readOnly(let reason), .unavailable(let reason):
-            reason
-        }
-    }
-
-    /// A merged item is actionable when any constituent is actionable. Otherwise
-    /// preserve read-only when every constituent is read-only, and surface the
-    /// first model-provided reason.
-    public static func combined(_ availabilities: [MusicItemActionAvailability]) -> MusicItemActionAvailability {
-        guard !availabilities.isEmpty else {
-            return .unavailable(reason: "No source is available for this action.")
-        }
-        if availabilities.contains(.available) {
-            return .available
-        }
-        let reason = availabilities.compactMap(\.reason).first ?? "This action is unavailable."
-        if availabilities.allSatisfy({
-            if case .readOnly = $0 { return true }
-            return false
-        }) {
-            return .readOnly(reason: reason)
-        }
-        return .unavailable(reason: reason)
-    }
-}
-
-/// Optional provider-supplied overrides for actions whose availability varies
-/// by item or account permission rather than only by source type.
-public struct MusicItemActionCapabilities: Sendable, Equatable, Hashable, Codable {
-    public let availabilityByAction: [MusicItemAction: MusicItemActionAvailability]
-
-    public init(_ availabilityByAction: [MusicItemAction: MusicItemActionAvailability]) {
-        self.availabilityByAction = availabilityByAction
-    }
-
-    public func availability(for action: MusicItemAction) -> MusicItemActionAvailability? {
-        availabilityByAction[action]
-    }
-}
+public typealias MusicItemAction = EnsembleDomain.MusicItemAction
+public typealias MusicItemActionAvailability = EnsembleDomain.MusicItemActionAvailability
+public typealias MusicItemActionCapabilities = EnsembleDomain.MusicItemActionCapabilities
 
 private struct MusicItemActionCapabilitiesPersistencePayload: Codable {
     struct Entry: Codable {

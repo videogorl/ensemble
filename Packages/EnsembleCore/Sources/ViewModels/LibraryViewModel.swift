@@ -1,4 +1,5 @@
 import Combine
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
 

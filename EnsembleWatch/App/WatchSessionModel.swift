@@ -24,6 +24,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
     private let decoder = JSONDecoder()
     private var isSystemNowPlayingProxyEnabled = false
     private var inFlightCommandID: UUID?
+    private var inFlightCompletion: ((Bool, String?) -> Void)?
     private var inFlightQueueReplacement: WatchRemoteQueueReplacementRequest?
     private var requestedQueueArtworkRevision: Int?
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
@@ -141,18 +142,28 @@ final class WatchSessionModel: NSObject, ObservableObject {
         tracks: [WatchCompanionTrackPayload]? = nil,
         booleanValue: Bool? = nil,
         targetID: String? = nil,
-        targetSourceKey: String? = nil
+        targetSourceKey: String? = nil,
+        targetTitle: String? = nil,
+        completion: ((Bool, String?) -> Void)? = nil
     ) {
-        guard WCSession.isSupported() else { return }
+        guard WCSession.isSupported() else {
+            completion?(false, "Watch Connectivity is unavailable.")
+            return
+        }
         if let tracks, !canControl(tracks) {
             statusMessage = "Source is not synced to iPhone."
+            completion?(false, statusMessage)
             return
         }
         guard WCSession.default.activationState == .activated else {
             statusMessage = "Waiting for iPhone connection."
+            completion?(false, statusMessage)
             return
         }
-        guard inFlightCommandID == nil else { return }
+        guard inFlightCommandID == nil else {
+            completion?(false, "Another iPhone action is still in progress.")
+            return
+        }
 
         let command = WatchCompanionCommand(
             kind: kind,
@@ -164,9 +175,11 @@ final class WatchSessionModel: NSObject, ObservableObject {
             tracks: tracks,
             booleanValue: booleanValue,
             targetID: targetID,
-            targetSourceKey: targetSourceKey
+            targetSourceKey: targetSourceKey,
+            targetTitle: targetTitle
         )
         inFlightCommandID = command.id
+        inFlightCompletion = completion
         if kind == .play || kind == .shuffle || kind == .radio {
             inFlightQueueReplacement = WatchRemoteQueueReplacementRequest(kind: kind, tracks: tracks ?? [])
         }
@@ -188,6 +201,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
                         self.isCommandInFlight = false
                         self.inFlightQueueReplacement = nil
                         self.statusMessage = error.localizedDescription
+                        self.finishCommand(false, error.localizedDescription)
                     }
                 }
             )
@@ -196,6 +210,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
             isCommandInFlight = false
             inFlightQueueReplacement = nil
             statusMessage = error.localizedDescription
+            finishCommand(false, error.localizedDescription)
         }
     }
 
@@ -226,6 +241,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
             inFlightQueueReplacement = nil
             isCommandInFlight = false
             statusMessage = "iPhone returned an invalid response."
+            finishCommand(false, statusMessage)
             return
         }
 
@@ -255,12 +271,20 @@ final class WatchSessionModel: NSObject, ObservableObject {
                 }
             }
             inFlightQueueReplacement = nil
+            finishCommand(response.accepted, response.errorMessage)
         } catch {
             inFlightCommandID = nil
             isCommandInFlight = false
             inFlightQueueReplacement = nil
             statusMessage = error.localizedDescription
+            finishCommand(false, error.localizedDescription)
         }
+    }
+
+    private func finishCommand(_ accepted: Bool, _ errorMessage: String?) {
+        let completion = inFlightCompletion
+        inFlightCompletion = nil
+        completion?(accepted, errorMessage)
     }
 
     private func requestQueueArtworkIfNeeded(for queue: WatchCompanionQueueSnapshot) {

@@ -1332,7 +1332,7 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.playNext, .playLast])
-        XCTAssertEqual(sections.actions(in: .playlist), [.addToLibrary, .addToRecentPlaylist, .addToPlaylist, .favorite])
+        XCTAssertEqual(sections.actions(in: .playlist), [.addToLibrary, .addToPlaylist, .addToRecentPlaylist, .favorite])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToAlbum, .goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink, .shareAudioFile])
         XCTAssertEqual(sections.actions(in: .management), [.getInfo, .editMetadata, .toggleHidden, .deleteTrack])
@@ -1481,7 +1481,7 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertEqual(sections.ids, [.playback, .playlist, .navigation, .sharing, .offline, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .radio, .playNext, .playLast])
-        XCTAssertEqual(sections.actions(in: .playlist), [.addToRecentPlaylist, .addToPlaylist])
+        XCTAssertEqual(sections.actions(in: .playlist), [.addToPlaylist, .addToRecentPlaylist])
         XCTAssertEqual(sections.actions(in: .navigation), [.goToArtist])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink, .shareLink])
         XCTAssertEqual(sections.actions(in: .offline), [.download, .pin])
@@ -1800,18 +1800,18 @@ final class EnsembleUITests: XCTestCase {
             [
                 "Play Next",
                 "Play Last",
-                "Add to Road Trip",
                 "Add to Playlist…",
+                "Add to Road Trip",
                 "Favorite",
                 "Go to Album",
                 "Go to Artist",
-                "Share Ensemble Link…",
+                "Share Ensemble Link",
                 "Share Link…",
                 "Share Audio File…",
                 "Get Info…",
                 "Edit Metadata…",
-                "Delete Track",
-                "Hide"
+                "Hide",
+                "Delete Track"
             ]
         )
     }

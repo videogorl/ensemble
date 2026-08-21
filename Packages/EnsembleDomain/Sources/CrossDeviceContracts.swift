@@ -96,6 +96,10 @@ public struct EnsembleSourceScope: Equatable, Sendable {
         provider == other.provider && accountID == other.accountID && serverID == other.serverID
     }
 
+    public var serverSourceKey: String {
+        "\(provider):\(accountID):\(serverID)"
+    }
+
     public static func isCompatible(_ lhs: String?, _ rhs: String?) -> Bool {
         guard let lhs = EnsembleSourceScope(sourceKey: lhs),
               let rhs = EnsembleSourceScope(sourceKey: rhs) else { return false }

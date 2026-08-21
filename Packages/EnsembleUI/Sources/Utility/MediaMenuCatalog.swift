@@ -1,4 +1,5 @@
 import EnsembleCore
+import EnsembleDomain
 import Foundation
 import SwiftUI
 
@@ -109,12 +110,12 @@ struct MediaMenuActionDescriptor: Equatable {
 
     let id: MediaMenuActionID
     let role: Role
-    let availability: MusicItemActionAvailability
+    let availability: EnsembleDomain.MusicItemActionAvailability
 
     init(
         _ id: MediaMenuActionID,
         role: Role = .normal,
-        availability: MusicItemActionAvailability = .available
+        availability: EnsembleDomain.MusicItemActionAvailability = .available
     ) {
         self.id = id
         self.role = role
@@ -229,7 +230,7 @@ struct MediaMenuAvailability: Equatable {
     var canEditPlaylist = true
     var canRemoveFromPlaylist = true
     var canRemoveFromQueue = true
-    var itemActions: [MediaMenuActionID: MusicItemActionAvailability] = [:]
+    var itemActions: [MediaMenuActionID: EnsembleDomain.MusicItemActionAvailability] = [:]
 
     static let full = MediaMenuAvailability(
         hasRecentPlaylist: true,
@@ -544,7 +545,7 @@ enum MediaMenuCatalog {
     ) -> MediaMenuSection {
         MediaMenuSection(
             id: id,
-            actions: actions.map { action in
+            actions: sharedOrdered(actions).map { action in
                 MediaMenuActionDescriptor(
                     action,
                     role: destructive.contains(action) ? .destructive : role
@@ -552,10 +553,51 @@ enum MediaMenuCatalog {
             }
         )
     }
+
+    private static func sharedOrdered(_ actions: [MediaMenuActionID]) -> [MediaMenuActionID] {
+        let rank = Dictionary(
+            uniqueKeysWithValues: EnsembleMediaActionCatalog.ordered.enumerated().map { ($1.action, $0) }
+        )
+        var shared = actions.filter { $0.ensembleAction != nil }.sorted {
+            ($0.ensembleAction.flatMap { rank[$0] } ?? .max)
+                < ($1.ensembleAction.flatMap { rank[$0] } ?? .max)
+        }.makeIterator()
+        return actions.map { action in
+            action.ensembleAction == nil ? action : shared.next() ?? action
+        }
+    }
+}
+
+private extension MediaMenuActionID {
+    var ensembleAction: EnsembleMediaAction? {
+        switch self {
+        case .play: .play
+        case .shuffle: .shuffle
+        case .radio: .radio
+        case .playNext: .playNext
+        case .playLast: .playLast
+        case .addToPlaylist: .addToPlaylist
+        case .addToRecentPlaylist: .addToRecentPlaylist
+        case .favorite: .favorite
+        case .pin: .pin
+        case .goToAlbum: .goToAlbum
+        case .goToArtist: .goToArtist
+        case .shareEnsembleLink: .share
+        case .deleteTrack, .deleteAlbum, .deletePlaylist, .deleteAll: .delete
+        default: nil
+        }
+    }
 }
 
 extension MediaMenuActionDescriptor {
     func label(state: MediaMenuState) -> MediaMenuLabel? {
+        if let sharedDescriptor,
+           ![.addToRecentPlaylist, .favorite, .pin, .delete].contains(sharedDescriptor.action) {
+            return MediaMenuLabel(
+                title: sharedDescriptor.title,
+                systemImage: sharedDescriptor.systemImage
+            )
+        }
         switch id {
         case .play:
             return MediaMenuLabel(title: "Play", systemImage: EnsembleDesign.Icon.play)
@@ -648,6 +690,11 @@ extension MediaMenuActionDescriptor {
         case .deleteAll:
             return MediaMenuLabel(title: "Delete All", systemImage: EnsembleDesign.Icon.delete)
         }
+    }
+
+    private var sharedDescriptor: EnsembleMediaActionDescriptor? {
+        guard let action = id.ensembleAction else { return nil }
+        return EnsembleMediaActionCatalog.ordered.first { $0.action == action }
     }
 
     func labelKind(state: MediaMenuState) -> MediaActionLabel.Kind? {

@@ -1,18 +1,9 @@
+import EnsembleDomain
 import Foundation
 
-// MARK: - Sort Options
+public typealias SortDirection = EnsembleDomain.SortDirection
 
-public enum SortDirection: String, Codable, CaseIterable {
-    case ascending
-    case descending
-    
-    public var label: String {
-        switch self {
-        case .ascending: return "Ascending"
-        case .descending: return "Descending"
-        }
-    }
-}
+// MARK: - Sort Options
 
 // MARK: - Filter Options
 

@@ -147,4 +147,49 @@ final class EnsembleDomainTests: XCTestCase {
              .share, .delete]
         )
     }
+
+    func testCompanionCommandsRebaseByStableIdentityAndRequireAcknowledgedReplacement() throws {
+        let items = [
+            EnsembleCompanionQueueIdentity(id: "new-queue-id", sourceKey: "plex:a:s:1", playlistItemID: "track-7")
+        ]
+        XCTAssertEqual(
+            EnsembleCompanionQueuePolicy.matchingIndex(
+                itemID: "stale-queue-id",
+                sourceKey: "plex:a:s:1",
+                stableItemID: "track-7",
+                in: items
+            ),
+            0
+        )
+        XCTAssertFalse(EnsembleCompanionQueuePolicy.acceptsReplacement(
+            commandRevision: 4,
+            currentRevision: 5,
+            isProtected: false,
+            isConfirmed: true
+        ))
+        XCTAssertFalse(EnsembleCompanionQueuePolicy.acceptsReplacement(
+            commandRevision: 5,
+            currentRevision: 5,
+            isProtected: true,
+            isConfirmed: false
+        ))
+        XCTAssertTrue(EnsembleCompanionQueuePolicy.acceptsReplacement(
+            commandRevision: 5,
+            currentRevision: 5,
+            isProtected: true,
+            isConfirmed: true
+        ))
+
+        let command = EnsembleCompanionCommand(
+            kind: .createPlaylist,
+            targetSourceKey: "plex:a:s",
+            targetTitle: "Watch Mix"
+        )
+        let decoded = try JSONDecoder().decode(
+            EnsembleCompanionCommand.self,
+            from: JSONEncoder().encode(command)
+        )
+        XCTAssertEqual(decoded.targetTitle, "Watch Mix")
+        XCTAssertEqual(decoded.targetSourceKey, "plex:a:s")
+    }
 }

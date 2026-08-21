@@ -303,8 +303,12 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             }
             if command.kind == .play || command.kind == .shuffle || command.kind == .radio {
                 let revision = currentQueueRevision(for: playbackService)
-                if command.queueRevision != revision
-                    || (playbackService.shouldConfirmQueueReplacement() && command.booleanValue != true) {
+                if !EnsembleCompanionQueuePolicy.acceptsReplacement(
+                    commandRevision: command.queueRevision,
+                    currentRevision: revision,
+                    isProtected: playbackService.shouldConfirmQueueReplacement(),
+                    isConfirmed: command.booleanValue == true
+                ) {
                     return WatchCompanionCommandResponse(
                         commandID: command.id,
                         accepted: false,
@@ -350,13 +354,18 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                     errorMessage: "Missing queue item."
                 )
             }
-            let index = playbackService.queue.firstIndex {
-                $0.id == itemID
-                    && (command.itemSourceKey == nil || $0.track.sourceCompositeKey == command.itemSourceKey)
-            } ?? playbackService.queue.firstIndex {
-                command.itemPlaylistItemID == $0.track.playbackIdentity
-                    && command.itemSourceKey == $0.track.sourceCompositeKey
-            }
+            let index = EnsembleCompanionQueuePolicy.matchingIndex(
+                itemID: itemID,
+                sourceKey: command.itemSourceKey,
+                stableItemID: command.itemPlaylistItemID,
+                in: playbackService.queue.map {
+                    EnsembleCompanionQueueIdentity(
+                        id: $0.id,
+                        sourceKey: $0.track.sourceCompositeKey,
+                        playlistItemID: $0.track.playbackIdentity
+                    )
+                }
+            )
             guard let index else {
                 return WatchCompanionCommandResponse(
                     commandID: command.id,
@@ -413,6 +422,31 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 return rejected(command, message: error.localizedDescription)
             }
 
+        case .createPlaylist:
+            guard let deps,
+                  let title = command.targetTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty,
+                  let serverSourceKey = command.targetSourceKey else {
+                return rejected(command, message: "Choose a source and enter a playlist name.")
+            }
+            let tracks = selectedTracks(for: command, in: playbackService)
+            guard sourceKeysAreEnabled([serverSourceKey]),
+                  !tracks.isEmpty,
+                  tracks.allSatisfy({
+                      EnsembleSourceScope.isCompatible($0.sourceCompositeKey, serverSourceKey)
+                  }) else {
+                return rejected(command, message: "Those items are no longer available on iPhone.")
+            }
+            do {
+                _ = try await deps.playlistMutationWorkflow.createPlaylist(
+                    title: title,
+                    tracks: tracks,
+                    serverSourceKey: serverSourceKey
+                )
+            } catch {
+                return rejected(command, message: error.localizedDescription)
+            }
+
         case .deleteCurrentItem:
             guard let deps,
                   let track = currentTrack(matching: command, in: playbackService),
@@ -441,16 +475,8 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             queue = nil
         }
         let playlistTargets: [WatchCompanionPlaylistTargetSnapshot]?
-        if command.kind == .requestPlaylistTargets, let deps {
-            playlistTargets = (try? await deps.syncCoordinator.fetchPlaylists())?.compactMap { playlist in
-                guard !playlist.isSmart, let sourceKey = playlist.sourceCompositeKey else { return nil }
-                return WatchCompanionPlaylistTargetSnapshot(
-                    id: playlist.id,
-                    title: playlist.title,
-                    sourceKey: sourceKey,
-                    updatedAt: playlist.dateModified?.timeIntervalSince1970
-                )
-            }
+        if command.kind == .requestPlaylistTargets || command.kind == .createPlaylist {
+            playlistTargets = await makePlaylistTargets()
         } else {
             playlistTargets = nil
         }
@@ -461,6 +487,19 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             queue: queue,
             playlistTargets: playlistTargets
         )
+    }
+
+    private func makePlaylistTargets() async -> [WatchCompanionPlaylistTargetSnapshot]? {
+        guard let deps else { return nil }
+        return (try? await deps.syncCoordinator.fetchPlaylists())?.compactMap { playlist in
+            guard !playlist.isSmart, let sourceKey = playlist.sourceCompositeKey else { return nil }
+            return WatchCompanionPlaylistTargetSnapshot(
+                id: playlist.id,
+                title: playlist.title,
+                sourceKey: sourceKey,
+                updatedAt: playlist.dateModified?.timeIntervalSince1970
+            )
+        }
     }
 
     private func sourceKeysAreEnabled(_ sourceKeys: [String]) -> Bool {
