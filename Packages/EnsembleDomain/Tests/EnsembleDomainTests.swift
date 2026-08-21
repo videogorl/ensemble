@@ -91,4 +91,60 @@ final class EnsembleDomainTests: XCTestCase {
         )
         XCTAssertEqual(persisted, ["current", "manual"])
     }
+
+    func testShuffleDoesNotDuplicateCurrentAutoplayItem() {
+        let shuffled = EnsembleQueuePolicy.shuffledQueue(
+            ["manual", "current-auto", "future-auto"],
+            currentQueueIndex: 1,
+            history: [],
+            identity: { $0 },
+            source: { $0.contains("auto") ? .autoplay : .continuePlaying },
+            shuffle: { _ in }
+        )
+
+        XCTAssertEqual(shuffled.items, ["current-auto", "manual", "future-auto"])
+    }
+
+    func testCrossDeviceLibraryFlagsMergeByTimestampAndDecodeLegacyPayload() throws {
+        let local = EnsembleLibraryFlagEntry(key: "library", isEnabled: true, updatedAt: 20)
+        let staleRemote = EnsembleLibraryFlagEntry(key: "library", isEnabled: false, updatedAt: 10)
+        let freshRemote = EnsembleLibraryFlagEntry(key: "library", isEnabled: false, updatedAt: 30)
+
+        XCTAssertEqual(
+            EnsembleLibraryFlagPolicy.merged(
+                local: [local.key: local],
+                remote: [staleRemote.key: staleRemote]
+            )[local.key],
+            local
+        )
+        XCTAssertEqual(
+            EnsembleLibraryFlagPolicy.merged(
+                local: [local.key: local],
+                remote: [freshRemote.key: freshRemote]
+            )[local.key],
+            freshRemote
+        )
+
+        let legacyData = try JSONEncoder().encode(["legacy": true])
+        XCTAssertEqual(
+            EnsembleLibraryFlagPolicy.decodedEntries(from: legacyData)?["legacy"],
+            EnsembleLibraryFlagEntry(key: "legacy", isEnabled: true)
+        )
+    }
+
+    func testSourceScopeCompatibilityRequiresTheSameParsedServer() {
+        XCTAssertTrue(EnsembleSourceScope.isCompatible("plex:a:s", "plex:a:s:3"))
+        XCTAssertTrue(EnsembleSourceScope.isCompatible("plex:a:s:2", "plex:a:s:3"))
+        XCTAssertFalse(EnsembleSourceScope.isCompatible("plex:a:s:3", "plex:a:other:3"))
+        XCTAssertFalse(EnsembleSourceScope.isCompatible("malformed", "plex:a:s:3"))
+    }
+
+    func testMediaActionCatalogUsesSharedWatchAndIOSOrder() {
+        XCTAssertEqual(
+            EnsembleMediaActionCatalog.ordered.map(\.action),
+            [.play, .shuffle, .radio, .playNext, .playLast, .addToPlaylist,
+             .addToRecentPlaylist, .favorite, .pin, .goToAlbum, .goToArtist,
+             .share, .delete]
+        )
+    }
 }

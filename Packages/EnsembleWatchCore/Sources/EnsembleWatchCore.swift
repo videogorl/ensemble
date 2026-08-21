@@ -28,16 +28,6 @@ public struct WatchLinkState: Equatable, Sendable {
     }
 }
 
-public struct WatchLibraryFlagEntry: Codable, Equatable, Sendable {
-    public let key: String
-    public let isEnabled: Bool
-
-    public init(key: String, isEnabled: Bool) {
-        self.key = key
-        self.isEnabled = isEnabled
-    }
-}
-
 public struct WatchSourceAccountSection: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -110,12 +100,6 @@ public struct WatchPlaylistGroup: Identifiable, Equatable, Sendable {
             isSmart: { $0.isSmart ?? false }
         ).map { WatchPlaylistGroup(playlists: $0) }
     }
-}
-
-public enum WatchKVSKey {
-    public static let pins = "ensemble.sync.pins"
-    public static let libraryFlags = "ensemble.sync.libraryFlags"
-    public static let accentColor = "ensemble.sync.accentColor"
 }
 
 public struct WatchPinnedReference: Codable, Equatable, Sendable {
@@ -211,18 +195,36 @@ public final class WatchCatalogStore {
     }
 
     public func loadLibraryFlags() -> [String: Bool] {
-        guard let data = defaults.data(forKey: libraryFlagsKey),
-              let entries = try? JSONDecoder().decode([WatchLibraryFlagEntry].self, from: data) else {
-            return [:]
-        }
-        return entries.reduce(into: [:]) { $0[$1.key] = $1.isEnabled }
+        loadLibraryFlagEntries().mapValues(\.isEnabled)
     }
 
     public func saveLibraryFlags(_ flags: [String: Bool]) {
-        let entries = flags.keys.sorted().map { key in
-            WatchLibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
+        let current = loadLibraryFlagEntries()
+        let now = Date().timeIntervalSince1970
+        let entries = flags.reduce(into: [String: EnsembleLibraryFlagEntry]()) { result, element in
+            if let existing = current[element.key],
+               existing.isEnabled == element.value,
+               existing.updatedAt != nil {
+                result[element.key] = existing
+            } else {
+                result[element.key] = EnsembleLibraryFlagEntry(
+                    key: element.key,
+                    isEnabled: element.value,
+                    updatedAt: now
+                )
+            }
         }
-        guard let data = try? JSONEncoder().encode(entries) else { return }
+        saveLibraryFlagEntries(entries)
+    }
+
+    public func loadLibraryFlagEntries() -> [String: EnsembleLibraryFlagEntry] {
+        guard let data = defaults.data(forKey: libraryFlagsKey) else { return [:] }
+        return EnsembleLibraryFlagPolicy.decodedEntries(from: data) ?? [:]
+    }
+
+    public func saveLibraryFlagEntries(_ entries: [String: EnsembleLibraryFlagEntry]) {
+        let sortedEntries = entries.values.sorted { $0.key < $1.key }
+        guard let data = try? JSONEncoder().encode(sortedEntries) else { return }
         defaults.set(data, forKey: libraryFlagsKey)
     }
 }
@@ -235,31 +237,33 @@ public actor WatchCloudPreferenceStore {
         NSUbiquitousKeyValueStore.default.synchronize()
     }
 
-    public func selectedLibraryFlags() -> [String: Bool] {
+    public func selectedLibraryFlagEntries() -> [String: EnsembleLibraryFlagEntry] {
         guard #available(watchOS 9.0, *) else { return [:] }
         synchronize()
         let store = NSUbiquitousKeyValueStore.default
-        guard let data = store.data(forKey: WatchKVSKey.libraryFlags) else { return [:] }
-        if let entries = try? JSONDecoder().decode([WatchLibraryFlagEntry].self, from: data) {
-            return entries.reduce(into: [:]) { $0[$1.key] = $1.isEnabled }
-        }
-        return (try? JSONDecoder().decode([String: Bool].self, from: data)) ?? [:]
+        guard let data = store.data(forKey: EnsembleKVSKey.libraryFlags) else { return [:] }
+        return EnsembleLibraryFlagPolicy.decodedEntries(from: data) ?? [:]
     }
 
-    public func saveSelectedLibraryFlags(_ flags: [String: Bool]) {
+    public func saveSelectedLibraryFlagEntries(_ entries: [String: EnsembleLibraryFlagEntry]) {
         guard #available(watchOS 9.0, *) else { return }
-        let entries = flags.keys.sorted().map { key in
-            WatchLibraryFlagEntry(key: key, isEnabled: flags[key] ?? false)
-        }
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        NSUbiquitousKeyValueStore.default.set(data, forKey: WatchKVSKey.libraryFlags)
+        let store = NSUbiquitousKeyValueStore.default
+        let existingEntries = store.data(forKey: EnsembleKVSKey.libraryFlags)
+            .flatMap(EnsembleLibraryFlagPolicy.decodedEntries) ?? [:]
+        let mergedEntries = EnsembleLibraryFlagPolicy.merged(
+            local: existingEntries,
+            remote: entries
+        )
+        let sortedEntries = mergedEntries.values.sorted { $0.key < $1.key }
+        guard let data = try? JSONEncoder().encode(sortedEntries) else { return }
+        store.set(data, forKey: EnsembleKVSKey.libraryFlags)
         synchronize()
     }
 
     public func pinnedReferences() -> [WatchPinnedReference]? {
         guard #available(watchOS 9.0, *) else { return nil }
         synchronize()
-        return Self.decodePinnedReferences(NSUbiquitousKeyValueStore.default.data(forKey: WatchKVSKey.pins))
+        return Self.decodePinnedReferences(NSUbiquitousKeyValueStore.default.data(forKey: EnsembleKVSKey.pins))
     }
 
     nonisolated static func decodePinnedReferences(_ data: Data?) -> [WatchPinnedReference]? {
@@ -269,20 +273,25 @@ public actor WatchCloudPreferenceStore {
 
     public func savePinnedReferences(_ pins: [WatchPinnedReference]) {
         guard #available(watchOS 9.0, *) else { return }
+        if pins.isEmpty {
+            NSUbiquitousKeyValueStore.default.removeObject(forKey: EnsembleKVSKey.pins)
+            synchronize()
+            return
+        }
         guard let data = try? JSONEncoder().encode(pins) else { return }
-        NSUbiquitousKeyValueStore.default.set(data, forKey: WatchKVSKey.pins)
+        NSUbiquitousKeyValueStore.default.set(data, forKey: EnsembleKVSKey.pins)
         synchronize()
     }
 
     public func accentColorName() -> String {
         guard #available(watchOS 9.0, *) else { return "blue" }
         synchronize()
-        return NSUbiquitousKeyValueStore.default.string(forKey: WatchKVSKey.accentColor) ?? "blue"
+        return NSUbiquitousKeyValueStore.default.string(forKey: EnsembleKVSKey.accentColor) ?? "blue"
     }
 
     public func saveAccentColorName(_ name: String) {
         guard #available(watchOS 9.0, *) else { return }
-        NSUbiquitousKeyValueStore.default.set(name, forKey: WatchKVSKey.accentColor)
+        NSUbiquitousKeyValueStore.default.set(name, forKey: EnsembleKVSKey.accentColor)
         synchronize()
     }
 }
@@ -415,6 +424,9 @@ struct WatchPlaybackQueue {
             recordCurrentAndSkippedItems(before: index)
         }
         items[index].source = .continuePlaying
+        if let originalIndex = originalItems.firstIndex(where: { $0.id == items[index].id }) {
+            originalItems[originalIndex].source = .continuePlaying
+        }
         currentIndex = index
         currentTime = 0
         syncTracks()
@@ -431,6 +443,7 @@ struct WatchPlaybackQueue {
         }
         guard !newItems.isEmpty else { return }
         items.append(contentsOf: newItems)
+        originalItems.append(contentsOf: newItems)
         syncTracks()
     }
 
@@ -489,7 +502,8 @@ struct WatchPlaybackQueue {
         guard let currentItem else { return }
         isShuffleEnabled.toggle()
         if isShuffleEnabled {
-            let originalIndex = originalItems.firstIndex { $0.id == currentItem.id } ?? 0
+            originalItems = items
+            let originalIndex = currentIndex ?? 0
             let shuffled = EnsembleQueuePolicy.shuffledQueue(
                 originalItems,
                 currentQueueIndex: originalIndex,
@@ -1350,6 +1364,28 @@ public final class WatchExperienceModel: ObservableObject {
                 applyPinnedReferences(pins)
             }
             accentColorName = await cloudPreferences.accentColorName()
+
+            let remoteEntries = await cloudPreferences.selectedLibraryFlagEntries()
+            let localEntries = catalogStore.loadLibraryFlagEntries()
+            let mergedEntries = EnsembleLibraryFlagPolicy.merged(
+                local: localEntries,
+                remote: remoteEntries
+            )
+            if mergedEntries != localEntries {
+                catalogStore.saveLibraryFlagEntries(mergedEntries)
+            }
+            if mergedEntries != remoteEntries {
+                await cloudPreferences.saveSelectedLibraryFlagEntries(mergedEntries)
+            }
+            guard !discoveredServers.isEmpty else { return }
+            let flags = mergedEntries.mapValues(\.isEnabled)
+            discoveredServers = applyLibraryFlags(flags, to: discoveredServers)
+            sourceAccounts = Self.buildSourceAccounts(from: discoveredServers)
+            libraries = (try? catalog.selectedLibraries(
+                from: discoveredServers,
+                fallbackToAllDiscovered: false
+            )) ?? []
+            pruneMediaToSelectedLibraries()
         }
     }
 
@@ -1898,15 +1934,20 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func toggleLibrarySelection(_ row: WatchSourceLibraryRow) {
-        var flags = currentLibraryFlagMap()
-        flags[row.id] = !row.isEnabled
-        catalogStore.saveLibraryFlags(flags)
+        var entries = catalogStore.loadLibraryFlagEntries()
+        entries[row.id] = EnsembleLibraryFlagEntry(
+            key: row.id,
+            isEnabled: !row.isEnabled,
+            updatedAt: Date().timeIntervalSince1970
+        )
+        catalogStore.saveLibraryFlagEntries(entries)
 
         Task { [weak self] in
             guard let self else { return }
-            await cloudPreferences.saveSelectedLibraryFlags(flags)
+            await cloudPreferences.saveSelectedLibraryFlagEntries(entries)
         }
 
+        let flags = entries.mapValues(\.isEnabled)
         discoveredServers = applyLibraryFlags(flags, to: discoveredServers)
         sourceAccounts = Self.buildSourceAccounts(from: discoveredServers)
         libraries = (try? catalog.selectedLibraries(from: discoveredServers, fallbackToAllDiscovered: false)) ?? []
@@ -2090,9 +2131,6 @@ public final class WatchExperienceModel: ObservableObject {
             if catalogSnapshot != selectedSnapshot {
                 catalogSnapshot = selectedSnapshot
             }
-            if snapshot != selectedSnapshot {
-                catalogStore.saveSnapshot(selectedSnapshot)
-            }
             applyHiddenMediaFilter()
             bootstrapState = .ready
             statusMessage = "Refreshing"
@@ -2164,9 +2202,11 @@ public final class WatchExperienceModel: ObservableObject {
         statusMessage = "Syncing selected libraries"
         let cachedPins = (allCatalogSnapshot ?? catalogSnapshot)?.pins ?? []
         let pinnedReferences = await cloudPreferences.pinnedReferences()
-        let snapshot = try await catalog.refreshSnapshot(libraries: libraries)
+        let snapshot = try await catalog.refreshSnapshot(
+            libraries: libraries,
+            previousSnapshot: allCatalogSnapshot ?? catalogSnapshot
+        )
         allCatalogSnapshot = snapshot
-        catalogSnapshot = snapshot
         catalogStore.saveSnapshot(snapshot)
         if let pinnedReferences {
             applyPinnedReferences(pinnedReferences)
@@ -2275,25 +2315,30 @@ public final class WatchExperienceModel: ObservableObject {
             detailTracks = selectedTracks
         }
 
-        guard let snapshot = catalogSnapshot else { return }
-        let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
-        if selectedSnapshot != snapshot {
-            catalogSnapshot = selectedSnapshot
-            catalogStore.saveSnapshot(selectedSnapshot)
-        }
+        applyHiddenMediaFilter()
     }
 
     private func applyStoredLibraryFlags(to servers: [EnsemblePlexServer]) async -> [EnsemblePlexServer] {
-        let localFlags = catalogStore.loadLibraryFlags()
-        if !localFlags.isEmpty {
-            return applyLibraryFlags(localFlags, to: servers)
+        let remoteEntries = await cloudPreferences.selectedLibraryFlagEntries()
+        let localEntries = catalogStore.loadLibraryFlagEntries().mapValues { entry in
+            guard entry.updatedAt == nil, remoteEntries[entry.key] == nil else { return entry }
+            return EnsembleLibraryFlagEntry(
+                key: entry.key,
+                isEnabled: entry.isEnabled,
+                updatedAt: Date().timeIntervalSince1970
+            )
         }
-
-        let flags = await cloudPreferences.selectedLibraryFlags()
-        if !flags.isEmpty {
-            catalogStore.saveLibraryFlags(flags)
+        let mergedEntries = EnsembleLibraryFlagPolicy.merged(
+            local: localEntries,
+            remote: remoteEntries
+        )
+        if mergedEntries != catalogStore.loadLibraryFlagEntries() {
+            catalogStore.saveLibraryFlagEntries(mergedEntries)
         }
-        return applyLibraryFlags(flags, to: servers)
+        if mergedEntries != remoteEntries {
+            await cloudPreferences.saveSelectedLibraryFlagEntries(mergedEntries)
+        }
+        return applyLibraryFlags(mergedEntries.mapValues(\.isEnabled), to: servers)
     }
 
     private func applyLibraryFlags(_ flags: [String: Bool], to servers: [EnsemblePlexServer]) -> [EnsemblePlexServer] {
@@ -2324,14 +2369,6 @@ public final class WatchExperienceModel: ObservableObject {
                 libraries: libraries
             )
         }
-    }
-
-    private func currentLibraryFlagMap() -> [String: Bool] {
-        let rows = sourceAccounts.flatMap { account in
-            account.servers.flatMap(\.libraries)
-        }
-        guard !rows.isEmpty else { return catalogStore.loadLibraryFlags() }
-        return Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.isEnabled) })
     }
 
     private static func buildSourceAccounts(from servers: [EnsemblePlexServer]) -> [WatchSourceAccountSection] {

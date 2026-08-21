@@ -109,7 +109,9 @@ public enum EnsembleQueuePolicy {
         }
         shuffle(&candidates)
 
-        let autoplayItems = queue.filter { source($0) == .autoplay }
+        let autoplayItems = queue.enumerated().compactMap { index, item in
+            index != currentQueueIndex && source(item) == .autoplay ? item : nil
+        }
         return ([currentItem] + candidates + autoplayItems, 0)
     }
 

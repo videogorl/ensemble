@@ -124,6 +124,32 @@ final class AccountManagerLibrarySyncTests: XCTestCase {
         XCTAssertTrue(libraries[0].isEnabled)
     }
 
+    func testApplyLibraryFlagsIgnoresLegacyRemoteFlagAfterLocalMutation() throws {
+        let manager = AccountManager(keychain: TestKeychain())
+        manager.addPlexAccount(
+            makeAccount(
+                libraries: [
+                    PlexLibraryConfig(id: "lib-1", key: "1", title: "Main", isEnabled: false)
+                ]
+            )
+        )
+        XCTAssertTrue(
+            manager.setLibraryEnabled(
+                accountId: "account-1",
+                serverId: "server-1",
+                libraryKey: "1",
+                isEnabled: true
+            )
+        )
+
+        let result = manager.applyLibraryFlags(
+            try makeFlagsData(["account-1:server-1:1": false])
+        )
+
+        XCTAssertFalse(result.hasChanges)
+        XCTAssertTrue(try XCTUnwrap(manager.plexAccounts.first?.servers.first?.libraries.first).isEnabled)
+    }
+
     func testUpdatePlexAccountPreservesLocalSelectionWhenCachedRemoteFlagIsStale() throws {
         let manager = AccountManager(keychain: TestKeychain())
         manager.addPlexAccount(

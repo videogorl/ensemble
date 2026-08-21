@@ -496,19 +496,26 @@ public actor EnsemblePlexCatalogService {
 
     public func refreshSnapshot(
         libraries: [EnsemblePlexLibrary],
-        limits: EnsemblePlexCatalogLimits = EnsemblePlexCatalogLimits()
+        limits: EnsemblePlexCatalogLimits = EnsemblePlexCatalogLimits(),
+        previousSnapshot: EnsemblePlexCatalogSnapshot? = nil
     ) async throws -> EnsemblePlexCatalogSnapshot {
-        var libraryRefs: [EnsembleLibraryReference] = []
-        var albums: [EnsembleMediaSummary] = []
-        var artists: [EnsembleMediaSummary] = []
-        var playlists: [EnsembleMediaSummary] = []
-        var tracks: [EnsembleTrack] = []
-        var genres: [EnsembleGenreSummary] = []
-        var recentlyAdded: [RecentlyAddedItem] = []
+        let selectedSourceKeys = Set(libraries.map(\.sourceKey))
+        let selectedServerSourceKeys = Set(libraries.map(\.server.sourceKey))
+        var libraryRefs = previousSnapshot?.libraries ?? []
+        var albums = previousSnapshot?.albums.filter { !selectedSourceKeys.contains($0.sourceKey) } ?? []
+        var artists = previousSnapshot?.artists.filter { !selectedSourceKeys.contains($0.sourceKey) } ?? []
+        var playlists = previousSnapshot?.playlists.filter { !selectedServerSourceKeys.contains($0.sourceKey) } ?? []
+        var tracks = previousSnapshot?.tracks.filter { !selectedSourceKeys.contains($0.sourceKey) } ?? []
+        var genres = previousSnapshot?.genres.filter { !selectedSourceKeys.contains($0.sourceKey) } ?? []
+        var recentlyAdded = (previousSnapshot?.recentlyAdded ?? [])
+            .filter { !selectedSourceKeys.contains($0.sourceKey) }
+            .enumerated()
+            .map { RecentlyAddedItem(summary: $0.element, addedAt: -$0.offset) }
         var fetchedPlaylistSourceKeys = Set<String>()
+        var firstError: Error?
+        var successCount = 0
 
         for library in libraries {
-            libraryRefs.append(EnsembleLibraryReference(id: library.id, key: library.key, title: library.title, isEnabled: true))
             let client = EnsemblePlexDiscoveryService.client(for: library)
 
             async let libraryArtists = client.getArtists(sectionKey: library.key)
@@ -519,30 +526,68 @@ public actor EnsemblePlexCatalogService {
             async let serverPlaylists: [PlexPlaylist] = shouldFetchPlaylists ? client.getPlaylists() : []
             async let hubItems = recentlyAddedItems(client: client, library: library, limit: limits.recentlyAdded)
 
-            let sourceKey = library.sourceKey
-            let fetchedAlbums = try await libraryAlbums
-            let fetchedTracks = try await libraryTracks
-            let fetchedGenres = try await libraryGenres
-            let mappedArtists = Self.albumArtists(try await libraryArtists, albums: fetchedAlbums)
-                .map { $0.watchSummary(sourceKey: sourceKey) }
-                .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
-            let mappedAlbums = fetchedAlbums
-                .map { $0.watchSummary(sourceKey: sourceKey) }
-                .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
-            let mappedPlaylists = try await serverPlaylists
-                .map { $0.watchSummary(sourceKey: library.server.sourceKey) }
-                .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
-            let mappedRecent = try await hubItems
+            do {
+                let sourceKey = library.sourceKey
+                let fetchedAlbums = try await libraryAlbums
+                let fetchedTracks = try await libraryTracks
+                let fetchedGenres = try await libraryGenres
+                let mappedArtists = Self.albumArtists(try await libraryArtists, albums: fetchedAlbums)
+                    .map { $0.watchSummary(sourceKey: sourceKey) }
+                    .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
+                let mappedAlbums = fetchedAlbums
+                    .map { $0.watchSummary(sourceKey: sourceKey) }
+                    .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
+                let mappedPlaylists = try await serverPlaylists
+                    .map { $0.watchSummary(sourceKey: library.server.sourceKey) }
+                    .sorted(by: { $0.title.localizedStandardCompare($1.title) == .orderedAscending })
+                let mappedRecent = try await hubItems
 
-            artists.append(contentsOf: mappedArtists)
-            albums.append(contentsOf: mappedAlbums)
-            playlists.append(contentsOf: mappedPlaylists)
-            tracks.append(contentsOf: fetchedTracks.map { $0.watchTrack(sourceKey: sourceKey) })
-            genres.append(contentsOf: fetchedGenres.map {
-                EnsembleGenreSummary(id: $0.id, title: $0.title, sourceKey: sourceKey)
-            })
-            recentlyAdded.append(contentsOf: mappedRecent)
+                libraryRefs.removeAll { $0.id == library.id && $0.key == library.key }
+                libraryRefs.append(EnsembleLibraryReference(
+                    id: library.id,
+                    key: library.key,
+                    title: library.title,
+                    isEnabled: true
+                ))
+                artists.removeAll { $0.sourceKey == sourceKey }
+                albums.removeAll { $0.sourceKey == sourceKey }
+                tracks.removeAll { $0.sourceKey == sourceKey }
+                genres.removeAll { $0.sourceKey == sourceKey }
+                recentlyAdded.removeAll { $0.summary.sourceKey == sourceKey }
+                artists.append(contentsOf: mappedArtists)
+                albums.append(contentsOf: mappedAlbums)
+                tracks.append(contentsOf: fetchedTracks.map { $0.watchTrack(sourceKey: sourceKey) })
+                genres.append(contentsOf: fetchedGenres.map {
+                    EnsembleGenreSummary(id: $0.id, title: $0.title, sourceKey: sourceKey)
+                })
+                recentlyAdded.append(contentsOf: mappedRecent)
+                if shouldFetchPlaylists {
+                    playlists.removeAll { $0.sourceKey == library.server.sourceKey }
+                    playlists.append(contentsOf: mappedPlaylists)
+                    fetchedPlaylistSourceKeys.insert(library.server.sourceKey)
+                }
+                successCount += 1
+            } catch {
+                firstError = firstError ?? error
+                guard let previousSnapshot else { continue }
+                let sourceKey = library.sourceKey
+                artists.append(contentsOf: previousSnapshot.artists.filter { $0.sourceKey == sourceKey })
+                albums.append(contentsOf: previousSnapshot.albums.filter { $0.sourceKey == sourceKey })
+                tracks.append(contentsOf: previousSnapshot.tracks.filter { $0.sourceKey == sourceKey })
+                genres.append(contentsOf: previousSnapshot.genres.filter { $0.sourceKey == sourceKey })
+                recentlyAdded.append(contentsOf: previousSnapshot.recentlyAdded
+                    .filter { $0.sourceKey == sourceKey }
+                    .enumerated()
+                    .map { RecentlyAddedItem(summary: $0.element, addedAt: -$0.offset) })
+                if shouldFetchPlaylists {
+                    playlists.append(contentsOf: previousSnapshot.playlists.filter {
+                        $0.sourceKey == library.server.sourceKey
+                    })
+                }
+            }
         }
+
+        if successCount == 0, let firstError { throw firstError }
 
         return EnsemblePlexCatalogSnapshot(
             libraries: libraryRefs,
@@ -724,7 +769,7 @@ public actor EnsemblePlexCatalogService {
     }
 
     private static func isTrackCompatible(_ track: EnsembleTrack, with serverSourceKey: String) -> Bool {
-        track.sourceKey == serverSourceKey || track.sourceKey.hasPrefix(serverSourceKey + ":")
+        EnsembleSourceScope.isCompatible(track.sourceKey, serverSourceKey)
     }
 
     public nonisolated func artworkURL(for item: EnsembleMediaSummary, in libraries: [EnsemblePlexLibrary], size: Int = 96) -> URL? {

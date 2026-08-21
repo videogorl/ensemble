@@ -1,5 +1,6 @@
 import Combine
 import EnsembleAPI
+import EnsembleDomain
 import Foundation
 
 /// Whether the persisted source configuration was read authoritatively.
@@ -66,21 +67,7 @@ public final class AccountManager: ObservableObject {
         let credentialState: AccountCredentialLoadState
     }
 
-    private struct LibraryFlagEntry: Codable, Equatable, Sendable {
-        let key: String
-        let isEnabled: Bool
-        let updatedAt: TimeInterval?
-
-        init(
-            key: String,
-            isEnabled: Bool,
-            updatedAt: TimeInterval? = nil
-        ) {
-            self.key = key
-            self.isEnabled = isEnabled
-            self.updatedAt = updatedAt
-        }
-    }
+    private typealias LibraryFlagEntry = EnsembleLibraryFlagEntry
 
     public struct ServerPlaylistCleanup: Hashable, Sendable {
         public let accountId: String
@@ -1173,7 +1160,9 @@ public final class AccountManager: ObservableObject {
     }
 
     private func shouldApplyRemoteLibraryFlag(_ entry: LibraryFlagEntry) -> Bool {
-        guard let remoteTimestamp = entry.updatedAt else { return true }
+        guard let remoteTimestamp = entry.updatedAt else {
+            return libraryFlagModifiedAt[entry.key] == nil
+        }
         return remoteTimestamp >= (libraryFlagModifiedAt[entry.key] ?? 0)
     }
 
@@ -1368,16 +1357,6 @@ public final class AccountManager: ObservableObject {
     }
 
     private func decodeLibraryFlagEntries(from data: Data) -> [String: LibraryFlagEntry]? {
-        if let entries = try? JSONDecoder().decode([LibraryFlagEntry].self, from: data) {
-            return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0) })
-        }
-        guard let flags = try? JSONDecoder().decode([String: Bool].self, from: data) else {
-            return nil
-        }
-        return Dictionary(
-            uniqueKeysWithValues: flags.map { key, isEnabled in
-                (key, LibraryFlagEntry(key: key, isEnabled: isEnabled))
-            }
-        )
+        EnsembleLibraryFlagPolicy.decodedEntries(from: data)
     }
 }

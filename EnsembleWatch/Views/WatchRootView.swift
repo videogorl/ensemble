@@ -236,7 +236,12 @@ struct WatchRootView: View {
             }
 
             Section("Menu") {
-                ForEach(EnsembleLibraryCategory.allCases.filter { $0 != .recentlyAdded }) { category in
+                ForEach([
+                    EnsembleLibraryCategory.songs,
+                    .genres,
+                    .favorites,
+                    .hidden
+                ]) { category in
                     NavigationLink(destination: WatchCategoryView(category: category)) {
                         Label(category.title, systemImage: category.systemImage)
                     }
@@ -326,6 +331,12 @@ private struct WatchSourceSettingsView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink(destination: WatchAddSourceView()) {
+                    Label("Add Another Plex Source", systemImage: "plus.circle")
+                }
+            }
+
             if experience.sourceAccounts.isEmpty {
                 Section {
                     Text("No sources found.")
@@ -342,50 +353,34 @@ private struct WatchSourceSettingsView: View {
                     .disabled(experience.libraries.isEmpty)
                 }
 
-                ForEach(experience.sourceAccounts) { account in
-                    ForEach(account.servers) { server in
-                        Section {
-                            ForEach(server.libraries) { library in
-                                Toggle(isOn: Binding(
-                                    get: { library.isEnabled },
-                                    set: { _ in experience.toggleLibrarySelection(library) }
-                                )) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(library.title)
-                                            .font(.headline)
-                                            .lineLimit(2)
-                                        Text(library.isEnabled ? "Synced" : "Not synced")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                    }
+                Section("Sources") {
+                    ForEach(experience.sourceAccounts) { account in
+                        ForEach(account.servers) { server in
+                            NavigationLink {
+                                WatchLibrarySettingsView(
+                                    accountTitle: account.title,
+                                    serverTitle: server.title,
+                                    libraries: server.libraries
+                                )
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(server.title)
+                                    Text(account.title)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
-                        } header: {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(server.title)
-                                Text(account.title)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                            }
                         }
                     }
                 }
 
-                Section("Personalization") {
-                    Picker("Accent Color", selection: Binding(
-                        get: { experience.accentColorName },
-                        set: { experience.setAccentColorName($0) }
-                    )) {
-                        ForEach(WatchAccentColor.names, id: \.self) { name in
-                            Text(name.capitalized).tag(name)
-                        }
+                Section {
+                    NavigationLink(destination: WatchCloudSettingsView()) {
+                        Label("iCloud Sync", systemImage: "icloud")
                     }
-                }
-
-                Section("iCloud Sync") {
-                    Label("Pins and library selections sync with iPhone", systemImage: "icloud")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    NavigationLink(destination: WatchPersonalizationView()) {
+                        Label("Personalization", systemImage: "paintpalette")
+                    }
                 }
 
                 Section {
@@ -400,6 +395,108 @@ private struct WatchSourceSettingsView: View {
     }
 }
 
+private struct WatchLibrarySettingsView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let accountTitle: String
+    let serverTitle: String
+    let libraries: [WatchSourceLibraryRow]
+
+    var body: some View {
+        List(libraries) { library in
+            Toggle(isOn: Binding(
+                get: { library.isEnabled },
+                set: { _ in experience.toggleLibrarySelection(library) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(library.title)
+                    Text(library.isEnabled ? "Synced" : "Not synced")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .navigationTitle(serverTitle)
+        .toolbar {
+            ToolbarItem(placement: .bottomBar) {
+                Text(accountTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .watchNowPlayingToolbar()
+    }
+}
+
+private struct WatchAddSourceView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                Image(systemName: "link.circle")
+                    .font(.title2)
+                if let link = experience.linkState {
+                    Text(link.code)
+                        .font(.title2.monospacedDigit().weight(.semibold))
+                    Text("plex.tv/link")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button("Get Code") { experience.startLinkFlow() }
+                }
+                Text(experience.statusMessage)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding()
+        }
+        .navigationTitle("Add Source")
+        .task { experience.startLinkFlow() }
+    }
+}
+
+private struct WatchCloudSettingsView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+
+    var body: some View {
+        List {
+            Section {
+                Label("Pins", systemImage: "pin")
+                Label("Library Selections", systemImage: "books.vertical")
+            } footer: {
+                Text("Changes sync with Ensemble on your other devices through iCloud.")
+            }
+            Button {
+                experience.cloudPreferencesDidChange()
+            } label: {
+                Label("Sync Now", systemImage: "arrow.clockwise")
+            }
+        }
+        .navigationTitle("iCloud Sync")
+        .watchNowPlayingToolbar()
+    }
+}
+
+private struct WatchPersonalizationView: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+
+    var body: some View {
+        List {
+            Picker("Accent Color", selection: Binding(
+                get: { experience.accentColorName },
+                set: { experience.setAccentColorName($0) }
+            )) {
+                ForEach(WatchAccentColor.names, id: \.self) { name in
+                    Text(name.capitalized).tag(name)
+                }
+            }
+        }
+        .navigationTitle("Personalization")
+        .watchNowPlayingToolbar()
+    }
+}
+
 private struct WatchCategoryView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     @EnvironmentObject private var remoteSession: WatchSessionModel
@@ -408,7 +505,9 @@ private struct WatchCategoryView: View {
 
     var body: some View {
         Group {
-            if category == .playlists {
+            if category == .albums {
+                albumStack
+            } else if category == .playlists {
                 playlistList
             } else if category == .genres {
                 genreList
@@ -440,6 +539,26 @@ private struct WatchCategoryView: View {
         }
         .navigationTitle(category.title)
         .watchNowPlayingToolbar()
+    }
+
+    private var albumStack: some View {
+        GeometryReader { geometry in
+            let albums = sortedItems
+            let artworkSize = min(geometry.size.width - 4, geometry.size.height - 16)
+
+            if albums.isEmpty {
+                Text("No Albums")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                WatchCrownAlbumStack(
+                    albums: albums,
+                    artworkSize: artworkSize,
+                    pageWidth: geometry.size.width,
+                    pageHeight: geometry.size.height
+                )
+            }
+        }
     }
 
     private var genreList: some View {
@@ -640,25 +759,37 @@ private struct WatchArtistAlbumsView: View {
     let item: EnsembleMediaSummary
 
     var body: some View {
-        List {
-            WatchCollectionHeaderSection(
-                title: item.title,
-                subtitle: item.subtitle,
-                actionTarget: .media(item)
-            )
+        TabView {
+            VStack(spacing: 4) {
+                WatchCollectionHero(
+                    title: item.title,
+                    artworkItem: item,
+                    fallbackArtworkTrack: experience.detailTracks.first
+                )
+                WatchCollectionPlaybackControls(
+                    title: item.title,
+                    target: .media(item),
+                    tracks: experience.detailTracks
+                )
+            }
 
-            Section {
+            GeometryReader { geometry in
                 if experience.detailTracks.isEmpty {
                     Text(experience.detailStatusMessage)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ForEach(artistAlbums) { album in
-                        WatchArtistAlbumNavigationRow(album: album)
-                    }
+                    WatchCrownAlbumStack(
+                        albums: artistAlbums.compactMap(\.mediaSummary),
+                        artworkSize: min(geometry.size.width - 4, geometry.size.height - 16),
+                        pageWidth: geometry.size.width,
+                        pageHeight: geometry.size.height
+                    )
                 }
             }
         }
+        .tabViewStyle(.verticalPage)
         .navigationTitle("Artist")
         .watchNowPlayingToolbar()
         .onAppear {
@@ -671,61 +802,27 @@ private struct WatchArtistAlbumsView: View {
     }
 }
 
-private struct WatchArtistAlbumNavigationRow: View {
-    let album: WatchArtistAlbumSummary
-
-    var body: some View {
-        NavigationLink {
-            WatchTrackCollectionDetailView(
-                title: album.title,
-                source: .artistAlbum(album.id)
-            )
-        } label: {
-            WatchArtistAlbumRow(album: album)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .watchMediaSwipeActions(.artistAlbum(album))
-    }
-}
-
 private struct WatchTrackCollectionDetailView: View {
     @EnvironmentObject private var experience: WatchExperienceModel
     @EnvironmentObject private var remoteSession: WatchSessionModel
     @Environment(\.watchOpenNowPlaying) private var openNowPlaying
     let title: String
     let source: WatchTrackCollectionSource
+    @State private var sortOrder = WatchTrackSortOrder.collection
+    @State private var favoritesOnly = false
 
     var body: some View {
         TabView {
-            collectionHero
-                .toolbar {
-                    if let headerActionTarget {
-                        ToolbarItemGroup(placement: .bottomBar) {
-                            Button {
-                                if experience.playbackTarget == .remote {
-                                    remoteSession.requestQueueReplacement(
-                                        .play,
-                                        tracks: tracks.map(\.companionPayload)
-                                    )
-                                } else {
-                                    headerActionTarget.play(tracks, in: experience)
-                                }
-                                openNowPlaying()
-                            } label: {
-                                Image(systemName: "play.fill")
-                            }
-                            .accessibilityLabel("Play \(title)")
-
-                            Text(title)
-                                .font(.headline)
-                                .lineLimit(1)
-
-                            WatchMediaMoreButton(target: headerActionTarget)
-                        }
-                    }
+            VStack(spacing: 4) {
+                collectionHero
+                if let headerActionTarget {
+                    WatchCollectionPlaybackControls(
+                        title: title,
+                        target: headerActionTarget,
+                        tracks: tracks
+                    )
                 }
+            }
             trackList
         }
         .tabViewStyle(.verticalPage)
@@ -748,13 +845,20 @@ private struct WatchTrackCollectionDetailView: View {
         WatchCollectionHero(
             title: title,
             artworkItem: artworkItem,
-            fallbackArtworkTrack: tracks.first,
-            actionTarget: headerActionTarget
+            fallbackArtworkTrack: tracks.first
         )
     }
 
     private var trackList: some View {
         List {
+            Section("View") {
+                Picker("Sort", selection: $sortOrder) {
+                    ForEach(WatchTrackSortOrder.allCases) { order in
+                        Text(order.title).tag(order)
+                    }
+                }
+                Toggle("Favorites Only", isOn: $favoritesOnly)
+            }
             trackSections
         }
     }
@@ -832,12 +936,26 @@ private struct WatchTrackCollectionDetailView: View {
         }
     }
 
-    private var tracks: [EnsembleTrack] {
+    private var sourceTracks: [EnsembleTrack] {
         switch source {
         case .media, .playlistGroup, .genre:
             return experience.detailTracks
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.tracks ?? []
+        }
+    }
+
+    private var tracks: [EnsembleTrack] {
+        let filtered = favoritesOnly ? sourceTracks.filter { $0.isFavorite == true } : sourceTracks
+        switch sortOrder {
+        case .collection:
+            return filtered
+        case .title:
+            return filtered.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .artist:
+            return filtered.sorted {
+                ($0.artistName ?? "").localizedStandardCompare($1.artistName ?? "") == .orderedAscending
+            }
         }
     }
 
@@ -875,6 +993,22 @@ private struct WatchTrackCollectionDetailView: View {
             return nil
         case .artistAlbum(let id):
             return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.mediaSummary
+        }
+    }
+}
+
+private enum WatchTrackSortOrder: String, CaseIterable, Identifiable {
+    case collection
+    case title
+    case artist
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .collection: return "Collection Order"
+        case .title: return "Title"
+        case .artist: return "Artist"
         }
     }
 }
@@ -1293,142 +1427,45 @@ private struct WatchMediaActionButtons: View {
     @State private var showsPlaylistPicker = false
 
     var body: some View {
-        Group {
-            Button {
-                Task {
-                    let tracks = await target.loadTracks(in: experience)
-                    if experience.playbackTarget == .remote {
-                        remoteSession.requestQueueReplacement(
-                            .play,
-                            tracks: tracks.map(\.companionPayload)
-                        )
-                    } else {
-                        target.play(tracks, in: experience)
-                    }
-                    openNowPlaying()
-                }
-            } label: {
-                Label("Play", systemImage: "play.fill")
-            }
-            .disabled(remotePlaybackDisabled)
-
-            if target.supportsShuffle {
-                Button {
-                    Task {
-                        let tracks = await target.loadTracks(in: experience)
-                        if experience.playbackTarget == .remote {
-                            remoteSession.requestQueueReplacement(
-                                .shuffle,
-                                tracks: tracks.map(\.companionPayload)
-                            )
-                        } else {
-                            target.play(tracks, in: experience, shuffled: true)
-                        }
-                        openNowPlaying()
-                    }
-                } label: {
-                    Label("Shuffle", systemImage: "shuffle")
-                }
-                .disabled(remotePlaybackDisabled)
-            }
-
-            if target.supportsRadio {
-                Button {
-                    Task {
-                        let tracks = await target.loadTracks(in: experience)
-                        if experience.playbackTarget == .remote {
-                            remoteSession.requestQueueReplacement(
-                                .radio,
-                                tracks: tracks.map(\.companionPayload)
-                            )
-                        } else {
-                            experience.playRadio(tracks)
-                        }
-                        openNowPlaying()
-                    }
-                } label: {
-                    Label("Radio", systemImage: "dot.radiowaves.left.and.right")
-                }
-                .disabled(remotePlaybackDisabled)
-            }
-
-            Button {
-                Task {
-                    let tracks = await target.loadTracks(in: experience)
-                    if experience.playbackTarget == .remote {
-                        remoteSession.send(.playNext, tracks: tracks.map(\.companionPayload))
-                    } else {
-                        experience.playNext(tracks)
-                    }
-                }
-            } label: {
-                Label("Play Next", systemImage: "text.insert")
-            }
-            .disabled(remotePlaybackDisabled)
-
-            Button {
-                Task {
-                    let tracks = await target.loadTracks(in: experience)
-                    if experience.playbackTarget == .remote {
-                        remoteSession.send(.playLast, tracks: tracks.map(\.companionPayload))
-                    } else {
-                        experience.playLast(tracks)
-                    }
-                }
-            } label: {
-                Label("Play Last", systemImage: "text.append")
-            }
-            .disabled(remotePlaybackDisabled)
-
-            if target.trackForFavorite != nil {
-                Button {
-                    if let track = target.trackForFavorite {
-                        experience.toggleFavorite(track)
-                    }
-                } label: {
-                    Label(
-                        target.trackForFavorite?.isFavorite == true ? "Unfavorite" : "Favorite",
-                        systemImage: target.trackForFavorite?.isFavorite == true ? "heart.slash" : "heart"
-                    )
+        ForEach(EnsembleMediaActionCatalog.ordered, id: \.action.rawValue) { descriptor in
+            actionView(descriptor)
+        }
+        .sheet(isPresented: $showsPlaylistPicker) {
+            NavigationStack {
+                if experience.playbackTarget == .remote {
+                    WatchRemotePlaylistPicker(tracks: playlistTracks)
+                } else {
+                    WatchPlaylistPicker(tracks: playlistTracks)
                 }
             }
-
-            if let recent = experience.recentPlaylistTarget,
-               !recent.isSmart,
-               targetCanAddToPlaylist(target, with: recent) {
-                Button {
-                    Task {
-                        let tracks = await target.loadTracks(in: experience)
-                        let compatibleTracks = tracks.filter { isCompatible($0, with: recent) }
-                        _ = await experience.addToPlaylist(compatibleTracks, target: recent)
-                    }
-                } label: {
-                    Label("Add to \(recent.title)", systemImage: "clock.arrow.circlepath")
-                }
+        }
+        .task {
+            if experience.playbackTarget == .remote {
+                remoteSession.send(.requestPlaylistTargets)
+            } else {
+                await experience.loadPlaylistTargets()
             }
+        }
+        if remotePlaybackDisabled {
+            Button("Source isn’t synced to iPhone") {}
+                .disabled(true)
+        }
+    }
 
-            if let destination = target.albumDestination {
-                Button {
-                    navigateToMedia(destination)
-                } label: {
-                    Label("Go to Album", systemImage: "square.stack")
-                }
-            }
-
-            if let destination = target.artistDestination {
-                Button {
-                    navigateToMedia(destination)
-                } label: {
-                    Label("Go to Artist", systemImage: "music.mic")
-                }
-            }
-
-            if let shareURL = target.shareURL {
-                ShareLink(item: shareURL) {
-                    Label("Share Ensemble Link", systemImage: "link")
-                }
-            }
-
+    @ViewBuilder
+    private func actionView(_ descriptor: EnsembleMediaActionDescriptor) -> some View {
+        switch descriptor.action {
+        case .play:
+            playbackButton(descriptor, kind: .play)
+        case .shuffle:
+            if target.supportsShuffle { playbackButton(descriptor, kind: .shuffle) }
+        case .radio:
+            if target.supportsRadio { playbackButton(descriptor, kind: .radio) }
+        case .playNext:
+            playbackButton(descriptor, kind: .playNext)
+        case .playLast:
+            playbackButton(descriptor, kind: .playLast)
+        case .addToPlaylist:
             Button {
                 Task {
                     playlistTracks = await target.loadTracks(in: experience)
@@ -1436,32 +1473,135 @@ private struct WatchMediaActionButtons: View {
                     showsPlaylistPicker = true
                 }
             } label: {
-                Label("Add to Playlist…", systemImage: "text.badge.plus")
+                Label(descriptor.title, systemImage: descriptor.systemImage)
             }
-
-            if target.canPin(in: experience) {
+        case .addToRecentPlaylist:
+            if experience.playbackTarget == .remote,
+               let recent = remoteSession.playlistTargets
+                .filter({ playlist in
+                    target.sourceKeys.contains {
+                        EnsembleSourceScope.isCompatible($0, playlist.sourceKey)
+                    }
+                })
+                .max(by: { ($0.updatedAt ?? 0, $0.id) < ($1.updatedAt ?? 0, $1.id) }) {
                 Button {
-                    target.togglePin(in: experience)
+                    Task {
+                        let tracks = await target.loadTracks(in: experience).filter {
+                            EnsembleSourceScope.isCompatible($0.sourceKey, recent.sourceKey)
+                        }
+                        remoteSession.send(
+                            .addItemsToPlaylist,
+                            tracks: tracks.map(\.companionPayload),
+                            targetID: recent.id,
+                            targetSourceKey: recent.sourceKey
+                        )
+                    }
+                } label: {
+                    Label("Add to \(recent.title)", systemImage: descriptor.systemImage)
+                }
+            } else if let recent = experience.recentPlaylistTarget,
+                      !recent.isSmart,
+                      targetCanAddToPlaylist(target, with: recent) {
+                Button {
+                    Task {
+                        let tracks = await target.loadTracks(in: experience)
+                        let compatibleTracks = tracks.filter { isCompatible($0, with: recent) }
+                        _ = await experience.addToPlaylist(compatibleTracks, target: recent)
+                    }
+                } label: {
+                    Label("Add to \(recent.title)", systemImage: descriptor.systemImage)
+                }
+            }
+        case .favorite:
+            if let track = target.trackForFavorite {
+                Button {
+                    if experience.playbackTarget == .remote {
+                        remoteSession.send(
+                            .setItemFavorite,
+                            tracks: [track.companionPayload],
+                            booleanValue: track.isFavorite != true
+                        )
+                    } else {
+                        experience.toggleFavorite(track)
+                    }
                 } label: {
                     Label(
-                        target.isPinned(in: experience) ? "Unpin" : "Pin",
-                        systemImage: target.isPinned(in: experience) ? "pin.slash" : "pin.fill"
+                        track.isFavorite == true ? "Unfavorite" : descriptor.title,
+                        systemImage: track.isFavorite == true ? "heart.slash" : descriptor.systemImage
                     )
                 }
             }
-
+        case .pin:
+            if target.canPin(in: experience) {
+                Button { target.togglePin(in: experience) } label: {
+                    Label(
+                        target.isPinned(in: experience) ? "Unpin" : descriptor.title,
+                        systemImage: target.isPinned(in: experience) ? "pin.slash" : descriptor.systemImage
+                    )
+                }
+            }
+        case .goToAlbum:
+            if let destination = target.albumDestination {
+                Button { navigateToMedia(destination) } label: {
+                    Label(descriptor.title, systemImage: descriptor.systemImage)
+                }
+            }
+        case .goToArtist:
+            if let destination = target.artistDestination {
+                Button { navigateToMedia(destination) } label: {
+                    Label(descriptor.title, systemImage: descriptor.systemImage)
+                }
+            }
+        case .share:
+            if let shareURL = target.shareURL {
+                ShareLink(item: shareURL) {
+                    Label(descriptor.title, systemImage: descriptor.systemImage)
+                }
+            }
+        case .delete:
             if target.deletionItem != nil {
                 Button(role: .destructive, action: requestDelete) {
-                    Label("Delete", systemImage: "trash")
+                    Label(descriptor.title, systemImage: descriptor.systemImage)
                 }
             }
         }
-        .sheet(isPresented: $showsPlaylistPicker) {
-            NavigationStack {
-                WatchPlaylistPicker(tracks: playlistTracks)
+    }
+
+    private func playbackButton(
+        _ descriptor: EnsembleMediaActionDescriptor,
+        kind: WatchCompanionCommandKind
+    ) -> some View {
+        Button {
+            Task {
+                let tracks = await target.loadTracks(in: experience)
+                if experience.playbackTarget == .remote {
+                    if kind == .playNext || kind == .playLast {
+                        remoteSession.send(kind, tracks: tracks.map(\.companionPayload))
+                    } else {
+                        remoteSession.requestQueueReplacement(kind, tracks: tracks.map(\.companionPayload))
+                    }
+                } else {
+                    switch kind {
+                    case .shuffle:
+                        target.play(tracks, in: experience, shuffled: true)
+                    case .radio:
+                        experience.playRadio(tracks)
+                    case .playNext:
+                        experience.playNext(tracks)
+                    case .playLast:
+                        experience.playLast(tracks)
+                    default:
+                        target.play(tracks, in: experience)
+                    }
+                }
+                if kind == .play || kind == .shuffle || kind == .radio {
+                    openNowPlaying()
+                }
             }
+        } label: {
+            Label(descriptor.title, systemImage: descriptor.systemImage)
         }
-        .task { await experience.loadPlaylistTargets() }
+        .disabled(remotePlaybackDisabled)
     }
 
     private var remotePlaybackDisabled: Bool {
@@ -1548,10 +1688,16 @@ private struct WatchPlaylistPicker: View {
         }
         .searchable(text: $searchText, prompt: "Search playlists")
         .sheet(isPresented: $showsCreate) {
-            WatchNewPlaylistView { title in
+            WatchNewPlaylistView(sourceKeys: newPlaylistSourceKeys) { title, sourceKey in
                 Task {
-                    guard let sourceKey = tracks.first?.sourceKey else { return }
-                    if await experience.createPlaylist(title: title, tracks: tracks, sourceKey: sourceKey) {
+                    let sourceTracks = tracks.filter {
+                        $0.sourceKey == sourceKey || $0.sourceKey.hasPrefix(sourceKey + ":")
+                    }
+                    if await experience.createPlaylist(
+                        title: title,
+                        tracks: sourceTracks,
+                        sourceKey: sourceKey
+                    ) {
                         dismiss()
                     }
                 }
@@ -1576,28 +1722,111 @@ private struct WatchPlaylistPicker: View {
     private func sourceTitle(for target: EnsemblePlexPlaylistTarget) -> String {
         target.sourceKey.split(separator: ":").last.map(String.init) ?? target.sourceKey
     }
+
+    private var newPlaylistSourceKeys: [String] {
+        Array(Set(tracks.map(\.sourceKey))).sorted()
+    }
+}
+
+private struct WatchRemotePlaylistPicker: View {
+    @EnvironmentObject private var remoteSession: WatchSessionModel
+    @Environment(\.dismiss) private var dismiss
+    let tracks: [EnsembleTrack]
+    @State private var searchText = ""
+
+    private var targets: [WatchCompanionPlaylistTargetSnapshot] {
+        remoteSession.playlistTargets
+            .filter { target in
+                tracks.contains { EnsembleSourceScope.isCompatible($0.sourceKey, target.sourceKey) }
+            }
+            .filter { searchText.isEmpty || $0.title.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    private var recent: WatchCompanionPlaylistTargetSnapshot? {
+        targets.max { ($0.updatedAt ?? 0, $0.id) < ($1.updatedAt ?? 0, $1.id) }
+    }
+
+    var body: some View {
+        List {
+            if let recent {
+                Section("Recent") { targetButton(recent) }
+            }
+            Section("Playlists") {
+                if targets.isEmpty {
+                    Text("No compatible playlists")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(targets) { target in
+                        targetButton(target)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Add to Playlist")
+        .searchable(text: $searchText, prompt: "Search playlists")
+        .task { remoteSession.send(.requestPlaylistTargets) }
+    }
+
+    private func targetButton(_ target: WatchCompanionPlaylistTargetSnapshot) -> some View {
+        let compatibleTracks = tracks.filter {
+            EnsembleSourceScope.isCompatible($0.sourceKey, target.sourceKey)
+        }
+        return Button(target.title) {
+            remoteSession.send(
+                .addItemsToPlaylist,
+                tracks: compatibleTracks.map(\.companionPayload),
+                targetID: target.id,
+                targetSourceKey: target.sourceKey
+            )
+            dismiss()
+        }
+        .disabled(compatibleTracks.isEmpty || remoteSession.isCommandInFlight)
+    }
 }
 
 private struct WatchNewPlaylistView: View {
     @Environment(\.dismiss) private var dismiss
-    let create: (String) -> Void
+    let sourceKeys: [String]
+    let create: (String, String) -> Void
     @State private var title = ""
+    @State private var selectedSourceKey = ""
 
     var body: some View {
         VStack(spacing: 10) {
             Text("New Playlist")
                 .font(.headline)
             TextField("Name", text: $title)
+            if sourceKeys.count > 1 {
+                Picker("Source", selection: $selectedSourceKey) {
+                    ForEach(sourceKeys, id: \.self) { sourceKey in
+                        Text(sourceTitle(sourceKey)).tag(sourceKey)
+                    }
+                }
+            }
             Button("Create") {
                 let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                create(trimmed)
+                guard !trimmed.isEmpty, let sourceKey else { return }
+                create(trimmed, sourceKey)
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
+            .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sourceKey == nil)
             Button("Cancel") { dismiss() }
         }
         .padding()
+        .onAppear {
+            if selectedSourceKey.isEmpty {
+                selectedSourceKey = sourceKeys.first ?? ""
+            }
+        }
+    }
+
+    private var sourceKey: String? {
+        sourceKeys.contains(selectedSourceKey) ? selectedSourceKey : sourceKeys.first
+    }
+
+    private func sourceTitle(_ sourceKey: String) -> String {
+        sourceKey.split(separator: ":").last.map(String.init) ?? sourceKey
     }
 }
 
@@ -1630,9 +1859,77 @@ private struct WatchMediaMoreButton: View {
             showsActions = true
         } label: {
             Image(systemName: "ellipsis")
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.secondary.opacity(0.22)))
         }
+        .buttonStyle(.plain)
+        .tint(.primary)
         .accessibilityLabel("More Actions")
         .watchMediaActions(target, isPresented: $showsActions)
+    }
+}
+
+private struct WatchCollectionPlaybackControls: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    @EnvironmentObject private var remoteSession: WatchSessionModel
+    @Environment(\.watchOpenNowPlaying) private var openNowPlaying
+    let title: String
+    let target: WatchMediaActionTarget
+    let tracks: [EnsembleTrack]
+
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 10) {
+                actionButton("Play", systemImage: "play.fill", kind: .play)
+                if target.supportsShuffle {
+                    actionButton("Shuffle", systemImage: "shuffle", kind: .shuffle)
+                }
+                if target.supportsRadio {
+                    actionButton("Radio", systemImage: "dot.radiowaves.left.and.right", kind: .radio)
+                }
+                WatchMediaMoreButton(target: target)
+            }
+            if remotePlaybackDisabled {
+                Text("Source isn’t synced to iPhone")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func actionButton(
+        _ label: String,
+        systemImage: String,
+        kind: WatchCompanionCommandKind
+    ) -> some View {
+        Button {
+            if experience.playbackTarget == .remote {
+                remoteSession.requestQueueReplacement(kind, tracks: tracks.map(\.companionPayload))
+            } else {
+                switch kind {
+                case .shuffle:
+                    target.play(tracks, in: experience, shuffled: true)
+                case .radio:
+                    experience.playRadio(tracks)
+                default:
+                    target.play(tracks, in: experience)
+                }
+            }
+            openNowPlaying()
+        } label: {
+            Image(systemName: systemImage)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(Color.secondary.opacity(0.22)))
+        }
+        .buttonStyle(.plain)
+        .tint(.primary)
+        .accessibilityLabel("\(label) \(title)")
+        .disabled(tracks.isEmpty || remotePlaybackDisabled)
+    }
+
+    private var remotePlaybackDisabled: Bool {
+        experience.playbackTarget == .remote
+            && !remoteSession.canControl(sourceKeys: target.sourceKeys)
     }
 }
 
@@ -1641,22 +1938,19 @@ private struct WatchCollectionHero: View {
     let title: String
     let artworkItem: EnsembleMediaSummary?
     let fallbackArtworkTrack: EnsembleTrack?
-    let actionTarget: WatchMediaActionTarget?
     @State private var artworkURL: URL?
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 4) {
             WatchArtworkImage(url: artworkURL)
-                .frame(width: 96, height: 96)
+                .frame(width: 72, height: 72)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            if actionTarget == nil {
-                HStack {
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            HStack {
+                Text(title)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal, 8)
@@ -2243,7 +2537,12 @@ private struct WatchNowPlayingView: View {
             NowPlayingView()
         }
         .sheet(isPresented: $showsCurrentPlaylistPicker) {
-            if let track = experience.currentQueueItem?.track {
+            if experience.playbackTarget == .remote,
+               let track = currentActionTrack {
+                NavigationStack {
+                    WatchRemotePlaylistPicker(tracks: [track])
+                }
+            } else if let track = experience.currentQueueItem?.track {
                 NavigationStack {
                     WatchPlaylistPicker(tracks: [track])
                 }
@@ -2255,7 +2554,15 @@ private struct WatchNowPlayingView: View {
         ) {
             if let track = currentActionTrack {
                 Button("Delete", role: .destructive) {
-                    Task { _ = await experience.delete(track.summary) }
+                    if experience.playbackTarget == .remote {
+                        remoteSession.send(
+                            .deleteCurrentItem,
+                            itemID: track.id,
+                            itemSourceKey: track.sourceKey
+                        )
+                    } else {
+                        Task { _ = await experience.delete(track.summary) }
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -2264,6 +2571,11 @@ private struct WatchNowPlayingView: View {
         }
         .task(id: artworkIdentity) {
             await loadArtwork()
+        }
+        .task(id: experience.playbackTarget) {
+            if experience.playbackTarget == .remote, remoteSession.isReachable {
+                remoteSession.send(.requestPlaylistTargets)
+            }
         }
     }
 
@@ -2456,9 +2768,30 @@ private struct WatchNowPlayingView: View {
                 } label: {
                     Label("Add to \(recent.title)", systemImage: "clock.arrow.circlepath")
                 }
+            } else if let recent = remoteRecentPlaylistTarget {
+                Button {
+                    remoteSession.send(
+                        .addItemsToPlaylist,
+                        itemID: currentTrack.id,
+                        itemSourceKey: currentTrack.sourceKey,
+                        targetID: recent.id,
+                        targetSourceKey: recent.sourceKey
+                    )
+                } label: {
+                    Label("Add to \(recent.title)", systemImage: "clock.arrow.circlepath")
+                }
             }
             Button {
-                experience.toggleFavorite(currentTrack)
+                if experience.playbackTarget == .remote {
+                    remoteSession.send(
+                        .setItemFavorite,
+                        itemID: currentTrack.id,
+                        itemSourceKey: currentTrack.sourceKey,
+                        booleanValue: currentTrack.isFavorite != true
+                    )
+                } else {
+                    experience.toggleFavorite(currentTrack)
+                }
             } label: {
                 Label(
                     currentTrack.isFavorite == true ? "Unfavorite" : "Favorite",
@@ -2489,18 +2822,32 @@ private struct WatchNowPlayingView: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-        } else {
-            Button("Current item actions are available on iPhone") {}
-                .disabled(true)
         }
     }
 
     private var currentActionTrack: EnsembleTrack? {
-        guard experience.playbackTarget == .local else { return nil }
-        return experience.currentQueueItem?.track
+        if experience.playbackTarget == .local {
+            return experience.currentQueueItem?.track
+        }
+        guard let track = remoteSession.snapshot?.currentTrack,
+              let sourceKey = track.sourceKey else { return nil }
+        return EnsembleTrack(
+            id: track.id,
+            title: track.title,
+            artistName: track.artistName,
+            albumID: track.albumID,
+            artistID: track.artistID,
+            albumTitle: track.albumTitle,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration ?? remoteSession.snapshot?.duration ?? 0,
+            sourceKey: sourceKey,
+            isFavorite: track.isFavorite
+        )
     }
 
     private var currentRecentPlaylistTarget: EnsemblePlexPlaylistTarget? {
+        guard experience.playbackTarget == .local else { return nil }
         guard let track = currentActionTrack,
               let recent = experience.recentPlaylistTarget,
               !recent.isSmart,
@@ -2509,6 +2856,14 @@ private struct WatchNowPlayingView: View {
             return nil
         }
         return recent
+    }
+
+    private var remoteRecentPlaylistTarget: WatchCompanionPlaylistTargetSnapshot? {
+        guard experience.playbackTarget == .remote,
+              let sourceKey = remoteSession.snapshot?.currentTrack?.sourceKey else { return nil }
+        return remoteSession.playlistTargets
+            .filter { EnsembleSourceScope.isCompatible(sourceKey, $0.sourceKey) }
+            .max { ($0.updatedAt ?? 0, $0.id) < ($1.updatedAt ?? 0, $1.id) }
     }
 
     private var volumeControlOrigin: WKInterfaceVolumeControl.Origin {
@@ -2532,7 +2887,7 @@ private struct WatchNowPlayingView: View {
             guard let data = remoteSession.snapshot?.currentTrack?.artworkData,
                   let image = UIImage(data: data) else { return }
             artwork = image
-            blurredArtwork = WatchArtworkLoader.blurred(image)
+            blurredArtwork = WatchArtworkLoader.blurred(image, key: artworkIdentity)
             return
         }
 
@@ -2541,7 +2896,7 @@ private struct WatchNowPlayingView: View {
               let image = await WatchArtworkLoader.image(from: url) else { return }
         playback.setNowPlayingArtwork(image, for: track)
         artwork = image
-        blurredArtwork = WatchArtworkLoader.blurred(image)
+        blurredArtwork = WatchArtworkLoader.blurred(image, key: artworkIdentity)
     }
 }
 
@@ -2597,14 +2952,18 @@ private struct WatchNowPlayingToolbarLink: View {
             openNowPlaying()
         } label: {
             ZStack {
+                Circle()
+                    .fill(Color.secondary.opacity(0.22))
                 Image(systemName: experience.playbackTarget == .local ? "applewatch" : "iphone")
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(.accent, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .stroke(.primary, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
-            .frame(width: 24, height: 24)
+            .frame(width: 34, height: 34)
         }
+        .buttonStyle(.plain)
+        .tint(.primary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Now Playing")
     }
@@ -2688,6 +3047,145 @@ private struct WatchPinArtworkFrame: View {
     @ViewBuilder
     private var artworkContent: some View {
         WatchArtworkImage(url: artworkURL)
+    }
+}
+
+private struct WatchCrownAlbumStack: View {
+    let albums: [EnsembleMediaSummary]
+    let artworkSize: CGFloat
+    let pageWidth: CGFloat
+    let pageHeight: CGFloat
+
+    @State private var selection = 0
+    @State private var currentIndex = 0
+    @State private var baseIndex = 0
+    @State private var overlayIndex = 0
+    @State private var overlayLift: CGFloat = 0
+
+    var body: some View {
+        Group {
+            if let album = album(at: currentIndex) {
+                NavigationLink(destination: WatchMediaDetailView(item: album)) {
+                    ZStack(alignment: .top) {
+                        WatchAlbumCoverStack(
+                            baseAlbum: self.album(at: baseIndex),
+                            overlayAlbum: self.album(at: overlayIndex),
+                            artworkSize: artworkSize,
+                            pageWidth: pageWidth,
+                            overlayLift: overlayLift
+                        )
+                        VStack(spacing: 0) {
+                            Color.clear.frame(height: artworkSize + 1)
+                            Text(album.title)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity)
+                                .background(Color.black)
+                        }
+                        .allowsHitTesting(false)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(album.title)
+                .accessibilityHint("Opens album")
+            }
+        }
+        .frame(width: pageWidth, height: pageHeight, alignment: .top)
+        .focusable()
+        .digitalCrownRotation(
+            detent: $selection,
+            from: 0,
+            through: max(albums.count - 1, 0),
+            by: 1,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
+        .onChange(of: selection) { _, newIndex in showAlbum(at: newIndex) }
+        .onChange(of: albums.count) { _, _ in clampSelection() }
+    }
+
+    private func album(at index: Int) -> EnsembleMediaSummary? {
+        albums.indices.contains(index) ? albums[index] : albums.first
+    }
+
+    private func showAlbum(at newIndex: Int) {
+        guard albums.indices.contains(newIndex), newIndex != currentIndex else { return }
+        let previousIndex = currentIndex
+        currentIndex = newIndex
+
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            if newIndex > previousIndex {
+                baseIndex = previousIndex
+                overlayIndex = newIndex
+                overlayLift = 1
+            } else {
+                baseIndex = newIndex
+                overlayIndex = previousIndex
+                overlayLift = 0
+            }
+        }
+        withAnimation(.easeOut(duration: 0.16)) {
+            overlayLift = newIndex > previousIndex ? 0 : 1
+        }
+    }
+
+    private func clampSelection() {
+        let index = min(selection, max(albums.count - 1, 0))
+        selection = index
+        currentIndex = index
+        baseIndex = index
+        overlayIndex = index
+        overlayLift = 0
+    }
+}
+
+private struct WatchAlbumCoverStack: View {
+    let baseAlbum: EnsembleMediaSummary?
+    let overlayAlbum: EnsembleMediaSummary?
+    let artworkSize: CGFloat
+    let pageWidth: CGFloat
+    let overlayLift: CGFloat
+
+    var body: some View {
+        ZStack {
+            if let baseAlbum {
+                WatchAlbumBrowseCard(item: baseAlbum, artworkSize: artworkSize)
+            }
+            if let overlayAlbum {
+                WatchAlbumBrowseCard(item: overlayAlbum, artworkSize: artworkSize)
+                    .rotation3DEffect(
+                        .degrees(-45 * overlayLift),
+                        axis: (x: 1, y: 0, z: 0),
+                        anchor: .bottom,
+                        perspective: 0.4
+                    )
+                    .offset(y: overlayLift * artworkSize)
+            }
+        }
+        .frame(width: pageWidth, height: artworkSize)
+        .clipped()
+    }
+}
+
+private struct WatchAlbumBrowseCard: View {
+    @EnvironmentObject private var experience: WatchExperienceModel
+    let item: EnsembleMediaSummary
+    let artworkSize: CGFloat
+    @State private var artworkURL: URL?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            WatchPinArtworkFrame(item: item, artworkURL: artworkURL)
+                .frame(width: artworkSize, height: artworkSize)
+        }
+        .frame(width: artworkSize, height: artworkSize)
+        .task(id: "\(item.id)-\(experience.artworkContextID)") {
+            artworkURL = await experience.artworkURL(for: item, size: 320)
+        }
     }
 }
 
@@ -2778,36 +3276,6 @@ private extension EnsembleTrack {
     }
 }
 
-private struct WatchArtistAlbumRow: View {
-    @EnvironmentObject private var experience: WatchExperienceModel
-    let album: WatchArtistAlbumSummary
-
-    @State private var artworkURL: URL?
-
-    var body: some View {
-        HStack(spacing: 8) {
-            WatchMediaArtworkThumbnail(artworkURL: artworkURL, isArtist: false)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(album.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                Text(album.subtitle)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .task(id: "\(album.id)-\(experience.artworkContextID)") {
-            guard let track = album.representativeTrack else {
-                artworkURL = nil
-                return
-            }
-            artworkURL = await experience.artworkURL(for: track, size: 80)
-        }
-    }
-}
-
 private extension WatchExperienceModel {
     var artworkContextID: String {
         libraries
@@ -2869,16 +3337,20 @@ private struct WatchArtworkImage: View {
 }
 
 private enum WatchArtworkLoader {
+    private static let blurredCache = NSCache<NSString, UIImage>()
+
     static func image(from url: URL) async -> UIImage? {
         guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
         return UIImage(data: data)
     }
 
-    static func blurred(_ image: UIImage) -> UIImage? {
+    static func blurred(_ image: UIImage, key: String) -> UIImage? {
+        let cacheKey = key as NSString
+        if let cached = blurredCache.object(forKey: cacheKey) { return cached }
         guard let source = image.cgImage else { return nil }
         let side = 24
         var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        return pixels.withUnsafeMutableBytes { bytes in
+        let output = pixels.withUnsafeMutableBytes { bytes -> CGImage? in
             guard let context = CGContext(
                 data: bytes.baseAddress,
                 width: side,
@@ -2887,13 +3359,15 @@ private enum WatchArtworkLoader {
                 bytesPerRow: side * 4,
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else {
-                return nil
-            }
+            ) else { return nil }
             context.interpolationQuality = .high
             context.draw(source, in: CGRect(x: 0, y: 0, width: side, height: side))
-            return context.makeImage().map(UIImage.init(cgImage:))
+            return context.makeImage()
         }
+        guard let output else { return nil }
+        let result = UIImage(cgImage: output)
+        blurredCache.setObject(result, forKey: cacheKey)
+        return result
     }
 }
 

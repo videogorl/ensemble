@@ -58,24 +58,65 @@ public struct WatchPlaybackQueueSnapshot: Codable, Equatable, Sendable {
 }
 
 public final class WatchPlaybackQueueStore {
+    private static let defaultSnapshotURL = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        .first?
+        .appendingPathComponent("ensemble.watch.playbackQueue.json")
+
     private let defaults: UserDefaults
+    private let snapshotURL: URL?
     private let key = "ensemble.watch.playbackQueue"
 
-    public init(defaults: UserDefaults = .standard) {
+    public convenience init(defaults: UserDefaults = .standard) {
+        self.init(
+            defaults: defaults,
+            snapshotURL: defaults === UserDefaults.standard ? Self.defaultSnapshotURL : nil
+        )
+    }
+
+    public init(defaults: UserDefaults, snapshotURL: URL?) {
         self.defaults = defaults
+        self.snapshotURL = snapshotURL
     }
 
     public func load() -> WatchPlaybackQueueSnapshot? {
-        guard let data = defaults.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode(WatchPlaybackQueueSnapshot.self, from: data)
+        if let snapshotURL,
+           let data = try? Data(contentsOf: snapshotURL),
+           let snapshot = try? JSONDecoder().decode(WatchPlaybackQueueSnapshot.self, from: data) {
+            return snapshot
+        }
+        guard let data = defaults.data(forKey: key),
+              let snapshot = try? JSONDecoder().decode(WatchPlaybackQueueSnapshot.self, from: data) else {
+            return nil
+        }
+        if snapshotURL != nil {
+            save(snapshot)
+        }
+        return snapshot
     }
 
     public func save(_ snapshot: WatchPlaybackQueueSnapshot) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: key)
+        guard let snapshotURL else {
+            defaults.set(data, forKey: key)
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: snapshotURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: snapshotURL, options: .atomic)
+            defaults.removeObject(forKey: key)
+        } catch {
+            return
+        }
     }
 
     public func clear() {
+        if let snapshotURL {
+            try? FileManager.default.removeItem(at: snapshotURL)
+        }
         defaults.removeObject(forKey: key)
     }
 }

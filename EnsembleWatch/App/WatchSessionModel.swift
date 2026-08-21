@@ -1,4 +1,5 @@
 import Combine
+import EnsembleDomain
 import Foundation
 import MediaPlayer
 import UIKit
@@ -13,6 +14,7 @@ struct WatchRemoteQueueReplacementRequest {
 final class WatchSessionModel: NSObject, ObservableObject {
     @Published private(set) var snapshot: WatchCompanionSessionSnapshot?
     @Published private(set) var queueSnapshot: WatchCompanionQueueSnapshot?
+    @Published private(set) var playlistTargets: [WatchCompanionPlaylistTargetSnapshot] = []
     @Published private(set) var isReachable = false
     @Published private(set) var isCommandInFlight = false
     @Published private(set) var pendingQueueReplacement: WatchRemoteQueueReplacementRequest?
@@ -22,6 +24,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
     private let decoder = JSONDecoder()
     private var isSystemNowPlayingProxyEnabled = false
     private var inFlightCommandID: UUID?
+    private var inFlightQueueReplacement: WatchRemoteQueueReplacementRequest?
     private var requestedQueueArtworkRevision: Int?
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
     private var systemArtwork: (data: Data, artwork: MPMediaItemArtwork)?
@@ -93,7 +96,12 @@ final class WatchSessionModel: NSObject, ObservableObject {
     func confirmQueueReplacement() {
         guard let request = pendingQueueReplacement else { return }
         pendingQueueReplacement = nil
-        send(request.kind, queueRevision: snapshot?.queueRevision, tracks: request.tracks)
+        send(
+            request.kind,
+            queueRevision: snapshot?.queueRevision,
+            tracks: request.tracks,
+            booleanValue: true
+        )
     }
 
     func cancelQueueReplacement() {
@@ -107,8 +115,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
     func canControl(sourceKeys: [String]) -> Bool {
         guard let enabledSourceKeys = snapshot?.enabledSourceKeys, !sourceKeys.isEmpty else { return false }
         return sourceKeys.allSatisfy { sourceKey in
-            enabledSourceKeys.contains(sourceKey)
-                || enabledSourceKeys.contains(where: { sourceKey.hasPrefix($0 + ":") })
+            enabledSourceKeys.contains { EnsembleSourceScope.isCompatible(sourceKey, $0) }
         }
     }
 
@@ -131,7 +138,10 @@ final class WatchSessionModel: NSObject, ObservableObject {
         itemSourceKey: String? = nil,
         itemPlaylistItemID: String? = nil,
         queueRevision: Int? = nil,
-        tracks: [WatchCompanionTrackPayload]? = nil
+        tracks: [WatchCompanionTrackPayload]? = nil,
+        booleanValue: Bool? = nil,
+        targetID: String? = nil,
+        targetSourceKey: String? = nil
     ) {
         guard WCSession.isSupported() else { return }
         if let tracks, !canControl(tracks) {
@@ -151,9 +161,15 @@ final class WatchSessionModel: NSObject, ObservableObject {
             itemSourceKey: itemSourceKey,
             itemPlaylistItemID: itemPlaylistItemID,
             queueRevision: queueRevision,
-            tracks: tracks
+            tracks: tracks,
+            booleanValue: booleanValue,
+            targetID: targetID,
+            targetSourceKey: targetSourceKey
         )
         inFlightCommandID = command.id
+        if kind == .play || kind == .shuffle || kind == .radio {
+            inFlightQueueReplacement = WatchRemoteQueueReplacementRequest(kind: kind, tracks: tracks ?? [])
+        }
         isCommandInFlight = kind.isMutating
 
         do {
@@ -170,6 +186,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
                         guard let self, self.inFlightCommandID == command.id else { return }
                         self.inFlightCommandID = nil
                         self.isCommandInFlight = false
+                        self.inFlightQueueReplacement = nil
                         self.statusMessage = error.localizedDescription
                     }
                 }
@@ -177,6 +194,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
         } catch {
             inFlightCommandID = nil
             isCommandInFlight = false
+            inFlightQueueReplacement = nil
             statusMessage = error.localizedDescription
         }
     }
@@ -203,7 +221,13 @@ final class WatchSessionModel: NSObject, ObservableObject {
     }
 
     private func handleReply(_ reply: [String: Any]) {
-        guard let responseData = reply[WatchCompanionPayloadKey.response] as? Data else { return }
+        guard let responseData = reply[WatchCompanionPayloadKey.response] as? Data else {
+            inFlightCommandID = nil
+            inFlightQueueReplacement = nil
+            isCommandInFlight = false
+            statusMessage = "iPhone returned an invalid response."
+            return
+        }
 
         do {
             let response = try decoder.decode(WatchCompanionCommandResponse.self, from: responseData)
@@ -215,18 +239,26 @@ final class WatchSessionModel: NSObject, ObservableObject {
             inFlightCommandID = nil
             isCommandInFlight = false
             if let responseSnapshot = response.snapshot {
-                snapshot = responseSnapshot
+                apply(responseSnapshot)
             }
             if let responseQueue = response.queue {
                 queueSnapshot = responseQueue
                 requestQueueArtworkIfNeeded(for: responseQueue)
             }
+            if let responseTargets = response.playlistTargets {
+                playlistTargets = responseTargets
+            }
             if let errorMessage = response.errorMessage, !response.accepted {
                 statusMessage = errorMessage
+                if response.snapshot?.isQueueProtected == true {
+                    pendingQueueReplacement = inFlightQueueReplacement
+                }
             }
+            inFlightQueueReplacement = nil
         } catch {
             inFlightCommandID = nil
             isCommandInFlight = false
+            inFlightQueueReplacement = nil
             statusMessage = error.localizedDescription
         }
     }
@@ -242,12 +274,52 @@ final class WatchSessionModel: NSObject, ObservableObject {
         guard let snapshotData = context[WatchCompanionPayloadKey.snapshot] as? Data else { return }
 
         do {
-            snapshot = try decoder.decode(WatchCompanionSessionSnapshot.self, from: snapshotData)
+            apply(try decoder.decode(WatchCompanionSessionSnapshot.self, from: snapshotData))
             updateSystemNowPlayingProxy()
             statusMessage = "Connected to iPhone"
         } catch {
             statusMessage = error.localizedDescription
         }
+    }
+
+    private func apply(_ incoming: WatchCompanionSessionSnapshot) {
+        guard let currentArtwork = snapshot?.currentTrack?.artworkData,
+              let incomingTrack = incoming.currentTrack,
+              incomingTrack.artworkData == nil,
+              incomingTrack.id == snapshot?.currentTrack?.id,
+              incomingTrack.sourceKey == snapshot?.currentTrack?.sourceKey else {
+            snapshot = incoming
+            return
+        }
+        snapshot = WatchCompanionSessionSnapshot(
+            currentTrack: WatchCompanionTrackSnapshot(
+                id: incomingTrack.id,
+                sourceKey: incomingTrack.sourceKey,
+                title: incomingTrack.title,
+                artistName: incomingTrack.artistName,
+                albumTitle: incomingTrack.albumTitle,
+                artworkData: currentArtwork,
+                albumID: incomingTrack.albumID,
+                artistID: incomingTrack.artistID,
+                trackNumber: incomingTrack.trackNumber,
+                discNumber: incomingTrack.discNumber,
+                duration: incomingTrack.duration,
+                isFavorite: incomingTrack.isFavorite
+            ),
+            playbackState: incoming.playbackState,
+            playbackError: incoming.playbackError,
+            currentTime: incoming.currentTime,
+            duration: incoming.duration,
+            currentQueueIndex: incoming.currentQueueIndex,
+            queueCount: incoming.queueCount,
+            isShuffleEnabled: incoming.isShuffleEnabled,
+            repeatMode: incoming.repeatMode,
+            updatedAt: incoming.updatedAt,
+            queueRevision: incoming.queueRevision,
+            isAutoplayEnabled: incoming.isAutoplayEnabled,
+            enabledSourceKeys: incoming.enabledSourceKeys,
+            isQueueProtected: incoming.isQueueProtected
+        )
     }
 
     private func formatTime(_ time: TimeInterval) -> String {

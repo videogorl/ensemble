@@ -26,6 +26,19 @@ struct WatchCompanionTrackSnapshot: Codable, Equatable {
     let artistName: String?
     let albumTitle: String?
     let artworkData: Data?
+    var albumID: String? = nil
+    var artistID: String? = nil
+    var trackNumber: Int? = nil
+    var discNumber: Int? = nil
+    var duration: TimeInterval? = nil
+    var isFavorite: Bool? = nil
+}
+
+struct WatchCompanionPlaylistTargetSnapshot: Codable, Equatable, Identifiable {
+    let id: String
+    let title: String
+    let sourceKey: String
+    let updatedAt: TimeInterval?
 }
 
 struct WatchCompanionSessionSnapshot: Codable, Equatable {
@@ -100,6 +113,10 @@ enum WatchCompanionCommandKind: String, Codable, Equatable {
     case requestQueueArtwork
     case playQueueItem
     case toggleAutoplay
+    case requestPlaylistTargets
+    case setItemFavorite
+    case addItemsToPlaylist
+    case deleteCurrentItem
 }
 
 struct WatchCompanionCommand: Codable {
@@ -111,6 +128,9 @@ struct WatchCompanionCommand: Codable {
     let itemPlaylistItemID: String?
     let queueRevision: Int?
     let tracks: [WatchCompanionTrackPayload]?
+    let booleanValue: Bool?
+    let targetID: String?
+    let targetSourceKey: String?
 
     init(
         id: UUID = UUID(),
@@ -120,7 +140,10 @@ struct WatchCompanionCommand: Codable {
         itemSourceKey: String? = nil,
         itemPlaylistItemID: String? = nil,
         queueRevision: Int? = nil,
-        tracks: [WatchCompanionTrackPayload]? = nil
+        tracks: [WatchCompanionTrackPayload]? = nil,
+        booleanValue: Bool? = nil,
+        targetID: String? = nil,
+        targetSourceKey: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -130,6 +153,9 @@ struct WatchCompanionCommand: Codable {
         self.itemPlaylistItemID = itemPlaylistItemID
         self.queueRevision = queueRevision
         self.tracks = tracks
+        self.booleanValue = booleanValue
+        self.targetID = targetID
+        self.targetSourceKey = targetSourceKey
     }
 }
 
@@ -139,26 +165,29 @@ struct WatchCompanionCommandResponse: Codable {
     let errorMessage: String?
     let snapshot: WatchCompanionSessionSnapshot?
     let queue: WatchCompanionQueueSnapshot?
+    let playlistTargets: [WatchCompanionPlaylistTargetSnapshot]?
 
     init(
         commandID: UUID? = nil,
         accepted: Bool,
         errorMessage: String? = nil,
         snapshot: WatchCompanionSessionSnapshot? = nil,
-        queue: WatchCompanionQueueSnapshot? = nil
+        queue: WatchCompanionQueueSnapshot? = nil,
+        playlistTargets: [WatchCompanionPlaylistTargetSnapshot]? = nil
     ) {
         self.commandID = commandID
         self.accepted = accepted
         self.errorMessage = errorMessage
         self.snapshot = snapshot
         self.queue = queue
+        self.playlistTargets = playlistTargets
     }
 }
 
 extension WatchCompanionCommandKind {
     var isMutating: Bool {
         switch self {
-        case .requestQueue, .requestQueueArtwork:
+        case .requestQueue, .requestQueueArtwork, .requestPlaylistTargets:
             return false
         default:
             return true

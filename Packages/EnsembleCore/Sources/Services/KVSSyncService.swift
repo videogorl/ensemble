@@ -1,5 +1,6 @@
-import Foundation
 import Combine
+import EnsembleDomain
+import Foundation
 
 /// Wraps NSUbiquitousKeyValueStore for syncing app data via iCloud KVS.
 /// Handles push (local → iCloud), pull (iCloud → local), and remote change observation.
@@ -15,13 +16,8 @@ public final class KVSSyncService: ObservableObject {
 
     // MARK: - KVS Keys
 
-    /// Namespaced keys for each synced feature
-    public enum KVSKey {
-        public static let accentColor = "ensemble.sync.accentColor"
-        public static let swipeLayout = "ensemble.sync.swipeLayout"
-        public static let pins = "ensemble.sync.pins"
-        public static let libraryFlags = "ensemble.sync.libraryFlags"
-    }
+    /// Namespaced keys for each synced feature.
+    public typealias KVSKey = EnsembleKVSKey
 
     // MARK: - State
 

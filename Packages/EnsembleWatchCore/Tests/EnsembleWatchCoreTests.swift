@@ -7,12 +7,14 @@ import MediaPlayer
 final class EnsembleWatchCoreTests: XCTestCase {
     func testLibraryFlagEntryDecodesFromAppKVSShape() throws {
         let data = """
-        [{"key":"account:server:3","isEnabled":true}]
+        [{"key":"account:server:3","isEnabled":true,"updatedAt":42}]
         """.data(using: .utf8)!
 
-        let entries = try JSONDecoder().decode([WatchLibraryFlagEntry].self, from: data)
+        let entries = try JSONDecoder().decode([EnsembleLibraryFlagEntry].self, from: data)
 
-        XCTAssertEqual(entries, [WatchLibraryFlagEntry(key: "account:server:3", isEnabled: true)])
+        XCTAssertEqual(entries, [
+            EnsembleLibraryFlagEntry(key: "account:server:3", isEnabled: true, updatedAt: 42)
+        ])
     }
 
     func testWatchCatalogStorePersistsLibraryFlagsInStableOrder() {
@@ -43,8 +45,8 @@ final class EnsembleWatchCoreTests: XCTestCase {
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(try JSONEncoder().encode([
-            WatchLibraryFlagEntry(key: "library", isEnabled: false),
-            WatchLibraryFlagEntry(key: "library", isEnabled: true)
+            EnsembleLibraryFlagEntry(key: "library", isEnabled: false),
+            EnsembleLibraryFlagEntry(key: "library", isEnabled: true)
         ]), forKey: "ensemble.watch.libraryFlags")
 
         XCTAssertEqual(WatchCatalogStore(defaults: defaults).loadLibraryFlags(), ["library": true])
@@ -102,6 +104,28 @@ final class EnsembleWatchCoreTests: XCTestCase {
         store.save(snapshot)
 
         XCTAssertEqual(store.load(), snapshot)
+    }
+
+    func testWatchPlaybackQueueStoreMigratesDefaultsToAtomicFile() throws {
+        let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let snapshotURL = directory.appendingPathComponent("queue.json")
+        let item = WatchQueueItem(track: makeTrack(id: "track"))
+        let snapshot = WatchPlaybackQueueSnapshot(queue: [item], currentIndex: 0)
+        defaults.set(try JSONEncoder().encode(snapshot), forKey: "ensemble.watch.playbackQueue")
+        let store = WatchPlaybackQueueStore(defaults: defaults, snapshotURL: snapshotURL)
+
+        XCTAssertEqual(store.load(), snapshot)
+        XCTAssertNil(defaults.data(forKey: "ensemble.watch.playbackQueue"))
+        XCTAssertEqual(
+            try JSONDecoder().decode(WatchPlaybackQueueSnapshot.self, from: Data(contentsOf: snapshotURL)),
+            snapshot
+        )
     }
 
     func testWatchPlaybackQueuePersistenceDropsOnlyFutureAutoplayItems() {
@@ -395,6 +419,22 @@ final class EnsembleWatchCoreTests: XCTestCase {
         }
         XCTAssertEqual(Set(playedTrackIDs), Set(tracks.map(\.id)))
         XCTAssertEqual(playedTrackIDs.count, tracks.count)
+    }
+
+    func testWatchShuffleKeepsSelectedAutoplayCurrentExactlyOnce() {
+        var queue = WatchPlaybackQueue()
+        _ = queue.replace(with: [makeTrack(id: "manual")])
+        queue.appendAutoplay([
+            makeTrack(id: "current-auto"),
+            makeTrack(id: "future-auto")
+        ])
+        _ = queue.select(index: 1)
+
+        queue.toggleShuffle()
+
+        XCTAssertEqual(queue.currentTrack?.id, "current-auto")
+        XCTAssertEqual(queue.tracks.filter { $0.id == "current-auto" }.count, 1)
+        XCTAssertEqual(Set(queue.tracks.map(\.id)), ["current-auto", "future-auto"])
     }
 
     func testWatchPlaylistGroupsMergeRegularSourcesButKeepSmartPlaylistsSeparate() {

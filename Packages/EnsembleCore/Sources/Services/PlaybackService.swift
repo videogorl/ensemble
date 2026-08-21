@@ -889,10 +889,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     @MainActor
-    public var sourceConfigurationSnapshot: SourceConfigurationSnapshot {
-        syncCoordinator.accountManager.sourceConfigurationSnapshot
-    }
-
     public var presentationTimePublisher: AnyPublisher<TimeInterval, Never> {
         $presentationTime.eraseToAnyPublisher()
     }
