@@ -2553,13 +2553,6 @@ private struct WatchNowPlayingView: View {
                         artworkView
                             .frame(width: artworkSide, height: artworkSide)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .overlay(alignment: .bottomTrailing) {
-                                WatchSystemVolumeControl(origin: volumeControlOrigin)
-                                    .id(volumeControlOrigin)
-                                    .frame(width: 1, height: 1)
-                                    .opacity(0.01)
-                                    .accessibilityHidden(true)
-                            }
 
                         VStack(spacing: 0) {
                             Text(presentation.title)
@@ -2773,15 +2766,21 @@ private struct WatchNowPlayingView: View {
                 remoteSession.send(.togglePlayPause)
             }
         } label: {
-            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                .font(.headline)
-                .overlay {
-                    Circle()
-                        .trim(from: 0, to: playbackProgress)
-                        .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                        .frame(width: 32, height: 32)
-                }
+            ZStack {
+                Circle()
+                    .trim(from: 0, to: playbackProgress)
+                    .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.headline)
+
+                WatchSystemVolumeControl(origin: volumeControlOrigin)
+                    .id(volumeControlOrigin)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            .frame(width: 32, height: 32)
         }
         .buttonBorderShape(.circle)
         .scaleEffect(1.15)
@@ -2961,11 +2960,13 @@ private struct WatchSystemVolumeControl: WKInterfaceObjectRepresentable {
 
     func makeWKInterfaceObject(context: Context) -> WKInterfaceVolumeControl {
         let control = WKInterfaceVolumeControl(origin: origin)
+        control.setTintColor(.green)
         focus(control)
         return control
     }
 
     func updateWKInterfaceObject(_ control: WKInterfaceVolumeControl, context: Context) {
+        control.setTintColor(.green)
         focus(control)
     }
 
