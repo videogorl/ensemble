@@ -124,7 +124,7 @@ struct WatchRootView: View {
                 errorView
             }
         }
-        .navigationTitle("Ensemble")
+        .navigationTitle("Home")
         .watchNowPlayingToolbar()
     }
 
@@ -2110,6 +2110,7 @@ private struct WatchNowPlayingView: View {
     @State private var blurredArtwork: UIImage?
     @State private var showsMoreActions = false
     @State private var showsQueue = false
+    @State private var showsPlaybackTargets = false
     @State private var showsSystemNowPlaying = false
     @State private var showsCurrentPlaylistPicker = false
     @State private var showsCurrentItemActions = false
@@ -2205,7 +2206,11 @@ private struct WatchNowPlayingView: View {
                 Label("Queue", systemImage: "list.bullet")
             }
 
-            playbackTargetMenu
+            Button {
+                showsPlaybackTargets = true
+            } label: {
+                Label("Playback Target", systemImage: experience.playbackTarget == .local ? "applewatch" : "iphone")
+            }
 
             Button {
                 showsSystemNowPlaying = true
@@ -2213,7 +2218,21 @@ private struct WatchNowPlayingView: View {
                 Label("Output", systemImage: "airplayaudio")
             }
 
-            currentItemActionsMenu
+            Button {
+                showsCurrentItemActions = true
+            } label: {
+                Label("Current Item Actions", systemImage: "ellipsis.circle")
+            }
+        }
+        .confirmationDialog("Playback Target", isPresented: $showsPlaybackTargets, titleVisibility: .visible) {
+            playbackTargetButtons
+        }
+        .confirmationDialog(
+            "Current Item Actions",
+            isPresented: $showsCurrentItemActions,
+            titleVisibility: .visible
+        ) {
+            currentItemActionButtons
         }
         .sheet(isPresented: $showsQueue) {
             NavigationStack {
@@ -2280,7 +2299,7 @@ private struct WatchNowPlayingView: View {
     }
 
     @ViewBuilder
-    private var playbackTargetMenu: some View {
+    private var playbackTargetButtons: some View {
         Button {
             experience.playbackTarget = .local
         } label: {
@@ -2419,22 +2438,6 @@ private struct WatchNowPlayingView: View {
         case .all: return "Repeat All"
         case .one: return "Repeat One"
         case .off: return "Repeat Off"
-        }
-    }
-
-    @ViewBuilder
-    private var currentItemActionsMenu: some View {
-        Button {
-            showsCurrentItemActions = true
-        } label: {
-            Label("Current Item Actions", systemImage: "ellipsis.circle")
-        }
-        .confirmationDialog(
-            "Current Item Actions",
-            isPresented: $showsCurrentItemActions,
-            titleVisibility: .visible
-        ) {
-            currentItemActionButtons
         }
     }
 
@@ -2600,7 +2603,9 @@ private struct WatchNowPlayingToolbarLink: View {
                     .stroke(.accent, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
+            .frame(width: 24, height: 24)
         }
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Now Playing")
     }
 

@@ -32,6 +32,51 @@ final class EnsembleWatchCoreTests: XCTestCase {
         ])
     }
 
+    func testWatchPreferenceDecodingPreservesMissingPinsAndAcceptsDuplicateFlags() throws {
+        XCTAssertNil(WatchCloudPreferenceStore.decodePinnedReferences(nil))
+        XCTAssertEqual(
+            WatchCloudPreferenceStore.decodePinnedReferences(try JSONEncoder().encode([WatchPinnedReference]())),
+            []
+        )
+
+        let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(try JSONEncoder().encode([
+            WatchLibraryFlagEntry(key: "library", isEnabled: false),
+            WatchLibraryFlagEntry(key: "library", isEnabled: true)
+        ]), forKey: "ensemble.watch.libraryFlags")
+
+        XCTAssertEqual(WatchCatalogStore(defaults: defaults).loadLibraryFlags(), ["library": true])
+    }
+
+    func testWatchCatalogStoreWritesSnapshotsOutsideDefaults() throws {
+        let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = WatchCatalogStore(
+            defaults: defaults,
+            snapshotURL: directory.appendingPathComponent("catalog.json")
+        )
+        let snapshot = EnsemblePlexCatalogSnapshot(
+            libraries: [],
+            pins: [],
+            albums: [],
+            artists: [],
+            playlists: [],
+            recentlyAdded: []
+        )
+
+        store.saveSnapshot(snapshot)
+
+        XCTAssertNil(defaults.data(forKey: "ensemble.watch.catalogSnapshot"))
+        XCTAssertEqual(store.loadSnapshot(), snapshot)
+    }
+
     func testWatchPlaybackQueueStoreRoundTripsAllQueueState() {
         let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

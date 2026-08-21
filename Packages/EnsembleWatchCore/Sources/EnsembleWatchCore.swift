@@ -141,23 +141,65 @@ public struct WatchPinnedReference: Codable, Equatable, Sendable {
 }
 
 public final class WatchCatalogStore {
+    private static let defaultSnapshotURL = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        .first?
+        .appendingPathComponent("ensemble.watch.catalogSnapshot.json")
+
     private let defaults: UserDefaults
+    private let snapshotURL: URL?
     private let snapshotKey = "ensemble.watch.catalogSnapshot"
     private let selectedLibraryKey = "ensemble.watch.selectedLibraries"
     private let libraryFlagsKey = "ensemble.watch.libraryFlags"
 
-    public init(defaults: UserDefaults = .standard) {
+    public convenience init() {
+        self.init(defaults: .standard)
+    }
+
+    public convenience init(defaults: UserDefaults) {
+        self.init(
+            defaults: defaults,
+            snapshotURL: defaults === UserDefaults.standard ? Self.defaultSnapshotURL : nil
+        )
+    }
+
+    public init(defaults: UserDefaults, snapshotURL: URL?) {
         self.defaults = defaults
+        self.snapshotURL = snapshotURL
     }
 
     public func loadSnapshot() -> EnsemblePlexCatalogSnapshot? {
-        guard let data = defaults.data(forKey: snapshotKey) else { return nil }
-        return try? JSONDecoder().decode(EnsemblePlexCatalogSnapshot.self, from: data)
+        if let snapshotURL,
+           let data = try? Data(contentsOf: snapshotURL),
+           let snapshot = try? JSONDecoder().decode(EnsemblePlexCatalogSnapshot.self, from: data) {
+            return snapshot
+        }
+        guard let data = defaults.data(forKey: snapshotKey),
+              let snapshot = try? JSONDecoder().decode(EnsemblePlexCatalogSnapshot.self, from: data) else {
+            return nil
+        }
+        if snapshotURL != nil {
+            saveSnapshot(snapshot)
+        }
+        return snapshot
     }
 
     public func saveSnapshot(_ snapshot: EnsemblePlexCatalogSnapshot) {
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: snapshotKey)
+        guard let snapshotURL else {
+            defaults.set(data, forKey: snapshotKey)
+            return
+        }
+        do {
+            try FileManager.default.createDirectory(
+                at: snapshotURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: snapshotURL, options: .atomic)
+            defaults.removeObject(forKey: snapshotKey)
+        } catch {
+            return
+        }
     }
 
     public func loadSelectedLibraryKeys() -> Set<String> {
@@ -173,7 +215,7 @@ public final class WatchCatalogStore {
               let entries = try? JSONDecoder().decode([WatchLibraryFlagEntry].self, from: data) else {
             return [:]
         }
-        return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0.isEnabled) })
+        return entries.reduce(into: [:]) { $0[$1.key] = $1.isEnabled }
     }
 
     public func saveLibraryFlags(_ flags: [String: Bool]) {
@@ -199,7 +241,7 @@ public actor WatchCloudPreferenceStore {
         let store = NSUbiquitousKeyValueStore.default
         guard let data = store.data(forKey: WatchKVSKey.libraryFlags) else { return [:] }
         if let entries = try? JSONDecoder().decode([WatchLibraryFlagEntry].self, from: data) {
-            return Dictionary(uniqueKeysWithValues: entries.map { ($0.key, $0.isEnabled) })
+            return entries.reduce(into: [:]) { $0[$1.key] = $1.isEnabled }
         }
         return (try? JSONDecoder().decode([String: Bool].self, from: data)) ?? [:]
     }
@@ -214,19 +256,15 @@ public actor WatchCloudPreferenceStore {
         synchronize()
     }
 
-    public func pinnedIDs() -> [String] {
-        pinnedReferences().map(\.id)
+    public func pinnedReferences() -> [WatchPinnedReference]? {
+        guard #available(watchOS 9.0, *) else { return nil }
+        synchronize()
+        return Self.decodePinnedReferences(NSUbiquitousKeyValueStore.default.data(forKey: WatchKVSKey.pins))
     }
 
-    public func pinnedReferences() -> [WatchPinnedReference] {
-        guard #available(watchOS 9.0, *) else { return [] }
-        synchronize()
-        let store = NSUbiquitousKeyValueStore.default
-        guard let data = store.data(forKey: WatchKVSKey.pins),
-              let pins = try? JSONDecoder().decode([WatchPinnedReference].self, from: data) else {
-            return []
-        }
-        return pins
+    nonisolated static func decodePinnedReferences(_ data: Data?) -> [WatchPinnedReference]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([WatchPinnedReference].self, from: data)
     }
 
     public func savePinnedReferences(_ pins: [WatchPinnedReference]) {
@@ -1308,7 +1346,9 @@ public final class WatchExperienceModel: ObservableObject {
     public func cloudPreferencesDidChange() {
         Task { [weak self] in
             guard let self else { return }
-            applyPinnedReferences(await cloudPreferences.pinnedReferences())
+            if let pins = await cloudPreferences.pinnedReferences() {
+                applyPinnedReferences(pins)
+            }
             accentColorName = await cloudPreferences.accentColorName()
         }
     }
@@ -1829,6 +1869,8 @@ public final class WatchExperienceModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             var pins = await cloudPreferences.pinnedReferences()
+                ?? (allCatalogSnapshot ?? catalogSnapshot)?.pins.compactMap(WatchPinnedReference.init(item:))
+                ?? []
             let currentPinnedItemIDs = Set(pins.map {
                 Self.pinIdentity(id: $0.id, sourceKey: $0.sourceCompositeKey)
             })
@@ -2056,7 +2098,9 @@ public final class WatchExperienceModel: ObservableObject {
             statusMessage = "Refreshing"
 
             if !forceRefresh, !Self.catalogNeedsRefresh(selectedSnapshot) {
-                applyPinnedReferences(await cloudPreferences.pinnedReferences())
+                if let pins = await cloudPreferences.pinnedReferences() {
+                    applyPinnedReferences(pins)
+                }
                 statusMessage = "Ready"
                 return
             }
@@ -2118,12 +2162,17 @@ public final class WatchExperienceModel: ObservableObject {
         }
 
         statusMessage = "Syncing selected libraries"
+        let cachedPins = (allCatalogSnapshot ?? catalogSnapshot)?.pins ?? []
         let pinnedReferences = await cloudPreferences.pinnedReferences()
         let snapshot = try await catalog.refreshSnapshot(libraries: libraries)
         allCatalogSnapshot = snapshot
         catalogSnapshot = snapshot
         catalogStore.saveSnapshot(snapshot)
-        applyPinnedReferences(pinnedReferences)
+        if let pinnedReferences {
+            applyPinnedReferences(pinnedReferences)
+        } else {
+            replacePins(cachedPins)
+        }
         applyHiddenMediaFilter()
         statusMessage = "Ready"
     }
@@ -2133,6 +2182,12 @@ public final class WatchExperienceModel: ObservableObject {
 
         guard let snapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
         let pinnedItems = Self.mergedPinnedItems(Self.resolvedPinnedItems(pins, in: snapshot))
+
+        replacePins(pinnedItems)
+    }
+
+    private func replacePins(_ pinnedItems: [EnsembleMediaSummary]) {
+        guard let snapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
 
         let updatedSnapshot = EnsemblePlexCatalogSnapshot(
             fetchedAt: snapshot.fetchedAt,
