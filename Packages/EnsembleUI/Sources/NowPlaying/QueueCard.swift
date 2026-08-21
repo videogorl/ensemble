@@ -174,12 +174,15 @@ public struct QueueCard: View {
     private var queueListView: some View {
         ZStack {
             if !queueProjection.queue.isEmpty || !queueProjection.playbackHistory.isEmpty {
-                #if canImport(UIKit)
-                    let queueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
-                    let capturedCurrentIndex = queueProjection.currentQueueIndex
+                let upcomingQueue = queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1)
+                let queueItemsToShow = Array(upcomingQueue.prefix(queueDisplayLimit))
+                let hiddenQueueItemCount = max(0, upcomingQueue.count - queueItemsToShow.count)
+                let capturedCurrentIndex = queueProjection.currentQueueIndex
 
+                #if canImport(UIKit)
                     QueueTableView(
                         queueItems: queueItemsToShow,
+                        hiddenQueueItemCount: hiddenQueueItemCount,
                         history: queueProjection.playbackHistory,
                         showHistory: queueProjection.showHistory,
                         currentQueueIndex: -1,
@@ -264,7 +267,11 @@ public struct QueueCard: View {
                     }
                 #else
                     // macOS: SwiftUI-based queue list
-                    macOSQueueListView
+                    macOSQueueListView(
+                        queueItemsToShow: queueItemsToShow,
+                        hiddenQueueItemCount: hiddenQueueItemCount,
+                        capturedCurrentIndex: capturedCurrentIndex
+                    )
                 #endif
             } else {
                 // Empty state
@@ -287,12 +294,11 @@ public struct QueueCard: View {
 
     #if os(macOS)
         @ViewBuilder
-        private var macOSQueueListView: some View {
-            let fullQueueItemsToShow = Array(queueProjection.queue.dropFirst(queueProjection.currentQueueIndex + 1))
-            let queueItemsToShow = Array(fullQueueItemsToShow.prefix(queueDisplayLimit))
-            let hiddenQueueItemCount = max(0, fullQueueItemsToShow.count - queueDisplayLimit)
-            let capturedCurrentIndex = queueProjection.currentQueueIndex
-
+        private func macOSQueueListView(
+            queueItemsToShow: [QueueItem],
+            hiddenQueueItemCount: Int,
+            capturedCurrentIndex: Int
+        ) -> some View {
             if queueProjection.showHistory {
                 // History list
                 List {

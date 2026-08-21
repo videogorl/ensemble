@@ -228,6 +228,7 @@ private final class QueueMoreItemsCell: UITableViewCell {
 
 public struct QueueTableView: UIViewRepresentable {
     let queueItems: [QueueItem]
+    let hiddenQueueItemCount: Int
     let history: [QueueItem]
     let showHistory: Bool
     let currentQueueIndex: Int
@@ -250,6 +251,7 @@ public struct QueueTableView: UIViewRepresentable {
 
     public init(
         queueItems: [QueueItem],
+        hiddenQueueItemCount: Int,
         history: [QueueItem],
         showHistory: Bool,
         currentQueueIndex: Int,
@@ -269,6 +271,7 @@ public struct QueueTableView: UIViewRepresentable {
         onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void
     ) {
         self.queueItems = queueItems
+        self.hiddenQueueItemCount = hiddenQueueItemCount
         self.history = history
         self.showHistory = showHistory
         self.currentQueueIndex = currentQueueIndex
@@ -319,6 +322,7 @@ public struct QueueTableView: UIViewRepresentable {
         // Update coordinator state
         let dataChanged = context.coordinator.queueItems.count != queueItems.count ||
             !zip(context.coordinator.queueItems, queueItems).allSatisfy { $0.id == $1.id } ||
+            context.coordinator.hiddenQueueItemCount != hiddenQueueItemCount ||
             context.coordinator.history.count != history.count ||
             !zip(context.coordinator.history, history).allSatisfy { $0.id == $1.id } ||
             context.coordinator.showHistory != showHistory
@@ -326,6 +330,7 @@ public struct QueueTableView: UIViewRepresentable {
         let currentIndexChanged = context.coordinator.currentQueueIndex != currentQueueIndex
         
         context.coordinator.queueItems = queueItems
+        context.coordinator.hiddenQueueItemCount = hiddenQueueItemCount
         context.coordinator.history = history
         context.coordinator.showHistory = showHistory
         context.coordinator.currentQueueIndex = currentQueueIndex
@@ -376,6 +381,7 @@ public struct QueueTableView: UIViewRepresentable {
     public func makeCoordinator() -> Coordinator {
         Coordinator(
             queueItems: queueItems,
+            hiddenQueueItemCount: hiddenQueueItemCount,
             history: history,
             showHistory: showHistory,
             currentQueueIndex: currentQueueIndex,
@@ -402,6 +408,7 @@ public struct QueueTableView: UIViewRepresentable {
 
     public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UITableViewDropDelegate {
         var queueItems: [QueueItem]
+        var hiddenQueueItemCount: Int
         var history: [QueueItem]
         var showHistory: Bool
         var currentQueueIndex: Int
@@ -424,7 +431,6 @@ public struct QueueTableView: UIViewRepresentable {
 
         var sections: [QueueSection] = []
         weak var tableView: UITableView?
-        private let queueDisplayLimit = 50
         private let reorderFeedback = UISelectionFeedbackGenerator()
         private var lastReorderFeedbackIndexPath: IndexPath?
 
@@ -453,6 +459,7 @@ public struct QueueTableView: UIViewRepresentable {
 
         init(
             queueItems: [QueueItem],
+            hiddenQueueItemCount: Int,
             history: [QueueItem],
             showHistory: Bool,
             currentQueueIndex: Int,
@@ -474,6 +481,7 @@ public struct QueueTableView: UIViewRepresentable {
             shareService: ShareService
         ) {
             self.queueItems = queueItems
+            self.hiddenQueueItemCount = hiddenQueueItemCount
             self.history = history
             self.showHistory = showHistory
             self.currentQueueIndex = currentQueueIndex
@@ -509,18 +517,16 @@ public struct QueueTableView: UIViewRepresentable {
                 }
             } else {
                 // Split queue by source
-                let visibleQueueItems = Array(queueItems.prefix(queueDisplayLimit))
-                let hiddenCount = max(0, queueItems.count - queueDisplayLimit)
-                let upNext = visibleQueueItems.filter { $0.source == .upNext }
-                let continuePlaying = visibleQueueItems.filter { $0.source == .continuePlaying }
-                let autoplay = visibleQueueItems.filter { $0.source == .autoplay }
+                let upNext = queueItems.filter { $0.source == .upNext }
+                let continuePlaying = queueItems.filter { $0.source == .continuePlaying }
+                let autoplay = queueItems.filter { $0.source == .autoplay }
 
                 // Stable sections keep UIKit's cross-section move batch internally consistent.
                 sections.append(QueueSection(type: .upNext, items: upNext))
                 sections.append(QueueSection(type: .continuePlaying, items: continuePlaying))
                 sections.append(QueueSection(type: .autoplay, items: autoplay))
-                if hiddenCount > 0 {
-                    sections.append(QueueSection(type: .more(hiddenCount), items: []))
+                if hiddenQueueItemCount > 0 {
+                    sections.append(QueueSection(type: .more(hiddenQueueItemCount), items: []))
                 }
             }
         }
@@ -879,7 +885,7 @@ public struct QueueTableView: UIViewRepresentable {
 
             let destinationAbsoluteIndex: Int
             if isMoreRow(destinationIndexPath) {
-                destinationAbsoluteIndex = min(queueItems.count, queueDisplayLimit)
+                destinationAbsoluteIndex = queueItems.count
             } else if sections.indices.contains(destinationIndexPath.section) {
                 let destinationItems = sections[destinationIndexPath.section].items
                 if destinationItems.indices.contains(destinationIndexPath.row),
