@@ -4249,7 +4249,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     public func cycleRepeatMode() {
-        let nextRawValue = (repeatMode.rawValue + 1) % RepeatMode.allCases.count
+        let nextRawValue = EnsembleQueuePolicy.nextRepeatRawValue(
+            current: repeatMode.rawValue,
+            caseCount: RepeatMode.allCases.count
+        )
         setRepeatMode(RepeatMode(rawValue: nextRawValue) ?? .off)
     }
 

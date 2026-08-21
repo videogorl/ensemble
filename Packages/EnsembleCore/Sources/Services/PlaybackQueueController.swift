@@ -15,11 +15,7 @@ struct PlaybackQueueMoveResult: Equatable {
     let destinationIndex: Int
 }
 
-enum PlaybackPreviousNavigationTarget: Equatable {
-    case seekToZero
-    case queueIndex(Int)
-    case historyIndex(Int)
-}
+typealias PlaybackPreviousNavigationTarget = EnsembleQueuePreviousNavigationTarget
 
 struct PlaybackFutureAutoplayPruneResult: Equatable {
     let queue: [QueueItem]
@@ -39,17 +35,21 @@ final class PlaybackQueueController {
         self.maxHistorySize = maxHistorySize
     }
 
-    func recordToHistory(_ item: QueueItem, playbackHistory: inout [QueueItem]) {
-        var historyItem = item
-        if historyItem.source == .autoplay || historyItem.source == .upNext {
-            historyItem.source = .continuePlaying
-        }
+    private static func normalizedHistoryItem(_ item: QueueItem) -> QueueItem {
+        guard item.source == .autoplay || item.source == .upNext else { return item }
+        var normalized = item
+        normalized.source = .continuePlaying
+        return normalized
+    }
 
-        guard playbackHistory.last?.track.playbackIdentity != item.track.playbackIdentity else { return }
-        playbackHistory.append(historyItem)
-        if playbackHistory.count > maxHistorySize {
-            playbackHistory.removeFirst()
-        }
+    func recordToHistory(_ item: QueueItem, playbackHistory: inout [QueueItem]) {
+        EnsembleQueuePolicy.recordToHistory(
+            item,
+            history: &playbackHistory,
+            maximumCount: maxHistorySize,
+            identity: { $0.track.playbackIdentity },
+            normalized: Self.normalizedHistoryItem
+        )
     }
 
     func recordCurrentAndSkippedItems(
@@ -58,13 +58,15 @@ final class PlaybackQueueController {
         currentQueueIndex: Int,
         playbackHistory: inout [QueueItem]
     ) {
-        guard queue.indices.contains(currentQueueIndex) else { return }
-        recordToHistory(queue[currentQueueIndex], playbackHistory: &playbackHistory)
-
-        guard targetIndex > currentQueueIndex + 1 else { return }
-        for index in (currentQueueIndex + 1) ..< targetIndex where queue.indices.contains(index) {
-            recordToHistory(queue[index], playbackHistory: &playbackHistory)
-        }
+        EnsembleQueuePolicy.recordCurrentAndSkippedItems(
+            before: targetIndex,
+            queue: queue,
+            currentQueueIndex: currentQueueIndex,
+            history: &playbackHistory,
+            maximumCount: maxHistorySize,
+            identity: { $0.track.playbackIdentity },
+            normalized: Self.normalizedHistoryItem
+        )
     }
 
     func previousNavigationTarget(
@@ -73,16 +75,12 @@ final class PlaybackQueueController {
         playbackHistoryCount: Int,
         restartThreshold: TimeInterval
     ) -> PlaybackPreviousNavigationTarget {
-        if currentTime > restartThreshold {
-            return .seekToZero
-        }
-        if currentQueueIndex > 0 {
-            return .queueIndex(currentQueueIndex - 1)
-        }
-        if playbackHistoryCount > 0 {
-            return .historyIndex(playbackHistoryCount - 1)
-        }
-        return .seekToZero
+        EnsembleQueuePolicy.previousNavigationTarget(
+            currentTime: currentTime,
+            currentQueueIndex: currentQueueIndex,
+            playbackHistoryCount: playbackHistoryCount,
+            restartThreshold: restartThreshold
+        )
     }
 
     func nextPlayableIndex(
@@ -150,22 +148,16 @@ final class PlaybackQueueController {
         shuffleCandidates: (inout [QueueItem]) -> Void = { $0.shuffle() }
     ) {
         originalQueue = queue
-        let currentItem = queue.indices.contains(currentQueueIndex)
-            ? queue[currentQueueIndex]
-            : nil
-        let historyIds = Set(playbackHistory.map(\.track.playbackIdentity))
-        var candidates = queue.filter {
-            $0.id != currentItem?.id
-                && $0.source != .autoplay
-                && !historyIds.contains($0.track.playbackIdentity)
-        }
-        shuffleCandidates(&candidates)
-
-        let autoplayItems = queue.filter { $0.source == .autoplay }
-        queue = currentItem.map { [$0] } ?? []
-        queue.append(contentsOf: candidates)
-        queue.append(contentsOf: autoplayItems)
-        currentQueueIndex = currentItem == nil ? -1 : 0
+        let shuffled = EnsembleQueuePolicy.shuffledQueue(
+            queue,
+            currentQueueIndex: currentQueueIndex,
+            history: playbackHistory,
+            identity: { $0.track.playbackIdentity },
+            source: { $0.source },
+            shuffle: shuffleCandidates
+        )
+        queue = shuffled.items
+        currentQueueIndex = shuffled.currentQueueIndex
     }
 
     func disableShuffle(
@@ -173,13 +165,16 @@ final class PlaybackQueueController {
         originalQueue: [QueueItem],
         currentQueueIndex: inout Int
     ) {
-        let currentItem = queue.indices.contains(currentQueueIndex)
-            ? queue[currentQueueIndex]
+        let currentItemID = queue.indices.contains(currentQueueIndex)
+            ? queue[currentQueueIndex].id
             : nil
         queue = originalQueue
 
-        if let currentItem,
-           let restoredIndex = queue.firstIndex(where: { $0.id == currentItem.id }) {
+        if let restoredIndex = EnsembleQueuePolicy.restoredIndex(
+            in: queue,
+            currentIdentity: currentItemID,
+            identity: { $0.id }
+        ) {
             currentQueueIndex = restoredIndex
         }
     }
@@ -448,14 +443,13 @@ final class PlaybackQueueController {
         _ queue: [QueueItem],
         currentItemID: String?
     ) -> [QueueItem] {
-        guard let currentItemID,
-              let currentIndex = queue.firstIndex(where: { $0.id == currentItemID }) else {
-            return queue.filter { $0.source != .autoplay }
-        }
-
-        return queue.enumerated().compactMap { index, item in
-            index <= currentIndex || item.source != .autoplay ? item : nil
-        }
+        EnsembleQueuePolicy.queueForPersistence(
+            queue,
+            currentQueueIndex: currentItemID.flatMap { itemID in
+                queue.firstIndex { $0.id == itemID }
+            },
+            source: { $0.source }
+        )
     }
 
     private struct AutoplayVisibleTrackIdentity: Hashable {
