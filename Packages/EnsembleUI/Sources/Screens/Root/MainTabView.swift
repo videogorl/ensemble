@@ -1413,7 +1413,8 @@ public struct SidebarView: View {
             MergedPlaylistDetailLoader(
                 title: title,
                 isSmart: isSmart,
-                nowPlayingVM: nowPlayingVM
+                nowPlayingVM: nowPlayingVM,
+                playlistsVM: playlistsVM
             )
         case .pin(let id, let sourceKey, let type):
             pinnedDetailRootView(id: id, sourceKey: sourceKey, type: type)

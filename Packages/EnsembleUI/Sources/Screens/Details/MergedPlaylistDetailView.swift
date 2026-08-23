@@ -297,15 +297,18 @@ public struct MergedPlaylistDetailLoader: View {
     let isSmart: Bool
     let nowPlayingVM: NowPlayingViewModel
 
-    @StateObject private var playlistsVM: PlaylistViewModel
+    @ObservedObject private var playlistsVM: PlaylistViewModel
 
-    public init(title: String, isSmart: Bool, nowPlayingVM: NowPlayingViewModel) {
+    public init(
+        title: String,
+        isSmart: Bool,
+        nowPlayingVM: NowPlayingViewModel,
+        playlistsVM: PlaylistViewModel
+    ) {
         self.title = title
         self.isSmart = isSmart
         self.nowPlayingVM = nowPlayingVM
-        self._playlistsVM = StateObject(
-            wrappedValue: DependencyContainer.shared.makePlaylistViewModel(observesExternalChanges: false)
-        )
+        self.playlistsVM = playlistsVM
     }
 
     public var body: some View {

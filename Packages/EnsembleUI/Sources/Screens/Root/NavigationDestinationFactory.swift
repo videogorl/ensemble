@@ -139,7 +139,12 @@ struct NavigationDestinationFactory {
             #endif
             return AnyView(detailView)
         case .mergedPlaylist(let title, let isSmart):
-            return AnyView(MergedPlaylistDetailLoader(title: title, isSmart: isSmart, nowPlayingVM: nowPlayingVM))
+            return AnyView(MergedPlaylistDetailLoader(
+                title: title,
+                isSmart: isSmart,
+                nowPlayingVM: nowPlayingVM,
+                playlistsVM: playlistsVM
+            ))
         case .moodTracks(let mood):
             return AnyView(MoodTracksView(mood: mood, nowPlayingVM: nowPlayingVM))
         case .hidden:
