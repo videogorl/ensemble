@@ -312,6 +312,7 @@ final class PlaybackHandoffCoordinatorTests: XCTestCase {
         XCTAssertFalse(
             coordinator.remoteSkipCommandsEnabled(
                 playbackState: .paused,
+                isSkipTransitionInProgress: false,
                 isInterrupted: true,
                 isRouteChangeInProgress: false
             )

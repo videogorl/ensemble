@@ -138,7 +138,6 @@ public final class NowPlayingQueueProjection: ObservableObject {
     @Published public private(set) var queue: [QueueItem] = []
     @Published public private(set) var currentQueueIndex: Int = -1
     @Published public private(set) var playbackHistory: [QueueItem] = []
-    @Published public private(set) var queueSections: QueueSections = .empty
     @Published public private(set) var showHistory = false
     @Published public private(set) var isAutoplayEnabled = false
     @Published public private(set) var isSmartMixEnabled = false
@@ -162,11 +161,6 @@ public final class NowPlayingQueueProjection: ObservableObject {
     func updatePlaybackHistory(_ history: [QueueItem]) {
         guard playbackHistory != history else { return }
         playbackHistory = history
-    }
-
-    func updateQueueSections(_ sections: QueueSections) {
-        guard queueSections != sections else { return }
-        queueSections = sections
     }
 
     func updateShowHistory(_ isShowing: Bool) {

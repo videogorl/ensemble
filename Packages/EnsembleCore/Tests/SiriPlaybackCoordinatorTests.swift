@@ -53,7 +53,6 @@ final class SiriPlaybackCoordinatorTests: XCTestCase {
         var isAutoplayActive: Bool { autoplayActiveSubject.value }
         var radioMode: RadioMode { radioModeSubject.value }
         var recommendationsExhausted: Bool { recommendationsSubject.value }
-        var queueSections: QueueSections { .empty }
         var playbackHistory: [QueueItem] { historySubject.value }
         var isScreenMirroringActive: Bool = false
 

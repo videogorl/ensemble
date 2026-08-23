@@ -414,7 +414,6 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard let self else { return }
                 self.resetChordModeIfQueueRebuilt(queue)
                 self.queueProjection.updateQueue(queue)
-                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
             }
             .store(in: &cancellables)
 
@@ -423,7 +422,6 @@ public final class NowPlayingViewModel: ObservableObject {
             .sink { [weak self] index in
                 guard let self else { return }
                 self.queueProjection.updateCurrentQueueIndex(index)
-                self.queueProjection.updateQueueSections(self.playbackService.queueSections)
             }
             .store(in: &cancellables)
 

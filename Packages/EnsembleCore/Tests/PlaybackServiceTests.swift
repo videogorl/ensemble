@@ -542,8 +542,35 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(
             PlaybackService.remoteSkipCommandsEnabled(
                 playbackState: .buffering,
+                isSkipTransitionInProgress: false,
                 coordinator: coordinator,
                 isInterrupted: false,
+                isRouteChangeInProgress: false
+            )
+        )
+    }
+
+    func testRemoteSkipCommandsEnabledDuringManualSkipTransition() {
+        var coordinator = PlaybackHandoffCoordinator()
+
+        XCTAssertTrue(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .loading,
+                isSkipTransitionInProgress: true,
+                coordinator: coordinator,
+                isInterrupted: false,
+                isRouteChangeInProgress: false
+            )
+        )
+
+        _ = coordinator.handle(.interruptionBegan(now: Date()), playbackState: .loading)
+
+        XCTAssertFalse(
+            PlaybackService.remoteSkipCommandsEnabled(
+                playbackState: .loading,
+                isSkipTransitionInProgress: true,
+                coordinator: coordinator,
+                isInterrupted: true,
                 isRouteChangeInProgress: false
             )
         )
@@ -556,6 +583,7 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertFalse(
             PlaybackService.remoteSkipCommandsEnabled(
                 playbackState: .paused,
+                isSkipTransitionInProgress: false,
                 coordinator: coordinator,
                 isInterrupted: true,
                 isRouteChangeInProgress: false
@@ -570,6 +598,7 @@ final class PlaybackServiceTests: XCTestCase {
         XCTAssertTrue(
             PlaybackService.remoteSkipCommandsEnabled(
                 playbackState: .paused,
+                isSkipTransitionInProgress: false,
                 coordinator: coordinator,
                 isInterrupted: false,
                 isRouteChangeInProgress: false

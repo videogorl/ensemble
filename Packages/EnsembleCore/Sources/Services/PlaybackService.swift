@@ -100,17 +100,6 @@ public struct QueueItem: Identifiable, Equatable, Sendable, Codable {
     }
 }
 
-// MARK: - Queue Sections
-
-/// Sectioned view of the upcoming queue for UI display
-public struct QueueSections: Equatable, Sendable {
-    public let upNext: [QueueItem]
-    public let continuePlaying: [QueueItem]
-    public let autoplay: [QueueItem]
-
-    public static let empty = QueueSections(upNext: [], continuePlaying: [], autoplay: [])
-}
-
 // MARK: - Playback Service Protocol
 
 public protocol PlaybackServiceProtocol: AnyObject {
@@ -134,7 +123,6 @@ public protocol PlaybackServiceProtocol: AnyObject {
     var isAutoplayActive: Bool { get }
     var radioMode: RadioMode { get }
     var recommendationsExhausted: Bool { get }
-    var queueSections: QueueSections { get }
     var playbackHistory: [QueueItem] { get }
     var currentTrackPublisher: AnyPublisher<Track?, Never> { get }
     var playbackStatePublisher: AnyPublisher<PlaybackState, Never> { get }
@@ -977,26 +965,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             metadataDuration: currentTrack?.duration ?? 0,
             itemDuration: audioEngine?.fileDuration
         )
-    }
-
-    /// Splits the upcoming queue into logical sections for UI display
-    public var queueSections: QueueSections {
-        guard currentQueueIndex >= 0 && currentQueueIndex < queue.count else {
-            return .empty
-        }
-        let upcoming = queue.dropFirst(currentQueueIndex + 1)
-        var upNext: [QueueItem] = []
-        var continuePlaying: [QueueItem] = []
-        var autoplay: [QueueItem] = []
-
-        for item in upcoming {
-            switch item.source {
-            case .upNext: upNext.append(item)
-            case .continuePlaying: continuePlaying.append(item)
-            case .autoplay: autoplay.append(item)
-            }
-        }
-        return QueueSections(upNext: upNext, continuePlaying: continuePlaying, autoplay: autoplay)
     }
 
     // MARK: - Private Properties
@@ -2181,12 +2149,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     static func remoteSkipCommandsEnabled(
         playbackState: PlaybackState,
+        isSkipTransitionInProgress: Bool,
         coordinator: PlaybackHandoffCoordinator,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
         coordinator.remoteSkipCommandsEnabled(
             playbackState: playbackState,
+            isSkipTransitionInProgress: isSkipTransitionInProgress,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
         )
@@ -2406,6 +2376,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let now = CACurrentMediaTime()
         guard Self.remoteSkipCommandsEnabled(
             playbackState: playbackState,
+            isSkipTransitionInProgress: isSkipTransitionInProgress,
             coordinator: handoffCoordinator,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
@@ -6229,12 +6200,11 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             queueGeneration: UInt64
         ) {
             guard isCurrentAppleMusicQueue(queueGeneration) else { return }
-            let existing = currentTrack?.playbackIdentity == track.playbackIdentity
-                ? currentTrack
-                : queue.first(where: { $0.track.playbackIdentity == track.playbackIdentity })?.track
-            guard let existing else { return }
-            applyTrackRefresh(track, replacing: existing)
-            if currentTrack?.playbackIdentity == track.playbackIdentity { updateNowPlayingInfo() }
+            guard let currentTrack,
+                  currentTrack.playbackIdentity == track.playbackIdentity,
+                  currentTrack != track else { return }
+            self.currentTrack = track
+            updateNowPlayingInfo()
         }
 
         @available(iOS 18, *)
@@ -6893,6 +6863,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         let hasCurrentTrack = currentTrack != nil
         let remoteSkipCommandsEnabled = Self.remoteSkipCommandsEnabled(
             playbackState: playbackState,
+            isSkipTransitionInProgress: isSkipTransitionInProgress,
             coordinator: handoffCoordinator,
             isInterrupted: isInterrupted,
             isRouteChangeInProgress: isRouteChangeInProgress
@@ -7174,7 +7145,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                     }
 
                     let resolvedTrack = track.withLocalFilePath(persistedPath)
-                    applyTrackRefresh(resolvedTrack, replacing: track)
 
                     EnsembleLogger.debug(
                         "💾 Resolved local download for playback: track=\(track.id) source=\(track.sourceCompositeKey ?? "none")"
@@ -7194,58 +7164,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         }
 
         guard track.localFilePath != nil else { return track }
-
-        let clearedTrack = track.withLocalFilePath(nil)
-        applyTrackRefresh(clearedTrack, replacing: track)
-        return clearedTrack
-    }
-
-    private func applyTrackRefresh(_ refreshedTrack: Track, replacing originalTrack: Track) {
-        guard refreshedTrack != originalTrack else { return }
-
-        var queueChanged = false
-        for index in queue.indices where Self.isSameTrackIdentity(queue[index].track, originalTrack) {
-            let existing = queue[index]
-            queue[index] = QueueItem(
-                id: existing.id,
-                track: refreshedTrack,
-                source: existing.source,
-                streamingQuality: existing.streamingQuality
-            )
-            queueChanged = true
-        }
-
-        var originalQueueChanged = false
-        for index in originalQueue.indices where Self.isSameTrackIdentity(originalQueue[index].track, originalTrack) {
-            let existing = originalQueue[index]
-            originalQueue[index] = QueueItem(
-                id: existing.id,
-                track: refreshedTrack,
-                source: existing.source,
-                streamingQuality: existing.streamingQuality
-            )
-            originalQueueChanged = true
-        }
-
-        var historyChanged = false
-        for index in playbackHistory.indices where Self.isSameTrackIdentity(playbackHistory[index].track, originalTrack) {
-            let existing = playbackHistory[index]
-            playbackHistory[index] = QueueItem(
-                id: existing.id,
-                track: refreshedTrack,
-                source: existing.source,
-                streamingQuality: existing.streamingQuality
-            )
-            historyChanged = true
-        }
-
-        if let currentTrack, Self.isSameTrackIdentity(currentTrack, originalTrack) {
-            self.currentTrack = refreshedTrack
-        }
-
-        if queueChanged || originalQueueChanged || historyChanged {
-            savePlaybackState()
-        }
+        return track.withLocalFilePath(nil)
     }
 
 }

@@ -127,10 +127,6 @@ final class NowPlayingViewModelFavoriteTests: XCTestCase {
             recommendationsSubject.value
         }
 
-        var queueSections: QueueSections {
-            .empty
-        }
-
         var playbackHistory: [QueueItem] {
             historySubject.value
         }

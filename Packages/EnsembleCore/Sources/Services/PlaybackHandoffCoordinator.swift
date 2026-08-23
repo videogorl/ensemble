@@ -184,10 +184,12 @@ struct PlaybackHandoffCoordinator {
 
     func remoteSkipCommandsEnabled(
         playbackState: PlaybackState,
+        isSkipTransitionInProgress: Bool,
         isInterrupted: Bool,
         isRouteChangeInProgress: Bool
     ) -> Bool {
-        guard playbackState != .loading, playbackState != .buffering else {
+        guard isSkipTransitionInProgress
+            || (playbackState != .loading && playbackState != .buffering) else {
             return false
         }
 
