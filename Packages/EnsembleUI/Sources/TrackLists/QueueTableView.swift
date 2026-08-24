@@ -191,6 +191,12 @@ public class QueueItemCell: UITableViewCell {
         subtitleLeadingConstraint?.isActive = false
         contextMenuButton.menu = nil
     }
+
+    func prepareArtworkRetry() -> Bool {
+        guard artworkImageView.image == nil else { return false }
+        currentItemID = nil
+        return true
+    }
 }
 
 private final class QueueMoreItemsCell: UITableViewCell {
@@ -433,6 +439,7 @@ public struct QueueTableView: UIViewRepresentable {
         weak var tableView: UITableView?
         private let reorderFeedback = UISelectionFeedbackGenerator()
         private var lastReorderFeedbackIndexPath: IndexPath?
+        private var artworkRecoveryObserver: NSObjectProtocol?
 
         struct QueueSection {
             let type: SectionType
@@ -503,6 +510,30 @@ public struct QueueTableView: UIViewRepresentable {
             self.shareService = shareService
             super.init()
             rebuildSections()
+            artworkRecoveryObserver = NotificationCenter.default.addObserver(
+                forName: ArtworkLoader.serversBecameAvailable,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.retryFailedArtwork()
+            }
+        }
+
+        deinit {
+            if let artworkRecoveryObserver {
+                NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+            }
+        }
+
+        private func retryFailedArtwork() {
+            guard let tableView else { return }
+            let indexPaths = tableView.visibleCells.compactMap { cell -> IndexPath? in
+                guard let cell = cell as? QueueItemCell,
+                      cell.prepareArtworkRetry() else { return nil }
+                return tableView.indexPath(for: cell)
+            }
+            guard !indexPaths.isEmpty else { return }
+            tableView.reloadRows(at: indexPaths, with: .none)
         }
         
         func rebuildSections() {

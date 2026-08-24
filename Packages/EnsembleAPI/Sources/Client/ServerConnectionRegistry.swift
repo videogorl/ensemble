@@ -74,11 +74,11 @@ public actor ServerConnectionRegistry {
         )
         endpoints[serverKey] = state
 
-        if previous?.endpoint.url != endpoint.url {
-            EnsembleLogger.debug(
-                "📍 Registry: \(serverKey) endpoint changed previousClass=\(previous?.endpoint.endpointClass.rawValue.description ?? "none") newClass=\(endpoint.endpointClass.rawValue) source=\(source.rawValue)"
-            )
-        }
+        guard previous?.endpoint.url != endpoint.url else { return }
+
+        EnsembleLogger.debug(
+            "📍 Registry: \(serverKey) endpoint changed previousClass=\(previous?.endpoint.endpointClass.rawValue.description ?? "none") newClass=\(endpoint.endpointClass.rawValue) source=\(source.rawValue)"
+        )
 
         // Broadcast to all active subscribers
         for (_, continuation) in continuations {

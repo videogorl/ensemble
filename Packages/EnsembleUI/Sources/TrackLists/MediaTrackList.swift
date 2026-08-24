@@ -538,6 +538,12 @@ public class TrackTableViewCell: UITableViewCell {
         titleLeadingConstraint?.isActive = false
         subtitleLeadingConstraint?.isActive = false
     }
+
+    func prepareArtworkRetry() -> Bool {
+        guard artworkImageView.image == nil else { return false }
+        currentTrackID = nil
+        return true
+    }
 }
 
 // MARK: - Media Track List
@@ -813,6 +819,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // Enable drag-and-drop for downloaded tracks on iPad
         tableView.dragDelegate = context.coordinator
         tableView.dragInteractionEnabled = true
+        context.coordinator.tableView = tableView
 
         // Install optional SwiftUI table header (album art, action buttons, etc.).
         // Uses UIHostingController to bridge SwiftUI content into the UITableView's
@@ -1148,10 +1155,12 @@ public struct MediaTrackList: UIViewRepresentable {
         var pendingSearchBinding: Binding<String>?
         /// Reference to the table view for setContentScrollView
         weak var pendingTableView: UITableView?
+        weak var tableView: UITableView?
         /// Retains the search controller so it isn't deallocated
         private var searchController: UISearchController?
         /// Active search binding for UISearchResultsUpdating
         private var activeSearchBinding: Binding<String>?
+        private var artworkRecoveryObserver: NSObjectProtocol?
 
         fileprivate init(
             tracks: [Track],
@@ -1223,6 +1232,31 @@ public struct MediaTrackList: UIViewRepresentable {
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.rowHeight = rowHeight
             self.tableFooterContent = tableFooterContent
+            super.init()
+            artworkRecoveryObserver = NotificationCenter.default.addObserver(
+                forName: ArtworkLoader.serversBecameAvailable,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.retryFailedArtwork()
+            }
+        }
+
+        deinit {
+            if let artworkRecoveryObserver {
+                NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+            }
+        }
+
+        private func retryFailedArtwork() {
+            guard let tableView else { return }
+            let indexPaths = tableView.visibleCells.compactMap { cell -> IndexPath? in
+                guard let cell = cell as? TrackTableViewCell,
+                      cell.prepareArtworkRetry() else { return nil }
+                return tableView.indexPath(for: cell)
+            }
+            guard !indexPaths.isEmpty else { return }
+            tableView.reloadRows(at: indexPaths, with: .none)
         }
         
         // MARK: - Bounds-Safe Accessor

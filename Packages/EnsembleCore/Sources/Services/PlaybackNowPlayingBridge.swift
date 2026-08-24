@@ -177,6 +177,7 @@ final class PlaybackNowPlayingBridge {
     private var artworkTask: Task<Void, Never>?
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
+    private var artworkRecoveryObserver: NSObjectProtocol?
     private var latestPlaybackState: PlaybackState = .stopped
 
     init(
@@ -187,9 +188,19 @@ final class PlaybackNowPlayingBridge {
         self.artworkLoader = artworkLoader
         self.nowPlayingCenter = nowPlayingCenter ?? MPNowPlayingInfoCenter.default()
         self.commandCenter = commandCenter ?? LivePlaybackRemoteCommandCenter()
+        self.artworkRecoveryObserver = NotificationCenter.default.addObserver(
+            forName: ArtworkLoader.serversBecameAvailable,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.prepareArtworkRetry()
+        }
     }
 
     deinit {
+        if let artworkRecoveryObserver {
+            NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+        }
         removeRemoteCommandHandlers()
         cancelArtworkLoad(clearArtwork: true)
     }
@@ -416,6 +427,13 @@ final class PlaybackNowPlayingBridge {
         if clearArtwork {
             artwork = nil
         }
+    }
+
+    private func prepareArtworkRetry() {
+        guard artworkRequestKey != nil else { return }
+        artworkTask?.cancel()
+        artworkTask = nil
+        artworkRequestKey = nil
     }
 
     func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {

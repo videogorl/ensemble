@@ -209,6 +209,33 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertFalse(didSyncAgain)
     }
 
+    func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
+        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://failed.example.com",
+                alternativeURLs: ["https://fallback.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            failoverManager: failoverManager
+        )
+
+        let result = try await client.attemptFailover(excluding: "https://failed.example.com")
+
+        XCTAssertEqual(result.selected?.url, "https://fallback.example.com")
+    }
+
     func testUniversalStreamQueryItemsIncludeSeekOffset() async {
         let client = PlexAPIClient(
             connection: PlexServerConnection(

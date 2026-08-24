@@ -195,63 +195,22 @@ public struct FavoritesView: View {
             libraryItemInfoRequest = .track(track)
         }
 
-        #if os(iOS)
-            // iOS: ScrollView with embedded UITableView (MediaTrackList)
-            ScrollView {
-                VStack(spacing: EnsembleDesign.Spacing.none) {
-                    favoritesHeaderSurface
-
-                    // Track list
-                    let trackCount = viewModel.filteredTracks.count
-                    let height: CGFloat = trackCount == 0 ? 0 : CGFloat(trackCount) * TrackListLayoutMetrics.defaultRowHeight
-
-                    MediaTrackList(
-                        tracks: viewModel.filteredTracks,
-                        showArtwork: true,
-                        showTrackNumbers: false,
-                        groupByDisc: false,
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        interactionModel: interactionModel,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth
-                    ) { _, index in
-                        nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                    }
-                    .frame(height: height)
-
-                    if let footer = favoritesFooterContent {
-                        footer
-                    }
-                }
-            }
-            .foregroundScrollActivity()
-            .miniPlayerBottomSpacing()
-            .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-        #else
-            // macOS: AppKit-backed table owns the header and scroll range.
-            VStack(spacing: EnsembleDesign.Spacing.none) {
-                SongsTrackListHost(
-                    tracks: viewModel.filteredTracks,
-                    configuration: .songs(
-                        currentTrackId: currentTrackId,
-                        availabilityGeneration: availabilityGeneration,
-                        activeDownloadTrackIdentities: activeDownloadTrackIdentities,
-                        bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
-                        supplementalMetadataWidth: trackListSupplementalMetadataWidth,
-                        interactionModel: interactionModel
-                    ),
-                    tableHeaderContent: AnyView(favoritesHeaderSurface),
-                    tableFooterContent: favoritesFooterContent
-                ) { _, index in
-                    nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
-                }
-                .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
-
-                Spacer(minLength: EnsembleDesign.Spacing.none)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        #endif
+        SongsTrackListHost(
+            tracks: viewModel.filteredTracks,
+            configuration: .songs(
+                currentTrackId: currentTrackId,
+                availabilityGeneration: availabilityGeneration,
+                activeDownloadTrackIdentities: activeDownloadTrackIdentities,
+                bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
+                supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                interactionModel: interactionModel
+            ),
+            tableHeaderContent: AnyView(favoritesHeaderSurface),
+            tableFooterContent: favoritesFooterContent
+        ) { _, index in
+            nowPlayingVM.play(tracks: viewModel.filteredTracks, startingAt: index)
+        }
+        .measuredWidth(onChange: updateTrackListSupplementalMetadataWidth)
     }
 
     private var favoritesFooterContent: AnyView? {

@@ -743,7 +743,7 @@ public actor PlexAPIClient {
     // MARK: - Connection Management
     
     /// Attempt to find a policy-compliant working connection if current one fails.
-    func attemptFailover() async throws -> ConnectionSelectionResult {
+    func attemptFailover(excluding failedURL: String? = nil) async throws -> ConnectionSelectionResult {
         guard await isNetworkAvailable() else {
             EnsembleLogger.debug("🔄 Connection failover skipped — device network unavailable")
             throw PlexAPIError.networkError(URLError(.notConnectedToInternet))
@@ -752,8 +752,10 @@ public actor PlexAPIClient {
         let startedAt = Date()
         EnsembleLogger.debug("🔄 Attempting connection failover...")
 
+        let alternatives = serverConnection.endpoints.filter { $0.url != failedURL }
+        let endpoints = alternatives.isEmpty ? serverConnection.endpoints : alternatives
         let selection = await failoverManager.findBestConnection(
-            endpoints: serverConnection.endpoints,
+            endpoints: endpoints,
             token: serverConnection.token,
             selectionPolicy: serverConnection.selectionPolicy,
             allowInsecure: serverConnection.allowInsecurePolicy
@@ -806,9 +808,10 @@ public actor PlexAPIClient {
 
             // Fail over only for transport/connectivity failures.
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
+                let failedURL = currentServerURL
                 await recordCurrentEndpointFailure(error)
                 EnsembleLogger.debug("⚠️ GET request failed with current endpoint, attempting failover...")
-                _ = try await attemptFailover()
+                _ = try await attemptFailover(excluding: failedURL)
                 // Retry with new URL
                 return try await performServerRequest(url: currentServerURL, path: path, query: query, accept: accept)
             }
@@ -919,9 +922,10 @@ public actor PlexAPIClient {
         } catch {
             // If request fails and we have alternative URLs, attempt failover
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
+                let failedURL = currentServerURL
                 await recordCurrentEndpointFailure(error)
                 EnsembleLogger.debug("⚠️ PUT request failed with current endpoint, attempting failover...")
-                _ = try await attemptFailover()
+                _ = try await attemptFailover(excluding: failedURL)
                 // Retry with new URL
                 return try await performServerRequestPUT(url: currentServerURL, path: path, query: query)
             }
@@ -950,9 +954,10 @@ public actor PlexAPIClient {
             throw CancellationError()
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
+                let failedURL = currentServerURL
                 await recordCurrentEndpointFailure(error)
                 EnsembleLogger.debug("⚠️ POST request failed with current endpoint, attempting failover...")
-                _ = try await attemptFailover()
+                _ = try await attemptFailover(excluding: failedURL)
                 return try await performServerRequestPOST(url: currentServerURL, path: path, query: query)
             }
             throw error
@@ -980,9 +985,10 @@ public actor PlexAPIClient {
             throw CancellationError()
         } catch {
             if !serverConnection.alternativeURLs.isEmpty && shouldAttemptFailover(after: error) {
+                let failedURL = currentServerURL
                 await recordCurrentEndpointFailure(error)
                 EnsembleLogger.debug("⚠️ DELETE request failed with current endpoint, attempting failover...")
-                _ = try await attemptFailover()
+                _ = try await attemptFailover(excluding: failedURL)
                 return try await performServerRequestDELETE(url: currentServerURL, path: path, query: query)
             }
             throw error
