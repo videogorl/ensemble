@@ -290,8 +290,20 @@ final class PlaybackNowPlayingBridge {
         }
     }
 
-    func updateNowPlayingInfo(_ state: PlaybackNowPlayingState) {
-        latestPlaybackState = state.playbackState
+    func updateNowPlayingInfo(
+        _ state: PlaybackNowPlayingState,
+        systemPlaybackState: PlaybackState? = nil
+    ) {
+        let publishedPlaybackState: PlaybackState
+        switch (systemPlaybackState, latestPlaybackState, state.playbackState) {
+        case let (.some(systemPlaybackState), _, _):
+            publishedPlaybackState = systemPlaybackState
+        case (nil, .playing, .loading), (nil, .playing, .buffering):
+            publishedPlaybackState = .playing
+        default:
+            publishedPlaybackState = state.playbackState
+        }
+        latestPlaybackState = publishedPlaybackState
         guard let track = state.track else {
             clearNowPlayingInfo()
             updateCommandAvailability(state)
@@ -317,12 +329,16 @@ final class PlaybackNowPlayingBridge {
             artwork = artworkForMetadata
         }
 
-        nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(state: state, artwork: artworkForMetadata)
-        syncNowPlayingPlaybackState(state.playbackState)
+        nowPlayingCenter.nowPlayingInfo = Self.makeNowPlayingInfo(
+            state: state,
+            artwork: artworkForMetadata,
+            systemPlaybackState: publishedPlaybackState
+        )
+        syncNowPlayingPlaybackState(publishedPlaybackState)
         updateCommandAvailability(state)
         updateFeedbackCommandState(isLiked: state.isLiked, isDisliked: state.isDisliked)
 
-        let rate = state.playbackState == .playing ? 1.0 : 0.0
+        let rate = publishedPlaybackState == .playing ? 1.0 : 0.0
         let effectiveDuration = state.playbackState == .loading ? track.duration : state.duration
         EnsembleLogger.debug("[NowPlaying] Updated: '\(track.title)' rate=\(rate) elapsed=\(String(format: "%.1f", state.currentTime))s duration=\(String(format: "%.1f", effectiveDuration))s state=\(state.playbackState)")
 
@@ -381,12 +397,7 @@ final class PlaybackNowPlayingBridge {
     }
 
     func pushNowPlayingForSkipTransition(_ state: PlaybackNowPlayingState) {
-        updateNowPlayingInfo(state)
-        guard let nowPlayingCenter, var info = nowPlayingCenter.nowPlayingInfo else { return }
-        info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
-        nowPlayingCenter.nowPlayingInfo = info
-        latestPlaybackState = .playing
-        nowPlayingCenter.playbackState = .playing
+        updateNowPlayingInfo(state, systemPlaybackState: .playing)
     }
 
     func clearNowPlayingInfo() {
@@ -431,12 +442,13 @@ final class PlaybackNowPlayingBridge {
 
     static func makeNowPlayingInfo(
         state: PlaybackNowPlayingState,
-        artwork: MPMediaItemArtwork?
+        artwork: MPMediaItemArtwork?,
+        systemPlaybackState: PlaybackState? = nil
     ) -> [String: Any] {
         guard let track = state.track else { return [:] }
 
         let effectiveDuration = state.playbackState == .loading ? track.duration : state.duration
-        let playbackRate = state.playbackState == .playing ? 1.0 : 0.0
+        let playbackRate = (systemPlaybackState ?? state.playbackState) == .playing ? 1.0 : 0.0
         let sourceScopedTrackID = sourceScopedTrackIdentifier(for: track)
 
         var info: [String: Any] = [

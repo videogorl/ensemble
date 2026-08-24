@@ -106,16 +106,20 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             commandCenter: FakeRemoteCommandCenter()
         )
 
+        let track = makeTrack()
         bridge.pushNowPlayingForSkipTransition(makeState(
-            track: makeTrack(),
+            track: track,
             playbackState: .loading
         ))
+        bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .loading))
+        bridge.updateNowPlayingInfo(makeState(track: track, playbackState: .buffering))
 
         XCTAssertEqual(nowPlayingCenter.playbackState, .playing)
         XCTAssertEqual(
             nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double,
             1
         )
+        XCTAssertEqual(nowPlayingCenter.publishedPlaybackRates, [1, 1, 1])
     }
 
     #if os(iOS)
@@ -734,8 +738,14 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
 }
 
 private final class FakeNowPlayingInfoCenter: PlaybackNowPlayingInfoCenter {
-    var nowPlayingInfo: [String: Any]?
+    var nowPlayingInfo: [String: Any]? {
+        didSet {
+            guard let rate = nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double else { return }
+            publishedPlaybackRates.append(rate)
+        }
+    }
     var playbackState: MPNowPlayingPlaybackState = .unknown
+    private(set) var publishedPlaybackRates: [Double] = []
 }
 
 private class FakeRemoteCommand: PlaybackRemoteCommand {
