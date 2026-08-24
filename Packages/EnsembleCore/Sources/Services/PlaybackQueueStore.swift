@@ -56,13 +56,21 @@ struct PlaybackQueueSnapshot: Codable, Equatable, Sendable {
 /// Persists queue/history restoration state outside PlaybackService so the playback
 /// façade can shrink without changing user-visible restoration behavior.
 final class PlaybackQueueStore {
+    private struct PendingSave {
+        let snapshot: PlaybackQueueSnapshot
+        var progress: TimeInterval
+    }
+
     private let defaults: UserDefaults
     private let snapshotURL: URL
     private let progressURL: URL
+    private let snapshotSaveDelay: TimeInterval
     private let persistenceQueue = DispatchQueue(
         label: "com.ensemble.playback.queue-persistence",
         qos: .utility
     )
+    private var pendingSave: PendingSave?
+    private var pendingSaveGeneration: UInt64 = 0
     private let snapshotKey = "com.ensemble.playback.snapshot"
     private let queueKey = "com.ensemble.playback.queue"
     private let historyKey = "com.ensemble.playback.history"
@@ -72,9 +80,11 @@ final class PlaybackQueueStore {
     init(
         defaults: UserDefaults = .standard,
         snapshotURL: URL? = nil,
-        progressURL: URL? = nil
+        progressURL: URL? = nil,
+        snapshotSaveDelay: TimeInterval = 1
     ) {
         self.defaults = defaults
+        self.snapshotSaveDelay = snapshotSaveDelay
         let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -104,22 +114,30 @@ final class PlaybackQueueStore {
             hasUserQueueEdits: hasUserQueueEdits
         )
         persistenceQueue.async {
-            guard !snapshot.queue.isEmpty || !snapshot.history.isEmpty else {
-                try? FileManager.default.removeItem(at: self.snapshotURL)
-                try? FileManager.default.removeItem(at: self.progressURL)
-                self.removeLegacyDefaults()
-                return
+            self.pendingSave = PendingSave(snapshot: snapshot, progress: snapshot.currentTime)
+            self.pendingSaveGeneration &+= 1
+            let generation = self.pendingSaveGeneration
+            self.persistenceQueue.asyncAfter(deadline: .now() + self.snapshotSaveDelay) {
+                guard generation == self.pendingSaveGeneration else { return }
+                self.persistPendingSave()
             }
-
-            guard self.writeSnapshot(snapshot) else { return }
-            self.removeLegacyDefaults()
-            self.writeProgress(snapshot.currentTime)
         }
     }
 
     func saveProgress(_ currentTime: TimeInterval) {
         persistenceQueue.async {
-            self.writeProgress(currentTime)
+            if self.pendingSave != nil {
+                self.pendingSave?.progress = currentTime
+            } else {
+                self.writeProgress(currentTime)
+            }
+        }
+    }
+
+    func flush() {
+        persistenceQueue.async {
+            self.pendingSaveGeneration &+= 1
+            self.persistPendingSave()
         }
     }
 
@@ -201,6 +219,23 @@ final class PlaybackQueueStore {
         } catch {
             return false
         }
+    }
+
+    private func persistPendingSave() {
+        guard let pendingSave else { return }
+        self.pendingSave = nil
+
+        let snapshot = pendingSave.snapshot
+        guard !snapshot.queue.isEmpty || !snapshot.history.isEmpty else {
+            try? FileManager.default.removeItem(at: snapshotURL)
+            try? FileManager.default.removeItem(at: progressURL)
+            removeLegacyDefaults()
+            return
+        }
+
+        guard writeSnapshot(snapshot) else { return }
+        removeLegacyDefaults()
+        writeProgress(pendingSave.progress)
     }
 
     private func removeLegacyDefaults() {

@@ -134,6 +134,11 @@ public enum EnsembleQueuePolicy {
             return queue.filter { source($0) != .autoplay }
         }
 
+        let futureItems = queue.dropFirst(currentQueueIndex + 1)
+        guard futureItems.contains(where: { source($0) == .autoplay }) else {
+            return queue
+        }
+
         return queue.enumerated().compactMap { index, item in
             index <= currentQueueIndex || source(item) != .autoplay ? item : nil
         }

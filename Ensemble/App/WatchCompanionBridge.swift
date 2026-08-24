@@ -19,8 +19,6 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     private var hasActivatedSession = false
     private var cachedArtwork: (trackID: String, source: MPMediaItemArtwork, data: Data)?
     private var queueArtworkCache: [String: Data] = [:]
-    private var queueRevision = 0
-    private var lastQueueSignature: [String] = []
 
     private override init() {
         super.init()
@@ -160,14 +158,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     }
 
     private func currentQueueRevision(for playbackService: PlaybackService) -> Int {
-        let signature = playbackService.queue.map {
-            "\($0.id):\($0.source.rawValue):\($0.track.sourceCompositeKey ?? ""):\($0.track.playbackIdentity)"
-        }
-            + ["index:\(playbackService.currentQueueIndex)"]
-        guard signature != lastQueueSignature else { return queueRevision }
-        lastQueueSignature = signature
-        queueRevision &+= 1
-        return queueRevision
+        playbackService.queueStateRevision
     }
 
     private func makeQueueSnapshot(

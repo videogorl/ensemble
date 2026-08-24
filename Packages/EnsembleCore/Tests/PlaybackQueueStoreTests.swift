@@ -68,6 +68,31 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertEqual(restored.currentTime, 42, accuracy: 0.001)
     }
 
+    func testRapidSavesPersistOnlyLatestPendingSnapshot() async throws {
+        let store = makeStore(snapshotSaveDelay: 0.1)
+        store.save(
+            queue: [QueueItem(track: makeTrack(id: "first"))],
+            history: [],
+            currentIndex: 0,
+            currentTime: 10
+        )
+        store.save(
+            queue: [QueueItem(track: makeTrack(id: "latest"))],
+            history: [],
+            currentIndex: 0,
+            currentTime: 20
+        )
+        store.saveProgress(42)
+
+        try await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: snapshotURL.path))
+
+        try await Task.sleep(nanoseconds: 180_000_000)
+        let snapshot = try XCTUnwrap(store.load())
+        XCTAssertEqual(snapshot.queue.map(\.track.id), ["latest"])
+        XCTAssertEqual(snapshot.currentTime, 42, accuracy: 0.001)
+    }
+
     func testLoadSnapshotWithoutQueueEditMarkerDefaultsToUnprotected() throws {
         let store = makeStore()
         let legacySnapshot = """
@@ -121,11 +146,12 @@ final class PlaybackQueueStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: snapshotURL.path))
     }
 
-    private func makeStore() -> PlaybackQueueStore {
+    private func makeStore(snapshotSaveDelay: TimeInterval = 0) -> PlaybackQueueStore {
         PlaybackQueueStore(
             defaults: defaults,
             snapshotURL: snapshotURL,
-            progressURL: progressURL
+            progressURL: progressURL,
+            snapshotSaveDelay: snapshotSaveDelay
         )
     }
 

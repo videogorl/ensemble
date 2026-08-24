@@ -321,16 +321,6 @@ final class PlaybackQueueController {
         return PlaybackQueueMoveResult(item: item, destinationIndex: adjustedDestination)
     }
 
-    private func firstFutureAutoplayIndex(
-        in queue: [QueueItem],
-        currentQueueIndex: Int
-    ) -> Int {
-        let firstUpcomingIndex = min(max(currentQueueIndex + 1, 0), queue.count)
-        return queue.indices.first {
-            $0 >= firstUpcomingIndex && queue[$0].source == .autoplay
-        } ?? queue.count
-    }
-
     static func pruneDuplicateFutureAutoplayItems(
         queue: [QueueItem],
         currentQueueIndex: Int
@@ -345,6 +335,17 @@ final class PlaybackQueueController {
 
         let clampedCurrentIndex = min(max(currentQueueIndex, -1), queue.count - 1)
         let futureStartIndex = max(0, clampedCurrentIndex + 1)
+        guard EnsembleQueuePolicy.firstFutureAutoplayIndex(
+            in: queue,
+            currentQueueIndex: clampedCurrentIndex,
+            source: { $0.source }
+        ) < queue.count else {
+            return PlaybackFutureAutoplayPruneResult(
+                queue: queue,
+                removedTrackIds: [],
+                removedItemCount: 0
+            )
+        }
         var seenTrackIdentities = Set<String>()
         var seenVisibleIdentities = Set<AutoplayVisibleTrackIdentity>()
         var prunedQueue = [QueueItem]()
@@ -581,6 +582,10 @@ final class PlaybackQueueController {
 
     func saveProgress(_ currentTime: TimeInterval) {
         queueStore.saveProgress(currentTime)
+    }
+
+    func flushSnapshot() {
+        queueStore.flush()
     }
 
     func loadSnapshot() -> PlaybackQueueSnapshot? {

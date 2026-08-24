@@ -826,8 +826,13 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var presentationTime: TimeInterval = 0
     @Published public private(set) var bufferedProgress: Double = 0
-    @Published public private(set) var queue: [QueueItem] = []
-    @Published public private(set) var currentQueueIndex: Int = -1
+    @Published public private(set) var queue: [QueueItem] = [] {
+        didSet { queueStateRevision &+= 1 }
+    }
+    @Published public private(set) var currentQueueIndex: Int = -1 {
+        didSet { queueStateRevision &+= 1 }
+    }
+    public private(set) var queueStateRevision = 0
     private var hasUserQueueEdits = false
     @Published public private(set) var isShuffleEnabled: Bool = UserDefaults.standard.bool(
         forKey: PlaybackPreferenceKey.shuffleEnabled
@@ -6939,6 +6944,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     @MainActor
     public func persistPlaybackStateSnapshot() {
         savePlaybackState()
+        queueController.flushSnapshot()
     }
 
     /// Restore playback state from UserDefaults
