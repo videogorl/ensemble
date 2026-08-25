@@ -18,6 +18,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
     private var lastPublishedSnapshot: WatchCompanionSessionSnapshot?
     private var hasActivatedSession = false
     private var cachedArtwork: (trackID: String, source: MPMediaItemArtwork, data: Data)?
+    private var artworkEncoding: (trackID: String, source: MPMediaItemArtwork, task: Task<Void, Never>)?
     private var queueArtworkCache: [String: Data] = [:]
 
     private override init() {
@@ -237,12 +238,35 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
            cachedArtwork.source === artwork {
             return cachedArtwork.data
         }
+        if artworkEncoding?.trackID == trackID,
+           artworkEncoding?.source === artwork {
+            return nil
+        }
 
         let size = CGSize(width: 96, height: 96)
-        guard let data = artwork.image(at: size)?.jpegData(compressionQuality: 0.3),
-              data.count <= 40_000 else { return nil }
-        cachedArtwork = (trackID, artwork, data)
-        return data
+        guard let image = artwork.image(at: size) else { return nil }
+
+        artworkEncoding?.task.cancel()
+        let sendableImage = SendableWatchArtworkImage(image)
+        let task = Task { [weak self] in
+            let data = await Task.detached(priority: .utility) {
+                guard !Task.isCancelled,
+                      let data = sendableImage.value.jpegData(compressionQuality: 0.3),
+                      data.count <= 40_000 else { return nil as Data? }
+                return data
+            }.value
+
+            guard !Task.isCancelled,
+                  let self,
+                  self.artworkEncoding?.trackID == trackID,
+                  self.artworkEncoding?.source === artwork else { return }
+            self.artworkEncoding = nil
+            guard let data else { return }
+            self.cachedArtwork = (trackID, artwork, data)
+            self.publishSnapshot()
+        }
+        artworkEncoding = (trackID, artwork, task)
+        return nil
     }
 
     private func handle(_ command: WatchCompanionCommand) async -> WatchCompanionCommandResponse {
@@ -609,6 +633,14 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
                 replyHandler(responseData.map { [WatchCompanionPayloadKey.response: $0] } ?? [:])
             }
         }
+    }
+}
+
+private struct SendableWatchArtworkImage: @unchecked Sendable {
+    let value: UIImage
+
+    init(_ value: UIImage) {
+        self.value = value
     }
 }
 #endif

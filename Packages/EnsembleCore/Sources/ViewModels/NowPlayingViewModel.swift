@@ -953,9 +953,9 @@ public final class NowPlayingViewModel: ObservableObject {
                    excludingSourceCompositeKey: track.sourceCompositeKey
                )
             {
-                let fallbackDomainTrack = Track(from: fallbackTrack)
+                let fallbackDomainTrack = Self.track(track, withArtworkFrom: fallbackTrack)
                 if Self.hasLocalCachedArtwork(for: fallbackDomainTrack) {
-                    refreshedTrack = Self.track(track, withArtworkFrom: fallbackDomainTrack)
+                    refreshedTrack = fallbackDomainTrack
                 }
             }
 
@@ -1004,7 +1004,7 @@ public final class NowPlayingViewModel: ObservableObject {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
-    private static func track(_ track: Track, withArtworkFrom artworkTrack: Track) -> Track {
+    private static func track(_ track: Track, withArtworkFrom artwork: TrackArtworkMetadata) -> Track {
         Track(
             id: track.id,
             key: track.key,
@@ -1012,14 +1012,14 @@ public final class NowPlayingViewModel: ObservableObject {
             artistName: track.artistName,
             albumArtistName: track.albumArtistName,
             albumName: track.albumName,
-            albumRatingKey: artworkTrack.albumRatingKey ?? track.albumRatingKey,
+            albumRatingKey: artwork.albumRatingKey ?? track.albumRatingKey,
             artistRatingKey: track.artistRatingKey,
             trackNumber: track.trackNumber,
             discNumber: track.discNumber,
             duration: track.duration,
-            thumbPath: artworkTrack.thumbPath ?? artworkTrack.fallbackThumbPath ?? track.thumbPath,
-            fallbackThumbPath: artworkTrack.fallbackThumbPath ?? artworkTrack.thumbPath ?? track.fallbackThumbPath,
-            fallbackRatingKey: artworkTrack.fallbackRatingKey ?? artworkTrack.albumRatingKey ?? track.fallbackRatingKey,
+            thumbPath: artwork.thumbPath ?? artwork.fallbackThumbPath ?? track.thumbPath,
+            fallbackThumbPath: artwork.fallbackThumbPath ?? artwork.thumbPath ?? track.fallbackThumbPath,
+            fallbackRatingKey: artwork.fallbackRatingKey ?? artwork.albumRatingKey ?? track.fallbackRatingKey,
             streamKey: track.streamKey,
             streamId: track.streamId,
             localFilePath: track.localFilePath,
@@ -1069,11 +1069,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 if self.currentLoadTrackIdentity == trackIdentity {
-                    // Using a smooth cross-fade transition.
-                    // DO NOT REMOVE THIS - it ensures beautiful track transitions.
-                    withAnimation(.easeInOut(duration: 0.5)) {
-                        self.artworkImage = resolved.image
-                    }
+                    self.artworkImage = resolved.image
                     self.dispatchBlurGeneration(for: resolved.image, trackIdentity: trackIdentity)
                 }
             case .unavailable(.imageLoadFailed):
@@ -1085,9 +1081,7 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
 
                 if self.currentLoadTrackIdentity == trackIdentity {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        self.artworkImage = nil
-                    }
+                    self.artworkImage = nil
                     self.dispatchBlurGeneration(for: nil, trackIdentity: trackIdentity)
                 }
             }

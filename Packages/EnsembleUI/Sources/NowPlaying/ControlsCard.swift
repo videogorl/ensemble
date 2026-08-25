@@ -175,7 +175,6 @@ public struct ControlsCard: View {
                 artworkView(track: track, cornerRadius: artworkCornerRadius)
                     .opacity(isIncomingArtworkVisible ? 1 : 0)
             }
-                .animation(.easeInOut(duration: 0.55), value: isIncomingArtworkVisible)
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))

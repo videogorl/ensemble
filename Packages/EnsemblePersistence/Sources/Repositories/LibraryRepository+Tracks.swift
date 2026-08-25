@@ -1,6 +1,13 @@
 import CoreData
 import Foundation
 
+public struct TrackArtworkMetadata: Sendable, Equatable {
+    public let albumRatingKey: String?
+    public let thumbPath: String?
+    public let fallbackThumbPath: String?
+    public let fallbackRatingKey: String?
+}
+
 extension LibraryRepository {
     // MARK: - Tracks
 
@@ -17,10 +24,6 @@ extension LibraryRepository {
                 }
             }
         }
-    }
-
-    private func fetchFirstTrack(configure: @escaping (NSFetchRequest<CDTrack>) -> Void) async throws -> CDTrack? {
-        try await fetchTracks(configure: configure).first
     }
 
     public func fetchTracks() async throws -> [CDTrack] {
@@ -260,8 +263,9 @@ extension LibraryRepository {
         artistName: String?,
         excludingRatingKey: String,
         excludingSourceCompositeKey: String?
-    ) async throws -> CDTrack? {
-        try await fetchFirstTrack { request in
+    ) async throws -> TrackArtworkMetadata? {
+        try await coreDataStack.performBackgroundContext { context in
+            let request = CDTrack.fetchRequest()
             var predicates: [NSPredicate] = [
                 NSPredicate(format: "title ==[c] %@", title),
                 NSPredicate(format: "thumbPath != nil OR album.thumbPath != nil")
@@ -291,6 +295,13 @@ extension LibraryRepository {
             ]
             request.fetchLimit = 20
             request.relationshipKeyPathsForPrefetching = ["album", "album.artist"]
+            guard let track = try context.fetch(request).first else { return nil }
+            return TrackArtworkMetadata(
+                albumRatingKey: track.album?.ratingKey,
+                thumbPath: track.thumbPath,
+                fallbackThumbPath: track.album?.thumbPath,
+                fallbackRatingKey: track.album?.ratingKey
+            )
         }
     }
 

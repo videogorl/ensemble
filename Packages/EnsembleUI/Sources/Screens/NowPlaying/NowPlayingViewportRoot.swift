@@ -22,7 +22,6 @@ struct NowPlayingBackdrop: View {
                 preBlurredImage: viewModel.blurredArtworkImage,
                 overlayColor: overlayColor
             )
-            .animation(.easeInOut(duration: 0.8), value: viewModel.artworkImage)
 
             readabilityOverlay
                 .allowsHitTesting(false)

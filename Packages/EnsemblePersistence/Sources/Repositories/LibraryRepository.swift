@@ -602,7 +602,7 @@ public protocol LibraryRepositoryProtocol: Sendable {
         artistName: String?,
         excludingRatingKey: String,
         excludingSourceCompositeKey: String?
-    ) async throws -> CDTrack?
+    ) async throws -> TrackArtworkMetadata?
     func updateTrackTitle(ratingKey: String, sourceCompositeKey: String?, title: String) async throws
     func deleteTrack(ratingKey: String, sourceCompositeKey: String?) async throws
     func upsertTrack(
@@ -875,7 +875,7 @@ public extension LibraryRepositoryProtocol {
         artistName _: String?,
         excludingRatingKey _: String,
         excludingSourceCompositeKey _: String?
-    ) async throws -> CDTrack? { nil }
+    ) async throws -> TrackArtworkMetadata? { nil }
     func fetchGenreCoverageStats(forSource sourceKey: String) async throws -> GenreCoverageStats? { nil }
     func fetchArtistSyncMetadata(forSource sourceKey: String) async throws -> [String: ArtistSyncMetadata] { [:] }
     func fetchAlbumSyncMetadata(forSource sourceKey: String) async throws -> [String: AlbumSyncMetadata] { [:] }

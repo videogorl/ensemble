@@ -378,7 +378,6 @@ final class LibraryRepositoryTests: XCTestCase {
             excludingSourceCompositeKey: "plex/account/server/library-a"
         )
 
-        XCTAssertEqual(fallback?.ratingKey, "track-2")
         XCTAssertEqual(fallback?.thumbPath, "/library/metadata/album-2/thumb/1000")
     }
 
