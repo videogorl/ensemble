@@ -5,7 +5,7 @@ import UIKit
 #endif
 
 struct RootMiniPlayerOverlay: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     let layout: RootChromeLayout
     let accentColor: Color
     let namespace: Namespace.ID?

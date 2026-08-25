@@ -141,7 +141,7 @@ struct PlaybackNowPlayingCommandHandlers {
     let shouldAcceptSkip: () -> Bool
 }
 
-struct PlaybackNowPlayingState {
+struct PlaybackNowPlayingState: Equatable {
     let track: Track?
     let playbackState: PlaybackState
     let currentTime: TimeInterval
@@ -179,6 +179,8 @@ final class PlaybackNowPlayingBridge {
     private var artwork: MPMediaItemArtwork?
     private var artworkRecoveryObserver: NSObjectProtocol?
     private var latestPlaybackState: PlaybackState = .stopped
+    private var lastPublishedState: PlaybackNowPlayingState?
+    private var lastPublishedPlaybackState: PlaybackState?
 
     init(
         artworkLoader: ArtworkLoaderProtocol,
@@ -322,6 +324,11 @@ final class PlaybackNowPlayingBridge {
         }
 
         guard let nowPlayingCenter else { return }
+        guard state != lastPublishedState || publishedPlaybackState != lastPublishedPlaybackState else {
+            return
+        }
+        lastPublishedState = state
+        lastPublishedPlaybackState = publishedPlaybackState
 
         let nextArtworkRequestKey = Self.artworkRequestKey(for: track)
         let hasArtworkPath = Self.hasArtworkPath(for: track)
@@ -426,6 +433,8 @@ final class PlaybackNowPlayingBridge {
         artworkRequestKey = nil
         if clearArtwork {
             artwork = nil
+            lastPublishedState = nil
+            lastPublishedPlaybackState = nil
         }
     }
 
@@ -434,6 +443,8 @@ final class PlaybackNowPlayingBridge {
         artworkTask?.cancel()
         artworkTask = nil
         artworkRequestKey = nil
+        lastPublishedState = nil
+        lastPublishedPlaybackState = nil
     }
 
     func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {

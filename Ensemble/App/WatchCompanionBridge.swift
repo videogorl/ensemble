@@ -64,7 +64,7 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
         )
 
         playbackChanged
-            .receive(on: DispatchQueue.main)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
             .sink { [weak self] _ in
                 self?.publishSnapshot()
             }

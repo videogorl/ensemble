@@ -14,7 +14,7 @@ enum RootNowPlayingPresentationStyle {
 }
 
 struct RootSceneLayerHost<Content: View>: View {
-    @ObservedObject var nowPlayingVM: NowPlayingViewModel
+    let nowPlayingVM: NowPlayingViewModel
     let playbackService: PlaybackServiceProtocol
     let accentColor: Color
     let isAuroraEnabled: Bool

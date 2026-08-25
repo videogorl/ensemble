@@ -86,28 +86,11 @@ public struct ControlsCard: View {
     @Environment(\.dismissViewportNowPlaying) private var dismissNowPlaying
     @Environment(\.dismiss) private var dismiss
 
-    // Custom slider state
-    @State private var isDraggingSlider = false
-    @State private var dragStartY: CGFloat = 0
-    @State private var dragStartX: CGFloat = 0
-    @State private var lastDragX: CGFloat = 0
-    @State private var currentDragY: CGFloat = 0
-    @State private var initialProgress: Double = 0
-    @State private var localProgress: Double = 0
-    @State private var sliderWidth: CGFloat = 0
-    @State private var lastScrubRate: Double = 1.0
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var lastPlaylistQuickTarget: Playlist?
     @State private var showLoadingIndicator = false
     /// Hold the last settled play/pause icon during skip transitions
     @State private var wasPlayingBeforeTransition = false
-    // Decoupled from @Published via CurrentValueSubject — avoids firing
-    // objectWillChange at ~10Hz which would re-evaluate all 4 NP cards.
-    @State private var waveformHeights: [Double] = []
-    @State private var playbackProgress: Double = 0
-    @State private var bufferedProgress: Double = 0
-    @State private var playbackCurrentTime: TimeInterval = 0
-    @State private var playbackDuration: TimeInterval = 0
     @State private var displayedArtworkTrack: Track?
     @State private var outgoingArtworkTrack: Track?
     @State private var isIncomingArtworkVisible = true
@@ -165,39 +148,10 @@ public struct ControlsCard: View {
             target: $lastPlaylistQuickTarget
         )
         .onAppear {
-            syncPlaybackSnapshot()
             displayedArtworkTrack = playbackProjection.currentTrack
         }
         .onDisappear {
             artworkCrossfadeTask?.cancel()
-        }
-        .onChange(of: currentPage) { newPage in
-            let isRenderable = NowPlayingPanelPage.controls.shouldRenderContent(
-                currentPage: newPage,
-                isAlwaysVisible: isAlwaysVisible
-            )
-            guard isRenderable else { return }
-            syncPlaybackSnapshot()
-        }
-        .onReceive(playbackProjection.waveformPublisher) { heights in
-            guard isActivePage || isAlwaysVisible, waveformHeights != heights else { return }
-            waveformHeights = heights
-        }
-        .onReceive(playbackProjection.progressPublisher) { progress in
-            guard isActivePage || isAlwaysVisible, !isDraggingSlider, abs(playbackProgress - progress) > 0.0005 else { return }
-            playbackProgress = progress
-        }
-        .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
-            guard isActivePage || isAlwaysVisible, abs(bufferedProgress - progress) > 0.0005 else { return }
-            bufferedProgress = progress
-        }
-        .onReceive(playbackProjection.currentTimePublisher) { time in
-            guard isActivePage || isAlwaysVisible, abs(playbackCurrentTime - time) > 0.05 else { return }
-            playbackCurrentTime = time
-        }
-        .onReceive(playbackProjection.durationPublisher) { duration in
-            guard isActivePage || isAlwaysVisible, abs(playbackDuration - duration) > 0.001 else { return }
-            playbackDuration = duration
         }
         .onChange(of: playbackProjection.currentTrack?.sourceScopedID) { _ in
             updateArtworkTransition()
@@ -236,7 +190,13 @@ public struct ControlsCard: View {
                 .padding(.bottom, layout.artworkBottomPadding)
 
             // Scrubber/waveform
-            progressView(track: track)
+            PlaybackScrubber(
+                playbackProjection: playbackProjection,
+                track: track,
+                isActive: isActivePage || isAlwaysVisible,
+                seekToProgress: viewModel.seekToProgress,
+                updateVisualizerPosition: viewModel.updateVisualizerPosition
+            )
                 .frame(minHeight: layout.progressRowMinHeight)
                 .padding(.horizontal, TrackListLayoutMetrics.detailHorizontalPadding)
 
@@ -366,182 +326,6 @@ public struct ControlsCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // Removed shadow on text container as it can look weird on light mode
-    }
-
-    // MARK: - Progress View / Scrubber
-
-    private func progressView(track: Track) -> some View {
-        VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    waveformContent(track: track, width: geometry.size.width)
-
-                    Color.clear
-                        .contentShape(Rectangle())
-                }
-                .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
-                .clipped()
-                .onAppear {
-                    sliderWidth = geometry.size.width
-                }
-                .gesture(scrubberGesture(width: geometry.size.width))
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Playback position")
-                .accessibilityValue(MediaFormatters.trackClock(accessibilityScrubberProgress * displayDuration))
-                .accessibilityHint("Swipe up or down to seek")
-                .accessibilityAdjustableAction { direction in
-                    adjustScrubber(for: direction)
-                }
-            }
-            .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
-
-            HStack {
-                Group {
-                    if isDraggingSlider {
-                        Text(MediaFormatters.trackClock(localProgress * displayDuration))
-                    } else {
-                        Text(MediaFormatters.trackClock(playbackCurrentTime))
-                    }
-                }
-                .font(EnsembleDesign.Typography.rowSecondary)
-                .monospacedDigit()
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-                Spacer()
-
-                if isDraggingSlider {
-                    scrubIndicator
-                } else if playbackProjection.isSmartMixTransitionActive {
-                    Text("Mixing")
-                        .font(EnsembleDesign.Typography.statusBadgeIcon)
-                        .foregroundColor(EnsembleDesign.Color.secondaryText)
-                        .transition(.opacity)
-                }
-
-                Spacer()
-
-                Group {
-                    if isDraggingSlider {
-                        Text(MediaFormatters.trackClock((1 - localProgress) * displayDuration))
-                    } else {
-                        Text(MediaFormatters.negativeTrackClock(max(0, displayDuration - playbackCurrentTime)))
-                    }
-                }
-                .font(EnsembleDesign.Typography.rowSecondary)
-                .monospacedDigit()
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-            }
-        }
-    }
-
-    private var displayDuration: TimeInterval {
-        max(0, playbackDuration)
-    }
-
-    private var accessibilityScrubberProgress: Double {
-        isDraggingSlider ? localProgress : playbackProgress
-    }
-
-    private func adjustScrubber(for direction: AccessibilityAdjustmentDirection) {
-        guard displayDuration > 0 else { return }
-
-        let step = 0.05
-        let adjustedProgress: Double
-        switch direction {
-        case .increment:
-            adjustedProgress = min(1, accessibilityScrubberProgress + step)
-        case .decrement:
-            adjustedProgress = max(0, accessibilityScrubberProgress - step)
-        @unknown default:
-            return
-        }
-
-        localProgress = adjustedProgress
-        viewModel.seekToProgress(adjustedProgress)
-    }
-
-    private func scrubberGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                if !isDraggingSlider {
-                    isDraggingSlider = true
-                    sliderWidth = width
-                    dragStartY = value.location.y
-                    dragStartX = value.location.x
-                    lastDragX = value.location.x
-                    initialProgress = max(0, min(1, value.location.x / sliderWidth))
-                    localProgress = initialProgress
-                }
-
-                currentDragY = value.location.y
-                let verticalDistance = abs(currentDragY - dragStartY)
-                let scrubRate = getScrubRate(verticalDistance: verticalDistance)
-
-                if scrubRate != lastScrubRate {
-                    #if os(iOS)
-                        UISelectionFeedbackGenerator().selectionChanged()
-                    #endif
-                    lastScrubRate = scrubRate
-                }
-
-                let deltaX = value.location.x - lastDragX
-                let progressChange = (deltaX / sliderWidth) * scrubRate
-                localProgress = max(0, min(1, localProgress + progressChange))
-                lastDragX = value.location.x
-
-                viewModel.updateVisualizerPosition(localProgress)
-            }
-            .onEnded { _ in
-                viewModel.seekToProgress(localProgress)
-                isDraggingSlider = false
-            }
-    }
-
-    /// Extracted waveform builder for readability
-    @ViewBuilder
-    private func waveformContent(track: Track, width: CGFloat) -> some View {
-        let waveform = WaveformView(
-            progress: isDraggingSlider ? localProgress : playbackProgress,
-            bufferedProgress: bufferedProgress,
-            color: EnsembleDesign.Color.primaryText,
-            heights: waveformHeights
-        )
-        .frame(width: width)
-        .opacity(EnsembleScaffold.NowPlaying.waveformOpacity)
-
-        #if os(iOS)
-            if #available(iOS 16.0, *) {
-                waveform
-                    .id(track.playbackIdentity)
-                    .transition(.opacity)
-                    .animation(.easeInOut, value: track.playbackIdentity)
-            } else {
-                waveform
-            }
-        #else
-            waveform
-                .id(track.playbackIdentity)
-                .transition(.opacity)
-                .animation(.easeInOut, value: track.playbackIdentity)
-        #endif
-    }
-
-    private var scrubIndicator: some View {
-        let isMovingUp = currentDragY < dragStartY
-        let verticalDistance = abs(currentDragY - dragStartY)
-        let isMaxFine = verticalDistance >= EnsembleScaffold.NowPlaying.scrubFineDistance
-        let scrubInfo = getScrubInfo()
-
-        return HStack(spacing: EnsembleScaffold.NowPlaying.scrubIndicatorSpacing) {
-            Image(systemName: isMaxFine ? EnsembleDesign.Icon.scrubFine : (isMovingUp ? EnsembleDesign.Icon.scrubUp : EnsembleDesign.Icon.scrubDown))
-                .font(EnsembleDesign.Typography.statusBadgeIcon)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-
-            Text(scrubInfo.label)
-                .font(EnsembleDesign.Typography.statusBadgeIcon)
-                .foregroundColor(EnsembleDesign.Color.secondaryText)
-        }
-        .transition(.opacity)
     }
 
     // MARK: - Primary Controls
@@ -805,15 +589,6 @@ public struct ControlsCard: View {
     }
 
     @MainActor
-    private func syncPlaybackSnapshot() {
-        waveformHeights = playbackProjection.waveformHeights
-        playbackProgress = playbackProjection.progress
-        bufferedProgress = playbackProjection.bufferedProgress
-        playbackCurrentTime = playbackProjection.currentTime
-        playbackDuration = playbackProjection.scrubberDuration
-    }
-
-    @MainActor
     private func updateArtworkTransition() {
         guard let incomingTrack = playbackProjection.currentTrack else {
             displayedArtworkTrack = nil
@@ -863,28 +638,235 @@ public struct ControlsCard: View {
         }
     }
 
-    private func getScrubRate(verticalDistance: CGFloat) -> Double {
+}
+
+private struct PlaybackScrubber: View {
+    @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    let track: Track
+    let isActive: Bool
+    let seekToProgress: (Double) -> Void
+    let updateVisualizerPosition: (Double) -> Void
+
+    @State private var isDragging = false
+    @State private var dragStartY: CGFloat = 0
+    @State private var lastDragX: CGFloat = 0
+    @State private var currentDragY: CGFloat = 0
+    @State private var localProgress: Double = 0
+    @State private var lastScrubRate: Double = 1
+    @State private var waveformHeights: [Double] = []
+    @State private var playbackProgress: Double = 0
+    @State private var bufferedProgress: Double = 0
+    @State private var playbackCurrentTime: TimeInterval = 0
+    @State private var playbackDuration: TimeInterval = 0
+
+    var body: some View {
+        VStack(spacing: EnsembleScaffold.NowPlaying.secondaryControlsStackSpacing) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    waveformContent(width: geometry.size.width)
+
+                    Color.clear
+                        .contentShape(Rectangle())
+                }
+                .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
+                .clipped()
+                .gesture(scrubberGesture(width: geometry.size.width))
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Playback position")
+                .accessibilityValue(MediaFormatters.trackClock(accessibilityProgress * displayDuration))
+                .accessibilityHint("Swipe up or down to seek")
+                .accessibilityAdjustableAction(adjustScrubber)
+            }
+            .frame(height: EnsembleScaffold.NowPlaying.scrubberHeight)
+
+            HStack {
+                Text(isDragging
+                    ? MediaFormatters.trackClock(localProgress * displayDuration)
+                    : MediaFormatters.trackClock(playbackCurrentTime))
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .monospacedDigit()
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+                Spacer()
+
+                if isDragging {
+                    scrubIndicator
+                } else if playbackProjection.isSmartMixTransitionActive {
+                    Text("Mixing")
+                        .font(EnsembleDesign.Typography.statusBadgeIcon)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        .transition(.opacity)
+                }
+
+                Spacer()
+
+                Text(isDragging
+                    ? MediaFormatters.trackClock((1 - localProgress) * displayDuration)
+                    : MediaFormatters.negativeTrackClock(max(0, displayDuration - playbackCurrentTime)))
+                    .font(EnsembleDesign.Typography.rowSecondary)
+                    .monospacedDigit()
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
+            }
+        }
+        .onAppear(perform: syncPlaybackSnapshot)
+        .onChange(of: isActive) { isActive in
+            guard isActive else { return }
+            syncPlaybackSnapshot()
+        }
+        .onReceive(playbackProjection.waveformPublisher) { heights in
+            guard isActive, waveformHeights != heights else { return }
+            waveformHeights = heights
+        }
+        .onReceive(playbackProjection.progressPublisher) { progress in
+            guard isActive, !isDragging, abs(playbackProgress - progress) > 0.0005 else { return }
+            playbackProgress = progress
+        }
+        .onReceive(playbackProjection.bufferedProgressPublisher) { progress in
+            guard isActive, abs(bufferedProgress - progress) > 0.0005 else { return }
+            bufferedProgress = progress
+        }
+        .onReceive(playbackProjection.currentTimePublisher) { time in
+            guard isActive, abs(playbackCurrentTime - time) > 0.05 else { return }
+            playbackCurrentTime = time
+        }
+        .onReceive(playbackProjection.durationPublisher) { duration in
+            guard isActive, abs(playbackDuration - duration) > 0.001 else { return }
+            playbackDuration = duration
+        }
+    }
+
+    private var displayDuration: TimeInterval {
+        max(0, playbackDuration)
+    }
+
+    private var accessibilityProgress: Double {
+        isDragging ? localProgress : playbackProgress
+    }
+
+    private func adjustScrubber(_ direction: AccessibilityAdjustmentDirection) {
+        guard displayDuration > 0 else { return }
+
+        let adjustedProgress: Double
+        switch direction {
+        case .increment:
+            adjustedProgress = min(1, accessibilityProgress + 0.05)
+        case .decrement:
+            adjustedProgress = max(0, accessibilityProgress - 0.05)
+        @unknown default:
+            return
+        }
+
+        localProgress = adjustedProgress
+        seekToProgress(adjustedProgress)
+    }
+
+    private func scrubberGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                let width = max(width, 1)
+                if !isDragging {
+                    isDragging = true
+                    dragStartY = value.location.y
+                    lastDragX = value.location.x
+                    localProgress = max(0, min(1, value.location.x / width))
+                }
+
+                currentDragY = value.location.y
+                let scrubRate = scrubRate(verticalDistance: abs(currentDragY - dragStartY))
+                if scrubRate != lastScrubRate {
+                    #if os(iOS)
+                        UISelectionFeedbackGenerator().selectionChanged()
+                    #endif
+                    lastScrubRate = scrubRate
+                }
+
+                let progressChange = ((value.location.x - lastDragX) / width) * scrubRate
+                localProgress = max(0, min(1, localProgress + progressChange))
+                lastDragX = value.location.x
+                updateVisualizerPosition(localProgress)
+            }
+            .onEnded { _ in
+                seekToProgress(localProgress)
+                isDragging = false
+            }
+    }
+
+    @ViewBuilder
+    private func waveformContent(width: CGFloat) -> some View {
+        let waveform = WaveformView(
+            progress: isDragging ? localProgress : playbackProgress,
+            bufferedProgress: bufferedProgress,
+            color: EnsembleDesign.Color.primaryText,
+            heights: waveformHeights
+        )
+        .frame(width: width)
+        .opacity(EnsembleScaffold.NowPlaying.waveformOpacity)
+
+        #if os(iOS)
+            if #available(iOS 16.0, *) {
+                waveform
+                    .id(track.playbackIdentity)
+                    .transition(.opacity)
+                    .animation(.easeInOut, value: track.playbackIdentity)
+            } else {
+                waveform
+            }
+        #else
+            waveform
+                .id(track.playbackIdentity)
+                .transition(.opacity)
+                .animation(.easeInOut, value: track.playbackIdentity)
+        #endif
+    }
+
+    private var scrubIndicator: some View {
+        let isMovingUp = currentDragY < dragStartY
+        let verticalDistance = abs(currentDragY - dragStartY)
+        let isMaxFine = verticalDistance >= EnsembleScaffold.NowPlaying.scrubFineDistance
+
+        return HStack(spacing: EnsembleScaffold.NowPlaying.scrubIndicatorSpacing) {
+            Image(systemName: isMaxFine ? EnsembleDesign.Icon.scrubFine : (isMovingUp ? EnsembleDesign.Icon.scrubUp : EnsembleDesign.Icon.scrubDown))
+                .font(EnsembleDesign.Typography.statusBadgeIcon)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+
+            Text(scrubLabel(verticalDistance: verticalDistance))
+                .font(EnsembleDesign.Typography.statusBadgeIcon)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
+        }
+        .transition(.opacity)
+    }
+
+    private func syncPlaybackSnapshot() {
+        waveformHeights = playbackProjection.waveformHeights
+        playbackProgress = playbackProjection.progress
+        bufferedProgress = playbackProjection.bufferedProgress
+        playbackCurrentTime = playbackProjection.currentTime
+        playbackDuration = playbackProjection.scrubberDuration
+    }
+
+    private func scrubRate(verticalDistance: CGFloat) -> Double {
         switch verticalDistance {
-        case 0 ..< EnsembleScaffold.NowPlaying.scrubFullSpeedDistance: return 1.0
+        case 0 ..< EnsembleScaffold.NowPlaying.scrubFullSpeedDistance:
+            return 1
         case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
             return EnsembleScaffold.NowPlaying.scrubHalfRate
         case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubFineDistance:
             return EnsembleScaffold.NowPlaying.scrubQuarterRate
-        default: return EnsembleScaffold.NowPlaying.scrubFineRate
+        default:
+            return EnsembleScaffold.NowPlaying.scrubFineRate
         }
     }
 
-    private func getScrubInfo() -> (label: String, rate: Double) {
-        let verticalDistance = abs(currentDragY - dragStartY)
+    private func scrubLabel(verticalDistance: CGFloat) -> String {
         switch verticalDistance {
         case 0 ..< EnsembleScaffold.NowPlaying.scrubFullSpeedDistance:
-            return ("Hi-Speed Scrubbing", 1.0)
+            return "Hi-Speed Scrubbing"
         case EnsembleScaffold.NowPlaying.scrubFullSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance:
-            return ("Half-Speed Scrubbing", EnsembleScaffold.NowPlaying.scrubHalfRate)
+            return "Half-Speed Scrubbing"
         case EnsembleScaffold.NowPlaying.scrubHalfSpeedDistance ..< EnsembleScaffold.NowPlaying.scrubFineDistance:
-            return ("Quarter-Speed Scrubbing", EnsembleScaffold.NowPlaying.scrubQuarterRate)
+            return "Quarter-Speed Scrubbing"
         default:
-            return ("Fine Scrubbing", EnsembleScaffold.NowPlaying.scrubFineRate)
+            return "Fine Scrubbing"
         }
     }
 }

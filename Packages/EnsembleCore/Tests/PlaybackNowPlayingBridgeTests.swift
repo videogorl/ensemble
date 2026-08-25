@@ -98,7 +98,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertTrue(commandCenter.changePlaybackPosition.isEnabled)
     }
 
-    func testSkipTransitionKeepsSystemNowPlayingActiveWhileLoading() {
+    func testSkipTransitionKeepsSystemNowPlayingActiveWhileLoadingAndSuppressesExactDuplicates() {
         let nowPlayingCenter = FakeNowPlayingInfoCenter()
         let bridge = PlaybackNowPlayingBridge(
             artworkLoader: MockArtworkLoader(),
@@ -119,7 +119,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double,
             1
         )
-        XCTAssertEqual(nowPlayingCenter.publishedPlaybackRates, [1, 1, 1])
+        XCTAssertEqual(nowPlayingCenter.publishedPlaybackRates, [1, 1])
     }
 
     #if os(iOS)
