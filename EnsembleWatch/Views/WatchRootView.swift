@@ -2774,13 +2774,14 @@ private struct WatchNowPlayingView: View {
                     .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
 
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                    .font(.headline)
-
                 WatchSystemVolumeControl(origin: volumeControlOrigin)
                     .id(volumeControlOrigin)
+                    .mask { Circle().strokeBorder(lineWidth: 7) }
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+
+                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                    .font(.headline)
             }
             .frame(width: 32, height: 32)
         }
@@ -2962,13 +2963,13 @@ private struct WatchSystemVolumeControl: WKInterfaceObjectRepresentable {
 
     func makeWKInterfaceObject(context: Context) -> WKInterfaceVolumeControl {
         let control = WKInterfaceVolumeControl(origin: origin)
-        control.setTintColor(.green)
+        control.setTintColor(.clear)
         focus(control)
         return control
     }
 
     func updateWKInterfaceObject(_ control: WKInterfaceVolumeControl, context: Context) {
-        control.setTintColor(.green)
+        control.setTintColor(.clear)
         focus(control)
     }
 
