@@ -2770,9 +2770,15 @@ private struct WatchNowPlayingView: View {
         } label: {
             ZStack {
                 Circle()
+                    .fill(Color.secondary.opacity(0.22))
+                    .frame(width: 32, height: 32)
+
+                Circle()
+                    .inset(by: 1)
                     .trim(from: 0, to: playbackProgress)
                     .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
+                    .frame(width: 40, height: 40)
 
                 WatchSystemVolumeControl(origin: volumeControlOrigin)
                     .id(volumeControlOrigin)
@@ -2783,9 +2789,10 @@ private struct WatchNowPlayingView: View {
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.headline)
             }
-            .frame(width: 32, height: 32)
+            .frame(width: 40, height: 40)
         }
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
+        .tint(.primary)
         .scaleEffect(1.15)
         .accessibilityLabel(isPlaying ? "Pause" : "Play")
         .accessibilityValue("\(Int(playbackProgress * 100)) percent")
