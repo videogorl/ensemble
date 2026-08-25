@@ -17,6 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../EnsembleAPI"),
         .package(path: "../EnsembleDomain"),
+        .package(path: "../EnsemblePersistence"),
         .package(path: "../EnsemblePlex"),
     ],
     targets: [
@@ -25,6 +26,7 @@ let package = Package(
             dependencies: [
                 "EnsembleAPI",
                 "EnsembleDomain",
+                "EnsemblePersistence",
                 "EnsemblePlex",
             ],
             path: "Sources"

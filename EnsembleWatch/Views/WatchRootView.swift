@@ -3255,6 +3255,7 @@ private enum WatchArtworkLoader {
     private static let blurredCache = NSCache<NSString, UIImage>()
 
     static func image(from url: URL) async -> UIImage? {
+        if url.isFileURL { return UIImage(contentsOfFile: url.path) }
         guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
         return UIImage(data: data)
     }

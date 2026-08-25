@@ -20,7 +20,7 @@ Layer 2: EnsembleCore (ViewModels, services, domain models)
               |
 Layer 1: EnsembleAPI (Networking) + EnsemblePersistence (CoreData)
 Shared: EnsembleSiriShared (Siri phrase normalization/scoring shared by app, extension, and Core)
-Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models, Plex browsing, and watch runtime)
+Watch: EnsembleDomain + EnsemblePlex + EnsemblePersistence + EnsembleWatchCore (models, Plex, local data, and runtime)
 ```
 
 ## Package Details
@@ -86,8 +86,8 @@ Watch: EnsembleDomain + EnsemblePlex + EnsembleWatchCore (watch-portable models,
 
 ### EnsembleWatchCore (watchOS Runtime)
 - **Location:** `Packages/EnsembleWatchCore/`
-- **Dependencies:** EnsembleAPI, EnsembleDomain, EnsemblePlex
-- **Purpose:** Standalone watch bootstrap, Plex Link fallback, iCloud Keychain credential restore, KVS preference hints, local catalog cache, watch-local playback, and local/remote Now Playing target state. `EnsembleWatchCore` is watchOS-first; macOS support exists only for SwiftPM unit tests.
+- **Dependencies:** EnsembleAPI, EnsembleDomain, EnsemblePersistence, EnsemblePlex
+- **Purpose:** Standalone watch bootstrap, Plex Link fallback, iCloud Keychain credential restore, KVS preference hints, normalized Core Data catalog rows, shared durable artwork caching, watch-local playback, and local/remote Now Playing target state. `EnsembleWatchCore` is watchOS-first; macOS support exists only for SwiftPM unit tests.
 
 ### EnsembleCore (Business Logic Layer)
 - **Location:** `Packages/EnsembleCore/`

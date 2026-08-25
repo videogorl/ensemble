@@ -1,5 +1,6 @@
 import XCTest
 import EnsembleDomain
+import EnsemblePersistence
 import EnsemblePlex
 import MediaPlayer
 @testable import EnsembleWatchCore
@@ -52,31 +53,41 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchCatalogStore(defaults: defaults).loadLibraryFlags(), ["library": true])
     }
 
-    func testWatchCatalogStoreWritesSnapshotsOutsideDefaults() throws {
+    func testWatchCatalogStorePersistsCatalogRowsAndLoadsHomeOnly() async throws {
         let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer {
             defaults.removePersistentDomain(forName: suiteName)
-            try? FileManager.default.removeItem(at: directory)
         }
         let store = WatchCatalogStore(
             defaults: defaults,
-            snapshotURL: directory.appendingPathComponent("catalog.json")
+            coreDataStack: .inMemory()
         )
+        let pin = makeSummary(id: "pin", sourceKey: "plex:account:server:1")
+        let album = makeSummary(id: "album", sourceKey: "plex:account:server:1")
         let snapshot = EnsemblePlexCatalogSnapshot(
-            libraries: [],
-            pins: [],
-            albums: [],
+            libraries: [
+                EnsembleLibraryReference(id: "1", key: "1", title: "Music", isEnabled: true),
+                EnsembleLibraryReference(id: "3", key: "3", title: "Music", isEnabled: true)
+            ],
+            pins: [pin],
+            albums: [album],
             artists: [],
             playlists: [],
-            recentlyAdded: []
+            recentlyAdded: [album],
+            tracks: [makeTrack(id: "track")]
         )
 
-        store.saveSnapshot(snapshot)
+        try await store.saveSnapshot(snapshot)
+        let loaded = try await store.loadSnapshot()
+        let home = try await store.loadHomeSnapshot()
 
         XCTAssertNil(defaults.data(forKey: "ensemble.watch.catalogSnapshot"))
-        XCTAssertEqual(store.loadSnapshot(), snapshot)
+        XCTAssertEqual(loaded, snapshot)
+        XCTAssertEqual(home?.pins, [pin])
+        XCTAssertEqual(home?.recentlyAdded, [album])
+        XCTAssertEqual(home?.albums, [])
+        XCTAssertEqual(home?.tracks, [])
     }
 
     func testWatchPlaybackQueueStoreRoundTripsAllQueueState() {
@@ -465,11 +476,11 @@ final class EnsembleWatchCoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCachedCatalogStartsReadyAndRefreshesOnlyWhenStale() {
+    func testCachedCatalogStartsReadyAndRefreshesOnlyWhenStale() async throws {
         let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = WatchCatalogStore(defaults: defaults)
+        let store = WatchCatalogStore(defaults: defaults, coreDataStack: .inMemory())
         let now = Date(timeIntervalSince1970: 10_000)
         let freshSnapshot = EnsemblePlexCatalogSnapshot(
             fetchedAt: now.addingTimeInterval(-599),
@@ -480,9 +491,11 @@ final class EnsembleWatchCoreTests: XCTestCase {
             playlists: [],
             recentlyAdded: []
         )
-        store.saveSnapshot(freshSnapshot)
+        try await store.saveSnapshot(freshSnapshot)
 
         let model = WatchExperienceModel(catalogStore: store)
+        model.start()
+        for _ in 0..<100 where model.bootstrapState != .ready { await Task.yield() }
 
         XCTAssertEqual(model.bootstrapState, .ready)
         XCTAssertFalse(WatchExperienceModel.catalogNeedsRefresh(freshSnapshot, now: now))
@@ -501,13 +514,13 @@ final class EnsembleWatchCoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCachedPinsAreImmediatelyAvailableBeforeCloudBootstrap() {
+    func testCachedPinsAreAvailableBeforeCloudBootstrapCompletes() async throws {
         let suiteName = "EnsembleWatchCoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let store = WatchCatalogStore(defaults: defaults)
+        let store = WatchCatalogStore(defaults: defaults, coreDataStack: .inMemory())
         let pinnedAlbum = makeSummary(id: "pinned", sourceKey: "plex:account:server:3")
-        store.saveSnapshot(EnsemblePlexCatalogSnapshot(
+        try await store.saveSnapshot(EnsemblePlexCatalogSnapshot(
             libraries: [],
             pins: [pinnedAlbum],
             albums: [pinnedAlbum],
@@ -517,6 +530,8 @@ final class EnsembleWatchCoreTests: XCTestCase {
         ))
 
         let model = WatchExperienceModel(catalogStore: store)
+        model.start()
+        for _ in 0..<100 where !model.isPinned(pinnedAlbum) { await Task.yield() }
 
         XCTAssertTrue(model.isPinned(pinnedAlbum))
     }

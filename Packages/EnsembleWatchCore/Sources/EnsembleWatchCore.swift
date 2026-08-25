@@ -3,6 +3,7 @@ import Combine
 import CloudKit
 import EnsembleAPI
 import EnsembleDomain
+import EnsemblePersistence
 import EnsemblePlex
 import Foundation
 import MediaPlayer
@@ -121,111 +122,6 @@ public struct WatchPinnedReference: Codable, Equatable, Sendable {
         self.type = type
         self.title = title
         self.pinnedDate = pinnedDate
-    }
-}
-
-public final class WatchCatalogStore {
-    private static let defaultSnapshotURL = FileManager.default
-        .urls(for: .applicationSupportDirectory, in: .userDomainMask)
-        .first?
-        .appendingPathComponent("ensemble.watch.catalogSnapshot.json")
-
-    private let defaults: UserDefaults
-    private let snapshotURL: URL?
-    private let snapshotKey = "ensemble.watch.catalogSnapshot"
-    private let selectedLibraryKey = "ensemble.watch.selectedLibraries"
-    private let libraryFlagsKey = "ensemble.watch.libraryFlags"
-
-    public convenience init() {
-        self.init(defaults: .standard)
-    }
-
-    public convenience init(defaults: UserDefaults) {
-        self.init(
-            defaults: defaults,
-            snapshotURL: defaults === UserDefaults.standard ? Self.defaultSnapshotURL : nil
-        )
-    }
-
-    public init(defaults: UserDefaults, snapshotURL: URL?) {
-        self.defaults = defaults
-        self.snapshotURL = snapshotURL
-    }
-
-    public func loadSnapshot() -> EnsemblePlexCatalogSnapshot? {
-        if let snapshotURL,
-           let data = try? Data(contentsOf: snapshotURL),
-           let snapshot = try? JSONDecoder().decode(EnsemblePlexCatalogSnapshot.self, from: data) {
-            return snapshot
-        }
-        guard let data = defaults.data(forKey: snapshotKey),
-              let snapshot = try? JSONDecoder().decode(EnsemblePlexCatalogSnapshot.self, from: data) else {
-            return nil
-        }
-        if snapshotURL != nil {
-            saveSnapshot(snapshot)
-        }
-        return snapshot
-    }
-
-    public func saveSnapshot(_ snapshot: EnsemblePlexCatalogSnapshot) {
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        guard let snapshotURL else {
-            defaults.set(data, forKey: snapshotKey)
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(
-                at: snapshotURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try data.write(to: snapshotURL, options: .atomic)
-            defaults.removeObject(forKey: snapshotKey)
-        } catch {
-            return
-        }
-    }
-
-    public func loadSelectedLibraryKeys() -> Set<String> {
-        Set(defaults.stringArray(forKey: selectedLibraryKey) ?? [])
-    }
-
-    public func saveSelectedLibraryKeys(_ keys: Set<String>) {
-        defaults.set(Array(keys).sorted(), forKey: selectedLibraryKey)
-    }
-
-    public func loadLibraryFlags() -> [String: Bool] {
-        loadLibraryFlagEntries().mapValues(\.isEnabled)
-    }
-
-    public func saveLibraryFlags(_ flags: [String: Bool]) {
-        let current = loadLibraryFlagEntries()
-        let now = Date().timeIntervalSince1970
-        let entries = flags.reduce(into: [String: EnsembleLibraryFlagEntry]()) { result, element in
-            if let existing = current[element.key],
-               existing.isEnabled == element.value,
-               existing.updatedAt != nil {
-                result[element.key] = existing
-            } else {
-                result[element.key] = EnsembleLibraryFlagEntry(
-                    key: element.key,
-                    isEnabled: element.value,
-                    updatedAt: now
-                )
-            }
-        }
-        saveLibraryFlagEntries(entries)
-    }
-
-    public func loadLibraryFlagEntries() -> [String: EnsembleLibraryFlagEntry] {
-        guard let data = defaults.data(forKey: libraryFlagsKey) else { return [:] }
-        return EnsembleLibraryFlagPolicy.decodedEntries(from: data) ?? [:]
-    }
-
-    public func saveLibraryFlagEntries(_ entries: [String: EnsembleLibraryFlagEntry]) {
-        let sortedEntries = entries.values.sorted { $0.key < $1.key }
-        guard let data = try? JSONEncoder().encode(sortedEntries) else { return }
-        defaults.set(data, forKey: libraryFlagsKey)
     }
 }
 
@@ -1188,6 +1084,7 @@ public final class WatchExperienceModel: ObservableObject {
     private let discovery: EnsemblePlexDiscoveryService
     private let catalog: EnsemblePlexCatalogService
     private let catalogStore: WatchCatalogStore
+    private let artworkManager: ArtworkDownloadManagerProtocol
     private let playbackQueueStore: WatchPlaybackQueueStore
     private let cloudPreferences: WatchCloudPreferenceStore
     private let authService: PlexAuthService
@@ -1214,6 +1111,7 @@ public final class WatchExperienceModel: ObservableObject {
         discovery: EnsemblePlexDiscoveryService = EnsemblePlexDiscoveryService(),
         catalog: EnsemblePlexCatalogService = EnsemblePlexCatalogService(),
         catalogStore: WatchCatalogStore = WatchCatalogStore(),
+        artworkManager: ArtworkDownloadManagerProtocol = ArtworkDownloadManager(),
         playbackQueueStore: WatchPlaybackQueueStore = WatchPlaybackQueueStore(),
         cloudPreferences: WatchCloudPreferenceStore = WatchCloudPreferenceStore(),
         authService: PlexAuthService = PlexAuthService(productName: "Ensemble Watch")
@@ -1221,20 +1119,11 @@ public final class WatchExperienceModel: ObservableObject {
         self.discovery = discovery
         self.catalog = catalog
         self.catalogStore = catalogStore
+        self.artworkManager = artworkManager
         self.playbackQueueStore = playbackQueueStore
         self.playbackQueue = WatchPlaybackQueue(snapshot: playbackQueueStore.load())
         self.cloudPreferences = cloudPreferences
         self.authService = authService
-        let cachedSnapshot = catalogStore.loadSnapshot()
-        self.catalogSnapshot = cachedSnapshot
-        self.allCatalogSnapshot = cachedSnapshot
-        if let cachedSnapshot {
-            bootstrapState = .ready
-            statusMessage = "Ready"
-            pinnedItemIDs = Set(cachedSnapshot.pins.map {
-                Self.pinIdentity(id: $0.id, sourceKey: $0.sourceKey)
-            })
-        }
         playback.playbackEndedHandler = { [weak self] in
             self?.advanceAfterPlaybackEnded()
         }
@@ -1362,7 +1251,7 @@ public final class WatchExperienceModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             if let pins = await cloudPreferences.pinnedReferences() {
-                applyPinnedReferences(pins)
+                await applyPinnedReferences(pins)
             }
             accentColorName = await cloudPreferences.accentColorName()
 
@@ -1920,17 +1809,82 @@ public final class WatchExperienceModel: ObservableObject {
             }
 
             await cloudPreferences.savePinnedReferences(pins)
-            applyPinnedReferences(pins)
+            await applyPinnedReferences(pins)
             statusMessage = shouldUnpin ? "Unpinned \(title)" : "Pinned \(title)"
         }
     }
 
     public func artworkURL(for item: EnsembleMediaSummary, size: Int = 96) async -> URL? {
-        catalog.artworkURL(for: item, in: libraries, size: size)
+        let ratingKey = item.kind == .track ? item.albumID ?? item.id : item.id
+        let type: ArtworkType = item.kind == .track && item.albumID != nil
+            ? .album
+            : ArtworkType(rawValue: item.kind.rawValue) ?? .album
+        return await cachedArtworkURL(
+            remoteURL: catalog.artworkURL(for: item, in: libraries, size: size),
+            identity: ArtworkIdentity(
+                ratingKey: ratingKey,
+                type: type,
+                sourcePath: item.artworkPath,
+                dateModifiedSeconds: nil,
+                requestedPixelDimension: size,
+                sourceCompositeKey: item.sourceKey
+            ),
+            size: size
+        )
     }
 
     public func artworkURL(for track: EnsembleTrack, size: Int = 96) async -> URL? {
-        catalog.artworkURL(for: track, in: libraries, size: size)
+        return await cachedArtworkURL(
+            remoteURL: catalog.artworkURL(for: track, in: libraries, size: size),
+            identity: ArtworkIdentity(
+                ratingKey: track.albumID ?? track.id,
+                type: track.albumID == nil ? .track : .album,
+                sourcePath: track.artworkPath,
+                dateModifiedSeconds: nil,
+                requestedPixelDimension: size,
+                sourceCompositeKey: track.sourceKey
+            ),
+            size: size
+        )
+    }
+
+    private func cachedArtworkURL(
+        remoteURL: URL?,
+        identity: ArtworkIdentity,
+        size: Int
+    ) async -> URL? {
+        if await artworkManager.localArtworkExists(
+            ratingKey: identity.ratingKey,
+            type: identity.type,
+            sourceCompositeKey: identity.sourceCompositeKey,
+            sourcePath: identity.sourcePath,
+            dateModifiedSeconds: identity.dateModifiedSeconds,
+            minimumPixelDimension: size
+        ), let path = try? await artworkManager.getLocalArtworkPath(
+            ratingKey: identity.ratingKey,
+            type: identity.type,
+            sourceCompositeKey: identity.sourceCompositeKey,
+            sourcePath: identity.sourcePath,
+            dateModifiedSeconds: identity.dateModifiedSeconds
+        ) {
+            return URL(fileURLWithPath: path)
+        }
+        guard let remoteURL else { return nil }
+        do {
+            try await artworkManager.downloadAndCacheArtwork(from: remoteURL, identity: identity)
+            guard let path = try await artworkManager.getLocalArtworkPath(
+                ratingKey: identity.ratingKey,
+                type: identity.type,
+                sourceCompositeKey: identity.sourceCompositeKey,
+                sourcePath: identity.sourcePath,
+                dateModifiedSeconds: identity.dateModifiedSeconds
+            ) else {
+                return remoteURL
+            }
+            return URL(fileURLWithPath: path)
+        } catch {
+            return remoteURL
+        }
     }
 
     public func toggleLibrarySelection(_ row: WatchSourceLibraryRow) {
@@ -2004,7 +1958,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func applyHiddenMediaFilter(preservingCachedContent: Bool? = nil) {
-        guard let rawSnapshot = allCatalogSnapshot ?? catalogStore.loadSnapshot() else { return }
+        guard let rawSnapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
         let filtered = Self.filteredSnapshot(rawSnapshot, for: libraries)
         let selected = preservingCachedContent ?? isCatalogSyncing
             ? Self.snapshotDuringRefresh(previous: catalogSnapshot, selected: filtered)
@@ -2089,6 +2043,15 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func bootstrap(forceRefresh: Bool = false) async {
+        if !forceRefresh,
+           catalogSnapshot == nil,
+           let cachedSnapshot = try? await catalogStore.loadHomeSnapshot() {
+            catalogSnapshot = cachedSnapshot
+            allCatalogSnapshot = cachedSnapshot
+            pinnedItemIDs = Set(cachedSnapshot.pins.map {
+                Self.pinIdentity(id: $0.id, sourceKey: $0.sourceKey)
+            })
+        }
         if catalogSnapshot != nil {
             bootstrapState = .ready
             statusMessage = "Refreshing"
@@ -2132,7 +2095,7 @@ public final class WatchExperienceModel: ObservableObject {
         await loadPlaylistTargets()
         refreshAutoplayQueue()
 
-        let cachedSnapshot = catalogStore.loadSnapshot()
+        let cachedSnapshot = try? await catalogStore.loadSnapshot()
         if let snapshot = cachedSnapshot {
             allCatalogSnapshot = snapshot
             let selectedSnapshot = Self.filteredSnapshot(snapshot, for: libraries)
@@ -2151,7 +2114,7 @@ public final class WatchExperienceModel: ObservableObject {
 
             if !needsRefresh {
                 if let pins = await cloudPreferences.pinnedReferences() {
-                    applyPinnedReferences(pins)
+                    await applyPinnedReferences(pins)
                 }
                 statusMessage = "Ready"
                 return
@@ -2208,6 +2171,8 @@ public final class WatchExperienceModel: ObservableObject {
                 recentlyAdded: []
             )
             catalogSnapshot = emptySnapshot
+            allCatalogSnapshot = emptySnapshot
+            try await catalogStore.saveSnapshot(emptySnapshot)
             statusMessage = "Enable at least one library."
             return
         }
@@ -2220,26 +2185,26 @@ public final class WatchExperienceModel: ObservableObject {
             previousSnapshot: allCatalogSnapshot ?? catalogSnapshot
         )
         allCatalogSnapshot = snapshot
-        catalogStore.saveSnapshot(snapshot)
+        try await catalogStore.saveSnapshot(snapshot, libraries: libraries)
         if let pinnedReferences {
-            applyPinnedReferences(pinnedReferences)
+            await applyPinnedReferences(pinnedReferences)
         } else {
-            replacePins(cachedPins)
+            await replacePins(cachedPins)
         }
         applyHiddenMediaFilter(preservingCachedContent: false)
         statusMessage = "Ready"
     }
 
-    private func applyPinnedReferences(_ pins: [WatchPinnedReference]) {
+    private func applyPinnedReferences(_ pins: [WatchPinnedReference]) async {
         pinnedItemIDs = Set(pins.map { Self.pinIdentity(id: $0.id, sourceKey: $0.sourceCompositeKey) })
 
         guard let snapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
         let pinnedItems = Self.mergedPinnedItems(Self.resolvedPinnedItems(pins, in: snapshot))
 
-        replacePins(pinnedItems)
+        await replacePins(pinnedItems)
     }
 
-    private func replacePins(_ pinnedItems: [EnsembleMediaSummary]) {
+    private func replacePins(_ pinnedItems: [EnsembleMediaSummary]) async {
         guard let snapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
 
         let updatedSnapshot = EnsemblePlexCatalogSnapshot(
@@ -2256,7 +2221,7 @@ public final class WatchExperienceModel: ObservableObject {
 
         if updatedSnapshot != snapshot {
             allCatalogSnapshot = updatedSnapshot
-            catalogStore.saveSnapshot(updatedSnapshot)
+            try? await catalogStore.savePins(pinnedItems)
         }
         applyHiddenMediaFilter()
     }

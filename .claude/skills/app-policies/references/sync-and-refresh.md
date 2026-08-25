@@ -3,6 +3,9 @@
 - Feed and library surfaces are offline-first: publish cached/last-good data
   immediately and refresh without blanking it. Failed or empty remote results do
   not replace a usable snapshot.
+- Watch persists normalized source, media, playlist, and Home rows in its own
+  Core Data store. Launch may read only Home rows before loading the full catalog;
+  Watch artwork uses the shared source-scoped durable artwork cache.
 - Bootstrap/no-source/disabled/empty decisions come from settled readiness, not
   transient account, provider, hub, playlist, or row arrays. Credential and
   discovery failures preserve provisionally scoped cache until explicit removal.
