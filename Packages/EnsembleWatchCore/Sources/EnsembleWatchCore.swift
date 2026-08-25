@@ -1111,7 +1111,11 @@ public final class WatchExperienceModel: ObservableObject {
         discovery: EnsemblePlexDiscoveryService = EnsemblePlexDiscoveryService(),
         catalog: EnsemblePlexCatalogService = EnsemblePlexCatalogService(),
         catalogStore: WatchCatalogStore = WatchCatalogStore(),
-        artworkManager: ArtworkDownloadManagerProtocol = ArtworkDownloadManager(),
+        artworkManager: ArtworkDownloadManagerProtocol = ArtworkDownloadManager(
+            storageDirectory: FileManager.default
+                .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("ArtworkCache", isDirectory: true)
+        ),
         playbackQueueStore: WatchPlaybackQueueStore = WatchPlaybackQueueStore(),
         cloudPreferences: WatchCloudPreferenceStore = WatchCloudPreferenceStore(),
         authService: PlexAuthService = PlexAuthService(productName: "Ensemble Watch")

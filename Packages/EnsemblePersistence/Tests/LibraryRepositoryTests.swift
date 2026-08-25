@@ -734,6 +734,40 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertFalse(changedIdentityExists)
     }
 
+    func testArtworkDownloadManagerUsesInjectedStorageDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let manager = ArtworkDownloadManager(storageDirectory: directory)
+        let sourceKey = "plex:account:server:library"
+        let artworkURL = ArtworkDownloadManager.artworkFileURL(
+            ratingKey: "album",
+            type: .album,
+            sourceCompositeKey: sourceKey,
+            in: directory
+        )
+        try seedArtwork(
+            data: Data("artwork".utf8),
+            at: artworkURL,
+            identity: ArtworkIdentity(
+                ratingKey: "album",
+                type: .album,
+                sourcePath: "/artwork",
+                dateModifiedSeconds: 1_000,
+                sourceCompositeKey: sourceKey
+            )
+        )
+
+        let path = try await manager.getLocalArtworkPath(
+            ratingKey: "album",
+            type: .album,
+            sourceCompositeKey: sourceKey,
+            sourcePath: "/artwork",
+            dateModifiedSeconds: 1_000
+        )
+
+        XCTAssertEqual(path, artworkURL.path)
+    }
+
     func testArtworkDownloadManagerRejectsIdentityForDifferentRatingKeyOrType() async throws {
         let manager = ArtworkDownloadManager()
         let ratingKey = "identity-mismatch-\(UUID().uuidString)"

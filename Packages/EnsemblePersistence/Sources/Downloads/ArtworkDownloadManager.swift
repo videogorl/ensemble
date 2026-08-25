@@ -269,20 +269,23 @@ public enum ArtworkFileInspector {
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
     private let session: URLSession
+    private let storageDirectory: URL
     private static let fileLock = NSLock()
     static let cacheVersionMarkerName = ".source-scoped-v2"
     private static let sourceScopedFilenamePrefix = "v2_"
     
-    public init() {
+    public init(storageDirectory: URL = ArtworkDownloadManager.artworkDirectory) {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
+        self.storageDirectory = storageDirectory
+        try? FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
     }
 
     /// Removes obsolete unscoped cache files. Call from background startup work.
     public func preparePersistentCache() {
         do {
-            if let removedCount = try Self.purgeLegacyArtworkCacheIfNeeded() {
+            if let removedCount = try Self.purgeLegacyArtworkCacheIfNeeded(in: storageDirectory) {
                 EnsembleLogger.debug("Artwork cache upgraded to source-scoped v2; removed \(removedCount) legacy entries")
             }
         } catch {
@@ -360,7 +363,8 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
             let localURL = Self.artworkFileURL(
                 ratingKey: ratingKey,
                 type: type,
-                sourceCompositeKey: sourceCompositeKey
+                sourceCompositeKey: sourceCompositeKey,
+                in: storageDirectory
             )
             return Self.validArtworkPath(
                 at: localURL,
@@ -389,7 +393,8 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
             let localURL = Self.artworkFileURL(
                 ratingKey: ratingKey,
                 type: type,
-                sourceCompositeKey: sourceCompositeKey
+                sourceCompositeKey: sourceCompositeKey,
+                in: storageDirectory
             )
             return Self.validArtworkPath(
                 at: localURL,
@@ -478,7 +483,8 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         let localURL = Self.artworkFileURL(
             ratingKey: ratingKey,
             type: type,
-            sourceCompositeKey: identity?.sourceCompositeKey
+            sourceCompositeKey: identity?.sourceCompositeKey,
+            in: storageDirectory
         )
         
         do {
@@ -528,7 +534,8 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         let fileURL = Self.artworkFileURL(
             ratingKey: ratingKey,
             type: type,
-            sourceCompositeKey: sourceCompositeKey
+            sourceCompositeKey: sourceCompositeKey,
+            in: storageDirectory
         )
 
         Self.withFileLock {
@@ -555,7 +562,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         let prefix = Self.scopedFilenamePrefix(sourceCompositeKey: sourceCompositeKey)
         try Self.withFileLock {
             let urls = try FileManager.default.contentsOfDirectory(
-                at: Self.artworkDirectory,
+                at: storageDirectory,
                 includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             )
@@ -564,7 +571,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
                 try FileManager.default.removeItem(at: url)
             }
             let remaining = try FileManager.default.contentsOfDirectory(
-                at: Self.artworkDirectory,
+                at: storageDirectory,
                 includingPropertiesForKeys: nil,
                 options: [.skipsHiddenFiles]
             )
@@ -606,9 +613,10 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     static func artworkFileURL(
         ratingKey: String,
         type: ArtworkType,
-        sourceCompositeKey: String? = nil
+        sourceCompositeKey: String? = nil,
+        in directory: URL = artworkDirectory
     ) -> URL {
-        artworkDirectory.appendingPathComponent(cacheFilename(
+        directory.appendingPathComponent(cacheFilename(
             ratingKey: ratingKey,
             type: type,
             sourceCompositeKey: sourceCompositeKey
@@ -709,7 +717,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         do {
             try Self.withFileLock {
                 let fileManager = FileManager.default
-                let artworkDir = Self.artworkDirectory
+                let artworkDir = storageDirectory
 
                 if fileManager.fileExists(atPath: artworkDir.path) {
                     try fileManager.removeItem(at: artworkDir)
@@ -725,7 +733,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         try await Task.detached(priority: .utility) {
             try Self.withFileLock {
                 let fileManager = FileManager.default
-                let artworkDir = Self.artworkDirectory
+                let artworkDir = self.storageDirectory
 
                 guard fileManager.fileExists(atPath: artworkDir.path) else { return Int64(0) }
 
@@ -750,7 +758,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     public func getArtworkCacheFileCount() async throws -> Int {
         try await Task.detached(priority: .utility) {
             try Self.withFileLock {
-                let artworkDir = Self.artworkDirectory
+                let artworkDir = self.storageDirectory
                 guard FileManager.default.fileExists(atPath: artworkDir.path) else { return 0 }
 
                 let contents = try FileManager.default.contentsOfDirectory(
