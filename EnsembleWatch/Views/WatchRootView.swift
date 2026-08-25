@@ -578,12 +578,14 @@ private struct WatchCategoryView: View {
     }
 
     private var songList: some View {
-        List {
+        let tracks = songTracks
+        let sections = songSections(for: tracks)
+        return List {
             viewOptions
-            if songTracks.isEmpty {
+            if tracks.isEmpty {
                 emptyCategoryRow
             } else {
-                ForEach(songSections, id: \.letter) { section in
+                ForEach(sections, id: \.letter) { section in
                     Section(section.letter) {
                         ForEach(section.tracks, id: \.watchListID) { track in
                             Button {
@@ -594,14 +596,14 @@ private struct WatchCategoryView: View {
                                         tracks: [track.companionPayload]
                                     )
                                 } else {
-                                    experience.play(track, in: songTracks)
+                                    experience.play(track, in: tracks)
                                 }
                                 openNowPlaying()
                             } label: {
                                 WatchTrackRow(track: track)
                             }
                             .buttonStyle(.plain)
-                            .watchMediaSwipeActions(.track(track, queue: songTracks))
+                            .watchMediaSwipeActions(.track(track, queue: tracks))
                         }
                     }
                 }
@@ -705,8 +707,8 @@ private struct WatchCategoryView: View {
         }
     }
 
-    private var songSections: [(letter: String, tracks: [EnsembleTrack])] {
-        Dictionary(grouping: songTracks) { $0.title.ensembleIndexingLetter }
+    private func songSections(for tracks: [EnsembleTrack]) -> [(letter: String, tracks: [EnsembleTrack])] {
+        Dictionary(grouping: tracks) { $0.title.ensembleIndexingLetter }
             .map { (letter: $0.key, tracks: $0.value.sorted {
                 $0.title.localizedStandardCompare($1.title) == (sortDirection == .ascending ? .orderedAscending : .orderedDescending)
             }) }
