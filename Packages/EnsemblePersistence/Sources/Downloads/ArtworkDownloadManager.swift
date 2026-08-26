@@ -298,6 +298,12 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         if !FileManager.default.fileExists(atPath: artworkURL.path) {
             try? FileManager.default.createDirectory(at: artworkURL, withIntermediateDirectories: true)
         }
+
+        do {
+            try (artworkURL as NSURL).setResourceValue(true, forKey: .isExcludedFromBackupKey)
+        } catch {
+            EnsembleLogger.debug("Failed to exclude artwork cache from backup: \(error.localizedDescription)")
+        }
         
         return artworkURL
     }
@@ -714,6 +720,7 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
                 if fileManager.fileExists(atPath: artworkDir.path) {
                     try fileManager.removeItem(at: artworkDir)
                     try fileManager.createDirectory(at: artworkDir, withIntermediateDirectories: true)
+                    try (artworkDir as NSURL).setResourceValue(true, forKey: .isExcludedFromBackupKey)
                 }
             }
         } catch {

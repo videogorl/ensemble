@@ -26,6 +26,8 @@
 - Audio completion is the durable boundary. Artwork, frequency analysis, lyrics,
   and chords are derived, idempotent, best-effort artifacts repaired later from
   completed downloads rather than promoted into another durable job system.
+- Offline audio and regenerable artwork remain nonpurgeable while installed but
+  are excluded from device backups. Missing restored audio becomes retryable.
 - Startup publishes target/queue state after lightweight repair. Expensive file
   healing, truncation scans, cleanup, and full progress computation are deferred
   and coalesced so downloads and playback stay responsive on constrained devices.

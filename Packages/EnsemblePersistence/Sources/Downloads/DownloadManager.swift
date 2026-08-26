@@ -139,6 +139,12 @@ public final class DownloadManager: DownloadManagerProtocol, @unchecked Sendable
             try? FileManager.default.createDirectory(at: downloadsURL, withIntermediateDirectories: true)
         }
 
+        do {
+            try (downloadsURL as NSURL).setResourceValue(true, forKey: .isExcludedFromBackupKey)
+        } catch {
+            EnsembleLogger.debug("Failed to exclude offline downloads from backup: \(error.localizedDescription)")
+        }
+
         return downloadsURL
     }()
 

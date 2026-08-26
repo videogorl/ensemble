@@ -7,6 +7,13 @@ final class DownloadManagerTests: XCTestCase {
     private let sourceB = "plex:accountA:serverA:libraryB"
     private let sourceC = "plex:accountA:serverA:libraryC"
 
+    func testRegenerableMediaDirectoriesAreExcludedFromBackup() throws {
+        for directory in [DownloadManager.downloadsDirectory, ArtworkDownloadManager.artworkDirectory] {
+            let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
+            XCTAssertEqual(values.isExcludedFromBackup, true, directory.lastPathComponent)
+        }
+    }
+
     func testCreateAndFetchDownloadsAreSourceAware() async throws {
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
