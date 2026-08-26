@@ -196,6 +196,10 @@ final class AudioPlaybackEngineStreamingTests: XCTestCase {
 
         XCTAssertGreaterThan(format.sampleRate, 0)
         await fulfillment(of: [failed], timeout: 1)
+        let diagnostics = pipeline.diagnostics()
+        XCTAssertEqual(diagnostics.responseSummary, "status=200 expectedBytes=-1 framing=unknown")
+        XCTAssertTrue(diagnostics.metricsSummary.hasPrefix("duration="))
+        XCTAssertTrue(diagnostics.summary.contains("taskBytes="))
         pipeline.cancel()
     }
 

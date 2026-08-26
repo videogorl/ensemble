@@ -1242,7 +1242,12 @@ public final class AudioPlaybackEngine {
                     DispatchQueue.main.async { [weak self, weak pipeline] in
                         guard let self, let pipeline,
                               !requiresCurrentPipeline || self.streamingPipeline === pipeline else { return }
-                        EnsembleLogger.error("[StreamingPipeline] failed after startup trackId=\(trackId): \(error.localizedDescription)")
+                        EnsembleLogger.error(
+                            "[StreamingPipeline] failed after startup trackId=\(trackId)"
+                                + " error=\(nsError.domain):\(nsError.code)"
+                                + " message=\(error.localizedDescription)"
+                                + " \(pipeline.diagnostics().summary)"
+                        )
                         self.onError?(error, nil, playbackGeneration)
                     }
                 } else {

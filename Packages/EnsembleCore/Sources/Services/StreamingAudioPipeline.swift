@@ -7,18 +7,25 @@ final class StreamingAudioPipeline: NSObject {
         let secondsSinceLastByte: TimeInterval?
         let secondsSinceLastPCM: TimeInterval?
         let receivedBytes: Int64
+        let taskReceivedBytes: Int64
+        let taskExpectedBytes: Int64
         let decodedFrames: AVAudioFramePosition
         let bufferedFrames: Int
         let isComplete: Bool
+        let responseSummary: String
+        let metricsSummary: String
 
         var summary: String {
             "task=\(taskStateDescription)"
                 + " lastByte=\(ageDescription(secondsSinceLastByte))"
                 + " lastPCM=\(ageDescription(secondsSinceLastPCM))"
                 + " bytes=\(receivedBytes)"
+                + " taskBytes=\(taskReceivedBytes)/\(taskExpectedBytes)"
                 + " decodedFrames=\(decodedFrames)"
                 + " bufferedFrames=\(bufferedFrames)"
                 + " complete=\(isComplete)"
+                + " response={\(responseSummary)}"
+                + " metrics={\(metricsSummary)}"
         }
 
         private var taskStateDescription: String {
@@ -95,6 +102,8 @@ final class StreamingAudioPipeline: NSObject {
     private var lastPCMUptime: TimeInterval?
     private var decodedFrameCount: AVAudioFramePosition = 0
     private var decodedFrameTarget: AVAudioFramePosition?
+    private var responseSummary = "none"
+    private var metricsSummary = "none"
     private var startupTimeoutWorkItem: DispatchWorkItem?
 
     var cacheURL: URL { configuration.cacheURL }
@@ -119,6 +128,8 @@ final class StreamingAudioPipeline: NSObject {
         let receivedBytes = receivedByteCount
         let decodedFrames = decodedFrameCount
         let isComplete = completed
+        let responseSummary = self.responseSummary
+        let metricsSummary = self.metricsSummary
         stateLock.unlock()
 
         return Diagnostics(
@@ -126,9 +137,13 @@ final class StreamingAudioPipeline: NSObject {
             secondsSinceLastByte: lastByteUptime.map { max(0, now - $0) },
             secondsSinceLastPCM: lastPCMUptime.map { max(0, now - $0) },
             receivedBytes: receivedBytes,
+            taskReceivedBytes: task?.countOfBytesReceived ?? 0,
+            taskExpectedBytes: task?.countOfBytesExpectedToReceive ?? NSURLSessionTransferSizeUnknown,
             decodedFrames: decodedFrames,
             bufferedFrames: pcmBuffer?.availableFrames ?? 0,
-            isComplete: isComplete
+            isComplete: isComplete,
+            responseSummary: responseSummary,
+            metricsSummary: metricsSummary
         )
     }
 
@@ -321,6 +336,11 @@ final class StreamingAudioPipeline: NSObject {
         try? cacheHandle?.close()
         cacheHandle = nil
     }
+
+    private static func duration(_ start: Date?, _ end: Date?) -> String {
+        guard let start, let end else { return "n/a" }
+        return String(format: "%.3fs", max(0, end.timeIntervalSince(start)))
+    }
 }
 
 extension StreamingAudioPipeline: URLSessionDataDelegate {
@@ -330,6 +350,20 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        let framing: String
+        if let http = response as? HTTPURLResponse,
+           http.value(forHTTPHeaderField: "Transfer-Encoding")?.localizedCaseInsensitiveContains("chunked") == true {
+            framing = "chunked"
+        } else if response.expectedContentLength != NSURLSessionTransferSizeUnknown {
+            framing = "contentLength"
+        } else {
+            framing = "unknown"
+        }
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        stateLock.lock()
+        responseSummary = "status=\(statusCode) expectedBytes=\(response.expectedContentLength) framing=\(framing)"
+        stateLock.unlock()
+
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             completionHandler(.cancel)
             fail(ProgressiveStreamError.httpError(statusCode: http.statusCode, bodySnippet: nil))
@@ -340,6 +374,27 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
 
     func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive data: Data) {
         append(data)
+    }
+
+    func urlSession(_: URLSession, task _: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let transaction = metrics.transactionMetrics.last
+        var summary = "duration=\(String(format: "%.3fs", metrics.taskInterval.duration))"
+            + " redirects=\(metrics.redirectCount)"
+            + " transactions=\(metrics.transactionMetrics.count)"
+        if let transaction {
+            summary += " fetch=\(transaction.resourceFetchType)"
+                + " protocol=\(transaction.networkProtocolName ?? "unknown")"
+                + " reused=\(transaction.isReusedConnection)"
+                + " proxy=\(transaction.isProxyConnection)"
+                + " dns=\(Self.duration(transaction.domainLookupStartDate, transaction.domainLookupEndDate))"
+                + " connect=\(Self.duration(transaction.connectStartDate, transaction.connectEndDate))"
+                + " tls=\(Self.duration(transaction.secureConnectionStartDate, transaction.secureConnectionEndDate))"
+                + " ttfb=\(Self.duration(transaction.requestStartDate, transaction.responseStartDate))"
+                + " transfer=\(Self.duration(transaction.responseStartDate, transaction.responseEndDate))"
+        }
+        stateLock.lock()
+        metricsSummary = summary
+        stateLock.unlock()
     }
 
     func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: Error?) {
