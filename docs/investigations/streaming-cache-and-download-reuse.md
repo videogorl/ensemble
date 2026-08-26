@@ -24,6 +24,25 @@ The coordinator itself should be small and built from Apple primitives: `URLSess
 
 This means the intended “complete cache files remain useful for analysis and replay” behavior is only partially implemented today.
 
+## Plex and Apple format compatibility
+
+The design fits Plex's two audio delivery shapes, but they must keep different seek semantics:
+
+- A direct `/library/parts/...` response is the original container and codec. Live PMS checks on 2026-08-26 returned `206 Partial Content`, `Accept-Ranges: bytes`, a concrete `Content-Length`, and the expected MIME type for FLAC, MP3, AAC-in-MP4, ALAC-in-MP4, and PCM/WAV samples. The growing file can preserve the original bytes, and a completed file can use ordinary local seeking. During growth, however, a time seek should still use an HTTP range or restart rather than guess a byte offset for VBR/compressed media.
+- A universal `/music/:/transcode/universal/start.mp3` response is PMS-produced MP3. It requires the matching `decision` request first and returns a chunked response with no byte ranges or content length. It is therefore a natural append-only spool; seeking ahead must start a new transcode with `offset`, and any offset-started result is a fragment that cannot become a complete cache/download artifact.
+
+Apple explicitly recommends Audio File Stream Services for network audio and documents streamed parsing for MP3, ADTS AAC, AIFF/AIFC, CAF, MPEG-4 (`.m4a`/`.mp4`), and WAVE. Current Audio Toolbox also exposes `kAudioFileFLACType`. A macOS 26.5 diagnostic using the same `AudioFileStreamOpen` plus `AVAudioConverter` primitives recognized and created converters for the five live PMS samples above. This is useful confirmation of the design, not a substitute for the required iOS 15 physical-device format matrix: current Ensemble tests exercise MP3 and M4A only, and its decoder supplies explicit hints only for MP3/M4A/AAC.
+
+Practical consequences:
+
+- Preserve Plex's actual container/codec and MIME type in completed-cache metadata; an extension alone is not sufficient. In particular, raw ADTS `.aac` requires `kAudioFileAAC_ADTSType`, while the current decoder treats `.aac` as M4A.
+- MP3, AAC/M4A, and ALAC/M4A are the safest direct overlap with Apple's documented codecs. WAV/AIFF PCM are compatible but can consume the cache budget quickly. FLAC is supported by current Audio Toolbox, but needs one focused iOS deployment-range test before Ensemble advertises direct FLAC as guaranteed.
+- Container headers can delay first packets: the live diagnostic needed about 360 KiB for its FLAC sample and 623 KiB for its AAC/M4A sample, versus 32 KiB for the tested MP3, ALAC/M4A, and WAV files. This is normal parser/header behavior, so prefetch watermarks should be based on “decoder produced packets,” not a fixed byte count.
+- OGG/Vorbis, Opus, WMA, and other Plex-library formats are not declared in Ensemble's client profile and are outside the current decoder contract. Non-original playback should let PMS transcode them to MP3. Current original-quality routing bypasses the decision endpoint whenever a part key exists, so the implementation must gate direct originals on tested decoder/container support and otherwise request a transcode; do not cache an undecodable original merely because Plex can store it.
+- An MP4/M4A whose `moov` metadata is at the end may not produce packets until most or all of the file arrives. The live samples were streamable near the front, but that property belongs to each file, not the codec. Use the parser's ready/first-packet signal for startup and fall back to PMS transcode for pathological direct originals rather than assuming every M4A is fast-start optimized.
+
+Sources: [Plex Direct Play, Direct Stream, and Transcoding](https://support.plex.tv/articles/200250387-streaming-media-direct-play-and-direct-stream/), [Apple Audio File Stream Services guidance and streamed formats](https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/MultimediaPG/UsingAudio/UsingAudio.html), [Apple `AudioFileStreamOpen`](https://developer.apple.com/documentation/audiotoolbox/audiofilestreamopen(_:_:_:_:_:)), and [Apple Audio File Types](https://developer.apple.com/documentation/audiotoolbox/1576497-audio-file-types).
+
 Use three file states with separate ownership:
 
 1. **In-flight spool**: a unique partial file, owned by the active pipeline. Delete it on cancellation/failure and sweep abandoned partials at launch.
