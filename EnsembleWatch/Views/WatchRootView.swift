@@ -2592,6 +2592,11 @@ private struct WatchNowPlayingView: View {
         }
         .navigationTitle("")
         .navigationBarBackButtonHidden(true)
+        .digitalCrownAccessory {
+            WatchSystemVolumeControl(origin: volumeControlOrigin)
+                .id(volumeControlOrigin)
+                .accessibilityLabel("Volume")
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -2780,12 +2785,6 @@ private struct WatchNowPlayingView: View {
                     .rotationEffect(.degrees(-90))
                     .frame(width: 40, height: 40)
 
-                WatchSystemVolumeControl(origin: volumeControlOrigin)
-                    .id(volumeControlOrigin)
-                    .mask { Circle().strokeBorder(lineWidth: 7) }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-
                 Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                     .font(.headline)
             }
@@ -2970,13 +2969,11 @@ private struct WatchSystemVolumeControl: WKInterfaceObjectRepresentable {
 
     func makeWKInterfaceObject(context: Context) -> WKInterfaceVolumeControl {
         let control = WKInterfaceVolumeControl(origin: origin)
-        control.setTintColor(.clear)
         focus(control)
         return control
     }
 
     func updateWKInterfaceObject(_ control: WKInterfaceVolumeControl, context: Context) {
-        control.setTintColor(.clear)
         focus(control)
     }
 
