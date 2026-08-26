@@ -1,3 +1,6 @@
+import EnsembleDesignTokens
+import EnsembleDomain
+import SwiftUI
 import XCTest
 @testable import EnsembleUI
 import EnsembleCore
@@ -84,6 +87,13 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(
             EnsembleDesign.Icon.smartMixIconName(modernSymbolSetAvailable: true),
             "circle.dotted.and.circle"
+        )
+    }
+
+    func testAccentPalettePreservesTheExistingPinkColor() {
+        XCTAssertEqual(
+            AppAccentColor.pink.color,
+            Color(red: 1, green: 0, blue: 1)
         )
     }
 

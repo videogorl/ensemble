@@ -1,5 +1,6 @@
 import CloudKit
 import EnsembleAPI
+import EnsembleDomain
 import EnsemblePersistence
 import Combine
 import Foundation

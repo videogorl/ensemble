@@ -1,4 +1,6 @@
+import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleDomain
 import SwiftUI
 
 /// Main profile view that owns profile and settings content.

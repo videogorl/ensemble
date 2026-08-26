@@ -1,4 +1,5 @@
 import EnsembleDomain
+import EnsembleDesignTokens
 import EnsemblePlex
 import EnsembleWatchCore
 import Foundation
@@ -129,7 +130,7 @@ struct WatchRootView: View {
     }
 
     private var accentColor: Color {
-        WatchAccentColor.color(for: experience.accentColorName)
+        (AppAccentColor(rawValue: experience.accentColorName) ?? .blue).color
     }
 
     private var queueReplacementConfirmation: Binding<Bool> {
@@ -152,7 +153,7 @@ struct WatchRootView: View {
             Text(experience.statusMessage)
                 .font(.footnote)
                 .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
         }
         .padding()
     }
@@ -160,9 +161,9 @@ struct WatchRootView: View {
     private var linkView: some View {
         ScrollView {
             VStack(spacing: 10) {
-                Image(systemName: "link.circle.fill")
+                Image(systemName: EnsembleDesign.Icon.linkCircleFilled)
                     .font(.title2)
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(EnsembleDesign.Color.accent)
 
                 if let link = experience.linkState {
                     Text(link.code)
@@ -172,7 +173,7 @@ struct WatchRootView: View {
 
                     Text("plex.tv/link")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
                     Text("Sign in with Plex Link.")
                         .font(.headline)
@@ -182,13 +183,13 @@ struct WatchRootView: View {
                 Button {
                     experience.startLinkFlow()
                 } label: {
-                    Label("Get Code", systemImage: "key")
+                    Label("Get Code", systemImage: EnsembleDesign.Icon.plexLinkCode)
                 }
                 .buttonStyle(.borderedProminent)
 
                 Text(experience.statusMessage)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 8)
@@ -199,9 +200,9 @@ struct WatchRootView: View {
     private var errorView: some View {
         ScrollView {
             VStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle")
+                Image(systemName: EnsembleDesign.Icon.errorOutline)
                     .font(.title2)
-                    .foregroundColor(.orange)
+                    .foregroundColor(EnsembleDesign.Color.warning)
 
                 Text(experience.statusMessage)
                     .font(.footnote)
@@ -210,7 +211,7 @@ struct WatchRootView: View {
                 Button {
                     experience.refresh()
                 } label: {
-                    Label("Retry", systemImage: "arrow.clockwise")
+                    Label("Retry", systemImage: EnsembleDesign.Icon.retry)
                 }
                 .buttonStyle(.bordered)
             }
@@ -228,7 +229,7 @@ struct WatchRootView: View {
                             Text("Syncing Libraries")
                             Text(experience.statusMessage)
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(EnsembleDesign.Color.secondaryText)
                         }
                     }
                 }
@@ -285,11 +286,11 @@ struct WatchRootView: View {
                 Button {
                     experience.refresh()
                 } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+                    Label("Refresh", systemImage: EnsembleDesign.Icon.retry)
                 }
 
                 NavigationLink(destination: WatchSourceSettingsView()) {
-                    Label("Settings", systemImage: "gearshape")
+                    Label("Settings", systemImage: EnsembleDesign.Icon.settings)
                 }
             } footer: {
                 Text(experience.statusMessage)
@@ -337,7 +338,7 @@ private struct WatchHomePinCell: View {
             Button(role: .destructive) {
                 experience.togglePin(item)
             } label: {
-                Label("Unpin", systemImage: "pin.slash")
+                Label("Unpin", systemImage: EnsembleDesign.Icon.unpin)
             }
         }
     }
@@ -352,7 +353,7 @@ private struct WatchSourceSettingsView: View {
                 if experience.sourceAccounts.isEmpty {
                     Text("No sources found.")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(experience.sourceAccounts) { account in
                         NavigationLink {
@@ -363,33 +364,33 @@ private struct WatchSourceSettingsView: View {
                                     Text("Plex")
                                     Text(account.title)
                                         .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                                 }
                             } icon: {
-                                Image(systemName: "server.rack")
+                                Image(systemName: EnsembleDesign.Icon.server)
                             }
                         }
                     }
                 }
 
                 NavigationLink(destination: WatchAddSourceView()) {
-                    Label("Add Source", systemImage: "plus.circle")
+                    Label("Add Source", systemImage: EnsembleDesign.Icon.addCircleOutline)
                 }
             }
 
             Section {
                 NavigationLink(destination: WatchCloudSettingsView()) {
-                    Label("iCloud Sync", systemImage: "icloud")
+                    Label("iCloud Sync", systemImage: EnsembleDesign.Icon.cloud)
                 }
                 NavigationLink(destination: WatchPersonalizationView()) {
-                    Label("Personalization", systemImage: "paintpalette")
+                    Label("Personalization", systemImage: EnsembleDesign.Icon.paintPalette)
                 }
             }
 
             Section {
                 Text(experience.statusMessage)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
         .navigationTitle("Settings")
@@ -414,7 +415,7 @@ private struct WatchSourceAccountView: View {
                                 Text(library.title)
                                 Text(library.isEnabled ? "Synced" : "Not synced")
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
                             }
                         }
                     }
@@ -425,7 +426,7 @@ private struct WatchSourceAccountView: View {
                 Button {
                     experience.syncSelectedLibraries()
                 } label: {
-                    Label("Sync Libraries", systemImage: "arrow.clockwise")
+                    Label("Sync Libraries", systemImage: EnsembleDesign.Icon.retry)
                 }
                 .disabled(experience.libraries.isEmpty || experience.isCatalogSyncing)
             } footer: {
@@ -443,20 +444,20 @@ private struct WatchAddSourceView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
-                Image(systemName: "link.circle")
+                Image(systemName: EnsembleDesign.Icon.linkCircle)
                     .font(.title2)
                 if let link = experience.linkState {
                     Text(link.code)
                         .font(.title2.monospacedDigit().weight(.semibold))
                     Text("plex.tv/link")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                 } else {
                     Button("Get Code") { experience.startLinkFlow() }
                 }
                 Text(experience.statusMessage)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
                     .multilineTextAlignment(.center)
             }
             .padding()
@@ -472,15 +473,15 @@ private struct WatchCloudSettingsView: View {
     var body: some View {
         List {
             Section {
-                Label("Pins", systemImage: "pin")
-                Label("Library Selections", systemImage: "books.vertical")
+                Label("Pins", systemImage: EnsembleDesign.Icon.pin)
+                Label("Library Selections", systemImage: EnsembleDesign.Icon.librarySelections)
             } footer: {
                 Text("Changes sync with Ensemble on your other devices through iCloud.")
             }
             Button {
                 experience.cloudPreferencesDidChange()
             } label: {
-                Label("Sync Now", systemImage: "arrow.clockwise")
+                Label("Sync Now", systemImage: EnsembleDesign.Icon.retry)
             }
         }
         .navigationTitle("iCloud Sync")
@@ -497,8 +498,8 @@ private struct WatchPersonalizationView: View {
                 get: { experience.accentColorName },
                 set: { experience.setAccentColorName($0) }
             )) {
-                ForEach(WatchAccentColor.names, id: \.self) { name in
-                    Text(name.capitalized).tag(name)
+                ForEach(AppAccentColor.allCases) { color in
+                    Text(color.rawValue.capitalized).tag(color.rawValue)
                 }
             }
         }
@@ -693,7 +694,7 @@ private struct WatchCategoryView: View {
     private var emptyCategoryRow: some View {
         if experience.isCatalogSyncing { ProgressView() }
         Text(experience.isCatalogSyncing ? "Syncing Libraries" : "No \(category.title)")
-            .foregroundStyle(.secondary)
+            .foregroundStyle(EnsembleDesign.Color.secondaryText)
     }
 
     private var songTracks: [EnsembleTrack] {
@@ -827,7 +828,7 @@ private struct WatchArtistAlbumsView: View {
                 if artistAlbums.isEmpty {
                     Text(experience.detailStatusMessage)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(artistAlbums) { album in
                         NavigationLink(destination: WatchTrackCollectionDetailView(
@@ -931,7 +932,7 @@ private struct WatchTrackCollectionDetailView: View {
             Section {
                 Text(emptyMessage)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         } else if isAlbum {
             ForEach(albumDiscs, id: \.number) { disc in
@@ -1430,9 +1431,9 @@ private struct WatchMediaSwipeActionsModifier: ViewModifier {
                 Button {
                     showsActions = true
                 } label: {
-                    Label("More", systemImage: "ellipsis")
+                    Label("More", systemImage: EnsembleDesign.Icon.more)
                 }
-                .tint(.gray)
+                .tint(EnsembleDesign.Color.neutralStatus)
             }
             .watchMediaActions(target, isPresented: $showsActions)
     }
@@ -1612,7 +1613,9 @@ private struct WatchMediaActionButtons: View {
                 } label: {
                     Label(
                         track.isFavorite == true ? "Unfavorite" : descriptor.title,
-                        systemImage: track.isFavorite == true ? "heart.slash" : descriptor.systemImage
+                        systemImage: track.isFavorite == true
+                            ? EnsembleDesign.Icon.favoriteRemove
+                            : descriptor.systemImage
                     )
                 }
             }
@@ -1621,7 +1624,9 @@ private struct WatchMediaActionButtons: View {
                 Button { target.togglePin(in: experience) } label: {
                     Label(
                         target.isPinned(in: experience) ? "Unpin" : descriptor.title,
-                        systemImage: target.isPinned(in: experience) ? "pin.slash" : descriptor.systemImage
+                        systemImage: target.isPinned(in: experience)
+                            ? EnsembleDesign.Icon.unpin
+                            : descriptor.systemImage
                     )
                 }
             }
@@ -1746,7 +1751,7 @@ private struct WatchPlaylistPicker: View {
                     Button {
                         add(to: recent)
                     } label: {
-                        Label("Add to \(recent.title)", systemImage: "clock.arrow.circlepath")
+                        Label("Add to \(recent.title)", systemImage: EnsembleDesign.Icon.recentPlaylist)
                     }
                 }
             }
@@ -1754,7 +1759,7 @@ private struct WatchPlaylistPicker: View {
             Section("Playlists") {
                 if compatibleTargets.isEmpty {
                     Text("No compatible playlists")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(compatibleTargets) { target in
                         Button {
@@ -1764,7 +1769,7 @@ private struct WatchPlaylistPicker: View {
                                 Text(target.title)
                                 Text(sourceTitle(for: target))
                                     .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
                             }
                         }
                     }
@@ -1775,7 +1780,7 @@ private struct WatchPlaylistPicker: View {
                 Button {
                     showsCreate = true
                 } label: {
-                    Label("New Playlist…", systemImage: "plus")
+                    Label("New Playlist…", systemImage: EnsembleDesign.Icon.add)
                 }
                 .disabled(tracks.isEmpty)
             }
@@ -1851,7 +1856,7 @@ private struct WatchRemotePlaylistPicker: View {
             Section("Playlists") {
                 if targets.isEmpty {
                     Text("No compatible playlists")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                 } else {
                     ForEach(targets) { target in
                         targetButton(target)
@@ -1862,7 +1867,7 @@ private struct WatchRemotePlaylistPicker: View {
                 Button {
                     showsCreate = true
                 } label: {
-                    Label("New Playlist…", systemImage: "plus")
+                    Label("New Playlist…", systemImage: EnsembleDesign.Icon.add)
                 }
                 .disabled(newPlaylistSourceKeys.isEmpty || remoteSession.isCommandInFlight)
             }
@@ -1989,12 +1994,12 @@ private struct WatchMediaMoreButton: View {
         Button {
             showsActions = true
         } label: {
-            Image(systemName: "ellipsis")
+            Image(systemName: EnsembleDesign.Icon.more)
                 .frame(width: 34, height: 34)
-                .background(Circle().fill(Color.secondary.opacity(0.22)))
+                .background(Circle().fill(EnsembleDesign.Color.secondaryControlFill))
         }
         .buttonStyle(.plain)
-        .tint(.primary)
+        .tint(EnsembleDesign.Color.primaryText)
         .accessibilityLabel("More Actions")
         .watchMediaActions(target, isPresented: $showsActions)
     }
@@ -2011,19 +2016,19 @@ private struct WatchCollectionPlaybackControls: View {
     var body: some View {
         VStack(spacing: 2) {
             HStack(spacing: 10) {
-                actionButton("Play", systemImage: "play.fill", kind: .play)
+                actionButton("Play", systemImage: EnsembleDesign.Icon.play, kind: .play)
                 if target.supportsShuffle {
-                    actionButton("Shuffle", systemImage: "shuffle", kind: .shuffle)
+                    actionButton("Shuffle", systemImage: EnsembleDesign.Icon.shuffle, kind: .shuffle)
                 }
                 if target.supportsRadio {
-                    actionButton("Radio", systemImage: "dot.radiowaves.left.and.right", kind: .radio)
+                    actionButton("Radio", systemImage: EnsembleDesign.Icon.radio, kind: .radio)
                 }
                 WatchMediaMoreButton(target: target)
             }
             if remotePlaybackDisabled {
                 Text("Source isn’t synced to iPhone")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
             }
         }
     }
@@ -2050,10 +2055,10 @@ private struct WatchCollectionPlaybackControls: View {
         } label: {
             Image(systemName: systemImage)
                 .frame(width: 34, height: 34)
-                .background(Circle().fill(Color.secondary.opacity(0.22)))
+                .background(Circle().fill(EnsembleDesign.Color.secondaryControlFill))
         }
         .buttonStyle(.plain)
-        .tint(.primary)
+        .tint(EnsembleDesign.Color.primaryText)
         .accessibilityLabel("\(label) \(title)")
         .disabled(tracks.isEmpty || remotePlaybackDisabled)
     }
@@ -2075,7 +2080,7 @@ private struct WatchCollectionHero: View {
         VStack(spacing: 4) {
             WatchArtworkImage(url: artworkURL)
                 .frame(width: 72, height: 72)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.control, style: .continuous))
 
             HStack {
                 Text(title)
@@ -2127,7 +2132,7 @@ private struct WatchCollectionHeaderSection: View {
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .lineLimit(2)
             }
         }
@@ -2337,7 +2342,7 @@ private struct WatchQueueView: View {
         let items = Array(allItems.prefix(experience.queueDisplayLimit))
         if items.isEmpty {
             Text("Queue is empty")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EnsembleDesign.Color.secondaryText)
         } else {
             ForEach(WatchQueueSection.allCases) { section in
                 let sectionItems = items.filter { $0.source == section.source }
@@ -2362,7 +2367,7 @@ private struct WatchQueueView: View {
     private var remoteQueue: some View {
         if !remoteSession.isReachable {
             Text("Reconnect to iPhone")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EnsembleDesign.Color.secondaryText)
         } else if let queue = remoteSession.queueSnapshot {
             Section {
                 queueControls(
@@ -2381,7 +2386,7 @@ private struct WatchQueueView: View {
             let items = Array(allItems.prefix(experience.queueDisplayLimit))
             if items.isEmpty {
                 Text("Queue is empty")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
             } else {
                 ForEach(WatchQueueSection.allCases) { section in
                     let sectionItems = items.filter { $0.source == section.source.rawValue }
@@ -2425,19 +2430,19 @@ private struct WatchQueueView: View {
         Button {
             toggleShuffle()
         } label: {
-            Label(shuffle ? "Shuffle On" : "Shuffle Off", systemImage: "shuffle")
+            Label(shuffle ? "Shuffle On" : "Shuffle Off", systemImage: EnsembleDesign.Icon.shuffle)
         }
         .disabled(disabled)
         Button {
             cycleRepeat()
         } label: {
-            Label(repeatTitle, systemImage: "repeat")
+            Label(repeatTitle, systemImage: EnsembleDesign.Icon.repeatMode)
         }
         .disabled(disabled)
         Button {
             toggleAutoplay()
         } label: {
-            Label(autoplay ? "AutoPlay On" : "AutoPlay Off", systemImage: "infinity.circle.fill")
+            Label(autoplay ? "AutoPlay On" : "AutoPlay Off", systemImage: EnsembleDesign.Icon.autoplay)
         }
         .disabled(disabled)
     }
@@ -2447,7 +2452,7 @@ private struct WatchQueueView: View {
         if totalCount > experience.queueDisplayLimit {
             Text("\(totalCount - experience.queueDisplayLimit) more songs")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(EnsembleDesign.Color.secondaryText)
         }
     }
 
@@ -2484,7 +2489,7 @@ private struct WatchQueueRow: View {
                     .lineLimit(2)
                 Text(item.track.artistName ?? "Unknown Artist")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
                     .lineLimit(1)
             }
         }
@@ -2507,9 +2512,9 @@ private struct WatchRemoteQueueRow: View {
                     .frame(width: 36, height: 36)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                Image(systemName: "music.note")
+                Image(systemName: EnsembleDesign.Icon.musicNote)
                     .frame(width: 36, height: 36)
-                    .background(Color.secondary.opacity(0.18))
+                    .background(EnsembleDesign.Color.subtleFill)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
             VStack(alignment: .leading, spacing: 2) {
@@ -2518,7 +2523,7 @@ private struct WatchRemoteQueueRow: View {
                     .lineLimit(2)
                 Text(item.artistName ?? "Unknown Artist")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
                     .lineLimit(1)
             }
         }
@@ -2554,7 +2559,7 @@ private struct WatchNowPlayingView: View {
 
                         artworkView
                             .frame(width: artworkSide, height: artworkSide)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.card, style: .continuous))
 
                         VStack(spacing: 0) {
                             Text(presentation.title)
@@ -2564,7 +2569,7 @@ private struct WatchNowPlayingView: View {
 
                             Text(presentation.artist)
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(EnsembleDesign.Color.secondaryText)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(1)
                         }
@@ -2577,14 +2582,14 @@ private struct WatchNowPlayingView: View {
                 }
             } else {
                 VStack(spacing: 8) {
-                    Image(systemName: "music.note")
+                    Image(systemName: EnsembleDesign.Icon.musicNote)
                         .font(.title)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                     Text("Nothing Playing")
                         .font(.headline)
                     Text(currentEmptyMessage)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(EnsembleDesign.Color.secondaryText)
                         .multilineTextAlignment(.center)
                 }
                 .padding()
@@ -2602,7 +2607,7 @@ private struct WatchNowPlayingView: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: EnsembleDesign.Icon.close)
                 }
                 .accessibilityLabel("Close Now Playing")
             }
@@ -2611,7 +2616,7 @@ private struct WatchNowPlayingView: View {
                 Button {
                     showsMoreActions = true
                 } label: {
-                    Image(systemName: "ellipsis")
+                    Image(systemName: EnsembleDesign.Icon.more)
                 }
                 .accessibilityLabel("More Actions")
             }
@@ -2626,25 +2631,30 @@ private struct WatchNowPlayingView: View {
             Button {
                 showsQueue = true
             } label: {
-                Label("Queue", systemImage: "list.bullet")
+                Label("Queue", systemImage: EnsembleDesign.Icon.queue)
             }
 
             Button {
                 showsPlaybackTargets = true
             } label: {
-                Label("Playback Target", systemImage: experience.playbackTarget == .local ? "applewatch" : "iphone")
+                Label(
+                    "Playback Target",
+                    systemImage: experience.playbackTarget == .local
+                        ? EnsembleDesign.Icon.deviceWatch
+                        : EnsembleDesign.Icon.devicePhone
+                )
             }
 
             Button {
                 showsSystemNowPlaying = true
             } label: {
-                Label("Output", systemImage: "airplayaudio")
+                Label("Output", systemImage: EnsembleDesign.Icon.airPlayAudio)
             }
 
             Button {
                 showsCurrentItemActions = true
             } label: {
-                Label("Current Item Actions", systemImage: "ellipsis.circle")
+                Label("Current Item Actions", systemImage: EnsembleDesign.Icon.trackActionsCircle)
             }
         }
         .confirmationDialog("Playback Target", isPresented: $showsPlaybackTargets, titleVisibility: .visible) {
@@ -2728,10 +2738,10 @@ private struct WatchNowPlayingView: View {
                 .scaledToFill()
         } else {
             ZStack {
-                Color.secondary.opacity(0.18)
-                Image(systemName: "music.note")
+                EnsembleDesign.Color.subtleFill
+                Image(systemName: EnsembleDesign.Icon.musicNote)
                     .font(.title2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(EnsembleDesign.Color.secondaryText)
             }
         }
     }
@@ -2741,13 +2751,23 @@ private struct WatchNowPlayingView: View {
         Button {
             experience.playbackTarget = .local
         } label: {
-            Label("This Watch", systemImage: experience.playbackTarget == .local ? "checkmark" : "applewatch")
+            Label(
+                "This Watch",
+                systemImage: experience.playbackTarget == .local
+                    ? EnsembleDesign.Icon.selectionCheckmark
+                    : EnsembleDesign.Icon.deviceWatch
+            )
         }
 
         Button {
             experience.playbackTarget = .remote
         } label: {
-            Label("iPhone", systemImage: experience.playbackTarget == .remote ? "checkmark" : "iphone")
+            Label(
+                "iPhone",
+                systemImage: experience.playbackTarget == .remote
+                    ? EnsembleDesign.Icon.selectionCheckmark
+                    : EnsembleDesign.Icon.devicePhone
+            )
         }
     }
 
@@ -2759,7 +2779,7 @@ private struct WatchNowPlayingView: View {
                 remoteSession.send(.previous)
             }
         } label: {
-            Image(systemName: "backward.fill")
+            Image(systemName: EnsembleDesign.Icon.previous)
         }
         .accessibilityLabel("Previous")
         .disabled(previousDisabled)
@@ -2775,23 +2795,23 @@ private struct WatchNowPlayingView: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(Color.secondary.opacity(0.22))
+                    .fill(EnsembleDesign.Color.secondaryControlFill)
                     .frame(width: 32, height: 32)
 
                 Circle()
                     .inset(by: 1)
                     .trim(from: 0, to: playbackProgress)
-                    .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(EnsembleDesign.Color.primaryText, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .frame(width: 40, height: 40)
 
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: isPlaying ? EnsembleDesign.Icon.pause : EnsembleDesign.Icon.play)
                     .font(.headline)
             }
             .frame(width: 40, height: 40)
         }
         .buttonStyle(.plain)
-        .tint(.primary)
+        .tint(EnsembleDesign.Color.primaryText)
         .scaleEffect(1.15)
         .accessibilityLabel(isPlaying ? "Pause" : "Play")
         .accessibilityValue("\(Int(playbackProgress * 100)) percent")
@@ -2806,7 +2826,7 @@ private struct WatchNowPlayingView: View {
                 remoteSession.send(.next)
             }
         } label: {
-            Image(systemName: "forward.fill")
+            Image(systemName: EnsembleDesign.Icon.next)
         }
         .accessibilityLabel("Next")
         .disabled(nextDisabled)
@@ -3012,17 +3032,21 @@ private struct WatchNowPlayingToolbarLink: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(Color.secondary.opacity(0.22))
-                Image(systemName: experience.playbackTarget == .local ? "applewatch" : "iphone")
+                    .fill(EnsembleDesign.Color.secondaryControlFill)
+                Image(
+                    systemName: experience.playbackTarget == .local
+                        ? EnsembleDesign.Icon.deviceWatch
+                        : EnsembleDesign.Icon.devicePhone
+                )
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(.primary, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                    .stroke(EnsembleDesign.Color.primaryText, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
             .frame(width: 34, height: 34)
         }
         .buttonStyle(.plain)
-        .tint(.primary)
+        .tint(EnsembleDesign.Color.primaryText)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Now Playing")
     }
@@ -3033,13 +3057,13 @@ private struct WatchNowPlayingToolbarLink: View {
 }
 
 private enum WatchPinsGrid {
-    static let spacing: CGFloat = 8
-    static let cornerRadius: CGFloat = 8
+    static let spacing = EnsembleDesign.Spacing.sm
+    static let cornerRadius = EnsembleDesign.Radius.compactControl
     static let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: 3)
 }
 
 private enum WatchRecentGrid {
-    static let spacing: CGFloat = 8
+    static let spacing = EnsembleDesign.Spacing.sm
     static let columns = Array(repeating: GridItem(.flexible(), spacing: spacing), count: 2)
 }
 
@@ -3052,7 +3076,7 @@ private struct WatchRecentAlbumCell: View {
         VStack(alignment: .leading, spacing: 4) {
             WatchArtworkImage(url: artworkURL)
                 .aspectRatio(1, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: EnsembleDesign.Radius.compactControl, style: .continuous))
             Text(item.title)
                 .font(.caption.weight(.semibold))
                 .lineLimit(2)
@@ -3090,14 +3114,14 @@ private struct WatchPinArtworkFrame: View {
                 artworkContent
                     .frame(width: side, height: side)
                     .clipShape(Circle())
-                    .background(Circle().fill(Color.secondary.opacity(0.18)))
+                    .background(Circle().fill(EnsembleDesign.Color.subtleFill))
             } else {
                 artworkContent
                     .frame(width: side, height: side)
                     .clipShape(RoundedRectangle(cornerRadius: WatchPinsGrid.cornerRadius, style: .continuous))
                     .background(
                         RoundedRectangle(cornerRadius: WatchPinsGrid.cornerRadius, style: .continuous)
-                            .fill(Color.secondary.opacity(0.18))
+                            .fill(EnsembleDesign.Color.subtleFill)
                     )
             }
         }
@@ -3135,7 +3159,7 @@ private struct WatchMediaRow: View {
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(EnsembleDesign.Color.secondaryText)
                         .lineLimit(1)
                 }
             }
@@ -3162,7 +3186,7 @@ private struct WatchTrackRow: View {
                     .lineLimit(2)
                 Text(track.artistName ?? track.albumTitle ?? "Track")
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(EnsembleDesign.Color.secondaryText)
                     .lineLimit(1)
             }
         }
@@ -3179,7 +3203,7 @@ private struct WatchAlbumTrackRow: View {
         HStack(spacing: 8) {
             Text(track.trackNumber.map(String.init) ?? "")
                 .font(.headline.monospacedDigit())
-                .foregroundColor(.secondary)
+                .foregroundColor(EnsembleDesign.Color.secondaryText)
                 .frame(width: 24, alignment: .trailing)
 
             Text(track.title)
@@ -3239,9 +3263,9 @@ private struct WatchArtworkImage: View {
             } else if url != nil {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.secondary.opacity(0.18))
+                    .background(EnsembleDesign.Color.subtleFill)
             } else {
-                Color.secondary.opacity(0.18)
+                EnsembleDesign.Color.subtleFill
             }
         }
         .task(id: url) {
@@ -3289,22 +3313,6 @@ private enum WatchArtworkLoader {
         let result = UIImage(cgImage: output)
         blurredCache.setObject(result, forKey: cacheKey)
         return result
-    }
-}
-
-private enum WatchAccentColor {
-    static let names = ["purple", "blue", "pink", "red", "orange", "yellow", "green"]
-
-    static func color(for name: String) -> Color {
-        switch name {
-        case "purple": return .purple
-        case "pink": return .pink
-        case "red": return .red
-        case "orange": return .orange
-        case "yellow": return .yellow
-        case "green": return .green
-        default: return .blue
-        }
     }
 }
 

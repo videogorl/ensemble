@@ -1,5 +1,6 @@
-import SwiftUI
 import Combine
+import EnsembleDomain
+import SwiftUI
 
 public enum TrackSwipeAction: String, CaseIterable, Codable, Sendable, Identifiable {
     case playNext
@@ -146,30 +147,6 @@ public struct TrackSwipeLayout: Codable, Equatable, Sendable {
         }
 
         return slots
-    }
-}
-
-public enum AppAccentColor: String, CaseIterable, Identifiable {
-    case purple = "purple"
-    case blue = "blue"
-    case pink = "pink"
-    case red = "red"
-    case orange = "orange"
-    case yellow = "yellow"
-    case green = "green"
-    
-    public var id: String { rawValue }
-    
-    public var color: Color {
-        switch self {
-        case .purple: return .purple
-        case .blue: return .blue
-        case .pink: return Color(red: 1.0, green: 0.0, blue: 1.0) // Magenta
-        case .red: return .red
-        case .orange: return .orange
-        case .yellow: return .yellow
-        case .green: return .green
-        }
     }
 }
 

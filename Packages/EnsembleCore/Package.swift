@@ -37,7 +37,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EnsembleCoreTests",
-            dependencies: ["EnsembleCore", "EnsembleAPI"],
+            dependencies: ["EnsembleCore", "EnsembleAPI", "EnsembleDomain"],
             path: "Tests"
         ),
     ]

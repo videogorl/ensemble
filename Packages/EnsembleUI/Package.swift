@@ -6,12 +6,17 @@ let package = Package(
     name: "EnsembleUI",
     platforms: [
         .iOS(.v15),
-        .macOS(.v12)
+        .macOS(.v12),
+        .watchOS(.v8)
     ],
     products: [
         .library(
             name: "EnsembleUI",
             targets: ["EnsembleUI"]
+        ),
+        .library(
+            name: "EnsembleDesignTokens",
+            targets: ["EnsembleDesignTokens"]
         ),
     ],
     dependencies: [
@@ -22,18 +27,24 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "EnsembleDesignTokens",
+            dependencies: ["EnsembleDomain"],
+            path: "DesignTokens"
+        ),
+        .target(
             name: "EnsembleUI",
             dependencies: [
                 "EnsembleSupport",
                 "EnsembleCore",
                 "EnsembleDomain",
+                "EnsembleDesignTokens",
                 .product(name: "NukeUI", package: "Nuke"),
             ],
             path: "Sources"
         ),
         .testTarget(
             name: "EnsembleUITests",
-            dependencies: ["EnsembleUI"],
+            dependencies: ["EnsembleUI", "EnsembleDesignTokens", "EnsembleDomain"],
             path: "Tests"
         ),
     ]

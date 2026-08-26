@@ -45,6 +45,7 @@
 		E0003005 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 		E0003006 /* EnsembleSiriShared in Frameworks */ = {isa = PBXBuildFile; productRef = E0003004 /* EnsembleSiriShared */; };
 		E0003007 /* EnsembleWatchCore in Frameworks */ = {isa = PBXBuildFile; productRef = E0003008 /* EnsembleWatchCore */; };
+		E0003010 /* EnsembleDesignTokens in Frameworks */ = {isa = PBXBuildFile; productRef = E0003009 /* EnsembleDesignTokens */; };
 		E0F100010000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100030000000000000003 /* PrivacyInfo.xcprivacy */; };
 		E0F100020000000000000002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = E0F100040000000000000004 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
@@ -159,6 +160,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E0003010 /* EnsembleDesignTokens in Frameworks */,
 				E0003007 /* EnsembleWatchCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -378,6 +380,7 @@
 			);
 			name = EnsembleWatch;
 			packageProductDependencies = (
+				E0003009 /* EnsembleDesignTokens */,
 				E0003008 /* EnsembleWatchCore */,
 			);
 			productName = EnsembleWatch;
@@ -1109,6 +1112,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = E0500003 /* XCLocalSwiftPackageReference "Packages/EnsembleWatchCore" */;
 			productName = EnsembleWatchCore;
+		};
+		E0003009 /* EnsembleDesignTokens */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E0500000 /* XCLocalSwiftPackageReference "Packages/EnsembleUI" */;
+			productName = EnsembleDesignTokens;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
