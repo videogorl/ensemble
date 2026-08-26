@@ -2157,7 +2157,7 @@ public final class WatchExperienceModel: ObservableObject {
             let credential = try await discovery.credential(from: token)
             try await discovery.saveSyncedCredential(credential)
             linkState = nil
-            try await finishBootstrap(credentials: [credential], forceRefresh: true)
+            await bootstrap(forceRefresh: true)
         } catch {
             bootstrapState = .failed(error.localizedDescription)
             statusMessage = error.localizedDescription
