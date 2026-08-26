@@ -22,6 +22,7 @@ final class PlaybackTransportCoordinator {
     private let downloadQuality: @Sendable () -> String
     private let isNetworkConstrained: @Sendable () async -> Bool
     private let allowStreamingOnCellular: @Sendable () -> Bool
+    private let artifactCache: PlaybackArtifactCache
     private let lock = NSLock()
     private var cachedStreamDecisions: [String: StreamDecision] = [:]
     private var sourceResolutionTasks: [String: Task<PlaybackSource, Error>] = [:]
@@ -34,13 +35,15 @@ final class PlaybackTransportCoordinator {
         isNetworkConstrained: @escaping @Sendable () async -> Bool = { false },
         allowStreamingOnCellular: @escaping @Sendable () -> Bool = {
             AudioQualityPreference.storedAllowStreamingOnCellular()
-        }
+        },
+        artifactCache: PlaybackArtifactCache = .shared
     ) {
         self.dependencies = dependencies
         self.streamingQuality = streamingQuality
         self.downloadQuality = downloadQuality
         self.isNetworkConstrained = isNetworkConstrained
         self.allowStreamingOnCellular = allowStreamingOnCellular
+        self.artifactCache = artifactCache
     }
 
     func resolvePlaybackSource(for track: Track, startTime: TimeInterval = 0) async throws -> PlaybackSource {
@@ -127,6 +130,7 @@ final class PlaybackTransportCoordinator {
         let qualityString = streamingQuality()
         let quality = StreamingQuality(rawValue: qualityString) ?? .high
         let normalizedStartTime = normalizedStartTime(startTime)
+        let sourceFingerprint = PlaybackArtifactKey.sourceFingerprint(for: track)
 
         let networkState = await dependencies.networkState()
         let isDefinitelyOffline = networkState == .offline || networkState == .limited
@@ -153,11 +157,21 @@ final class PlaybackTransportCoordinator {
                     }
                 }
                 hasInvalidLocalPayload = localSource == nil
-                if localSource == nil, isDefinitelyOffline { throw PlaybackError.corruptLocalFile }
-            } else if isDefinitelyOffline {
-                throw PlaybackError.offline
             }
-        } else if isDefinitelyOffline {
+        }
+
+        if normalizedStartTime == 0,
+           let cachedURL = artifactCache.completedArtifact(
+               trackIdentity: track.playbackIdentity,
+               sourceFingerprint: sourceFingerprint,
+               requestedQuality: quality.rawValue,
+               requireDirect: quality == .original
+           ) {
+            return .cachedFile(cachedURL, origin: .streamCache)
+        }
+
+        if localSource == nil, isDefinitelyOffline {
+            if hasInvalidLocalPayload { throw PlaybackError.corruptLocalFile }
             throw PlaybackError.offline
         }
 
@@ -180,10 +194,6 @@ final class PlaybackTransportCoordinator {
         }
 
         do {
-            if normalizedStartTime == 0, let completedURL = completedLoaderURLIfAvailable(for: track) {
-                return .cachedFile(completedURL, origin: .transcodeCache)
-            }
-
             do {
                 try await dependencies.ensureServerConnection(track)
             } catch {
@@ -200,34 +210,28 @@ final class PlaybackTransportCoordinator {
             }
 
             do {
-                return try await handleStreamResolution(resolution, for: track, startTime: normalizedStartTime)
+                return try await handleStreamResolution(
+                    resolution,
+                    for: track,
+                    quality: quality,
+                    startTime: normalizedStartTime
+                )
             } catch {
                 guard dependencies.shouldRetryStreamURLRequest(error) else {
                     throw dependencies.mapToPlaybackError(error)
                 }
                 try await dependencies.refreshConnection()
                 let freshResolution = try await dependencies.assembleStreamResolution(track, decision)
-                return try await handleStreamResolution(freshResolution, for: track, startTime: normalizedStartTime)
+                return try await handleStreamResolution(
+                    freshResolution,
+                    for: track,
+                    quality: quality,
+                    startTime: normalizedStartTime
+                )
             }
         } catch {
             if let localSource { return localSource }
             throw error
-        }
-    }
-
-    private func completedLoaderURLIfAvailable(for track: Track) -> URL? {
-        let trackIdentity = track.playbackIdentity
-        return withLock { () -> URL? in
-            guard let loader = streamLoaders[trackIdentity], loader.isDownloadComplete else {
-                return nil
-            }
-            if loader.completionError != nil {
-                streamLoaders.removeValue(forKey: trackIdentity)?.cancel()
-                cachedStreamDecisions.removeValue(forKey: trackIdentity)
-                sourceResolutionTasks.removeValue(forKey: trackIdentity)
-                return nil
-            }
-            return loader.localFileURL
         }
     }
 
@@ -262,8 +266,10 @@ final class PlaybackTransportCoordinator {
     private func handleStreamResolution(
         _ resolution: StreamResolution,
         for track: Track,
+        quality: StreamingQuality,
         startTime: TimeInterval
     ) async throws -> PlaybackSource {
+        let sourceFingerprint = PlaybackArtifactKey.sourceFingerprint(for: track)
         switch resolution {
         case let .downloadedFile(url):
             return .cachedFile(url, origin: .streamCache)
@@ -271,6 +277,7 @@ final class PlaybackTransportCoordinator {
             if url.isFileURL { return .localFile(url) }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
+            let fileExtension = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
             return .directHTTP(request, metadata: PlaybackSourceMetadata(
                 trackId: track.playbackIdentity,
                 ratingKey: track.id,
@@ -278,7 +285,15 @@ final class PlaybackTransportCoordinator {
                 duration: track.duration,
                 startTime: 0,
                 isSeekable: true,
-                cacheFileExtension: url.pathExtension.isEmpty ? "mp3" : url.pathExtension
+                cacheFileExtension: fileExtension,
+                artifactKey: PlaybackArtifactKey(
+                    trackIdentity: track.playbackIdentity,
+                    sourceFingerprint: sourceFingerprint,
+                    requestedQuality: quality.rawValue,
+                    delivery: .direct,
+                    fileExtension: fileExtension,
+                    startTime: 0
+                )
             ))
         case let .progressiveTranscode(config):
             return .transcodedHTTP(config.streamRequest, metadata: PlaybackSourceMetadata(
@@ -288,7 +303,15 @@ final class PlaybackTransportCoordinator {
                 duration: config.metadataDuration,
                 startTime: config.startTime > 0 ? config.startTime : startTime,
                 isSeekable: false,
-                cacheFileExtension: "mp3"
+                cacheFileExtension: "mp3",
+                artifactKey: PlaybackArtifactKey(
+                    trackIdentity: track.playbackIdentity,
+                    sourceFingerprint: sourceFingerprint,
+                    requestedQuality: quality.rawValue,
+                    delivery: .transcode,
+                    fileExtension: "mp3",
+                    startTime: config.startTime > 0 ? config.startTime : startTime
+                )
             ))
         }
     }
@@ -315,19 +338,26 @@ final class PlaybackTransportCoordinator {
         case let .localFile(url), let .cachedFile(url, _):
             return url
         case let .directHTTP(request, metadata):
-            guard let url = request.url else { throw PlaybackError.streamURLUnavailable }
             return try await downloadStreamToTempFile(
-                url: url,
-                trackId: metadata.trackId
+                request: request,
+                metadata: metadata
             )
         case let .transcodedHTTP(request, metadata):
-            return try await startProgressiveDownload(
+            let fileURL = try await startProgressiveDownload(
                 for: track,
                 request: request,
                 ratingKey: metadata.ratingKey ?? track.id,
                 estimatedContentLength: metadata.estimatedContentLength ?? 0,
                 metadataDuration: metadata.duration
             )
+            if let key = metadata.artifactKey, key.isCompleteTrack {
+                return try artifactCache.recordCompleted(
+                    fileURL: fileURL,
+                    key: key,
+                    expectedDuration: metadata.duration
+                )
+            }
+            return fileURL
         }
     }
 
@@ -393,23 +423,30 @@ final class PlaybackTransportCoordinator {
         }
     }
 
-    private func downloadStreamToTempFile(url: URL, trackId: String) async throws -> URL {
-        let cacheDir = PlaybackStreamCacheIdentity.streamCacheDirectory
-        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
-
-        let ext = url.pathExtension.isEmpty ? "mp3" : url.pathExtension
-        let destURL = cacheDir.appendingPathComponent(
-            PlaybackStreamCacheIdentity.fileName(for: trackId, pathExtension: ext)
-        )
-        let (data, response) = try await URLSession.shared.data(from: url)
+    private func downloadStreamToTempFile(
+        request: URLRequest,
+        metadata: PlaybackSourceMetadata
+    ) async throws -> URL {
+        guard let key = metadata.artifactKey else { throw PlaybackError.streamURLUnavailable }
+        let destURL = try artifactCache.partialURL(for: key)
+        let (temporaryURL, response) = try await URLSession.shared.download(for: request)
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
 
         if let httpResponse = response as? HTTPURLResponse, !(200 ... 299).contains(httpResponse.statusCode) {
-            let snippet = String(data: data.prefix(200), encoding: .utf8)
-            throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: snippet)
+            throw ProgressiveStreamError.httpError(statusCode: httpResponse.statusCode, bodySnippet: nil)
         }
 
-        try data.write(to: destURL)
-        return destURL
+        do {
+            try FileManager.default.moveItem(at: temporaryURL, to: destURL)
+            return try artifactCache.recordCompleted(
+                fileURL: destURL,
+                key: key,
+                expectedDuration: metadata.duration
+            )
+        } catch {
+            artifactCache.removeArtifact(at: destURL)
+            throw error
+        }
     }
 
     private func withLock<T>(_ body: () -> T) -> T {

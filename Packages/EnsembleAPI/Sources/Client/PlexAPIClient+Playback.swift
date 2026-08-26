@@ -222,8 +222,12 @@ extension PlexAPIClient {
     ) async throws -> StreamDecision {
         let normalizedStartTime = Self.normalizedTranscodeOffset(startTime)
         if normalizedStartTime == 0, quality == .original, let streamKey = trackStreamKey, !streamKey.isEmpty {
-            EnsembleLogger.debug("[makeStreamDecision] original quality → directStream(partKey)")
-            return .directStream(partKey: streamKey)
+            if let track = try? await getTrack(trackKey: ratingKey),
+               PlexAudioFormatSupport.supportsIncrementalPlayback(track) {
+                EnsembleLogger.debug("[makeStreamDecision] compatible original → directStream(partKey)")
+                return .directStream(partKey: streamKey)
+            }
+            EnsembleLogger.debug("[makeStreamDecision] original requires PMS capability decision")
         }
 
         if let streamKey = trackStreamKey, !streamKey.isEmpty {
@@ -453,13 +457,12 @@ extension PlexAPIClient {
     }
 
     func transcodeClientProfileExtra() -> String {
-        [
+        let directPlay = PlexAudioFormatSupport.directPlayCodecs.map {
+            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=\($0))"
+        }
+        return ([
             "add-transcode-target-codec(type=musicProfile&context=streaming&protocol=http&audioCodec=mp3)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=aac)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=mp3)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=flac)",
-            "add-direct-play-codec(type=musicProfile&context=streaming&audioCodec=alac)",
-        ].joined(separator: "+")
+        ] + directPlay).joined(separator: "+")
     }
 
     func transcodeStartPath(

@@ -816,8 +816,76 @@ public actor EnsemblePlexCatalogService {
         switch resolution {
         case .directStream(let url), .downloadedFile(let url):
             return url
-        case .progressiveTranscode:
-            throw EnsemblePlexError.unsupportedStreamResolution
+        case .progressiveTranscode(let config):
+            return try await materializeWatchTranscode(config, for: track)
+        }
+    }
+
+    private func materializeWatchTranscode(
+        _ config: ProgressiveStreamConfig,
+        for track: EnsembleTrack
+    ) async throws -> URL {
+        let fileManager = FileManager.default
+        let directory = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("EnsembleWatchStreamCache", isDirectory: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let revision = track.streamKey?
+            .split(separator: "/")
+            .suffix(4)
+            .joined(separator: "-") ?? track.id
+        let identity = "\(track.sourceKey)-\(track.id)-\(revision)"
+        let safeIdentity = identity.addingPercentEncoding(
+            withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-."))
+        ) ?? track.id
+        let destination = directory.appendingPathComponent("\(safeIdentity).mp3")
+        let existingSize = (try? fileManager.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?
+            .int64Value ?? 0
+        if existingSize > 0 {
+            try? fileManager.setAttributes(
+                [.modificationDate: Date()],
+                ofItemAtPath: destination.path
+            )
+            return destination
+        }
+
+        let (temporaryURL, response) = try await URLSession.shared.download(for: config.streamRequest)
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+        if let response = response as? HTTPURLResponse,
+           !(200 ... 299).contains(response.statusCode) {
+            throw PlexAPIError.httpError(statusCode: response.statusCode)
+        }
+        let byteCount = (try fileManager.attributesOfItem(atPath: temporaryURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard byteCount > 0 else { throw PlexAPIError.invalidResponse }
+
+        if fileManager.fileExists(atPath: destination.path) {
+            _ = try fileManager.replaceItemAt(destination, withItemAt: temporaryURL)
+        } else {
+            try fileManager.moveItem(at: temporaryURL, to: destination)
+        }
+        trimWatchStreamCache(directory: directory, keeping: destination)
+        return destination
+    }
+
+    private func trimWatchStreamCache(directory: URL, keeping activeURL: URL) {
+        let fileManager = FileManager.default
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileAllocatedSizeKey, .fileSizeKey]
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let values = files.compactMap { url -> (URL, Date, Int64)? in
+            guard let resources = try? url.resourceValues(forKeys: keys) else { return nil }
+            let byteCount = resources.fileAllocatedSize ?? resources.fileSize ?? 0
+            return (url, resources.contentModificationDate ?? .distantPast, Int64(byteCount))
+        }
+        var total = values.reduce(Int64(0)) { $0 + $1.2 }
+        for value in values.sorted(by: { $0.1 < $1.1 })
+        where total > 268_435_456 && value.0 != activeURL {
+            try? fileManager.removeItem(at: value.0)
+            total -= value.2
         }
     }
 

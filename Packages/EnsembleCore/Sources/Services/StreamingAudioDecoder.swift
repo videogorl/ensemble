@@ -332,9 +332,19 @@ final class StreamingAudioDecoder {
     private static func fileTypeHint(forExtension ext: String) -> AudioFileTypeID {
         switch ext.lowercased() {
         case "mp3":
-            return 0
-        case "m4a", "aac":
+            return kAudioFileMP3Type
+        case "m4a", "mp4", "alac":
             return kAudioFileM4AType
+        case "aac":
+            return kAudioFileAAC_ADTSType
+        case "flac":
+            return kAudioFileFLACType
+        case "wav", "wave":
+            return kAudioFileWAVEType
+        case "aif", "aiff", "aifc":
+            return kAudioFileAIFFType
+        case "caf":
+            return kAudioFileCAFType
         default:
             return 0
         }

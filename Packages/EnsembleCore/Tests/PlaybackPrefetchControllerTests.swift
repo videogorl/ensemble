@@ -101,39 +101,6 @@ final class PlaybackPrefetchControllerTests: XCTestCase {
         )
     }
 
-    func testStreamingPrefetchWaitsUntilTransitionWindow() {
-        XCTAssertFalse(
-            PlaybackPrefetchController.shouldMaterializeUpcomingTrack(
-                activeSourceIsStreaming: true,
-                currentTime: 30,
-                duration: 240,
-                playbackState: .playing
-            )
-        )
-    }
-
-    func testStreamingPrefetchStartsInsideTransitionWindow() {
-        XCTAssertTrue(
-            PlaybackPrefetchController.shouldMaterializeUpcomingTrack(
-                activeSourceIsStreaming: true,
-                currentTime: 225,
-                duration: 240,
-                playbackState: .playing
-            )
-        )
-    }
-
-    func testFileBackedPlaybackCanPrefetchImmediately() {
-        XCTAssertTrue(
-            PlaybackPrefetchController.shouldMaterializeUpcomingTrack(
-                activeSourceIsStreaming: false,
-                currentTime: 30,
-                duration: 240,
-                playbackState: .playing
-            )
-        )
-    }
-
     func testSmartMixSkipsConsecutiveTracksFromSameSourceAlbumWhenEnabled() {
         let outgoing = Track(id: "1", key: "/library/metadata/1", title: "One", albumRatingKey: "album-1", sourceCompositeKey: "source-a")
         let incoming = Track(id: "2", key: "/library/metadata/2", title: "Two", albumRatingKey: "album-1", sourceCompositeKey: "source-a")

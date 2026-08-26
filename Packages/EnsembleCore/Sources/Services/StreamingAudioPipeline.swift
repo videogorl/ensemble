@@ -1,6 +1,94 @@
 import AVFoundation
 import Foundation
 
+/// An append-only file with one writer and one independently paced reader.
+/// The reader blocks only when it reaches the current end of the file, never in
+/// URLSession's delegate queue.
+final class GrowingAudioFile {
+    private let condition = NSCondition()
+    private let writer: FileHandle
+    private let reader: FileHandle
+    private var availableByteCount: UInt64 = 0
+    private var readOffset: UInt64 = 0
+    private var terminalError: Error?
+    private var reachedEOF = false
+    private var writerClosed = false
+
+    init(url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        writer = try FileHandle(forWritingTo: url)
+        reader = try FileHandle(forReadingFrom: url)
+    }
+
+    deinit {
+        try? writer.close()
+        try? reader.close()
+    }
+
+    func append(_ data: Data) throws {
+        guard !data.isEmpty else { return }
+        condition.lock()
+        defer { condition.unlock() }
+        if let terminalError { throw terminalError }
+        guard !reachedEOF, !writerClosed else { throw CocoaError(.fileWriteUnknown) }
+        try writer.write(contentsOf: data)
+        availableByteCount += UInt64(data.count)
+        condition.signal()
+    }
+
+    func finish(error: Error? = nil) {
+        condition.lock()
+        guard !writerClosed else {
+            condition.unlock()
+            return
+        }
+        if terminalError == nil {
+            terminalError = error
+        }
+        reachedEOF = error == nil
+        try? writer.close()
+        writerClosed = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func read(maxLength: Int) throws -> Data? {
+        condition.lock()
+        while readOffset >= availableByteCount, terminalError == nil, !reachedEOF {
+            condition.wait()
+        }
+        if let terminalError {
+            condition.unlock()
+            throw terminalError
+        }
+        if readOffset >= availableByteCount, reachedEOF {
+            condition.unlock()
+            return nil
+        }
+        let offset = readOffset
+        let count = min(UInt64(maxLength), availableByteCount - readOffset)
+        condition.unlock()
+
+        try reader.seek(toOffset: offset)
+        let data = try reader.read(upToCount: Int(count)) ?? Data()
+        guard !data.isEmpty else { throw CocoaError(.fileReadUnknown) }
+
+        condition.lock()
+        readOffset += UInt64(data.count)
+        condition.unlock()
+        return data
+    }
+}
+
 final class StreamingAudioPipeline: NSObject {
     struct Diagnostics {
         let taskState: URLSessionTask.State?
@@ -93,7 +181,8 @@ final class StreamingAudioPipeline: NSObject {
     private var task: URLSessionDataTask?
     private var decoder: StreamingAudioDecoder?
     private var pcmBuffer: StreamingPCMBuffer?
-    private var cacheHandle: FileHandle?
+    private var growingFile: GrowingAudioFile?
+    private let decoderQueue = DispatchQueue(label: "com.ensemble.streamingDecoder", qos: .userInitiated)
     private var hasReceivedFirstByte = false
     private var completed = false
     private var cancelled = false
@@ -149,16 +238,15 @@ final class StreamingAudioPipeline: NSObject {
 
     func start() {
         do {
-            try FileManager.default.createDirectory(
-                at: configuration.cacheURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            FileManager.default.createFile(atPath: configuration.cacheURL.path, contents: nil)
-            cacheHandle = try FileHandle(forWritingTo: configuration.cacheURL)
+            let growingFile = try GrowingAudioFile(url: configuration.cacheURL)
+            self.growingFile = growingFile
 
             let decoder = try StreamingAudioDecoder(fileExtension: configuration.fileExtension)
             wire(decoder)
             self.decoder = decoder
+            decoderQueue.async { [weak self, weak decoder] in
+                self?.decode(growingFile: growingFile, decoder: decoder)
+            }
 
             let queue = OperationQueue()
             queue.maxConcurrentOperationCount = 1
@@ -189,9 +277,9 @@ final class StreamingAudioPipeline: NSObject {
         pcmBuffer?.wakeWaiters()
         task?.cancel()
         session?.invalidateAndCancel()
+        growingFile?.finish(error: URLError(.cancelled))
         startupTimeoutWorkItem?.cancel()
         startupTimeoutWorkItem = nil
-        closeCache()
         if shouldNotify {
             onFailure?(URLError(.cancelled))
         }
@@ -279,23 +367,43 @@ final class StreamingAudioPipeline: NSObject {
             if isFirstByte {
                 onFirstByte?()
             }
-            try cacheHandle?.write(contentsOf: data)
-            try decoder?.append(data)
+            try growingFile?.append(data)
         } catch {
             fail(error)
         }
     }
 
-    private func complete() {
+    private func finishNetwork() {
+        growingFile?.finish()
+    }
+
+    private func decode(growingFile: GrowingAudioFile, decoder: StreamingAudioDecoder?) {
+        guard let decoder else { return }
+        do {
+            while let data = try growingFile.read(maxLength: 64 * 1024) {
+                try decoder.append(data)
+            }
+            completeDecodedStream()
+        } catch {
+            fail(error)
+        }
+    }
+
+    private func completeDecodedStream() {
         startupTimeoutWorkItem?.cancel()
         startupTimeoutWorkItem = nil
         stateLock.lock()
-        let shouldNotify = !completed && !cancelled
+        let hasFormat = pcmBuffer != nil
+        let receivedByteCount = self.receivedByteCount
+        let shouldNotify = hasFormat && !completed && !cancelled
         if shouldNotify { completed = true }
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
+        guard hasFormat else {
+            fail(ProgressiveStreamError.invalidPayload(bytesReceived: receivedByteCount))
+            return
+        }
         pcmBuffer?.wakeWaiters()
-        closeCache()
         if shouldNotify {
             onBufferedProgress?(1)
             onComplete?(configuration.cacheURL)
@@ -311,7 +419,8 @@ final class StreamingAudioPipeline: NSObject {
         let pcmBuffer = self.pcmBuffer
         stateLock.unlock()
         pcmBuffer?.wakeWaiters()
-        closeCache()
+        growingFile?.finish(error: error)
+        task?.cancel()
         if shouldNotify {
             onFailure?(error)
         }
@@ -330,11 +439,6 @@ final class StreamingAudioPipeline: NSObject {
         stateLock.lock()
         defer { stateLock.unlock() }
         return !cancelled
-    }
-
-    private func closeCache() {
-        try? cacheHandle?.close()
-        cacheHandle = nil
     }
 
     private static func duration(_ start: Date?, _ end: Date?) -> String {
@@ -401,7 +505,7 @@ extension StreamingAudioPipeline: URLSessionDataDelegate {
         if let error {
             fail(error)
         } else {
-            complete()
+            finishNetwork()
         }
     }
 }

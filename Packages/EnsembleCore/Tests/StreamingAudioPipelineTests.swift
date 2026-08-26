@@ -116,6 +116,46 @@ final class StreamingAudioPipelineTests: XCTestCase {
 
         await fulfillment(of: [failed], timeout: 1)
     }
+
+    func testNetworkIngestionFinishesWhilePCMConsumerIsStalled() async throws {
+        let fixtureURL = URL(fileURLWithPath: "/System/Library/CoreServices/Language Chooser.app/Contents/Resources/VOInstructions-en.m4a")
+        guard FileManager.default.fileExists(atPath: fixtureURL.path) else {
+            throw XCTSkip("System M4A fixture is unavailable on this macOS install")
+        }
+        let data = try Data(contentsOf: fixtureURL)
+        DelayedAudioURLProtocol.configure(data: data, chunkSize: 16_384, delay: 0)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [DelayedAudioURLProtocol.self]
+        let cacheURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("streaming-backpressure-\(UUID().uuidString).m4a")
+        defer { try? FileManager.default.removeItem(at: cacheURL) }
+        let pipeline = StreamingAudioPipeline(configuration: .init(
+            request: URLRequest(url: try XCTUnwrap(URL(string: "https://audio.test/backpressure.m4a"))),
+            fileExtension: "m4a",
+            cacheURL: cacheURL,
+            bufferSeconds: 0.01,
+            sessionConfiguration: configuration
+        ))
+        defer {
+            pipeline.onFailure = nil
+            pipeline.cancel()
+        }
+        pipeline.onFailure = { error in XCTFail("pipeline failed: \(error)") }
+
+        pipeline.start()
+
+        var cachedBytes: Int64 = 0
+        for _ in 0 ..< 200 {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: cacheURL.path)
+            cachedBytes = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+            if cachedBytes == Int64(data.count) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        XCTAssertEqual(cachedBytes, Int64(data.count))
+        XCTAssertFalse(pipeline.diagnostics().isComplete)
+    }
 }
 
 private final class StalledAudioURLProtocol: URLProtocol {

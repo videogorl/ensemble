@@ -6,7 +6,7 @@ import Foundation
 public enum TrackAvailability: Sendable, Equatable {
     /// Can play — either downloaded or server reachable.
     case available
-    /// Downloaded copy available, but server is unreachable.
+    /// Local media copy available, but server is unreachable.
     case availableDownloadedOnly
     /// Not downloaded and the track's server is offline (with classified reason).
     case unavailableServerOffline(reason: ServerConnectionFailureReason)
@@ -62,6 +62,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
 
     private let networkMonitor: NetworkMonitor
     private let serverHealthChecker: ServerHealthChecker
+    private let artifactCache: PlaybackArtifactCache
     private var cancellables = Set<AnyCancellable>()
 
     public init(
@@ -70,6 +71,7 @@ public final class TrackAvailabilityResolver: ObservableObject {
     ) {
         self.networkMonitor = networkMonitor
         self.serverHealthChecker = serverHealthChecker
+        artifactCache = .shared
 
         setupObservers()
     }
@@ -83,8 +85,17 @@ public final class TrackAvailabilityResolver: ObservableObject {
             return .unavailableLibraryNotSynced
         }
 
-        // Downloaded tracks are always playable
-        if track.isDownloaded {
+        let quality = StreamingQuality(
+            rawValue: AudioQualityPreference.storedStreamingQuality()
+        ) ?? .high
+        let hasLocalMedia = track.isDownloaded || artifactCache.hasCompletedArtifact(
+            trackIdentity: track.playbackIdentity,
+            sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: track),
+            requestedQuality: quality.rawValue,
+            requireDirect: quality == .original
+        )
+
+        if hasLocalMedia {
             if networkMonitor.isConnected {
                 return .available
             } else {
@@ -129,6 +140,13 @@ public final class TrackAvailabilityResolver: ObservableObject {
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(for: AudioQualityPreference.cellularStreamingPolicyDidChange)
+            .sink { [weak self] _ in
+                self?.bumpGeneration()
+            }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: PlaybackArtifactCache.didChange)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.bumpGeneration()
             }

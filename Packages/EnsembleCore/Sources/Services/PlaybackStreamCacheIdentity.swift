@@ -5,7 +5,7 @@ enum PlaybackStreamCacheIdentity {
     private static let legacySeparator: Character = "_"
 
     static var streamCacheDirectory: URL {
-        FileManager.default.temporaryDirectory
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("EnsembleStreamCache", isDirectory: true)
     }
 

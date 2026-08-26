@@ -6,6 +6,7 @@ public enum CacheType: String, CaseIterable {
     case libraryMetadata = "Library Metadata"
     case albumArtwork = "Album Artwork"
     case downloadedTracks = "Downloaded Tracks"
+    case playbackAudio = "Playback Audio Cache"
     case nukeImageCache = "Image Cache (Nuke)"
     
     public var description: String {
@@ -39,14 +40,15 @@ public struct CacheCleanupSnapshot: Sendable, Equatable {
     public let downloadFileCount: Int
     public let downloadSize: Int64
     public let artworkSize: Int64
+    public let playbackAudioSize: Int64
     public let nukeImageCacheSize: Int64
 
     public var totalFileCacheSize: Int64 {
-        downloadSize + artworkSize + nukeImageCacheSize
+        downloadSize + artworkSize + playbackAudioSize + nukeImageCacheSize
     }
 
     public var logDescription: String {
-        "libraryItems=\(libraryItemCount), sources=\(sourceCount), downloads=\(downloadRecordCount), completedDownloads=\(completedDownloadCount), downloadFiles=\(downloadFileCount), downloadBytes=\(downloadSize), artworkBytes=\(artworkSize), nukeBytes=\(nukeImageCacheSize), totalFileBytes=\(totalFileCacheSize)"
+        "libraryItems=\(libraryItemCount), sources=\(sourceCount), downloads=\(downloadRecordCount), completedDownloads=\(completedDownloadCount), downloadFiles=\(downloadFileCount), downloadBytes=\(downloadSize), artworkBytes=\(artworkSize), playbackAudioBytes=\(playbackAudioSize), nukeBytes=\(nukeImageCacheSize), totalFileBytes=\(totalFileCacheSize)"
     }
 }
 
@@ -65,6 +67,7 @@ public final class CacheManager: ObservableObject {
     private let downloadManager: DownloadManagerProtocol
     private let lyricsService: LyricsService
     private let transientArtworkCacheReset: @MainActor () async throws -> Void
+    private let playbackArtifactCache = PlaybackArtifactCache.shared
     public var sourceCacheCleanupService: SourceCacheCleaning?
 
     public init(
@@ -137,6 +140,12 @@ public final class CacheManager: ObservableObject {
         } catch {
             EnsembleLogger.debug("Failed to get Nuke cache size: \(error)")
         }
+
+        let playbackAudioSize = playbackArtifactCache.size()
+        infos[.playbackAudio] = CacheInfo(
+            type: .playbackAudio,
+            size: playbackAudioSize
+        )
         
         cacheInfos = infos
         totalCacheSize = infos.values.reduce(0) { $0 + $1.size }
@@ -157,6 +166,8 @@ public final class CacheManager: ObservableObject {
             invalidateArtworkCacheConsumers()
         case .downloadedTracks:
             try await clearAllDownloads()
+        case .playbackAudio:
+            try playbackArtifactCache.removeAll()
         case .nukeImageCache:
             try await clearNukeImageCache()
         }
@@ -176,6 +187,7 @@ public final class CacheManager: ObservableObject {
 
         try await artworkDownloadManager.clearArtworkCache()
         try await clearNukeImageCache()
+        try playbackArtifactCache.removeAll()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
@@ -218,6 +230,7 @@ public final class CacheManager: ObservableObject {
         let downloadDirectoryStats = try getDownloadDirectoryStats()
         async let artworkSize = artworkDownloadManager.getArtworkCacheSize()
         async let nukeSize = getNukeImageCacheSize()
+        let playbackAudioSize = playbackArtifactCache.size()
 
         return try await CacheCleanupSnapshot(
             libraryItemCount: libraryCount,
@@ -227,6 +240,7 @@ public final class CacheManager: ObservableObject {
             downloadFileCount: downloadDirectoryStats.fileCount,
             downloadSize: downloadDirectoryStats.size,
             artworkSize: artworkSize,
+            playbackAudioSize: playbackAudioSize,
             nukeImageCacheSize: nukeSize
         )
     }

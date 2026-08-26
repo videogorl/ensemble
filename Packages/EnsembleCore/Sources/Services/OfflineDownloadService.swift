@@ -160,6 +160,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let lyricsService: LyricsService
     private let foregroundWorkScheduler: ForegroundWorkScheduling?
     private let launchRecoveryStartedAt: Date
+    private let playbackArtifactCache = PlaybackArtifactCache.shared
 
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
@@ -278,6 +279,17 @@ public final class OfflineDownloadService: ObservableObject {
                     trackSourceCompositeKey: ctx.sourceCompositeKey
                 )
                 return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
+            },
+            matchingPlaybackArtifact: { [playbackArtifactCache] ctx, quality in
+                playbackArtifactCache.completedArtifact(
+                    trackIdentity: ctx.domainTrack.playbackIdentity,
+                    sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: ctx.domainTrack),
+                    requestedQuality: quality.rawValue,
+                    requireDirect: quality == .original
+                )
+            },
+            rejectPlaybackArtifact: { [playbackArtifactCache] url in
+                playbackArtifactCache.removeArtifact(at: url)
             }
         )
     )

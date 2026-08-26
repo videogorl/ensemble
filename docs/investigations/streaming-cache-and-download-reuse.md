@@ -15,14 +15,13 @@ There is no Apple API or current Swift package that removes this coordination wi
 
 The coordinator itself should be small and built from Apple primitives: `URLSessionDataTask` for incremental transport, separate `FileHandle`s for the writer and reader, `NSCondition` for byte-availability/EOF signalling, the existing `AudioFileStream` plus `AVAudioConverter` decoder, and `FileManager` for cache placement and atomic installation. The custom part is only the state that connects those APIs; it is not a replacement networking, decoding, or file-I/O stack.
 
-## Current Ensemble behavior
+## Implemented Ensemble behavior
 
-- `StreamingAudioPipeline` and `ProgressiveStreamLoader` write uniquely suffixed files under `tmp/EnsembleStreamCache`.
-- Cleanup keeps only the current track, the next two, the previous one, scheduled tracks, and active loaders. `PlaybackResolvedFileCache` separately remembers at most 10 resolved file URLs in memory.
-- `PlaybackTransportCoordinator` can reuse a completed `ProgressiveStreamLoader`, but the live `StreamingAudioPipeline` completion callback is not connected to either cache. Its completed file may remain briefly because of filename-based cleanup, but it is not a durable replay hit.
-- Partial and complete pipeline files have the same naming shape and no persisted quality/completeness record. Offline files instead live in `DownloadManager.downloadsDirectory` and are indexed by `OfflineDownloadService`/`DownloadManager`.
-
-This means the intended “complete cache files remain useful for analysis and replay” behavior is only partially implemented today.
+- `StreamingAudioPipeline` writes network bytes to an append-only file while a signalled reader feeds the decoder on its own queue, so a full PCM ring cannot suspend `URLSession` ingestion.
+- Completed offset-zero files live under `Library/Caches/EnsembleStreamCache` with source revision, requested quality, delivery kind, byte count, duration, completion time, and access time. Cache hits are exact, and a 1 GiB LRU preserves active playback artifacts.
+- The immediate upcoming Plex track is materialized to disk early; audio-engine scheduling still waits for the normal gapless/SmartMix transition window.
+- Full completed artifacts count as local media for replay, offline queue filtering, and local seeking. Offset-started seeks remain fragments and never become reusable completions.
+- `OfflineDownloadService` can validate and atomically adopt an exact-quality artifact without a second network transfer. Durable downloads remain independently indexed and are never subject to playback-cache eviction.
 
 ## Plex and Apple format compatibility
 
@@ -75,7 +74,7 @@ If a download is requested and a completed playback artifact exactly matches the
 - Use `FileManager.replaceItemAt` for same-volume durable installation after validation; Apple documents it as replacement that ensures no data loss. [Apple: `replaceItemAt`](https://developer.apple.com/documentation/foundation/filemanager/replaceitemat(_:withitemat:backupitemname:options:))
 - Keep the byte-budgeted LRU as a directory scan over completed manifests. Apple has no general file-cache eviction API with Ensemble's source/quality identity and active-file leases; `AVAssetDownloadStorageManager` applies only to AVFoundation-downloaded assets.
 
-All of these selected primitives are available on iOS 15 and macOS 12. The transport, file, condition, parser, and converter primitives also cover watchOS 10; `AVAssetResourceLoader` and `AVAssetDownloadStorageManager` do not. Watch should therefore continue to let `AVPlayer` own direct-file streaming rather than share the main app's cache implementation.
+All of these selected primitives are available on iOS 15 and macOS 12. The transport, file, condition, parser, and converter primitives also cover watchOS 10; `AVAssetResourceLoader` and `AVAssetDownloadStorageManager` do not. Watch therefore lets `AVPlayer` own compatible direct-file streaming. When Plex requires a progressive MP3 transcode, Watch materializes that response with native `URLSession.download(for:)` into its own purgeable 256 MiB LRU before handing the local file to `AVPlayer`; this also keeps Watch preloading disk-backed without importing the main app's custom audio engine.
 
 `Library/Caches` is the correct home for completed replayable streams. Apple describes `tmp` as suitable for one-time, short-lived files that need not persist between launches, while `Caches` is for longer-lived but purgeable data that improves performance, including transient downloadable content. Neither is backed up. [Apple: using the file system effectively](https://developer.apple.com/documentation/foundation/using-the-file-system-effectively)
 
@@ -116,10 +115,10 @@ It could safely own eviction only if it managed a directory containing **complet
 
 Reconsider a generic cache dependency only if the policy later needs a durable index, cross-process coordination, or measured cleanup cost that the directory scan cannot handle. Even then, the package should own only completed transient artifacts, never network ingestion, decoder flow control, or offline-download records.
 
-## Minimal policy to implement
+## Implemented policy
 
 - Commit to the completed cache only after clean EOF and existing duration/payload validation.
-- Cache only full-track, offset-zero artifacts initially; discard seek fragments and failed/cancelled partials.
+- Cache only full-track, offset-zero artifacts; discard seek fragments and failed/cancelled partials.
 - Key by stable playback identity plus delivery variant (at minimum source, quality, codec/container, and any source revision available from Plex metadata), not by the expiring request URL.
 - On a cache hit, update an explicit access timestamp and decode the immutable local file.
 - Evict least-recently-used completed files when the directory exceeds a fixed byte budget; never evict active/current files.

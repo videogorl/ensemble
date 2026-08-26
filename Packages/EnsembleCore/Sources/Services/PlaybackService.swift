@@ -1065,6 +1065,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private let trackRatingLocalStore: TrackRatingLocalStoring
     private let queueStore: PlaybackQueueStore
     private let queueController: PlaybackQueueController
+    private let artifactCache: PlaybackArtifactCache
     private let prefetchController: PlaybackPrefetchController
     private let smartMixAnalysisService: SmartMixAnalysisService
     private let nowPlayingBridge: PlaybackNowPlayingBridge
@@ -1163,7 +1164,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ),
         isNetworkConstrained: { [weak self] in
             await self?.isTransportNetworkConstrained() ?? false
-        }
+        },
+        artifactCache: artifactCache
     )
     private lazy var launchCoordinator = PlaybackLaunchCoordinator(
         dependencies: .init(
@@ -1269,7 +1271,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.foregroundWorkScheduler = foregroundWorkScheduler
         queueStore = PlaybackQueueStore()
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: Self.maxHistorySize)
-        prefetchController = PlaybackPrefetchController()
+        artifactCache = .shared
+        prefetchController = PlaybackPrefetchController(artifactCache: artifactCache)
         smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
@@ -1307,7 +1310,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         self.queueStore = queueStore
         self.foregroundWorkScheduler = foregroundWorkScheduler
         queueController = PlaybackQueueController(queueStore: queueStore, maxHistorySize: Self.maxHistorySize)
-        prefetchController = PlaybackPrefetchController()
+        artifactCache = .shared
+        prefetchController = PlaybackPrefetchController(artifactCache: artifactCache)
         smartMixAnalysisService = SmartMixAnalysisService(foregroundWorkScheduler: foregroundWorkScheduler)
         nowPlayingBridge = PlaybackNowPlayingBridge(artworkLoader: artworkLoader)
         audioSessionCoordinator = PlaybackAudioSessionCoordinator()
@@ -1431,6 +1435,29 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                       abs(self.bufferedProgress - bounded) > 0.002
                 else { return }
                 self.bufferedProgress = bounded
+            }
+        }
+
+        engine.onStreamingFileComplete = { [weak self] fileURL, key, expectedDuration, _ in
+            guard let self else { return }
+            let artifactCache = self.artifactCache
+            Task.detached(priority: .utility) { [weak self] in
+                do {
+                    let completedURL = try artifactCache.recordCompleted(
+                        fileURL: fileURL,
+                        key: key,
+                        expectedDuration: expectedDuration
+                    )
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        self.cacheFileURL(completedURL, for: key.trackIdentity)
+                        self.cleanupStreamCacheFiles()
+                    }
+                } catch {
+                    EnsembleLogger.debug(
+                        "[PlaybackArtifactCache] rejected completed stream for \(key.trackIdentity): \(error.localizedDescription)"
+                    )
+                }
             }
         }
 
@@ -3048,6 +3075,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
                 // Track's server is online — can stream
                 playableTracks.append(track)
                 originalPlayableIndices.append(index)
+            } else if let cachedTrack = await resolveOfflinePlayableTrack(track) {
+                playableTracks.append(cachedTrack)
+                originalPlayableIndices.append(index)
             }
             // else: server offline and not downloaded — skip
         }
@@ -3076,6 +3106,18 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
            FileManager.default.fileExists(atPath: localFilePath)
         {
             return track
+        }
+
+        let quality = StreamingQuality(
+            rawValue: AudioQualityPreference.storedStreamingQuality()
+        ) ?? .high
+        if let cachedURL = artifactCache.completedArtifact(
+            trackIdentity: track.playbackIdentity,
+            sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: track),
+            requestedQuality: quality.rawValue,
+            requireDirect: quality == .original
+        ) {
+            return track.withLocalFilePath(cachedURL.path)
         }
 
         guard let sourceCompositeKey = track.sourceCompositeKey,
@@ -5315,16 +5357,6 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
         // Don't prefetch when playback has failed
         if case .failed = playbackState { return }
-        guard PlaybackPrefetchController.shouldMaterializeUpcomingTrack(
-            activeSourceIsStreaming: engine.isStreamingSourceActive,
-            currentTime: currentTime,
-            duration: duration,
-            playbackState: playbackState
-        ) else {
-            EnsembleLogger.debug("[prefetch] Deferring full-file materialization while the active stream is outside its transition window")
-            return
-        }
-
         let prefetchSnapshot: (track: Track?, shouldClearSchedule: Bool, shouldDefer: Bool) = await MainActor.run { [weak self] in
             guard let self else { return (track: nil, shouldClearSchedule: false, shouldDefer: false) }
             let removedDuplicates = !self.removeDuplicateFutureAutoplayItemsIfNeeded(

@@ -1419,37 +1419,20 @@ public func getStreamURL(
     ) async throws -> StreamDecision {
         EnsembleLogger.debug("[PlexProvider] makeStreamDecision: ratingKey=\(trackRatingKey), quality=\(quality.rawValue)")
 
-        do {
-            let decision = try await apiClient.makeStreamDecision(
-                ratingKey: trackRatingKey,
-                trackStreamKey: trackStreamKey,
-                quality: quality,
-                metadataDurationSeconds: metadataDurationSeconds,
-                startTime: startTime
-            )
-            switch decision {
-            case .directStream:
-                EnsembleLogger.debug("[PlexProvider] Decision: directStream (quality=\(quality.rawValue))")
-            case .progressiveTranscode:
-                EnsembleLogger.debug("[PlexProvider] Decision: progressiveTranscode (quality=\(quality.rawValue))")
-            }
-            return decision
-        } catch {
-            EnsembleLogger.debug("[PlexProvider] makeStreamDecision failed: \(error). Falling back to direct stream decision.")
+        let decision = try await apiClient.makeStreamDecision(
+            ratingKey: trackRatingKey,
+            trackStreamKey: trackStreamKey,
+            quality: quality,
+            metadataDurationSeconds: metadataDurationSeconds,
+            startTime: startTime
+        )
+        switch decision {
+        case .directStream:
+            EnsembleLogger.debug("[PlexProvider] Decision: directStream (quality=\(quality.rawValue))")
+        case .progressiveTranscode:
+            EnsembleLogger.debug("[PlexProvider] Decision: progressiveTranscode (quality=\(quality.rawValue))")
         }
-
-        // Fallback: direct stream decision with the stream key
-        if let streamKey = trackStreamKey, !streamKey.isEmpty {
-            return .directStream(partKey: streamKey)
-        }
-
-        // Last resort: fetch track metadata for stream key
-        guard let track = try await apiClient.getTrack(trackKey: trackRatingKey),
-              let streamKey = track.streamURL else {
-            EnsembleLogger.debug("[PlexProvider] Could not get stream key from track metadata for decision")
-            throw PlexAPIError.invalidURL
-        }
-        return .directStream(partKey: streamKey)
+        return decision
     }
 
     /// Phase 2: Assemble a StreamResolution from a cached StreamDecision.
