@@ -161,6 +161,7 @@ public struct MiniPlayer: View {
     private var pillContent: some View {
         MiniPlayerTrackInfo(
             playbackProjection: viewModel.playbackProjection,
+            artworkProjection: viewModel.artworkProjection,
             viewModel: viewModel,
             showsWaveform: showsWaveform,
             waveformColor: waveformColor,
@@ -179,6 +180,7 @@ public struct MiniPlayer: View {
 /// context menu) stays untouched.
 private struct MiniPlayerTrackInfo: View {
     @ObservedObject var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject var artworkProjection: NowPlayingArtworkProjection
     let viewModel: NowPlayingViewModel
     let showsWaveform: Bool
     let waveformColor: Color
@@ -354,12 +356,7 @@ private struct MiniPlayerTrackInfo: View {
         HStack(spacing: TrackListLayoutMetrics.rowInterItemSpacing) {
             // Artwork
             ZStack {
-                ArtworkView(
-                    track: track,
-                    size: .tiny,
-                    cornerRadius: artworkCornerRadius,
-                    isResponsive: true
-                )
+                ResolvedArtworkImageView(image: artworkProjection.artworkImage)
                 .frame(width: artworkDimension, height: artworkDimension)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))

@@ -768,6 +768,66 @@ final class LibraryRepositoryTests: XCTestCase {
         XCTAssertEqual(path, artworkURL.path)
     }
 
+    func testArtworkDownloadManagerDefersRepeatedMissingAssetUntilIdentityChanges() async throws {
+        MissingArtworkURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MissingArtworkURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        let now = Date(timeIntervalSince1970: 1_000)
+        let manager = ArtworkDownloadManager(session: session, now: { now })
+        let ratingKey = "missing-\(UUID().uuidString)"
+        let sourceKey = "plex:account:server:library"
+        let identity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: "/library/metadata/\(ratingKey)/thumb/1",
+            dateModifiedSeconds: 1,
+            requestedPixelDimension: 1_000,
+            sourceCompositeKey: sourceKey
+        )
+        let remoteURL = try XCTUnwrap(URL(string: "https://artwork.invalid/image"))
+        defer {
+            manager.deleteArtwork(
+                ratingKey: ratingKey,
+                type: .album,
+                sourceCompositeKey: sourceKey
+            )
+        }
+
+        do {
+            try await manager.downloadAndCacheArtwork(from: remoteURL, identity: identity)
+            XCTFail("Expected the first missing artwork response to fail")
+        } catch ArtworkDownloadError.httpResponse(let statusCode, _) {
+            XCTAssertEqual(statusCode, 404)
+        }
+
+        guard case .deferred = await manager.remoteArtworkRequestDecision(for: identity) else {
+            return XCTFail("Expected the unchanged asset identity to be deferred")
+        }
+        do {
+            try await manager.downloadAndCacheArtwork(from: remoteURL, identity: identity)
+            XCTFail("Expected the repeated request to be deferred")
+        } catch ArtworkDownloadError.requestDeferred {}
+        XCTAssertEqual(MissingArtworkURLProtocol.requestCount, 1)
+
+        let changedIdentity = ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: identity.sourcePath,
+            dateModifiedSeconds: 2,
+            requestedPixelDimension: 1_000,
+            sourceCompositeKey: sourceKey
+        )
+        let changedDecision = await manager.remoteArtworkRequestDecision(for: changedIdentity)
+        XCTAssertEqual(changedDecision, .allowed)
+
+        try await manager.clearArtworkCache()
+        let clearedDecision = await manager.remoteArtworkRequestDecision(for: identity)
+        XCTAssertEqual(clearedDecision, .allowed)
+    }
+
     func testArtworkDownloadManagerRejectsIdentityForDifferentRatingKeyOrType() async throws {
         let manager = ArtworkDownloadManager()
         let ratingKey = "identity-mismatch-\(UUID().uuidString)"
@@ -1886,4 +1946,35 @@ private func makeJPEG(width: Int, height: Int, at url: URL) throws {
     guard CGImageDestinationFinalize(destination) else {
         throw NSError(domain: "LibraryRepositoryTests", code: 3)
     }
+}
+
+private final class MissingArtworkURLProtocol: URLProtocol {
+    private static let lock = NSLock()
+    private static var requests = 0
+
+    static var requestCount: Int {
+        lock.withLock { requests }
+    }
+
+    static func reset() {
+        lock.withLock { requests = 0 }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.lock.withLock { Self.requests += 1 }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 404,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "text/plain"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data("missing".utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }

@@ -87,38 +87,38 @@ func resolvedMergedDownloadMenuAvailability(
     )
 }
 
-func makeMediaHeaderArtworkDescriptor(
+func makeMediaHeaderArtworkRequest(
     headerData: MediaHeaderData,
     mediaType: PinnedItemType?,
-    size: Int = 600
-) -> ArtworkResolutionDescriptor? {
+    tier: ArtworkRequest.Tier = .hero
+) -> ArtworkRequest? {
     guard let path = headerData.artworkPath, !path.isEmpty else { return nil }
-    let cacheHint = mediaType
-        .flatMap(PersistentArtworkCacheHint.Kind.init)
+    let identity = mediaType
+        .flatMap(ArtworkRequest.Identity.Kind.init)
         .flatMap {
-            PersistentArtworkCacheHint(
+            ArtworkRequest.Identity(
                 ratingKey: headerData.ratingKey,
                 kind: $0,
                 sourcePath: path,
                 sourceCompositeKey: headerData.sourceKey
             )
         }
-    return ArtworkResolutionDescriptor(
+    return ArtworkRequest(
         path: path,
         sourceKey: headerData.sourceKey,
         ratingKey: headerData.ratingKey,
         fallbackPath: nil,
         fallbackRatingKey: nil,
-        cacheHint: cacheHint,
-        fallbackCacheHint: nil,
-        size: size,
+        identity: identity,
+        fallbackIdentity: nil,
+        tier: tier,
         priority: .high
     )
 }
 
 func mediaHeaderArtworkLoadIdentity(
-    primary: ArtworkResolutionDescriptor?,
-    fallback: ArtworkResolutionDescriptor?
+    primary: ArtworkRequest?,
+    fallback: ArtworkRequest?
 ) -> String? {
     let keys = [primary, fallback].compactMap { $0?.stableBlurCacheKey }
     return keys.isEmpty ? nil : keys.joined(separator: "|fallback|")
@@ -126,41 +126,41 @@ func mediaHeaderArtworkLoadIdentity(
 
 func mediaHeaderBlurCacheKey(
     resolvedBlurCacheKey: String?,
-    descriptors: [ArtworkResolutionDescriptor]
+    requests: [ArtworkRequest]
 ) -> String? {
     if let resolvedBlurCacheKey {
         return resolvedBlurCacheKey
     }
-    guard descriptors.count == 1 else { return nil }
-    return descriptors[0].stableBlurCacheKey
+    guard requests.count == 1 else { return nil }
+    return requests[0].stableBlurCacheKey
 }
 
-func makePlaylistHeaderFallbackArtworkDescriptor(
+func makePlaylistHeaderFallbackArtworkRequest(
     playlist: Playlist?,
     track: Track?,
     fallbackSourceKey: String?,
-    size: Int = 600
-) -> ArtworkResolutionDescriptor? {
+    tier: ArtworkRequest.Tier = .hero
+) -> ArtworkRequest? {
     if let playlist,
        let path = playlist.fallbackArtworkPath,
        !path.isEmpty {
         let sourceKey = playlist.fallbackArtworkSourceCompositeKey
             ?? playlist.sourceCompositeKey
             ?? fallbackSourceKey
-        return ArtworkResolutionDescriptor(
+        return ArtworkRequest(
             path: path,
             sourceKey: sourceKey,
             ratingKey: playlist.fallbackArtworkRatingKey,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            cacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(
                 ratingKey: playlist.fallbackArtworkRatingKey,
                 kind: .album,
                 sourcePath: path,
                 sourceCompositeKey: sourceKey
             ),
-            fallbackCacheHint: nil,
-            size: size,
+            fallbackIdentity: nil,
+            tier: tier,
             priority: .high
         )
     }
@@ -168,10 +168,10 @@ func makePlaylistHeaderFallbackArtworkDescriptor(
     guard let track,
           track.thumbPath?.isEmpty == false || track.fallbackThumbPath?.isEmpty == false else { return nil }
 
-    return ArtworkResolutionDescriptor(
+    return ArtworkRequest(
         track: track,
         fallbackSourceKey: fallbackSourceKey,
-        size: size,
+        tier: tier,
         priority: .high
     )
 }
@@ -280,14 +280,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             : nil
         let initialFallbackDescriptor = mediaType == .playlist
-            ? makePlaylistHeaderFallbackArtworkDescriptor(
+            ? makePlaylistHeaderFallbackArtworkRequest(
                 playlist: (viewModel as? PlaylistDetailViewModel)?.playlist,
                 track: initialFallbackTrack,
                 fallbackSourceKey: headerData.sourceKey
             )
             : nil
         let initialLoadIdentity = mediaHeaderArtworkLoadIdentity(
-            primary: makeMediaHeaderArtworkDescriptor(
+            primary: makeMediaHeaderArtworkRequest(
                 headerData: headerData,
                 mediaType: mediaType
             ),
@@ -415,13 +415,13 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
     private var headerArtworkContentIdentity: String? {
         mediaHeaderArtworkLoadIdentity(
-            primary: primaryHeaderArtworkDescriptor,
-            fallback: playlistHeaderFallbackArtworkDescriptor()
+            primary: primaryHeaderArtworkRequest,
+            fallback: playlistHeaderFallbackArtworkRequest()
         )
     }
 
-    private var primaryHeaderArtworkDescriptor: ArtworkResolutionDescriptor? {
-        makeMediaHeaderArtworkDescriptor(
+    private var primaryHeaderArtworkRequest: ArtworkRequest? {
+        makeMediaHeaderArtworkRequest(
             headerData: headerData,
             mediaType: mediaType
         )
@@ -1023,9 +1023,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private func loadHeaderArtworkIfNeeded() async {
-        let descriptors = headerArtworkDescriptors
+        let requests = headerArtworkRequests
         guard let loadIdentity = headerArtworkContentIdentity,
-              !descriptors.isEmpty else {
+              !requests.isEmpty else {
             await MainActor.run {
                 currentArtworkLoadIdentity = nil
                 resolvedHeaderBlurCacheKey = nil
@@ -1049,7 +1049,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             let alreadyHasBlur = await MainActor.run { self.blurredArtworkImage != nil }
             let blurCacheKey = await MainActor.run { self.currentHeaderBlurCacheKey }
             if !alreadyHasBlur, let blurCacheKey {
-                let blurredImage = await ArtworkImageResolver.preBlurredImage(
+                let blurredImage = await deps.artworkLoader.blurredImage(
                     for: existingImage,
                     cacheKey: blurCacheKey
                 )
@@ -1065,11 +1065,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
 
-        _ = await resolveHeaderArtwork(descriptors, loadIdentity: loadIdentity)
+        _ = await resolveHeaderArtwork(requests, loadIdentity: loadIdentity)
     }
 
     private func resolveHeaderArtwork(
-        _ descriptors: [ArtworkResolutionDescriptor],
+        _ requests: [ArtworkRequest],
         loadIdentity: String
     ) async -> Bool {
         let retryDelays: [UInt64] = [
@@ -1085,11 +1085,8 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
             guard !Task.isCancelled else { return false }
             guard await isCurrentArtworkLoad(identity: loadIdentity) else { return false }
-            for descriptor in descriptors {
-                guard let resolved = await ArtworkImageResolver.resolvedImage(
-                    for: descriptor,
-                    artworkLoader: deps.artworkLoader
-                ) else {
+            for request in requests {
+                guard let resolved = await deps.artworkLoader.resolvedImage(for: request) else {
                     continue
                 }
                 guard !Task.isCancelled,
@@ -1119,7 +1116,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             }
         }
 
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let blurredImage = await deps.artworkLoader.blurredImage(
             for: resolved.image,
             cacheKey: resolved.blurCacheKey
         )
@@ -1138,19 +1135,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    private func playlistHeaderFallbackArtworkDescriptor() -> ArtworkResolutionDescriptor? {
+    private func playlistHeaderFallbackArtworkRequest() -> ArtworkRequest? {
         guard mediaType == .playlist else { return nil }
-        return makePlaylistHeaderFallbackArtworkDescriptor(
+        return makePlaylistHeaderFallbackArtworkRequest(
             playlist: (viewModel as? PlaylistDetailViewModel)?.playlist,
             track: playlistHeaderFallbackArtworkTrack,
             fallbackSourceKey: headerData.sourceKey
         )
     }
 
-    private var headerArtworkDescriptors: [ArtworkResolutionDescriptor] {
+    private var headerArtworkRequests: [ArtworkRequest] {
         [
-            primaryHeaderArtworkDescriptor,
-            playlistHeaderFallbackArtworkDescriptor()
+            primaryHeaderArtworkRequest,
+            playlistHeaderFallbackArtworkRequest()
         ].compactMap { $0 }
     }
 
@@ -1159,7 +1156,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             resolvedBlurCacheKey: currentArtworkLoadIdentity == headerArtworkContentIdentity
                 ? resolvedHeaderBlurCacheKey
                 : nil,
-            descriptors: headerArtworkDescriptors
+            requests: headerArtworkRequests
         )
     }
 

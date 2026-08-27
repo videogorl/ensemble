@@ -81,6 +81,7 @@ public struct ControlsCard: View {
     let viewModel: NowPlayingViewModel
     @Binding var currentPage: Int
     @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
+    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
     @ObservedObject private var ratingProjection: NowPlayingRatingProjection
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -92,11 +93,6 @@ public struct ControlsCard: View {
     @State private var showLoadingIndicator = false
     /// Hold the last settled play/pause icon during skip transitions
     @State private var wasPlayingBeforeTransition = false
-    @State private var displayedArtworkTrack: Track?
-    @State private var outgoingArtworkTrack: Track?
-    @State private var isIncomingArtworkVisible = true
-    @State private var artworkCrossfadeTask: Task<Void, Never>?
-
     private let namespace: Namespace.ID?
     private let animationID: String?
     private let isAlwaysVisible: Bool
@@ -122,6 +118,7 @@ public struct ControlsCard: View {
         self.viewModel = viewModel
         _currentPage = currentPage
         _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        _artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
         _ratingProjection = ObservedObject(wrappedValue: viewModel.ratingProjection)
         self.namespace = namespace
         self.animationID = animationID
@@ -148,15 +145,6 @@ public struct ControlsCard: View {
             isEnabled: isActivePage || isAlwaysVisible,
             target: $lastPlaylistQuickTarget
         )
-        .onAppear {
-            displayedArtworkTrack = playbackProjection.currentTrack
-        }
-        .onDisappear {
-            artworkCrossfadeTask?.cancel()
-        }
-        .onChange(of: playbackProjection.currentTrack?.sourceScopedID) { _ in
-            updateArtworkTransition()
-        }
     }
 
     // MARK: - Content View
@@ -167,15 +155,7 @@ public struct ControlsCard: View {
             let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
 
             // Artwork
-            ZStack {
-                if let outgoingArtworkTrack {
-                    artworkView(track: outgoingArtworkTrack, cornerRadius: artworkCornerRadius)
-                        .opacity(isIncomingArtworkVisible ? 0 : 1)
-                }
-
-                artworkView(track: track, cornerRadius: artworkCornerRadius)
-                    .opacity(isIncomingArtworkVisible ? 1 : 0)
-            }
+            artworkView(cornerRadius: artworkCornerRadius)
                 .frame(width: layout.artworkSize, height: layout.artworkSize)
                 .aspectRatio(1, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
@@ -283,8 +263,9 @@ public struct ControlsCard: View {
         }
     }
 
-    private func artworkView(track: Track, cornerRadius: CGFloat) -> some View {
-        ArtworkView(track: track, size: .medium, cornerRadius: cornerRadius, isResponsive: true)
+    private func artworkView(cornerRadius: CGFloat) -> some View {
+        ResolvedArtworkImageView(image: artworkProjection.artworkImage)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 
     // MARK: - Track Metadata
@@ -585,43 +566,6 @@ public struct ControlsCard: View {
             dismissNowPlaying()
         } else {
             dismiss()
-        }
-    }
-
-    @MainActor
-    private func updateArtworkTransition() {
-        guard let incomingTrack = playbackProjection.currentTrack else {
-            displayedArtworkTrack = nil
-            outgoingArtworkTrack = nil
-            isIncomingArtworkVisible = true
-            return
-        }
-
-        defer { displayedArtworkTrack = incomingTrack }
-        guard let displayedArtworkTrack,
-              displayedArtworkTrack.sourceScopedID != incomingTrack.sourceScopedID,
-              playbackProjection.isSmartMixTransitionActive
-        else {
-            outgoingArtworkTrack = nil
-            isIncomingArtworkVisible = true
-            return
-        }
-
-        artworkCrossfadeTask?.cancel()
-        outgoingArtworkTrack = displayedArtworkTrack
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            isIncomingArtworkVisible = false
-        }
-        artworkCrossfadeTask = Task { @MainActor in
-            await Task.yield()
-            withAnimation(.easeInOut(duration: 0.55)) {
-                isIncomingArtworkVisible = true
-            }
-            try? await Task.sleep(nanoseconds: 550_000_000)
-            guard !Task.isCancelled else { return }
-            outgoingArtworkTrack = nil
         }
     }
 

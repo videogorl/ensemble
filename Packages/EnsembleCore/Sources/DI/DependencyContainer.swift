@@ -496,7 +496,10 @@ public final class DependencyContainer: @unchecked Sendable {
         let lyricsService = MainActor.assumeIsolated {
             LyricsService(syncCoordinator: sync.syncCoordinator)
         }
-        let artworkLoader = ArtworkLoader(syncCoordinator: sync.syncCoordinator)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: sync.syncCoordinator,
+            artworkDownloadManager: core.artworkDownloadManager
+        )
         let audioAnalyzer = MainActor.assumeIsolated {
             FrequencyAnalysisService()
         }
@@ -516,8 +519,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 artworkDownloadManager: core.artworkDownloadManager,
                 downloadManager: core.downloadManager,
                 lyricsService: lyricsService,
-                transientArtworkCacheReset: {
-                    try await artworkLoader.resetTransientCaches()
+                artworkCacheClear: {
+                    try await artworkLoader.clearCaches()
                 }
             )
         }
@@ -918,27 +921,27 @@ public final class DependencyContainer: @unchecked Sendable {
         }
         syncCoordinator.onTrackAlbumChanged = { [weak self] reparentedTracks in
             guard let artworkLoader = self?.artworkLoader as? ArtworkLoader else { return }
-            for info in reparentedTracks {
-                await artworkLoader.invalidateArtwork(
-                    ratingKey: info.oldAlbumRatingKey,
-                    type: .album,
-                    sourceCompositeKey: info.sourceCompositeKey
-                )
-                await artworkLoader.invalidateArtwork(
-                    ratingKey: info.trackRatingKey,
-                    type: .album,
-                    sourceCompositeKey: info.sourceCompositeKey
-                )
-            }
+            await artworkLoader.invalidateArtwork(reparentedTracks.flatMap { info in
+                [
+                    ArtworkInvalidationInfo(
+                        ratingKey: info.oldAlbumRatingKey,
+                        type: .album,
+                        reason: .metadataModified,
+                        sourceCompositeKey: info.sourceCompositeKey
+                    ),
+                    ArtworkInvalidationInfo(
+                        ratingKey: info.trackRatingKey,
+                        type: .track,
+                        reason: .metadataModified,
+                        sourceCompositeKey: info.sourceCompositeKey
+                    )
+                ]
+            })
         }
         syncCoordinator.onArtworkMetadataChanged = { [weak self] invalidations in
             guard let self, let artworkLoader = self.artworkLoader as? ArtworkLoader else { return }
+            await artworkLoader.invalidateArtwork(invalidations)
             for info in invalidations {
-                await artworkLoader.invalidateArtwork(
-                    ratingKey: info.ratingKey,
-                    type: info.type,
-                    sourceCompositeKey: info.sourceCompositeKey
-                )
                 if info.reason == .removed, let sourceCompositeKey = info.sourceCompositeKey {
                     self.artworkDownloadManager.deleteArtwork(
                         ratingKey: info.ratingKey,

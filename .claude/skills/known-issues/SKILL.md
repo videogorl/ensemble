@@ -99,13 +99,6 @@ No unresolved critical issues are currently documented.
 - **Status:** Library notifications require owner/admin Plex Pass, some server/network setups reject WebSocket, and some close immediately with code `1001`.
 - **Rule:** WebSocket events are acceleration hints. Polling timers and circuit breakers must remain as fallback.
 
-### Artwork Pre-Caching Is Sync-Path Only
-
-- **Area:** `ArtworkLoader.predownloadArtwork`
-- **Status:** Artwork is pre-cached only for items that pass through sync. Browsing an uncached item may still require network.
-- **Now Playing effect:** Metadata can update before different uncached artwork finishes cache lookup, decode, or fetch. Keep the prior artwork during that bounded interval; do not flash a generated placeholder. Consecutive tracks sharing the same source-scoped artwork resolution identity should reuse the resolved image immediately.
-- **Apple Music effect:** During `ApplicationMusicPlayer` playback, Ensemble publishes Control Center metadata; an uncached or transient MusicKit artwork lookup may still complete shortly after title and transport state. Keep the prior matching artwork until the resolved artwork is available.
-
 ## Watchlist
 
 ### Cross-Source Snapshot Amplification

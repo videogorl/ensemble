@@ -207,14 +207,11 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             return currentArtwork
         }
         guard let artworkLoader = deps?.artworkLoader,
-              let artworkURL = await artworkLoader.artworkURLAsync(
-            for: track.thumbPath,
-            sourceKey: track.sourceCompositeKey,
-            ratingKey: track.id,
-            fallbackPath: track.fallbackThumbPath,
-            fallbackRatingKey: track.fallbackRatingKey,
-            size: 96
-        ) else { return nil }
+              let artworkURL = await artworkLoader.resolvedImage(for: ArtworkRequest(
+                  track: track,
+                  tier: .thumbnail,
+                  priority: .normal
+              ))?.url else { return nil }
 
         let data: Data?
         if artworkURL.isFileURL {

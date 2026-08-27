@@ -187,21 +187,72 @@ public final class NowPlayingQueueProjection: ObservableObject {
 
 @MainActor
 public final class NowPlayingArtworkProjection: ObservableObject {
-    @Published public private(set) var currentTrack: Track?
-    @Published public private(set) var artworkImage: PlatformImage?
-    @Published public private(set) var blurredArtworkImage: PlatformImage?
-
-    func updateCurrentTrack(_ track: Track?) {
-        guard currentTrack != track else { return }
-        currentTrack = track
+    public struct State {
+        public let currentTrack: Track?
+        public let artworkIdentityKey: String?
+        public let artworkImage: PlatformImage?
+        public let blurredArtworkImage: PlatformImage?
+        public let isLoading: Bool
     }
 
-    func updateArtworkImage(_ image: PlatformImage?) {
-        artworkImage = image
+    @Published public private(set) var state = State(
+        currentTrack: nil,
+        artworkIdentityKey: nil,
+        artworkImage: nil,
+        blurredArtworkImage: nil,
+        isLoading: false
+    )
+
+    public var currentTrack: Track? { state.currentTrack }
+    public var artworkImage: PlatformImage? { state.artworkImage }
+    public var blurredArtworkImage: PlatformImage? { state.blurredArtworkImage }
+
+    func beginLoading(_ track: Track, retaining identities: Set<String>) {
+        let keepsResolvedArtwork = state.artworkIdentityKey.map(identities.contains) == true
+        state = State(
+            currentTrack: track,
+            artworkIdentityKey: keepsResolvedArtwork ? state.artworkIdentityKey : nil,
+            artworkImage: keepsResolvedArtwork ? state.artworkImage : nil,
+            blurredArtworkImage: keepsResolvedArtwork ? state.blurredArtworkImage : nil,
+            isLoading: !keepsResolvedArtwork
+        )
     }
 
-    func updateBlurredArtworkImage(_ image: PlatformImage?) {
-        blurredArtworkImage = image
+    func resolveArtwork(_ resolved: ArtworkResolvedImage, for track: Track) {
+        guard state.currentTrack?.sourceScopedID == track.sourceScopedID else { return }
+        state = State(
+            currentTrack: track,
+            artworkIdentityKey: resolved.identityKey,
+            artworkImage: resolved.image,
+            blurredArtworkImage: nil,
+            isLoading: false
+        )
+    }
+
+    func resolveBlurredArtwork(
+        _ image: PlatformImage?,
+        identityKey: String,
+        trackIdentity: String
+    ) {
+        guard state.currentTrack?.sourceScopedID == trackIdentity,
+              state.artworkIdentityKey == identityKey else { return }
+        state = State(
+            currentTrack: state.currentTrack,
+            artworkIdentityKey: state.artworkIdentityKey,
+            artworkImage: state.artworkImage,
+            blurredArtworkImage: image,
+            isLoading: false
+        )
+    }
+
+    func clear(track: Track? = nil) {
+        state = State(
+            currentTrack: track,
+            artworkIdentityKey: nil,
+            artworkImage: nil,
+            blurredArtworkImage: nil,
+            isLoading: track != nil
+        )
     }
 }
 

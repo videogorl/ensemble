@@ -436,6 +436,7 @@ public struct RootView: View {
 
         switch tab {
         case .home, .songs, .artists, .albums, .genres, .playlists, .favorites, .search:
+            clearSidebarPinPath()
             sidebarSelection = .library(tab)
         case .downloads, .settings:
             return
@@ -448,6 +449,7 @@ public struct RootView: View {
 
         let targetTab: TabItem
         if usesSidebarRootNavigationShell {
+            clearSidebarPinPath()
             sidebarSelection = SidebarSelection.selection(
                 for: pending.destination,
                 fallback: sidebarSelection
@@ -459,6 +461,14 @@ public struct RootView: View {
 
         navigationCoordinator.selectedTab = targetTab
         navigationCoordinator.push(pending.destination, in: targetTab)
+    }
+
+    private func clearSidebarPinPath() {
+        guard sidebarSelection?.isPinnedDetailSelection == true,
+              let tab = sidebarSelection?.correspondingTab
+        else { return }
+
+        navigationCoordinator.setPath([], for: tab)
     }
 }
 

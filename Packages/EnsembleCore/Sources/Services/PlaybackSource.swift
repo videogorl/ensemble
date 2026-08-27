@@ -14,6 +14,7 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
     let startTime: TimeInterval
     let isSeekable: Bool
     let cacheFileExtension: String
+    let artifactKey: PlaybackArtifactKey?
 
     init(
         trackId: String,
@@ -22,7 +23,8 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
         duration: TimeInterval?,
         startTime: TimeInterval = 0,
         isSeekable: Bool,
-        cacheFileExtension: String
+        cacheFileExtension: String,
+        artifactKey: PlaybackArtifactKey? = nil
     ) {
         self.trackId = trackId
         self.ratingKey = ratingKey
@@ -31,6 +33,7 @@ struct PlaybackSourceMetadata: Sendable, Equatable {
         self.startTime = startTime
         self.isSeekable = isSeekable
         self.cacheFileExtension = cacheFileExtension
+        self.artifactKey = artifactKey
     }
 }
 

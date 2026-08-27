@@ -34,8 +34,19 @@
   local-file quality, with local fallback after a failed higher-quality stream.
 - Direct file streams and universal transcode are both valid Plex paths. Network
   playback starts incrementally rather than waiting for a complete temp file.
+  URL ingestion writes an append-only cache file independently from decoder/PCM
+  backpressure. Only compatible original containers bypass Plex's decision;
+  unsupported originals request a Plex MP3 transcode.
   Starvation or stream failure restarts from the visible playhead; cancellation
   caused by a newer command does not trigger recovery.
+- Clean offset-zero playback completions remain in purgeable `Library/Caches`
+  under a byte-budgeted LRU. Reuse requires exact source revision and requested
+  quality; Original additionally requires direct delivery. These artifacts are
+  local-playable for replay, offline use, and arbitrary seek. Failed, cancelled,
+  truncated, and offset-started artifacts never become completed cache entries.
+- Materialize the immediate upcoming Plex track to disk early, but do not add it
+  to the audio-engine schedule until the normal transition window. Queue depth
+  must not multiply whole-track memory use.
 - Device-offline queues keep downloaded Plex items and allow MusicKit to resolve
   its own asset availability. Known-unavailable Plex servers may be skipped;
   unknown health may not erase the queue.
@@ -45,6 +56,7 @@
   infer an owner or cross an explicitly supplied source.
 - Only direct app-UI playback starts donate to system media. Siri, shortcuts,
   remote commands, autoplay, restoration, and recovery are non-donating.
-- Watch-local playback uses original-quality direct files and its own exact-source
-  queue; progressive main-app transcode URLs are invalid for Watch AVPlayer.
+- Watch-local playback uses native `AVPlayer` and its own exact-source queue.
+  Compatible originals stream directly; unsupported originals use Plex's MP3
+  transcode, materialized into a purgeable 256 MiB Watch LRU before playback.
   Phone Apple Music is remote-control-only on Watch.

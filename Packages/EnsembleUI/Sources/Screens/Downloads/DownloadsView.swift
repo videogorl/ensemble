@@ -559,7 +559,7 @@ private struct DownloadedItemRow: View {
                     path: item.thumbPath,
                     sourceKey: item.sourceCompositeKey,
                     ratingKey: item.ratingKey,
-                    cacheHint: artworkCacheHint,
+                    identity: artworkIdentity,
                     size: .thumbnail,
                     cornerRadius: item.kind == .artist
                         ? ArtworkCornerRadius.circle(for: EnsembleScaffold.UtilityRow.artworkDimension)
@@ -658,9 +658,9 @@ private struct DownloadedItemRow: View {
         }
     }
 
-    private var artworkCacheHint: PersistentArtworkCacheHint? {
-        guard let kind = PersistentArtworkCacheHint.Kind(item.kind) else { return nil }
-        return PersistentArtworkCacheHint(
+    private var artworkIdentity: ArtworkRequest.Identity? {
+        guard let kind = ArtworkRequest.Identity.Kind(item.kind) else { return nil }
+        return ArtworkRequest.Identity(
             ratingKey: item.ratingKey,
             kind: kind,
             sourcePath: item.thumbPath

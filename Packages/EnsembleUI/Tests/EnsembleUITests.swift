@@ -97,158 +97,6 @@ final class EnsembleUITests: XCTestCase {
         )
     }
 
-    func testArtworkResolverSchedulesPersistentCacheHintAfterImageResolution() async throws {
-        let artworkURL = try makeTemporaryPNG()
-        defer { try? FileManager.default.removeItem(at: artworkURL) }
-
-        let hint = PersistentArtworkCacheHint(
-            ratingKey: "album-1",
-            kind: .album,
-            sourcePath: "/library/metadata/album-1/thumb"
-        )
-        let artworkLoader = RecordingArtworkLoader(url: artworkURL)
-        let descriptor = ArtworkResolutionDescriptor(
-            path: "/library/metadata/album-1/thumb",
-            sourceKey: "plex:server:library",
-            ratingKey: "album-1",
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            cacheHint: hint,
-            fallbackCacheHint: nil,
-            size: 44,
-            priority: .high
-        )
-
-        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
-
-        XCTAssertNotNil(resolved)
-        let cacheRequests = await artworkLoader.cacheRequests
-        XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, hint?.scoped(to: "plex:server:library"))
-        XCTAssertEqual(cacheRequests.first?.minimumPixelDimension, 44)
-    }
-
-    func testArtworkResolverFallsBackToLocalCacheWhenResolvedURLFails() async throws {
-        let localArtworkURL = try makeTemporaryPNG()
-        defer { try? FileManager.default.removeItem(at: localArtworkURL) }
-
-        let missingArtworkURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("png")
-        let artworkLoader = RecordingArtworkLoader(url: missingArtworkURL, localURL: localArtworkURL)
-        let descriptor = ArtworkResolutionDescriptor(
-            path: "/library/metadata/album-1/thumb",
-            sourceKey: "plex:server:library",
-            ratingKey: "album-1",
-            fallbackPath: nil,
-            fallbackRatingKey: nil,
-            cacheHint: PersistentArtworkCacheHint(
-                ratingKey: "album-1",
-                kind: .album,
-                sourcePath: "/library/metadata/album-1/thumb"
-            ),
-            fallbackCacheHint: nil,
-            size: 44,
-            priority: .high
-        )
-
-        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
-
-        XCTAssertEqual(resolved?.url, localArtworkURL)
-        XCTAssertNotNil(resolved?.image)
-        let localRequests = await artworkLoader.localRequests
-        XCTAssertEqual(localRequests.count, 1)
-        XCTAssertEqual(localRequests.first?.minimumPixelDimension, 44)
-        XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
-        let cacheRequests = await artworkLoader.cacheRequests
-        XCTAssertTrue(cacheRequests.isEmpty)
-    }
-
-    func testArtworkResolverLoadsAndCachesFallbackWhenPrimaryURLFails() async throws {
-        let fallbackArtworkURL = try makeTemporaryPNG()
-        defer { try? FileManager.default.removeItem(at: fallbackArtworkURL) }
-
-        let primaryPath = "/playlists/playlist-1/composite"
-        let fallbackPath = "/library/metadata/album-1/thumb"
-        let missingArtworkURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("png")
-        let fallbackHint = PersistentArtworkCacheHint(
-            ratingKey: "album-1",
-            kind: .album,
-            sourcePath: fallbackPath
-        )
-        let artworkLoader = RecordingArtworkLoader(
-            url: nil,
-            urlsByPath: [
-                primaryPath: missingArtworkURL,
-                fallbackPath: fallbackArtworkURL
-            ]
-        )
-        let descriptor = ArtworkResolutionDescriptor(
-            path: primaryPath,
-            sourceKey: "plex:account:server",
-            ratingKey: "playlist-1",
-            fallbackPath: fallbackPath,
-            fallbackRatingKey: "album-1",
-            cacheHint: PersistentArtworkCacheHint(
-                ratingKey: "playlist-1",
-                kind: .playlist,
-                sourcePath: primaryPath
-            ),
-            fallbackCacheHint: fallbackHint,
-            size: 44,
-            priority: .high
-        )
-
-        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
-
-        XCTAssertEqual(resolved?.url, fallbackArtworkURL)
-        let artworkPaths = await artworkLoader.artworkPaths
-        XCTAssertEqual(artworkPaths, [primaryPath, fallbackPath])
-        let cacheRequests = await artworkLoader.cacheRequests
-        XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint?.scoped(to: "plex:account:server"))
-    }
-
-    func testArtworkResolverFindsSamePathLocalFallbackByCacheIdentity() async throws {
-        let fallbackArtworkURL = try makeTemporaryPNG()
-        defer { try? FileManager.default.removeItem(at: fallbackArtworkURL) }
-
-        let artworkPath = "/library/metadata/album-1/thumb"
-        let source = "plex:account:server"
-        let artworkLoader = RecordingArtworkLoader(
-            url: nil,
-            localURLsByRatingKey: ["album-1": fallbackArtworkURL]
-        )
-        let descriptor = ArtworkResolutionDescriptor(
-            path: artworkPath,
-            sourceKey: source,
-            ratingKey: "track-1",
-            fallbackPath: artworkPath,
-            fallbackRatingKey: "album-1",
-            cacheHint: nil,
-            fallbackCacheHint: PersistentArtworkCacheHint(
-                ratingKey: "album-1",
-                kind: .album,
-                sourcePath: artworkPath
-            ),
-            size: 600,
-            priority: .high
-        )
-
-        let resolved = await ArtworkImageResolver.resolvedImage(
-            for: descriptor,
-            artworkLoader: artworkLoader
-        )
-
-        XCTAssertEqual(resolved?.url, fallbackArtworkURL)
-        let requests = await artworkLoader.localRequests
-        XCTAssertEqual(requests.map(\.ratingKey), ["track-1", "album-1"])
-        let artworkPaths = await artworkLoader.artworkPaths
-        XCTAssertTrue(artworkPaths.isEmpty)
-    }
-
     func testMediaHeaderArtworkIdentityIsSourceScopedAndTracksFallbackRelinking() throws {
         let path = "/library/metadata/shared/thumb"
         let firstHeader = MediaHeaderData(
@@ -265,26 +113,26 @@ final class EnsembleUITests: XCTestCase {
             sourceKey: "plex:account-b:server:library",
             ratingKey: "shared"
         )
-        let firstPrimary = try XCTUnwrap(makeMediaHeaderArtworkDescriptor(
+        let firstPrimary = try XCTUnwrap(makeMediaHeaderArtworkRequest(
             headerData: firstHeader,
             mediaType: .playlist
         ))
-        let secondPrimary = try XCTUnwrap(makeMediaHeaderArtworkDescriptor(
+        let secondPrimary = try XCTUnwrap(makeMediaHeaderArtworkRequest(
             headerData: secondHeader,
             mediaType: .playlist
         ))
         XCTAssertNotEqual(firstPrimary.stableBlurCacheKey, secondPrimary.stableBlurCacheKey)
 
-        func fallbackDescriptor(sourceKey: String?) -> ArtworkResolutionDescriptor {
-            ArtworkResolutionDescriptor(
+        func fallbackDescriptor(sourceKey: String?) -> ArtworkRequest {
+            ArtworkRequest(
                 path: path,
                 sourceKey: sourceKey,
                 ratingKey: "album-1",
                 fallbackPath: nil,
                 fallbackRatingKey: nil,
-                cacheHint: nil,
-                fallbackCacheHint: nil,
-                size: 600,
+                identity: nil,
+                fallbackIdentity: nil,
+                tier: .hero,
                 priority: .high
             )
         }
@@ -302,37 +150,37 @@ final class EnsembleUITests: XCTestCase {
     }
 
     func testMediaHeaderBlurCacheKeyUsesResolvedFallbackIdentity() {
-        let primary = ArtworkResolutionDescriptor(
+        let primary = ArtworkRequest(
             path: "/playlists/playlist-1/composite",
             sourceKey: "plex:account:server",
             ratingKey: "playlist-1",
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            cacheHint: nil,
-            fallbackCacheHint: nil,
-            size: 600,
+            identity: nil,
+            fallbackIdentity: nil,
+            tier: .hero,
             priority: .high
         )
-        let fallback = ArtworkResolutionDescriptor(
+        let fallback = ArtworkRequest(
             path: "https://example.com/album/{w}x{h}.jpg",
             sourceKey: "appleMusic:device:system:library",
             ratingKey: "album-1",
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            cacheHint: nil,
-            fallbackCacheHint: nil,
-            size: 600,
+            identity: nil,
+            fallbackIdentity: nil,
+            tier: .hero,
             priority: .high
         )
 
         XCTAssertNil(mediaHeaderBlurCacheKey(
             resolvedBlurCacheKey: nil,
-            descriptors: [primary, fallback]
+            requests: [primary, fallback]
         ))
         XCTAssertEqual(
             mediaHeaderBlurCacheKey(
                 resolvedBlurCacheKey: fallback.stableBlurCacheKey,
-                descriptors: [primary, fallback]
+                requests: [primary, fallback]
             ),
             fallback.stableBlurCacheKey
         )
@@ -351,18 +199,18 @@ final class EnsembleUITests: XCTestCase {
             sourceCompositeKey: sourceKey
         )
 
-        let descriptor = try XCTUnwrap(makePlaylistHeaderFallbackArtworkDescriptor(
+        let request = try XCTUnwrap(makePlaylistHeaderFallbackArtworkRequest(
             playlist: playlist,
             track: nil,
             fallbackSourceKey: nil
         ))
 
-        XCTAssertEqual(descriptor.path, fallbackPath)
-        XCTAssertEqual(descriptor.ratingKey, "album-1")
-        XCTAssertEqual(descriptor.sourceKey, sourceKey)
-        XCTAssertEqual(descriptor.cacheHint?.kind, .album)
-        XCTAssertEqual(descriptor.cacheHint?.ratingKey, "album-1")
-        XCTAssertEqual(descriptor.cacheHint?.sourceCompositeKey, sourceKey)
+        XCTAssertEqual(request.path, fallbackPath)
+        XCTAssertEqual(request.ratingKey, "album-1")
+        XCTAssertEqual(request.sourceKey, sourceKey)
+        XCTAssertEqual(request.identity?.kind, .album)
+        XCTAssertEqual(request.identity?.ratingKey, "album-1")
+        XCTAssertEqual(request.identity?.sourceCompositeKey, sourceKey)
     }
 
     func testPlaylistHeaderStillFallsBackToLoadedTrackArtwork() throws {
@@ -377,19 +225,19 @@ final class EnsembleUITests: XCTestCase {
             sourceCompositeKey: "plex:account:server:library"
         )
 
-        let descriptor = try XCTUnwrap(makePlaylistHeaderFallbackArtworkDescriptor(
+        let request = try XCTUnwrap(makePlaylistHeaderFallbackArtworkRequest(
             playlist: nil,
             track: track,
             fallbackSourceKey: nil
         ))
 
-        XCTAssertEqual(descriptor.path, artworkPath)
-        XCTAssertEqual(descriptor.ratingKey, "track-1")
-        XCTAssertEqual(descriptor.fallbackPath, artworkPath)
-        XCTAssertEqual(descriptor.fallbackRatingKey, "album-1")
-        XCTAssertEqual(descriptor.fallbackCacheHint?.kind, .album)
-        XCTAssertEqual(descriptor.fallbackCacheHint?.ratingKey, "album-1")
-        XCTAssertEqual(descriptor.fallbackCacheHint?.sourceCompositeKey, "plex:account:server:library")
+        XCTAssertEqual(request.path, artworkPath)
+        XCTAssertEqual(request.ratingKey, "track-1")
+        XCTAssertEqual(request.fallbackPath, artworkPath)
+        XCTAssertEqual(request.fallbackRatingKey, "album-1")
+        XCTAssertEqual(request.fallbackIdentity?.kind, .album)
+        XCTAssertEqual(request.fallbackIdentity?.ratingKey, "album-1")
+        XCTAssertEqual(request.fallbackIdentity?.sourceCompositeKey, "plex:account:server:library")
     }
 
     @MainActor
@@ -420,7 +268,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(image)
         let localRequests = await artworkLoader.localRequests
         XCTAssertEqual(localRequests.count, 1)
-        XCTAssertEqual(localRequests.first?.minimumPixelDimension, ArtworkSize.thumbnail.rawValue)
+        XCTAssertEqual(localRequests.first?.minimumPixelDimension, ArtworkSize.thumbnail.requestPixelDimension)
         XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
     }
 
@@ -430,7 +278,8 @@ final class EnsembleUITests: XCTestCase {
         let image = try XCTUnwrap(makePlatformImage(from: artworkURL))
         let scheduler = await MainActor.run { RecordingForegroundWorkScheduler() }
 
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let artworkLoader = RecordingArtworkLoader(url: nil)
+        let blurredImage = await artworkLoader.blurredImage(
             for: image,
             cacheKey: "test-visible-blur-\(UUID().uuidString)",
             scheduler: scheduler
@@ -1815,7 +1664,7 @@ final class EnsembleUITests: XCTestCase {
                 "Favorite",
                 "Go to Album",
                 "Go to Artist",
-                "Share Ensemble Link",
+                "Share Ensemble Link…",
                 "Share Link…",
                 "Share Audio File…",
                 "Get Info…",
@@ -1936,97 +1785,47 @@ private actor RecordingArtworkLoader: ArtworkLoaderProtocol {
 
     let url: URL?
     let localURL: URL?
-    let urlsByPath: [String: URL]
-    let localURLsByPath: [String: URL]
-    let localURLsByRatingKey: [String: URL]
-    private(set) var cacheRequests: [(hint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?)] = []
     private(set) var localRequests: [LocalRequest] = []
-    private(set) var artworkPaths: [String] = []
 
     init(
         url: URL?,
-        localURL: URL? = nil,
-        urlsByPath: [String: URL] = [:],
-        localURLsByPath: [String: URL] = [:],
-        localURLsByRatingKey: [String: URL] = [:]
+        localURL: URL? = nil
     ) {
         self.url = url
         self.localURL = localURL
-        self.urlsByPath = urlsByPath
-        self.localURLsByPath = localURLsByPath
-        self.localURLsByRatingKey = localURLsByRatingKey
     }
 
-    func artworkURLAsync(
-        for path: String?,
-        sourceKey: String?,
-        ratingKey: String?,
-        fallbackPath: String?,
-        fallbackRatingKey: String?,
-        size: Int
-    ) async -> URL? {
-        if let path {
-            artworkPaths.append(path)
-            if let pathURL = urlsByPath[path] {
-                return pathURL
-            }
+    func resolve(
+        _ request: ArtworkRequest,
+        policy: ArtworkResolutionPolicy
+    ) async -> ArtworkImageResolutionOutcome {
+        let resolvedURL = localURL ?? (policy == .allowRemote ? url : nil)
+        if localURL != nil {
+            localRequests.append(LocalRequest(
+                path: request.path,
+                sourceKey: request.sourceKey,
+                ratingKey: request.ratingKey,
+                minimumPixelDimension: request.tier.rawValue,
+                allowStaleIdentity: true
+            ))
         }
-        return url
-    }
-
-    func localArtworkURLAsync(
-        for path: String?,
-        ratingKey: String?,
-        fallbackPath: String?,
-        fallbackRatingKey: String?,
-        minimumPixelDimension: Int?,
-        allowStaleIdentity: Bool
-    ) async -> URL? {
-        await localArtworkURLAsync(
-            for: path,
-            sourceKey: nil,
-            ratingKey: ratingKey,
-            fallbackPath: fallbackPath,
-            fallbackRatingKey: fallbackRatingKey,
-            minimumPixelDimension: minimumPixelDimension,
-            allowStaleIdentity: allowStaleIdentity
-        )
-    }
-
-    func localArtworkURLAsync(
-        for path: String?,
-        sourceKey: String?,
-        ratingKey: String?,
-        fallbackPath: String?,
-        fallbackRatingKey: String?,
-        minimumPixelDimension: Int?,
-        allowStaleIdentity: Bool
-    ) async -> URL? {
-        localRequests.append(
-            LocalRequest(
-                path: path,
-                sourceKey: sourceKey,
-                ratingKey: ratingKey,
-                minimumPixelDimension: minimumPixelDimension,
-                allowStaleIdentity: allowStaleIdentity
-            )
-        )
-        if let ratingKey, let localURL = localURLsByRatingKey[ratingKey] {
-            return localURL
-        }
-        if let path, let localURL = localURLsByPath[path] {
-            return localURL
-        }
-        return localURL
-    }
-
-    func cacheResolvedArtwork(
-        from url: URL,
-        cacheHint: PersistentArtworkCacheHint?,
-        minimumPixelDimension: Int?
-    ) async {
-        cacheRequests.append((cacheHint, minimumPixelDimension))
+        guard let resolvedURL else { return .unavailable(.noArtworkURL) }
+        #if canImport(UIKit)
+        let image = UIImage(contentsOfFile: resolvedURL.path)
+        #else
+        let image = NSImage(contentsOf: resolvedURL)
+        #endif
+        guard let image else { return .unavailable(.imageLoadFailed(resolvedURL)) }
+        return .resolved(ArtworkResolvedImage(
+            url: resolvedURL,
+            image: image,
+            blurCacheKey: request.stableBlurCacheKey,
+            identityKey: request.stableIdentityKey
+        ))
     }
 
     func invalidateURLCache() async {}
+
+    @MainActor
+    func clearCaches() async throws {}
 }

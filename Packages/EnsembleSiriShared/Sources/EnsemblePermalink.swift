@@ -42,7 +42,12 @@ public struct EnsemblePermalink: Sendable, Equatable, Hashable {
         var components = URLComponents()
         components.scheme = "https"
         components.host = Self.webHost
-        components.path = "/media/v\(Self.currentVersion)/\(pathKind)/\(title)"
+        guard let encodedTitle = title.addingPercentEncoding(
+            withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        ) else {
+            return nil
+        }
+        components.percentEncodedPath = "/media/v\(Self.currentVersion)/\(pathKind)/\(encodedTitle)"
 
         var queryItems: [URLQueryItem] = []
         append(artistName, named: "artist", to: &queryItems)

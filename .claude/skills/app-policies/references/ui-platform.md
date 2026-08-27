@@ -31,7 +31,9 @@
   not mix static library metadata with live Now Playing/connection state.
 - Artwork-backed surfaces use source/identity-scoped durable artwork and cached
   pre-rendered washes. A different media identity never displays the previous
-  item's artwork as continuity, and live large-layer blur is not used.
+  item's artwork as continuity, and live large-layer blur is not used. Remote
+  failure retry state is scoped to the exact source asset identity and is reset
+  by an identity change or Clear Artwork Cache.
 - Root mini-player and Now Playing presentation remain persistent shared owners;
   leaf screens do not reproduce them. Covered root content is removed from hit
   testing/accessibility while a custom viewport presentation is active.

@@ -624,7 +624,6 @@ public struct SidebarView: View {
     }
 
     @Binding private var selection: SidebarSelection?
-    @State private var pinnedDetailPath: [NavigationCoordinator.Destination] = []
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var compactColumnPreference: CompactColumnPreference = .sidebar
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
@@ -1172,10 +1171,11 @@ public struct SidebarView: View {
         }
 
         if didChangeSelection {
-            resetNestedDetailPathAfterRootSelectionChange(to: newSelection)
+            resetNestedDetailPathAfterRootSelectionChange(
+                from: previousSelection,
+                to: newSelection
+            )
         }
-
-        clearPinnedDetailPathAfterSelectionChange(to: newSelection)
 
         #if os(iOS)
         if #available(iOS 17.0, *), newSelection != nil {
@@ -1184,29 +1184,30 @@ public struct SidebarView: View {
         #endif
     }
 
-    private func resetNestedDetailPathAfterRootSelectionChange(to newSelection: SidebarSelection?) {
+    private func resetNestedDetailPathAfterRootSelectionChange(
+        from previousSelection: SidebarSelection?,
+        to newSelection: SidebarSelection?
+    ) {
+        clearCoordinatorPath(forPinnedSelection: previousSelection)
+
         switch newSelection {
         case .library(.playlists), .playlist, .mergedPlaylist:
             guard !navigationCoordinator.pathSnapshot(for: .playlists).isEmpty else { return }
             navigationCoordinator.setPath([], for: .playlists)
         case .pin:
-            guard !pinnedDetailPath.isEmpty else { return }
-            pinnedDetailPath.removeAll()
+            clearCoordinatorPath(forPinnedSelection: newSelection)
         case .library, .hidden, .none:
             return
         }
     }
 
-    private func clearPinnedDetailPathAfterSelectionChange(to newSelection: SidebarSelection?) {
-        guard !pinnedDetailPath.isEmpty else { return }
-        guard newSelection?.isPinnedDetailSelection != true else { return }
+    private func clearCoordinatorPath(forPinnedSelection selection: SidebarSelection?) {
+        guard selection?.isPinnedDetailSelection == true,
+              let tab = selection?.correspondingTab,
+              !navigationCoordinator.pathSnapshot(for: tab).isEmpty
+        else { return }
 
-        Task { @MainActor in
-            await Task.yield()
-            guard selection?.isPinnedDetailSelection != true else { return }
-            guard !pinnedDetailPath.isEmpty else { return }
-            pinnedDetailPath.removeAll()
-        }
+        navigationCoordinator.setPath([], for: tab)
     }
 
     private var isSidebarChromeVisible: Bool {
@@ -1441,7 +1442,8 @@ public struct SidebarView: View {
         case .playlist, .mergedPlaylist:
             return navigationCoordinator.pathSnapshot(for: .playlists)
         case .pin:
-            return pinnedDetailPath
+            guard let tab = selection?.correspondingTab else { return [] }
+            return navigationCoordinator.pathSnapshot(for: tab)
         case .hidden:
             return navigationCoordinator.pathSnapshot(for: .settings)
         case .none:
@@ -1463,8 +1465,8 @@ public struct SidebarView: View {
         case .playlist, .mergedPlaylist:
             navigationCoordinator.setPath(newPath, for: .playlists)
         case .pin:
-            guard pinnedDetailPath != newPath else { return }
-            pinnedDetailPath = newPath
+            guard let tab = selection?.correspondingTab else { return }
+            navigationCoordinator.setPath(newPath, for: tab)
         case .hidden:
             navigationCoordinator.setPath(newPath, for: .settings)
         case .none:
@@ -1863,7 +1865,7 @@ public struct SidebarView: View {
                 path: playlist.compositePath,
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
-                cacheHint: PersistentArtworkCacheHint(
+                identity: ArtworkRequest.Identity(
                     ratingKey: playlist.playlistID,
                     kind: .playlist,
                     sourcePath: playlist.compositePath

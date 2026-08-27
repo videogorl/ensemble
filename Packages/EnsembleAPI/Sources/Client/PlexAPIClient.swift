@@ -833,7 +833,7 @@ public actor PlexAPIClient {
         return true
     }
 
-    private func recordCurrentEndpointFailure(_ error: Error) async {
+    func recordCurrentEndpointFailure(_ error: Error) async {
         guard PlexErrorClassification.shouldRecordEndpointFailure(error) else {
             return
         }
@@ -1033,7 +1033,7 @@ public actor PlexAPIClient {
         )
     }
 
-    private func shouldAttemptFailover(after error: Error) -> Bool {
+    func shouldAttemptFailover(after error: Error) -> Bool {
         PlexErrorClassification.classify(error).shouldFailover
     }
 

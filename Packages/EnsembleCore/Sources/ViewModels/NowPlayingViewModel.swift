@@ -1,5 +1,4 @@
 import Combine
-import EnsemblePersistence
 import Foundation
 import SwiftUI
 
@@ -115,10 +114,6 @@ public final class NowPlayingViewModel: ObservableObject {
         $lastPlaylistTarget.eraseToAnyPublisher()
     }
 
-    @Published public private(set) var artworkImage: PlatformImage?
-    /// Pre-rendered blurred artwork for NP background — avoids live .contrast(2.0) +
-    /// .saturation(1.9) + .brightness(-0.05) + .blur(80) on every body eval.
-    @Published public private(set) var blurredArtworkImage: PlatformImage?
     @Published private var optimisticTrackRatingsByIdentity: [String: Int] = [:]
     private var optimisticTrackFavoritesByIdentity: [String: Bool] = [:]
     @Published private var acceptedSourceLibraryCatalogIDs = Set<String>()
@@ -261,7 +256,6 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard let self else { return }
                 self.refreshCurrentTrackMetadataIfNeeded(track)
                 self.playbackProjection.updateCurrentTrack(track)
-                self.artworkProjection.updateCurrentTrack(track)
                 self.ratingProjection.updateCurrentTrack(
                     track,
                     displayRating: track.map { self.trackDisplayRating(for: $0) }
@@ -401,6 +395,20 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: CacheManager.artworkCachesDidClear)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.artworkLoadTask?.cancel()
+                self.blurGenerationTask?.cancel()
+                self.artworkProjection.clear(track: self.currentTrack)
+                if let currentTrack = self.currentTrack,
+                   self.isArtworkLoadingEnabledForTesting {
+                    self.loadArtworkImage(for: currentTrack)
+                }
+            }
+            .store(in: &cancellables)
+
         $playbackState
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -474,20 +482,6 @@ public final class NowPlayingViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        $artworkImage
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] image in
-                self?.artworkProjection.updateArtworkImage(image)
-            }
-            .store(in: &cancellables)
-
-        $blurredArtworkImage
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] image in
-                self?.artworkProjection.updateBlurredArtworkImage(image)
-            }
-            .store(in: &cancellables)
-
         $currentRating
             .receive(on: DispatchQueue.main)
             .sink { [weak self] rating in
@@ -551,15 +545,16 @@ public final class NowPlayingViewModel: ObservableObject {
                 guard let self = self else { return }
                 guard self.isArtworkLoadingEnabledForTesting else {
                     self.artworkLoadTask?.cancel()
-                    self.artworkImage = nil
-                    self.blurredArtworkImage = nil
+                    self.artworkProjection.clear(track: track)
                     return
                 }
                 if let track = track {
                     self.loadArtworkImage(for: track)
                 } else {
                     self.artworkLoadTask?.cancel()
-                    self.artworkImage = nil
+                    self.blurGenerationTask?.cancel()
+                    self.currentLoadTrackIdentity = nil
+                    self.artworkProjection.clear()
                 }
             }
             .store(in: &cancellables)
@@ -918,14 +913,11 @@ public final class NowPlayingViewModel: ObservableObject {
 
     // MARK: - Artwork Management
 
-    private var currentLoadArtworkPath: String?
-
     private func refreshCurrentTrackMetadataIfNeeded(_ track: Track?) {
         currentTrackMetadataRefreshTask?.cancel()
         guard let track else { return }
         let isMissingArtworkMetadata = track.thumbPath?.isEmpty != false && track.fallbackThumbPath?.isEmpty != false
-        let isMissingLocalArtwork = !Self.hasLocalCachedArtwork(for: track)
-        guard isMissingArtworkMetadata || isMissingLocalArtwork else { return }
+        guard isMissingArtworkMetadata else { return }
 
         let trackIdentity = track.sourceScopedID
         let libraryRepository = libraryRepository
@@ -944,21 +936,6 @@ public final class NowPlayingViewModel: ObservableObject {
                 }
             }
 
-            if refreshedTrack == nil,
-               let fallbackTrack = try? await libraryRepository.fetchTrackArtworkFallback(
-                   title: track.title,
-                   albumName: track.albumName,
-                   artistName: track.artistName,
-                   excludingRatingKey: track.id,
-                   excludingSourceCompositeKey: track.sourceCompositeKey
-               )
-            {
-                let fallbackDomainTrack = Self.track(track, withArtworkFrom: fallbackTrack)
-                if Self.hasLocalCachedArtwork(for: fallbackDomainTrack) {
-                    refreshedTrack = fallbackDomainTrack
-                }
-            }
-
             guard let refreshedTrack else { return }
             guard let self, self.currentTrack?.sourceScopedID == trackIdentity else {
                 return
@@ -967,122 +944,38 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
-    private static func hasLocalCachedArtwork(for track: Track) -> Bool {
-        artworkRatingKeys(for: track).contains { key in
-            cachedArtworkFileExists(ratingKey: key, type: .album)
-                || cachedArtworkFileExists(ratingKey: key, type: .track)
-        }
-    }
-
-    private static func artworkRatingKeys(for track: Track) -> [String] {
-        var keys: [String] = []
-        for key in [
-            track.fallbackRatingKey,
-            track.albumRatingKey,
-            ratingKey(fromArtworkPath: track.fallbackThumbPath),
-            ratingKey(fromArtworkPath: track.thumbPath),
-            track.id
-        ] {
-            guard let key, !key.isEmpty, !keys.contains(key) else { continue }
-            keys.append(key)
-        }
-        return keys
-    }
-
-    private static func ratingKey(fromArtworkPath path: String?) -> String? {
-        guard let path else { return nil }
-        let components = path.split(separator: "/")
-        guard components.count >= 3,
-              components[0] == "library",
-              components[1] == "metadata" else { return nil }
-        return String(components[2])
-    }
-
-    private static func cachedArtworkFileExists(ratingKey: String, type: ArtworkType) -> Bool {
-        let url = ArtworkDownloadManager.artworkDirectory
-            .appendingPathComponent("\(ratingKey)_\(type.rawValue).jpg")
-        return FileManager.default.fileExists(atPath: url.path)
-    }
-
-    private static func track(_ track: Track, withArtworkFrom artwork: TrackArtworkMetadata) -> Track {
-        Track(
-            id: track.id,
-            key: track.key,
-            title: track.title,
-            artistName: track.artistName,
-            albumArtistName: track.albumArtistName,
-            albumName: track.albumName,
-            albumRatingKey: artwork.albumRatingKey ?? track.albumRatingKey,
-            artistRatingKey: track.artistRatingKey,
-            trackNumber: track.trackNumber,
-            discNumber: track.discNumber,
-            duration: track.duration,
-            thumbPath: artwork.thumbPath ?? artwork.fallbackThumbPath ?? track.thumbPath,
-            fallbackThumbPath: artwork.fallbackThumbPath ?? artwork.thumbPath ?? track.fallbackThumbPath,
-            fallbackRatingKey: artwork.fallbackRatingKey ?? artwork.albumRatingKey ?? track.fallbackRatingKey,
-            streamKey: track.streamKey,
-            streamId: track.streamId,
-            localFilePath: track.localFilePath,
-            downloadedQuality: track.downloadedQuality,
-            dateAdded: track.dateAdded,
-            dateModified: track.dateModified,
-            lastPlayed: track.lastPlayed,
-            lastRatedAt: track.lastRatedAt,
-            rating: track.rating,
-            playCount: track.playCount,
-            genres: track.genres,
-            sourceCompositeKey: track.sourceCompositeKey
-        )
-    }
-
     private func loadArtworkImage(for track: Track) {
         let trackIdentity = track.sourceScopedID
-
-        // If the new track shares the same artwork path as the current one
-        // (e.g. tracks in the same album), skip the reload entirely
-        let effectiveArtworkPath = track.thumbPath ?? track.fallbackThumbPath
-        if effectiveArtworkPath != nil,
-           effectiveArtworkPath == currentLoadArtworkPath,
-           artworkImage != nil
-        {
-            currentLoadTrackIdentity = trackIdentity
-            return
-        }
+        let request = ArtworkRequest(
+            track: track,
+            tier: .hero,
+            priority: .high
+        )
+        let candidateIdentities = request.candidateIdentityKeys
 
         artworkLoadTask?.cancel()
+        blurGenerationTask?.cancel()
         currentLoadTrackIdentity = trackIdentity
-        currentLoadArtworkPath = effectiveArtworkPath
+        artworkProjection.beginLoading(track, retaining: candidateIdentities)
 
         artworkLoadTask = Task { @MainActor in
-            // Check if cancelled early
             guard !Task.isCancelled else { return }
 
-            let deps = DependencyContainer.shared
-            let descriptor = ArtworkResolutionDescriptor(
-                track: track,
-                size: 600,
-                priority: .high
-            )
-
-            switch await ArtworkImageResolver.resolveImage(for: descriptor, artworkLoader: deps.artworkLoader) {
+            switch await DependencyContainer.shared.artworkLoader.resolve(request) {
             case .resolved(let resolved):
                 guard !Task.isCancelled else { return }
 
                 if self.currentLoadTrackIdentity == trackIdentity {
-                    self.artworkImage = resolved.image
-                    self.dispatchBlurGeneration(for: resolved.image, trackIdentity: trackIdentity)
+                    self.artworkProjection.resolveArtwork(resolved, for: track)
+                    self.dispatchBlurGeneration(for: resolved, trackIdentity: trackIdentity)
                 }
             case .unavailable(.imageLoadFailed):
-                // If image decoding/loading fails (transient network error, pipeline cancellation),
-                // keep the previous artwork rather than flashing to a placeholder.
                 return
             case .unavailable(.noArtworkURL):
-                // No artwork available - clear previous artwork.
                 guard !Task.isCancelled else { return }
 
                 if self.currentLoadTrackIdentity == trackIdentity {
-                    self.artworkImage = nil
-                    self.dispatchBlurGeneration(for: nil, trackIdentity: trackIdentity)
+                    self.artworkProjection.clear(track: track)
                 }
             }
         }
@@ -1091,25 +984,36 @@ public final class NowPlayingViewModel: ObservableObject {
     /// Dispatch background pre-rendering of blurred artwork for NP background.
     /// Avoids live .contrast(2.0) + .saturation(1.9) + .brightness(-0.05) + .blur(80)
     /// on every SwiftUI body evaluation — saves 4 GPU render passes per body eval.
-    private func dispatchBlurGeneration(for image: PlatformImage?, trackIdentity: String) {
+    private func dispatchBlurGeneration(for resolved: ArtworkResolvedImage, trackIdentity: String) {
         blurGenerationTask?.cancel()
 
-        guard let source = image else {
-            blurredArtworkImage = nil
-            return
-        }
-
-        blurGenerationTask = Task.detached(priority: .utility) { [weak self] in
-            let blurred = ArtworkBlurRenderer.blurredImage(from: source)
-            await self?.applyGeneratedBlurredArtwork(blurred, for: trackIdentity)
+        blurGenerationTask = Task { [weak self] in
+            let blurred = await DependencyContainer.shared.artworkLoader.blurredImage(
+                for: resolved.image,
+                cacheKey: resolved.blurCacheKey
+            )
+            guard !Task.isCancelled else { return }
+            self?.applyGeneratedBlurredArtwork(
+                blurred,
+                identityKey: resolved.identityKey,
+                trackIdentity: trackIdentity
+            )
         }
     }
 
     /// Apply a completed blur render only if it still matches the currently-loaded track.
     @MainActor
-    private func applyGeneratedBlurredArtwork(_ blurred: PlatformImage?, for trackIdentity: String) {
+    private func applyGeneratedBlurredArtwork(
+        _ blurred: PlatformImage?,
+        identityKey: String,
+        trackIdentity: String
+    ) {
         guard currentLoadTrackIdentity == trackIdentity else { return }
-        blurredArtworkImage = blurred
+        artworkProjection.resolveBlurredArtwork(
+            blurred,
+            identityKey: identityKey,
+            trackIdentity: trackIdentity
+        )
     }
 
     // MARK: - Computed Properties

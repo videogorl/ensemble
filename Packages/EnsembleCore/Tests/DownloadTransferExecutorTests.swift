@@ -200,6 +200,55 @@ final class DownloadTransferExecutorTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: destinationURL.path))
     }
 
+    func testExecuteAdoptsMatchingPlaybackArtifactWithoutNetworkTransfer() async throws {
+        let downloadManager = DownloadManagerMock()
+        let ctx = makeContext(trackRatingKey: "cached-track", quality: "high")
+        let artifactURL = try writeTemporaryFile(
+            named: "cached-track.mp3",
+            data: Data([0x49, 0x44, 0x33, 0x04, 0x00, 0x00])
+        )
+        let executor = DownloadTransferExecutor(
+            dependencies: .init(
+                downloadManager: downloadManager,
+                fetchDirectDownloadURL: { _, _ in
+                    XCTFail("Direct URL should not be fetched for a matching playback artifact")
+                    return URL(string: "https://example.com/unused.mp3")!
+                },
+                fetchOfflineDownloadQueueMedia: { _, _ in
+                    XCTFail("Download queue should not be used for a matching playback artifact")
+                    return (Data(), nil, nil)
+                },
+                shouldAttemptDirectFallback: { _, _ in false },
+                performDirectDownload: { _, _, _ in
+                    XCTFail("Network transfer should not run for a matching playback artifact")
+                    return (URL(fileURLWithPath: "/tmp/unused"), URLResponse())
+                },
+                didComplete: { _, _ in },
+                scheduleDownloadsChanged: {},
+                isStillReferenced: { _ in true },
+                matchingPlaybackArtifact: { _, quality in
+                    XCTAssertEqual(quality, .high)
+                    return artifactURL
+                }
+            )
+        )
+
+        let result = try await executor.execute(ctx: ctx, requestedQuality: .high)
+        let destinationURL = DownloadTransferExecutor.localFileURL(
+            ratingKey: ctx.trackRatingKey,
+            safeSourceKey: ctx.safeSourceKey,
+            quality: .high,
+            suggestedFilename: artifactURL.lastPathComponent,
+            mimeType: nil,
+            payload: nil
+        )
+        cleanupURLs.append(destinationURL)
+
+        XCTAssertTrue(result.persisted)
+        XCTAssertEqual(downloadManager.completionCalls.first?.quality, StreamingQuality.high.rawValue)
+        XCTAssertEqual(try Data(contentsOf: destinationURL), try Data(contentsOf: artifactURL))
+    }
+
     func testExecuteFallsBackToDirectOriginalWhenQueueFails() async throws {
         let downloadManager = DownloadManagerMock()
         let ctx = makeContext(trackRatingKey: "fallback-track", quality: "medium")

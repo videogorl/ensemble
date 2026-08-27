@@ -291,7 +291,7 @@ public struct HomeView: View {
         }
 
         guard let image else { return }
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let blurredImage = await DependencyContainer.shared.artworkLoader.blurredImage(
             for: image,
             cacheKey: cacheKey
         )
@@ -402,7 +402,7 @@ struct HubItemCard: View {
                 path: item.thumbPath,
                 sourceKey: item.sourceCompositeKey,
                 ratingKey: item.id,
-                cacheHint: artworkCacheHint,
+                identity: artworkIdentity,
                 size: .card,
                 cornerRadius: isArtist
                     ? ArtworkCornerRadius.circle(for: artworkDimension)
@@ -466,31 +466,31 @@ struct HubItemCard: View {
         item.album?.sourceScopedID ?? item.artist?.sourceScopedID ?? item.playlist?.sourceScopedID
     }
 
-    private var artworkCacheHint: PersistentArtworkCacheHint? {
+    private var artworkIdentity: ArtworkRequest.Identity? {
         switch item.type {
         case "album":
             if let album = item.album {
-                return PersistentArtworkCacheHint(album: album)
+                return ArtworkRequest.Identity(album: album)
             }
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: item.id,
                 kind: .album,
                 sourcePath: item.thumbPath
             )
         case "artist":
             if let artist = item.artist {
-                return PersistentArtworkCacheHint(artist: artist)
+                return ArtworkRequest.Identity(artist: artist)
             }
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: item.id,
                 kind: .artist,
                 sourcePath: item.thumbPath
             )
         case "playlist":
             if let playlist = item.playlist {
-                return PersistentArtworkCacheHint(playlist: playlist)
+                return ArtworkRequest.Identity(playlist: playlist)
             }
-            return PersistentArtworkCacheHint(
+            return ArtworkRequest.Identity(
                 ratingKey: item.id,
                 kind: .playlist,
                 sourcePath: item.thumbPath

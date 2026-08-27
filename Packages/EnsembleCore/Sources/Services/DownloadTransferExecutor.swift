@@ -74,6 +74,8 @@ final class DownloadTransferExecutor {
         let didComplete: (DownloadTransferContext, URL) async -> Void
         let scheduleDownloadsChanged: () -> Void
         let isStillReferenced: (DownloadTransferContext) async -> Bool
+        var matchingPlaybackArtifact: (DownloadTransferContext, StreamingQuality) -> URL? = { _, _ in nil }
+        var rejectPlaybackArtifact: (URL) -> Void = { _ in }
     }
 
     private let dependencies: Dependencies
@@ -88,6 +90,21 @@ final class DownloadTransferExecutor {
     ) async throws -> DownloadTransferResult {
         var attemptedDirectFallback = false
         do {
+            if let artifactURL = dependencies.matchingPlaybackArtifact(ctx, requestedQuality) {
+                do {
+                    return try await completeFromPlaybackArtifact(
+                        artifactURL,
+                        ctx: ctx,
+                        quality: requestedQuality
+                    )
+                } catch {
+                    dependencies.rejectPlaybackArtifact(artifactURL)
+                    EnsembleLogger.debug(
+                        "⚠️ Playback cache adoption failed for track=\(ctx.trackRatingKey): \(error.localizedDescription); using download transport"
+                    )
+                }
+            }
+
             let sizeEstimate = Self.estimatedFileSize(durationMs: ctx.trackDuration, quality: requestedQuality)
             var effectiveQuality = requestedQuality
 
@@ -214,6 +231,59 @@ final class DownloadTransferExecutor {
         case completed
         case emptyPayload
         case skippedUnreferenced
+    }
+
+    private func completeFromPlaybackArtifact(
+        _ artifactURL: URL,
+        ctx: DownloadTransferContext,
+        quality: StreamingQuality
+    ) async throws -> DownloadTransferResult {
+        guard await dependencies.isStillReferenced(ctx) else {
+            return DownloadTransferResult(attemptedDirectFallback: false, persisted: false)
+        }
+
+        let destinationURL = Self.localFileURL(
+            ratingKey: ctx.trackRatingKey,
+            safeSourceKey: ctx.safeSourceKey,
+            quality: quality,
+            suggestedFilename: artifactURL.lastPathComponent,
+            mimeType: nil,
+            payload: nil
+        )
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let installingURL = destinationURL.deletingLastPathComponent()
+            .appendingPathComponent(".\(destinationURL.lastPathComponent).installing-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: installingURL) }
+
+        try FileManager.default.copyItem(at: artifactURL, to: installingURL)
+        try Self.validateDownloadDuration(fileURL: installingURL, ctx: ctx)
+        let fileSize = (try FileManager.default.attributesOfItem(atPath: installingURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard fileSize > 0 else { throw DownloadProcessingError.emptyPayload("playback-cache") }
+
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            _ = try FileManager.default.replaceItemAt(destinationURL, withItemAt: installingURL)
+        } else {
+            try FileManager.default.moveItem(at: installingURL, to: destinationURL)
+        }
+
+        let persisted = try await completeDownloadIfStillReferenced(
+            ctx: ctx,
+            filePath: destinationURL.lastPathComponent,
+            fileSize: fileSize,
+            quality: quality,
+            fileURL: destinationURL
+        )
+        guard persisted else {
+            return DownloadTransferResult(attemptedDirectFallback: false, persisted: false)
+        }
+        EnsembleLogger.debug(
+            "✅ Offline download adopted playback artifact: track=\(ctx.trackRatingKey) quality=\(quality.rawValue) size=\(fileSize)"
+        )
+        await notifyCompletion(fileURL: destinationURL, ctx: ctx)
+        return DownloadTransferResult(attemptedDirectFallback: false, persisted: true)
     }
 
     private func completeViaDownloadQueue(

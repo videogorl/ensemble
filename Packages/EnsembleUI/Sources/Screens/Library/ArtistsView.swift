@@ -826,7 +826,7 @@ public struct ArtistDetailView: View {
     }
 
     private var artistBackdropBlurCacheKey: String? {
-        "\(artworkDescriptor(for: artworkArtist).stableBlurCacheKey)|artist-hero"
+        "\(artworkRequest(for: artworkArtist).stableBlurCacheKey)|artist-hero"
     }
     
     private func loadArtworkImage() async {
@@ -846,12 +846,9 @@ public struct ArtistDetailView: View {
             artworkLoadUnavailable = false
         }
 
-        let descriptor = artworkDescriptor(for: artist)
+        let request = artworkRequest(for: artist)
 
-        guard let resolved = await ArtworkImageResolver.resolvedImage(
-            for: descriptor,
-            artworkLoader: dependencies.artworkLoader
-        ) else {
+        guard let resolved = await dependencies.artworkLoader.resolvedImage(for: request) else {
             await MainActor.run {
                 guard currentArtworkLoadIdentity == loadIdentity else { return }
                 artworkLoadUnavailable = true
@@ -865,7 +862,7 @@ public struct ArtistDetailView: View {
             artworkImage = heroImage
         }
 
-        let blurredImage = await ArtworkImageResolver.preBlurredImage(
+        let blurredImage = await dependencies.artworkLoader.blurredImage(
             for: heroImage,
             cacheKey: "\(resolved.blurCacheKey)|artist-hero"
         )
@@ -876,20 +873,20 @@ public struct ArtistDetailView: View {
         }
     }
 
-    private func artworkDescriptor(for artist: Artist) -> ArtworkResolutionDescriptor {
-        ArtworkResolutionDescriptor(
+    private func artworkRequest(for artist: Artist) -> ArtworkRequest {
+        ArtworkRequest(
             path: artist.thumbPath,
             sourceKey: artist.sourceCompositeKey,
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
-            cacheHint: PersistentArtworkCacheHint(artist: artist),
-            fallbackCacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(artist: artist),
+            fallbackIdentity: ArtworkRequest.Identity(
                 ratingKey: artist.fallbackRatingKey,
                 kind: .album,
                 sourcePath: artist.fallbackThumbPath
             ),
-            size: ArtworkSize.detail.rawValue,
+            tier: .hero,
             priority: .high
         )
     }

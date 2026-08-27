@@ -68,7 +68,19 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(SidebarSelection.library(.artists).correspondingTab, .artists)
         XCTAssertEqual(SidebarSelection.playlist(id: "playlist", sourceKey: nil).correspondingTab, .playlists)
         XCTAssertEqual(SidebarSelection.mergedPlaylist(title: "Mix", isSmart: false).correspondingTab, .playlists)
-        XCTAssertNil(SidebarSelection.pin(id: "artist", sourceKey: "server/library", type: .artist).correspondingTab)
+        XCTAssertEqual(
+            SidebarSelection.pin(id: "artist", sourceKey: "server/library", type: .artist).correspondingTab,
+            .artists
+        )
+        XCTAssertEqual(
+            SidebarSelection.pin(id: "album", sourceKey: "server/library", type: .album).correspondingTab,
+            .albums
+        )
+        XCTAssertEqual(
+            SidebarSelection.pin(id: "playlist", sourceKey: "server/library", type: .playlist).correspondingTab,
+            .playlists
+        )
+        XCTAssertNil(SidebarSelection.hidden.correspondingTab)
     }
 
     func testStageFlowPolicyResolvesVisibleStageFlowTabs() {

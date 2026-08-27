@@ -97,7 +97,7 @@ struct TrackDownloadRowView: View {
                     ratingKey: row.trackRatingKey,
                     fallbackPath: row.fallbackThumbPath,
                     fallbackRatingKey: row.albumRatingKey,
-                    fallbackCacheHint: PersistentArtworkCacheHint(
+                    fallbackIdentity: ArtworkRequest.Identity(
                         ratingKey: row.albumRatingKey,
                         kind: .album,
                         sourcePath: row.fallbackThumbPath

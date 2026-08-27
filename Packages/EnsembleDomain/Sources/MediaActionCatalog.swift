@@ -48,7 +48,7 @@ public enum EnsembleMediaActionCatalog {
         .init(action: .pin, title: "Pin", systemImage: "pin.fill"),
         .init(action: .goToAlbum, title: "Go to Album", systemImage: "square.stack"),
         .init(action: .goToArtist, title: "Go to Artist", systemImage: "music.mic"),
-        .init(action: .share, title: "Share Ensemble Link", systemImage: "link"),
+        .init(action: .share, title: "Share Ensemble Link…", systemImage: "link"),
         .init(action: .delete, title: "Delete", systemImage: "trash", isDestructive: true)
     ]
 }

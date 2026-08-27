@@ -160,6 +160,7 @@ public final class OfflineDownloadService: ObservableObject {
     private let lyricsService: LyricsService
     private let foregroundWorkScheduler: ForegroundWorkScheduling?
     private let launchRecoveryStartedAt: Date
+    private let playbackArtifactCache = PlaybackArtifactCache.shared
 
     private var cancellables = Set<AnyCancellable>()
     private var lastObservedSyncBySource: [String: Date] = [:]
@@ -278,6 +279,17 @@ public final class OfflineDownloadService: ObservableObject {
                     trackSourceCompositeKey: ctx.sourceCompositeKey
                 )
                 return (try? await self.targetRepository.hasAnyMembership(for: reference)) ?? false
+            },
+            matchingPlaybackArtifact: { [playbackArtifactCache] ctx, quality in
+                playbackArtifactCache.completedArtifact(
+                    trackIdentity: ctx.domainTrack.playbackIdentity,
+                    sourceFingerprint: PlaybackArtifactKey.sourceFingerprint(for: ctx.domainTrack),
+                    requestedQuality: quality.rawValue,
+                    requireDirect: quality == .original
+                )
+            },
+            rejectPlaybackArtifact: { [playbackArtifactCache] url in
+                playbackArtifactCache.removeArtifact(at: url)
             }
         )
     )
@@ -1244,7 +1256,7 @@ public final class OfflineDownloadService: ObservableObject {
                 guard let artworkURL = try await syncCoordinator.getArtworkURL(
                     path: candidate.path,
                     sourceKey: ctx.sourceCompositeKey,
-                    size: ArtworkSize.detail.rawValue
+                    size: ArtworkSize.detail.requestPixelDimension
                 ) else {
                     continue
                 }
@@ -1262,6 +1274,8 @@ public final class OfflineDownloadService: ObservableObject {
                 EnsembleLogger.debug(
                     "🖼️ Reconciled download artwork: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
                 )
+            } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                continue
             } catch {
                 EnsembleLogger.debug(
                     "⚠️ Download artwork reconciliation failed for \(ctx.trackRatingKey): \(error.localizedDescription)"
@@ -1427,7 +1441,7 @@ public final class OfflineDownloadService: ObservableObject {
             guard let artworkURL = try await syncCoordinator.getArtworkURL(
                 path: thumbPath,
                 sourceKey: sourceKey,
-                size: ArtworkSize.detail.rawValue
+                size: ArtworkSize.detail.requestPixelDimension
             ) else { return }
 
             try await artworkDownloadManager.downloadAndCacheArtwork(
@@ -1442,6 +1456,8 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             )
             EnsembleLogger.debug("🖼️ Cached \(type.rawValue) artwork for download target: \(ratingKey)")
+        } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+            return
         } catch {
             EnsembleLogger.debug("⚠️ Failed caching \(type.rawValue) artwork for target \(ratingKey): \(error.localizedDescription)")
         }

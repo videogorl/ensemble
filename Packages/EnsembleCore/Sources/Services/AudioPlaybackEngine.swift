@@ -241,6 +241,8 @@ public final class AudioPlaybackEngine {
     var onFirstAudibleRender: ((_ trackId: String, _ playbackGeneration: UInt64) -> Void)?
     /// Fires as streaming decode advances far enough to draw loaded waveform regions.
     var onBufferedProgress: ((_ trackId: String, _ playbackGeneration: UInt64, _ progress: Double) -> Void)?
+    /// Fires after a full offset-zero stream reaches clean EOF and all encoded bytes were decoded.
+    var onStreamingFileComplete: ((URL, PlaybackArtifactKey, TimeInterval?, UInt64) -> Void)?
     /// Fires on unrecoverable engine errors (route change failure, etc.)
     /// Parameters: (error, trackId or nil). When trackId is non-nil, the error
     /// originated from a gapless-scheduled track (not the currently playing one).
@@ -1090,6 +1092,16 @@ public final class AudioPlaybackEngine {
             cacheURL: cacheURL,
             duration: metadata.duration
         ))
+        if let artifactKey = metadata.artifactKey, artifactKey.isCompleteTrack {
+            pipeline.onComplete = { [weak self] fileURL in
+                self?.onStreamingFileComplete?(
+                    fileURL,
+                    artifactKey,
+                    metadata.duration,
+                    playbackGeneration
+                )
+            }
+        }
         streamingPipeline = pipeline
 
         let format: AVAudioFormat
@@ -1242,7 +1254,12 @@ public final class AudioPlaybackEngine {
                     DispatchQueue.main.async { [weak self, weak pipeline] in
                         guard let self, let pipeline,
                               !requiresCurrentPipeline || self.streamingPipeline === pipeline else { return }
-                        EnsembleLogger.error("[StreamingPipeline] failed after startup trackId=\(trackId): \(error.localizedDescription)")
+                        EnsembleLogger.error(
+                            "[StreamingPipeline] failed after startup trackId=\(trackId)"
+                                + " error=\(nsError.domain):\(nsError.code)"
+                                + " message=\(error.localizedDescription)"
+                                + " \(pipeline.diagnostics().summary)"
+                        )
                         self.onError?(error, nil, playbackGeneration)
                     }
                 } else {

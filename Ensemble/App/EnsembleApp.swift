@@ -887,7 +887,7 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
 
     private func artworkImage(for pin: PinnedItem) async -> NSImage? {
         let dependencies = DependencyContainer.shared
-        let descriptor: ArtworkDescriptor?
+        let request: ArtworkRequest?
 
         switch pin.type {
         case .album:
@@ -896,14 +896,19 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
                 sourceCompositeKey: pin.sourceCompositeKey
             ) {
                 let album = Album(from: cdAlbum)
-                descriptor = ArtworkDescriptor(
+                request = ArtworkRequest(
                     path: album.thumbPath,
+                    sourceKey: pin.sourceCompositeKey,
                     ratingKey: album.id,
                     fallbackPath: nil,
-                    fallbackRatingKey: nil
+                    fallbackRatingKey: nil,
+                    identity: ArtworkRequest.Identity(album: album),
+                    fallbackIdentity: nil,
+                    tier: .thumbnail,
+                    priority: .normal
                 )
             } else {
-                descriptor = nil
+                request = nil
             }
         case .artist:
             if let cdArtist = try? await dependencies.libraryRepository.fetchArtist(
@@ -911,14 +916,19 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
                 sourceCompositeKey: pin.sourceCompositeKey
             ) {
                 let artist = Artist(from: cdArtist)
-                descriptor = ArtworkDescriptor(
+                request = ArtworkRequest(
                     path: artist.thumbPath,
+                    sourceKey: pin.sourceCompositeKey,
                     ratingKey: artist.id,
                     fallbackPath: artist.fallbackThumbPath,
-                    fallbackRatingKey: artist.fallbackRatingKey
+                    fallbackRatingKey: artist.fallbackRatingKey,
+                    identity: ArtworkRequest.Identity(artist: artist),
+                    fallbackIdentity: nil,
+                    tier: .thumbnail,
+                    priority: .normal
                 )
             } else {
-                descriptor = nil
+                request = nil
             }
         case .playlist:
             if let cdPlaylist = try? await dependencies.playlistRepository.fetchPlaylist(
@@ -926,26 +936,24 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
                 sourceCompositeKey: pin.sourceCompositeKey
             ) {
                 let playlist = Playlist(from: cdPlaylist)
-                descriptor = ArtworkDescriptor(
+                request = ArtworkRequest(
                     path: playlist.compositePath,
+                    sourceKey: pin.sourceCompositeKey,
                     ratingKey: playlist.id,
                     fallbackPath: nil,
-                    fallbackRatingKey: nil
+                    fallbackRatingKey: nil,
+                    identity: ArtworkRequest.Identity(playlist: playlist),
+                    fallbackIdentity: nil,
+                    tier: .thumbnail,
+                    priority: .normal
                 )
             } else {
-                descriptor = nil
+                request = nil
             }
         }
 
-        guard let descriptor,
-              let url = await dependencies.artworkLoader.artworkURLAsync(
-                  for: descriptor.path,
-                  sourceKey: pin.sourceCompositeKey,
-                  ratingKey: descriptor.ratingKey,
-                  fallbackPath: descriptor.fallbackPath,
-                  fallbackRatingKey: descriptor.fallbackRatingKey,
-                  size: 64
-              ),
+        guard let request,
+              let url = await dependencies.artworkLoader.resolvedImage(for: request)?.url,
               url.isFileURL,
               let image = NSImage(contentsOf: url)
         else {
@@ -990,12 +998,6 @@ private final class MacDockMenuAppDelegate: NSObject, NSApplicationDelegate {
         return image
     }
 
-    private struct ArtworkDescriptor {
-        let path: String?
-        let ratingKey: String?
-        let fallbackPath: String?
-        let fallbackRatingKey: String?
-    }
 }
 
 private extension PinnedItemType {
