@@ -1274,6 +1274,8 @@ public final class OfflineDownloadService: ObservableObject {
                 EnsembleLogger.debug(
                     "🖼️ Reconciled download artwork: track=\(ctx.trackRatingKey) artworkKey=\(candidate.ratingKey)"
                 )
+            } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                continue
             } catch {
                 EnsembleLogger.debug(
                     "⚠️ Download artwork reconciliation failed for \(ctx.trackRatingKey): \(error.localizedDescription)"
@@ -1454,6 +1456,8 @@ public final class OfflineDownloadService: ObservableObject {
                 )
             )
             EnsembleLogger.debug("🖼️ Cached \(type.rawValue) artwork for download target: \(ratingKey)")
+        } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+            return
         } catch {
             EnsembleLogger.debug("⚠️ Failed caching \(type.rawValue) artwork for target \(ratingKey): \(error.localizedDescription)")
         }

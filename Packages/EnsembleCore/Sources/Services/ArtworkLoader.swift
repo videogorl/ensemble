@@ -73,6 +73,12 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         let path: String
         let ratingKey: String?
     }
+
+    enum RemoteArtworkCacheResult {
+        case cached(URL)
+        case unavailable
+        case notAttempted
+    }
     
     /// Tracks artwork URLs keyed by ratingKey so we can do targeted Nuke cache eviction
     /// instead of wiping the entire pipeline cache when a single artwork changes.
@@ -263,6 +269,19 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
         var failedURL: URL?
         for candidate in request.candidates {
+            let persistentIdentity = candidate.identity?
+                .scoped(to: candidate.sourceKey)
+                .persistentIdentity(requestedPixelDimension: candidate.tier.rawValue)
+            if let persistentIdentity,
+               case .deferred = await artworkDownloadManager.remoteArtworkRequestDecision(
+                   for: persistentIdentity
+               ) {
+                if let local = await locallyCachedImage(for: candidate, minimumPixelDimension: nil) {
+                    return .resolved(local)
+                }
+                continue
+            }
+
             let url = await artworkURLAsync(
                 for: candidate.path,
                 sourceKey: candidate.sourceKey,
@@ -273,17 +292,22 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
             )
 
             if let url {
-                if let localURL = await cacheRemoteArtwork(
+                let cacheResult = await cacheRemoteArtwork(
                     from: url,
                     identity: candidate.identity?.scoped(to: candidate.sourceKey),
                     minimumPixelDimension: candidate.tier.rawValue
-                ), let resolved = await image(at: localURL, for: candidate) {
+                )
+                if case .cached(let localURL) = cacheResult,
+                   let resolved = await image(at: localURL, for: candidate) {
                     return .resolved(resolved)
                 }
-                if let resolved = await image(at: url, for: candidate) {
+                if case .unavailable = cacheResult {
+                    failedURL = url
+                } else if let resolved = await image(at: url, for: candidate) {
                     return .resolved(resolved)
+                } else {
+                    failedURL = url
                 }
-                failedURL = url
             }
 
             if let local = await locallyCachedImage(for: candidate, minimumPixelDimension: nil),
@@ -504,26 +528,26 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         from url: URL,
         identity: ArtworkRequest.Identity?,
         minimumPixelDimension: Int? = nil
-    ) async -> URL? {
-        guard let identity, !url.isFileURL else { return nil }
+    ) async -> RemoteArtworkCacheResult {
+        guard let identity, !url.isFileURL else { return .notAttempted }
         let scopedIdentity = identity.scoped(to: identity.sourceCompositeKey)
         if let minimumPixelDimension,
            minimumPixelDimension < Self.minimumPersistentArtworkWriteDimension {
-            return nil
+            return .notAttempted
         }
-        guard await persistentCacheTracker.begin(scopedIdentity) else { return nil }
+        guard await persistentCacheTracker.begin(scopedIdentity) else { return .notAttempted }
 
         guard let sourceCompositeKey = scopedIdentity.sourceCompositeKey,
               let persistenceHandle = await syncCoordinator.beginCurrentSourcePersistenceWork(
                   sourceKey: sourceCompositeKey
               ) else {
             await persistentCacheTracker.finish(scopedIdentity)
-            return nil
+            return .notAttempted
         }
 
         let generation = await urlCache.currentGeneration()
         let artworkType = scopedIdentity.kind.artworkType
-        var resolvedLocalURL: URL?
+        var result = RemoteArtworkCacheResult.unavailable
 
         if await artworkDownloadManager.localArtworkExists(
             ratingKey: scopedIdentity.ratingKey,
@@ -540,7 +564,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                sourcePath: scopedIdentity.sourcePath,
                dateModifiedSeconds: scopedIdentity.dateModifiedSeconds
            ) {
-            resolvedLocalURL = URL(fileURLWithPath: localPath)
+            result = .cached(URL(fileURLWithPath: localPath))
         } else {
             do {
                 try await artworkDownloadManager.downloadAndCacheArtwork(
@@ -567,7 +591,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                         type: artworkType,
                         sourceCompositeKey: scopedIdentity.sourceCompositeKey
                     )
-                    resolvedLocalURL = URL(fileURLWithPath: localPath)
+                    result = .cached(URL(fileURLWithPath: localPath))
                     EnsembleLogger.debug("🎨 ArtworkLoader: Persisted \(scopedIdentity.kind.rawValue) artwork for ratingKey=\(scopedIdentity.ratingKey)")
                 } else {
                     artworkDownloadManager.deleteArtwork(
@@ -576,6 +600,8 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
                         sourceCompositeKey: scopedIdentity.sourceCompositeKey
                     )
                 }
+            } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                // A prior response already established the retry window for this exact asset.
             } catch {
                 EnsembleLogger.debug("🎨 ArtworkLoader: Failed to persist \(scopedIdentity.kind.rawValue) artwork for ratingKey=\(scopedIdentity.ratingKey): \(error.localizedDescription)")
             }
@@ -583,7 +609,7 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
 
         await persistentCacheTracker.finish(scopedIdentity)
         await syncCoordinator.finishSourcePersistenceWork(persistenceHandle)
-        return resolvedLocalURL
+        return result
     }
 
     /// Async version for modern Swift concurrency
@@ -923,5 +949,18 @@ private extension ArtworkRequest.Identity.Kind {
         case .playlist:
             return .playlist
         }
+    }
+}
+
+private extension ArtworkRequest.Identity {
+    func persistentIdentity(requestedPixelDimension: Int?) -> ArtworkIdentity {
+        ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: kind.artworkType,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: dateModifiedSeconds,
+            requestedPixelDimension: requestedPixelDimension,
+            sourceCompositeKey: sourceCompositeKey
+        )
     }
 }

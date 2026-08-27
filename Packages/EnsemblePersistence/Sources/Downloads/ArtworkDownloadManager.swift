@@ -4,6 +4,8 @@ import ImageIO
 
 public enum ArtworkDownloadError: Error, LocalizedError {
     case noArtworkPath
+    case httpResponse(statusCode: Int, retryAfter: Date?)
+    case requestDeferred(until: Date)
     case downloadFailed(Error)
     case fileSystemError(Error)
     
@@ -11,12 +13,26 @@ public enum ArtworkDownloadError: Error, LocalizedError {
         switch self {
         case .noArtworkPath:
             return "No artwork path available"
+        case .httpResponse(let statusCode, _):
+            return "Artwork request returned HTTP \(statusCode)"
+        case .requestDeferred(let date):
+            return "Artwork request deferred until \(date.formatted(.iso8601))"
         case .downloadFailed(let error):
             return "Artwork download failed: \(error.localizedDescription)"
         case .fileSystemError(let error):
             return "File system error: \(error.localizedDescription)"
         }
     }
+
+    public var isRequestDeferred: Bool {
+        if case .requestDeferred = self { return true }
+        return false
+    }
+}
+
+public enum ArtworkRemoteRequestDecision: Sendable, Equatable {
+    case allowed
+    case deferred(until: Date)
 }
 
 public enum ArtworkType: String, Sendable, Codable, Hashable {
@@ -91,6 +107,16 @@ public struct ArtworkIdentity: Sendable, Codable, Equatable {
         guard let requestedPixelDimension else { return false }
         return requestedPixelDimension >= minimumPixelDimension
     }
+
+    fileprivate func matchesAsset(_ other: ArtworkIdentity) -> Bool {
+        ratingKey == other.ratingKey
+            && type == other.type
+            && matches(sourceCompositeKey: other.sourceCompositeKey)
+            && matches(
+                sourcePath: other.sourcePath,
+                dateModifiedSeconds: other.dateModifiedSeconds
+            )
+    }
 }
 
 public protocol ArtworkDownloadManagerProtocol: Sendable {
@@ -118,6 +144,7 @@ public protocol ArtworkDownloadManagerProtocol: Sendable {
     ) async -> Bool
     func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws
     func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws
+    func remoteArtworkRequestDecision(for identity: ArtworkIdentity) async -> ArtworkRemoteRequestDecision
     func deleteArtwork(ratingKey: String, type: ArtworkType)
     func deleteArtwork(ratingKey: String, type: ArtworkType, sourceCompositeKey: String?)
     func deleteArtwork(forRatingKeys ratingKeys: Set<String>)
@@ -175,6 +202,10 @@ public extension ArtworkDownloadManagerProtocol {
 
     func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws {
         throw ArtworkDownloadError.noArtworkPath
+    }
+
+    func remoteArtworkRequestDecision(for identity: ArtworkIdentity) async -> ArtworkRemoteRequestDecision {
+        .allowed
     }
 
     func getLocalArtworkPath(
@@ -269,15 +300,43 @@ public enum ArtworkFileInspector {
 }
 
 public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unchecked Sendable {
+    private struct RemoteOutcome: Codable {
+        let identity: ArtworkIdentity
+        let failureCount: Int
+        let retryAfter: Date
+    }
+
+    private struct SourceRemoteOutcome: Codable {
+        let retryAfter: Date
+    }
+
+    private enum RemoteFailureKind {
+        case missing
+        case rateLimited(Date?)
+        case transient
+    }
+
     private let session: URLSession
+    private let now: @Sendable () -> Date
     private static let fileLock = NSLock()
+    private static var remoteOutcomesLoaded = false
+    private static var remoteOutcomes: [String: RemoteOutcome] = [:]
+    private static var sourceRemoteOutcomes: [String: SourceRemoteOutcome] = [:]
     static let cacheVersionMarkerName = ".source-scoped-v2"
     private static let sourceScopedFilenamePrefix = "v2_"
+    private static let missingRetryIntervals: [TimeInterval] = [5 * 60, 60 * 60, 6 * 60 * 60, 24 * 60 * 60]
+    private static let transientRetryIntervals: [TimeInterval] = [30, 2 * 60, 10 * 60, 30 * 60]
     
     public init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
+        self.now = { Date() }
+    }
+
+    init(session: URLSession, now: @escaping @Sendable () -> Date = { Date() }) {
+        self.session = session
+        self.now = now
     }
 
     /// Removes obsolete unscoped cache files. Call from background startup work.
@@ -285,6 +344,9 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         do {
             if let removedCount = try Self.purgeLegacyArtworkCacheIfNeeded() {
                 EnsembleLogger.debug("Artwork cache upgraded to source-scoped v2; removed \(removedCount) legacy entries")
+            }
+            Self.withFileLock {
+                Self.loadRemoteOutcomesIfNeeded()
             }
         } catch {
             EnsembleLogger.debug("Artwork cache v2 upgrade failed and will retry: \(error.localizedDescription)")
@@ -473,7 +535,34 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         guard identity.sourceCompositeKey != nil else {
             throw ArtworkDownloadError.noArtworkPath
         }
+        if case .deferred(let date) = await remoteArtworkRequestDecision(for: identity) {
+            throw ArtworkDownloadError.requestDeferred(until: date)
+        }
         try await downloadAndCacheArtwork(from: url, identity: identity, ratingKey: identity.ratingKey, type: identity.type)
+    }
+
+    public func remoteArtworkRequestDecision(for identity: ArtworkIdentity) async -> ArtworkRemoteRequestDecision {
+        guard identity.sourceCompositeKey != nil else { return .allowed }
+        return Self.withFileLock {
+            if let sourceCompositeKey = identity.sourceCompositeKey,
+               let sourceOutcome = Self.readSourceRemoteOutcome(
+                   sourceCompositeKey: sourceCompositeKey
+               ),
+               sourceOutcome.retryAfter > now() {
+                return .deferred(until: sourceOutcome.retryAfter)
+            }
+            let artworkURL = Self.artworkFileURL(
+                ratingKey: identity.ratingKey,
+                type: identity.type,
+                sourceCompositeKey: identity.sourceCompositeKey
+            )
+            guard let outcome = Self.readRemoteOutcome(for: artworkURL),
+                  outcome.identity.matchesAsset(identity),
+                  outcome.retryAfter > now() else {
+                return .allowed
+            }
+            return .deferred(until: outcome.retryAfter)
+        }
     }
 
     private func downloadAndCacheArtwork(
@@ -490,15 +579,38 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         
         do {
             let (tempURL, response) = try await session.download(from: url)
-            
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                if let identity {
+                    recordRemoteFailure(.transient, for: identity)
+                }
                 throw ArtworkDownloadError.downloadFailed(
-                    NSError(domain: "ArtworkDownload", code: -1, 
-                           userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                    NSError(
+                        domain: "ArtworkDownload",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Missing HTTP response"]
+                    )
+                )
+            }
+            guard (200...299).contains(httpResponse.statusCode) else {
+                let retryAfter = Self.retryAfterDate(from: httpResponse, now: now())
+                if let identity,
+                   httpResponse.statusCode != 401,
+                   httpResponse.statusCode != 403 {
+                    recordRemoteFailure(
+                        Self.failureKind(statusCode: httpResponse.statusCode, retryAfter: retryAfter),
+                        for: identity
+                    )
+                }
+                throw ArtworkDownloadError.httpResponse(
+                    statusCode: httpResponse.statusCode,
+                    retryAfter: retryAfter
                 )
             }
             guard ArtworkFileInspector.fileExists(at: tempURL) else {
+                if let identity {
+                    recordRemoteFailure(.transient, for: identity)
+                }
                 throw ArtworkDownloadError.downloadFailed(
                     NSError(
                         domain: "ArtworkDownload",
@@ -516,12 +628,21 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
 
                 if let identity {
                     try Self.writeIdentity(identity, for: localURL)
+                    Self.removeRemoteOutcome(for: localURL)
                 } else {
                     try? FileManager.default.removeItem(at: Self.identityURL(for: localURL))
                 }
             }
-            
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch let error as ArtworkDownloadError {
+            throw error
         } catch {
+            if let identity {
+                recordRemoteFailure(.transient, for: identity)
+            }
             throw ArtworkDownloadError.downloadFailed(error)
         }
     }
@@ -579,6 +700,8 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
             for url in urls where url.lastPathComponent.hasPrefix(prefix) {
                 try FileManager.default.removeItem(at: url)
             }
+            Self.remoteOutcomes = Self.remoteOutcomes.filter { !$0.key.hasPrefix(prefix) }
+            Self.sourceRemoteOutcomes = Self.sourceRemoteOutcomes.filter { !$0.key.hasPrefix(prefix) }
             let remaining = try FileManager.default.contentsOfDirectory(
                 at: Self.artworkDirectory,
                 includingPropertiesForKeys: nil,
@@ -658,6 +781,153 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
         try data.write(to: identityURL(for: artworkURL), options: [.atomic])
     }
 
+    static func remoteOutcomeURL(for artworkURL: URL) -> URL {
+        artworkURL.deletingPathExtension().appendingPathExtension("remote.json")
+    }
+
+    private static func readRemoteOutcome(for artworkURL: URL) -> RemoteOutcome? {
+        loadRemoteOutcomesIfNeeded()
+        return remoteOutcomes[remoteOutcomeURL(for: artworkURL).lastPathComponent]
+    }
+
+    private static func writeRemoteOutcome(_ outcome: RemoteOutcome, for artworkURL: URL) throws {
+        let url = remoteOutcomeURL(for: artworkURL)
+        let data = try JSONEncoder().encode(outcome)
+        try data.write(to: url, options: [.atomic])
+        remoteOutcomes[url.lastPathComponent] = outcome
+    }
+
+    private static func sourceRemoteOutcomeURL(sourceCompositeKey: String) -> URL {
+        artworkDirectory.appendingPathComponent(
+            "\(scopedFilenamePrefix(sourceCompositeKey: sourceCompositeKey))remote-source.json"
+        )
+    }
+
+    private static func readSourceRemoteOutcome(
+        sourceCompositeKey: String
+    ) -> SourceRemoteOutcome? {
+        loadRemoteOutcomesIfNeeded()
+        let url = sourceRemoteOutcomeURL(sourceCompositeKey: sourceCompositeKey)
+        return sourceRemoteOutcomes[url.lastPathComponent]
+    }
+
+    private static func loadRemoteOutcomesIfNeeded() {
+        guard !remoteOutcomesLoaded else { return }
+        remoteOutcomesLoaded = true
+        guard let urls = try? FileManager.default.contentsOfDirectory(
+            at: artworkDirectory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let decoder = JSONDecoder()
+        for url in urls {
+            let name = url.lastPathComponent
+            if name.hasSuffix(".remote.json"),
+               let data = try? Data(contentsOf: url),
+               let outcome = try? decoder.decode(RemoteOutcome.self, from: data) {
+                remoteOutcomes[name] = outcome
+            } else if name.hasSuffix("_remote-source.json"),
+                      let data = try? Data(contentsOf: url),
+                      let outcome = try? decoder.decode(SourceRemoteOutcome.self, from: data) {
+                sourceRemoteOutcomes[name] = outcome
+            }
+        }
+    }
+
+    private func recordRemoteFailure(_ kind: RemoteFailureKind, for identity: ArtworkIdentity) {
+        guard let sourceCompositeKey = identity.sourceCompositeKey else { return }
+        Self.withFileLock {
+            if case .rateLimited(let retryAfter) = kind {
+                let outcome = SourceRemoteOutcome(
+                    retryAfter: retryAfter.map { max($0, now()) }
+                        ?? now().addingTimeInterval(5 * 60)
+                )
+                let url = Self.sourceRemoteOutcomeURL(sourceCompositeKey: sourceCompositeKey)
+                if let data = try? JSONEncoder().encode(outcome) {
+                    try? data.write(to: url, options: [.atomic])
+                    Self.sourceRemoteOutcomes[url.lastPathComponent] = outcome
+                }
+                return
+            }
+
+            let artworkURL = Self.artworkFileURL(
+                ratingKey: identity.ratingKey,
+                type: identity.type,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            let previous = Self.readRemoteOutcome(for: artworkURL)
+            let failureCount: Int
+            if let previous, previous.identity.matchesAsset(identity) {
+                failureCount = previous.failureCount + 1
+            } else {
+                failureCount = 1
+            }
+            let retryAfter = Self.retryDate(
+                for: kind,
+                failureCount: failureCount,
+                now: now()
+            )
+            try? Self.writeRemoteOutcome(
+                RemoteOutcome(
+                    identity: identity,
+                    failureCount: failureCount,
+                    retryAfter: retryAfter
+                ),
+                for: artworkURL
+            )
+        }
+    }
+
+    private static func failureKind(statusCode: Int, retryAfter: Date?) -> RemoteFailureKind {
+        switch statusCode {
+        case 404, 410:
+            return .missing
+        case 429:
+            return .rateLimited(retryAfter)
+        default:
+            return .transient
+        }
+    }
+
+    private static func retryDate(
+        for kind: RemoteFailureKind,
+        failureCount: Int,
+        now: Date
+    ) -> Date {
+        let index = max(0, failureCount - 1)
+        switch kind {
+        case .missing:
+            return now.addingTimeInterval(missingRetryIntervals[min(index, missingRetryIntervals.count - 1)])
+        case .rateLimited(let retryAfter):
+            return retryAfter.map { max($0, now) } ?? now.addingTimeInterval(5 * 60)
+        case .transient:
+            return now.addingTimeInterval(transientRetryIntervals[min(index, transientRetryIntervals.count - 1)])
+        }
+    }
+
+    private static func retryAfterDate(from response: HTTPURLResponse, now: Date) -> Date? {
+        guard let value = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
+        if let seconds = TimeInterval(value) {
+            return now.addingTimeInterval(max(0, seconds))
+        }
+
+        for format in [
+            "EEE',' dd MMM yyyy HH':'mm':'ss z",
+            "EEEE',' dd-MMM-yy HH':'mm':'ss z",
+            "EEE MMM d HH':'mm':'ss yyyy"
+        ] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+        return nil
+    }
+
     private static func validArtworkPath(
         at artworkURL: URL,
         ratingKey: String,
@@ -687,6 +957,13 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
     private static func deleteArtworkAndIdentity(at artworkURL: URL) {
         try? FileManager.default.removeItem(at: artworkURL)
         try? FileManager.default.removeItem(at: identityURL(for: artworkURL))
+        removeRemoteOutcome(for: artworkURL)
+    }
+
+    private static func removeRemoteOutcome(for artworkURL: URL) {
+        let outcomeURL = remoteOutcomeURL(for: artworkURL)
+        try? FileManager.default.removeItem(at: outcomeURL)
+        remoteOutcomes.removeValue(forKey: outcomeURL.lastPathComponent)
     }
 
     private static func withFileLock<T>(_ body: () throws -> T) rethrows -> T {
@@ -732,6 +1009,9 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
                     try fileManager.createDirectory(at: artworkDir, withIntermediateDirectories: true)
                     try (artworkDir as NSURL).setResourceValue(true, forKey: .isExcludedFromBackupKey)
                 }
+                Self.remoteOutcomesLoaded = true
+                Self.remoteOutcomes.removeAll()
+                Self.sourceRemoteOutcomes.removeAll()
             }
         } catch {
             throw ArtworkDownloadError.fileSystemError(error)

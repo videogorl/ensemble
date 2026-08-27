@@ -160,9 +160,6 @@ public final class SyncCoordinator: ObservableObject {
     private var lastPlaylistTargetsByServer: [String: LastPlaylistTarget]
     internal var refreshServerPlaylistsHandlerForTesting: ((String) async -> Void)?
     internal var nowProviderForTesting: () -> Date = { Date() }
-    /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
-    private var playlistArtworkRetryAfter: [String: Date] = [:]
-    private let playlistArtworkFailureBackoff: TimeInterval = 5 * 60
     internal static let fullSizeArtworkCacheDimension = ArtworkSize.detail.requestPixelDimension
 
     /// Closure called when API client connections are refreshed (e.g., after network change).
@@ -2061,6 +2058,8 @@ public final class SyncCoordinator: ObservableObject {
                         )
                     )
                     cached += 1
+                } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                    continue
                 } catch {
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for album \(album.title): \(error.localizedDescription)")
                 }
@@ -2110,6 +2109,8 @@ public final class SyncCoordinator: ObservableObject {
                         )
                     )
                     cached += 1
+                } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                    continue
                 } catch {
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for artist \(artist.name): \(error.localizedDescription)")
                 }
@@ -2132,20 +2133,13 @@ public final class SyncCoordinator: ObservableObject {
                 sourceCompositeKeys: [serverKey, sourceId.compositeKey]
             )
             var cached = 0
-            let now = nowProviderForTesting()
 
             for playlist in playlists {
                 let artworkSourceKey = playlist.sourceCompositeKey ?? sourceId.compositeKey
-                let retryKey = "\(artworkSourceKey)|\(playlist.ratingKey)"
                 if await artworkDownloadManager.localArtworkExists(
                     for: playlist,
                     minimumPixelDimension: Self.fullSizeArtworkCacheDimension
                 ) {
-                    playlistArtworkRetryAfter.removeValue(forKey: retryKey)
-                    continue
-                }
-
-                if let retryAfter = playlistArtworkRetryAfter[retryKey], retryAfter > now {
                     continue
                 }
 
@@ -2169,10 +2163,10 @@ public final class SyncCoordinator: ObservableObject {
                             sourceCompositeKey: artworkSourceKey
                         )
                     )
-                    playlistArtworkRetryAfter.removeValue(forKey: retryKey)
                     cached += 1
+                } catch let error as ArtworkDownloadError where error.isRequestDeferred {
+                    continue
                 } catch {
-                    playlistArtworkRetryAfter[retryKey] = now.addingTimeInterval(playlistArtworkFailureBackoff)
                     EnsembleLogger.debug("⚠️ Failed to cache artwork for playlist \(playlist.title): \(error.localizedDescription)")
                 }
             }
