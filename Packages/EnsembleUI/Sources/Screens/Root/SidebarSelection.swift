@@ -8,14 +8,19 @@ public enum SidebarSelection: Hashable {
     case hidden
 
     /// Map sidebar section to the corresponding TabItem for NavigationCoordinator sync.
-    /// Returns nil for pinned items which don't map to a standard tab.
     var correspondingTab: TabItem? {
         switch self {
         case .library(let tab):
             return tab
         case .playlist, .mergedPlaylist:
             return .playlists
-        case .pin, .hidden:
+        case .pin(_, _, let type):
+            switch type {
+            case .artist: return .artists
+            case .album: return .albums
+            case .playlist: return .playlists
+            }
+        case .hidden:
             return nil
         }
     }
