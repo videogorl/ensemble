@@ -38,6 +38,14 @@ final class EnsemblePermalinkTests: XCTestCase {
         XCTAssertEqual(decoded.isSmartPlaylist, false)
     }
 
+    func testTitleWithSlashRemainsOnePathComponent() throws {
+        let link = EnsemblePermalink(kind: .track, title: "Love/Hate")
+        let url = try XCTUnwrap(link.url)
+
+        XCTAssertTrue(url.absoluteString.contains("/song/Love%2FHate"), url.absoluteString)
+        XCTAssertEqual(EnsemblePermalink(url: url)?.title, "Love/Hate")
+    }
+
     func testRejectsUnsupportedVersionAndNonEnsembleScheme() {
         XCTAssertNil(EnsemblePermalink(url: URL(string: "ensemble://media/v2/song/Test")!))
         XCTAssertNil(EnsemblePermalink(url: URL(string: "https://example.com/media/v1/song/Test")!))

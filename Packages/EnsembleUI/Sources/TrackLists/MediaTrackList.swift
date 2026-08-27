@@ -166,6 +166,10 @@ public class TrackTableViewCell: UITableViewCell {
     }
     
     private func setupViews() {
+        let selectedBackground = UIView()
+        selectedBackground.backgroundColor = UIColor(EnsembleScaffold.BrowseSelection.fillColor)
+        selectedBackgroundView = selectedBackground
+
         artworkImageView.contentMode = .scaleAspectFill
         artworkImageView.clipsToBounds = true
         artworkImageView.backgroundColor = UIColor.systemGray5

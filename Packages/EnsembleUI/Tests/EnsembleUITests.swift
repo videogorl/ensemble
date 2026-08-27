@@ -1654,7 +1654,7 @@ final class EnsembleUITests: XCTestCase {
                 "Favorite",
                 "Go to Album",
                 "Go to Artist",
-                "Share Ensemble Link",
+                "Share Ensemble Link…",
                 "Share Link…",
                 "Share Audio File…",
                 "Get Info…",
