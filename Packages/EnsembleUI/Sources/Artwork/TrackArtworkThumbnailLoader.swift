@@ -11,13 +11,13 @@ enum TrackArtworkThumbnailLoader {
             return nil
         }
 
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             track: track,
-            size: ArtworkSize.thumbnail.requestPixelDimension,
+            tier: .thumbnail,
             priority: .low
         )
 
-        let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
+        let resolved = await artworkLoader.resolvedImage(for: request)
         return isCurrent() ? resolved?.image : nil
     }
 }

@@ -1294,6 +1294,25 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         await fulfillment(of: [notification], timeout: 0.2)
     }
 
+    func testCacheManagerDelegatesArtworkClearToLoaderOnce() async throws {
+        let harness = makeHarness()
+        let artworkDownloadManager = RecordingArtworkDownloadManager()
+        var loaderClearCount = 0
+        let cacheManager = CacheManager(
+            libraryRepository: harness.libraryRepository,
+            artworkDownloadManager: artworkDownloadManager,
+            downloadManager: harness.downloadManager,
+            lyricsService: LyricsService(syncCoordinator: harness.syncCoordinator),
+            artworkCacheClear: { loaderClearCount += 1 }
+        )
+
+        try await cacheManager.clearArtworkCaches()
+
+        XCTAssertEqual(loaderClearCount, 1)
+        XCTAssertEqual(artworkDownloadManager.clearArtworkCacheCallCount, 0)
+        XCTAssertEqual(cacheManager.artworkCacheInvalidationGeneration, 1)
+    }
+
     private struct Harness {
         let accountManager: AccountManager
         let syncCoordinator: SyncCoordinator

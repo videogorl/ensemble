@@ -8,14 +8,7 @@ import AppKit
 #endif
 
 public struct ArtworkView: View {
-    let path: String?
-    let sourceKey: String?
-    let ratingKey: String?
-    let fallbackPath: String?
-    let fallbackRatingKey: String?
-    let fallbackSourceKey: String?
-    let cacheHint: PersistentArtworkCacheHint?
-    let fallbackCacheHint: PersistentArtworkCacheHint?
+    let request: ArtworkRequest
     let size: ArtworkSize
     let cornerRadius: CGFloat
     let isResponsive: Bool
@@ -32,29 +25,8 @@ public struct ArtworkView: View {
     @State private var invalidationToken: Int = 0
     @State private var serverRetryTask: Task<Void, Never>?
     
-    /// Whether the primary path is missing, so we fall back to fallbackPath/fallbackRatingKey
-    private var usesFallback: Bool {
-        path == nil || path?.isEmpty == true
-    }
-
-    /// Resolved path for cache lookups and load identity
-    private var effectivePath: String? {
-        usesFallback ? fallbackPath : path
-    }
-
-    /// Resolved ratingKey for cache lookups and load identity
-    private var effectiveRatingKey: String? {
-        usesFallback ? fallbackRatingKey : ratingKey
-    }
-
-    /// Unique ID to identify this specific artwork request — avoids string interpolation
-    /// by using a stable struct key
     private var loadID: String {
-        "\(path ?? "")|\(ratingKey ?? "")|\(fallbackPath ?? "")|\(fallbackRatingKey ?? "")|\(sourceKey ?? "")|\(fallbackSourceKey ?? "")|\(size.requestPixelDimension)"
-    }
-
-    private var imagePriority: ArtworkImagePriority {
-        Self.imagePriority(for: size)
+        request.stableBlurCacheKey
     }
 
     private static func imagePriority(for size: ArtworkSize) -> ArtworkImagePriority {
@@ -75,20 +47,24 @@ public struct ArtworkView: View {
         fallbackPath: String? = nil,
         fallbackRatingKey: String? = nil,
         fallbackSourceKey: String? = nil,
-        cacheHint: PersistentArtworkCacheHint? = nil,
-        fallbackCacheHint: PersistentArtworkCacheHint? = nil,
+        identity: ArtworkRequest.Identity? = nil,
+        fallbackIdentity: ArtworkRequest.Identity? = nil,
         size: ArtworkSize = .medium,
         cornerRadius: CGFloat? = nil,
         isResponsive: Bool = false
     ) {
-        self.path = path
-        self.sourceKey = sourceKey
-        self.ratingKey = ratingKey
-        self.fallbackPath = fallbackPath
-        self.fallbackRatingKey = fallbackRatingKey
-        self.fallbackSourceKey = fallbackSourceKey
-        self.cacheHint = cacheHint
-        self.fallbackCacheHint = fallbackCacheHint
+        self.request = ArtworkRequest(
+            path: path,
+            sourceKey: sourceKey,
+            ratingKey: ratingKey,
+            fallbackPath: fallbackPath,
+            fallbackRatingKey: fallbackRatingKey,
+            fallbackSourceKey: fallbackSourceKey,
+            identity: identity,
+            fallbackIdentity: fallbackIdentity,
+            tier: size.requestTier,
+            priority: Self.imagePriority(for: size)
+        )
         self.size = size
         self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
         self.isResponsive = isResponsive
@@ -136,8 +112,7 @@ public struct ArtworkView: View {
             let invalidatedKeys = notification.userInfo?["ratingKeys"] as? Set<String>
                 ?? (notification.userInfo?["ratingKey"] as? String).map { Set([$0]) }
                 ?? []
-            if invalidatedKeys.contains(ratingKey ?? "")
-                || invalidatedKeys.contains(fallbackRatingKey ?? "") {
+            if !invalidatedKeys.isDisjoint(with: request.ratingKeys) {
                 artworkURL = nil
                 resolvedImage = nil
                 invalidationToken += 1
@@ -179,29 +154,13 @@ public struct ArtworkView: View {
             currentArtworkIdentity = loadID
         }
 
-        guard effectivePath != nil else {
+        guard request.hasArtwork else {
             artworkURL = nil
             resolvedImage = nil
             return
         }
 
-        let descriptor = ArtworkResolutionDescriptor(
-            path: path,
-            sourceKey: sourceKey,
-            ratingKey: ratingKey,
-            fallbackPath: fallbackPath,
-            fallbackRatingKey: fallbackRatingKey,
-            fallbackSourceKey: fallbackSourceKey,
-            cacheHint: cacheHint,
-            fallbackCacheHint: fallbackCacheHint,
-            size: size.requestPixelDimension,
-            priority: imagePriority
-        )
-
-        let resolved = await ArtworkImageResolver.resolvedImage(
-            for: descriptor,
-            artworkLoader: dependencies.artworkLoader
-        )
+        let resolved = await dependencies.artworkLoader.resolvedImage(for: request)
         guard requestedInvalidationToken == invalidationToken, currentArtworkIdentity == loadID else { return }
         guard let resolved else {
             artworkURL = nil
@@ -274,24 +233,10 @@ struct ResolvedArtworkImageView: View {
 
 public extension ArtworkView {
     init(track: Track, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
-        let descriptor = ArtworkResolutionDescriptor(
-            track: track,
-            size: size.rawValue,
-            priority: Self.imagePriority(for: size)
-        )
-        self.init(
-            path: descriptor.path,
-            sourceKey: descriptor.sourceKey,
-            ratingKey: descriptor.ratingKey,
-            fallbackPath: descriptor.fallbackPath,
-            fallbackRatingKey: descriptor.fallbackRatingKey,
-            fallbackSourceKey: descriptor.fallbackSourceKey,
-            cacheHint: descriptor.cacheHint,
-            fallbackCacheHint: descriptor.fallbackCacheHint,
-            size: size,
-            cornerRadius: cornerRadius,
-            isResponsive: isResponsive
-        )
+        self.request = ArtworkRequest(track: track, tier: size.requestTier, priority: Self.imagePriority(for: size))
+        self.size = size
+        self.cornerRadius = cornerRadius ?? ArtworkCornerRadius.square(for: size)
+        self.isResponsive = isResponsive
     }
 
     init(album: Album, size: ArtworkSize = .medium, cornerRadius: CGFloat? = nil, isResponsive: Bool = false) {
@@ -301,7 +246,7 @@ public extension ArtworkView {
             ratingKey: album.id,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            cacheHint: PersistentArtworkCacheHint(album: album),
+            identity: ArtworkRequest.Identity(album: album),
             size: size,
             cornerRadius: cornerRadius,
             isResponsive: isResponsive
@@ -315,8 +260,8 @@ public extension ArtworkView {
             ratingKey: artist.id,
             fallbackPath: artist.fallbackThumbPath,
             fallbackRatingKey: artist.fallbackRatingKey,
-            cacheHint: PersistentArtworkCacheHint(artist: artist),
-            fallbackCacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(artist: artist),
+            fallbackIdentity: ArtworkRequest.Identity(
                 ratingKey: artist.fallbackRatingKey,
                 kind: .album,
                 sourcePath: artist.fallbackThumbPath
@@ -335,8 +280,8 @@ public extension ArtworkView {
             fallbackPath: playlist.fallbackArtworkPath,
             fallbackRatingKey: playlist.fallbackArtworkRatingKey,
             fallbackSourceKey: playlist.fallbackArtworkSourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(playlist: playlist),
-            fallbackCacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(playlist: playlist),
+            fallbackIdentity: ArtworkRequest.Identity(
                 ratingKey: playlist.fallbackArtworkRatingKey,
                 kind: .album,
                 sourcePath: playlist.fallbackArtworkPath,

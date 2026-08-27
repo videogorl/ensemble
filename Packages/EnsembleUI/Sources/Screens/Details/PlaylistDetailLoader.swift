@@ -88,28 +88,25 @@ struct PlaylistDetailLoader: View {
         let hasCompositeArtwork = playlist.compositePath?.isEmpty == false
         let fallbackSourceKey = playlist.fallbackArtworkSourceCompositeKey
             ?? playlist.sourceCompositeKey
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             path: playlist.compositePath,
             sourceKey: hasCompositeArtwork ? playlist.sourceCompositeKey : fallbackSourceKey,
             ratingKey: playlist.id,
             fallbackPath: playlist.fallbackArtworkPath,
             fallbackRatingKey: playlist.fallbackArtworkRatingKey,
             fallbackSourceKey: fallbackSourceKey,
-            cacheHint: PersistentArtworkCacheHint(playlist: playlist),
-            fallbackCacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(playlist: playlist),
+            fallbackIdentity: ArtworkRequest.Identity(
                 ratingKey: playlist.fallbackArtworkRatingKey,
                 kind: .album,
                 sourcePath: playlist.fallbackArtworkPath,
                 sourceCompositeKey: fallbackSourceKey
             ),
-            size: ArtworkSize.detail.requestPixelDimension,
+            tier: .hero,
             priority: .high
         )
 
-        return await ArtworkImageResolver.locallyCachedImage(
-            for: descriptor,
-            artworkLoader: deps.artworkLoader
-        )?.image
+        return await deps.artworkLoader.cachedImage(for: request)?.image
     }
 
     @MainActor

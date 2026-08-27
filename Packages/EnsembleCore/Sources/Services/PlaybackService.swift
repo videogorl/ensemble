@@ -5314,16 +5314,14 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
             self.artworkPrefetchTask?.cancel()
             self.artworkPrefetchTask = Task(priority: .utility) {
-                let descriptor = ArtworkResolutionDescriptor(
+                let request = ArtworkRequest(
                     track: track,
-                    size: ArtworkSize.detail.requestPixelDimension,
+                    tier: .hero,
                     priority: .low
                 )
-                guard case .resolved(let resolved) = await ArtworkImageResolver.resolveImage(
-                    for: descriptor,
-                    artworkLoader: artworkLoader
-                ), !Task.isCancelled else { return }
-                _ = await ArtworkImageResolver.preBlurredImage(
+                guard case .resolved(let resolved) = await artworkLoader.resolve(request),
+                      !Task.isCancelled else { return }
+                _ = await artworkLoader.blurredImage(
                     for: resolved.image,
                     cacheKey: resolved.blurCacheKey,
                     requiresIdle: true

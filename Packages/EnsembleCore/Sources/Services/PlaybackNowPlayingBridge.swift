@@ -398,24 +398,18 @@ final class PlaybackNowPlayingBridge {
     }
 
     private func resolvedArtworkImage(for track: Track) async -> PlatformArtworkImage? {
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             track: track,
-            size: ArtworkSize.detail.requestPixelDimension,
+            tier: .hero,
             priority: .high
         )
 
-        if let cached = await ArtworkImageResolver.locallyCachedImage(
-            for: descriptor,
-            artworkLoader: artworkLoader
-        ) {
+        if let cached = await artworkLoader.cachedImage(for: request) {
             EnsembleLogger.debug("[NowPlaying] Using cached artwork for '\(track.title)'")
             return cached.image
         }
 
-        guard case .resolved(let resolved) = await ArtworkImageResolver.resolveImage(
-            for: descriptor,
-            artworkLoader: artworkLoader
-        ) else {
+        guard case .resolved(let resolved) = await artworkLoader.resolve(request) else {
             return nil
         }
 
@@ -630,12 +624,12 @@ final class PlaybackNowPlayingBridge {
     }
 
     private static func artworkRequestKey(for track: Track) -> String {
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             track: track,
-            size: ArtworkSize.detail.requestPixelDimension,
+            tier: .hero,
             priority: .high
         )
-        let candidates = ArtworkImageResolver.candidateIdentityKeys(for: descriptor).sorted()
+        let candidates = request.candidateIdentityKeys.sorted()
         return candidates.isEmpty
             ? "\(track.sourceCompositeKey ?? "")|generated|\(track.id)"
             : candidates.joined(separator: "||")

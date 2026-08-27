@@ -16,7 +16,7 @@ import AppKit
 
 @MainActor
 final class ArtworkLoaderPersistentCacheTests: XCTestCase {
-    private struct ArtworkRequest: Equatable {
+    private struct RecordedArtworkRequest: Equatable {
         let ratingKey: String
         let type: ArtworkType
         let sourceCompositeKey: String?
@@ -35,20 +35,20 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         var downloadExpectation: XCTestExpectation?
 
         private let lock = NSLock()
-        private var _strictRequests: [ArtworkRequest] = []
-        private var _staleRequests: [ArtworkRequest] = []
-        private var _deletedRequests: [ArtworkRequest] = []
+        private var _strictRequests: [RecordedArtworkRequest] = []
+        private var _staleRequests: [RecordedArtworkRequest] = []
+        private var _deletedRequests: [RecordedArtworkRequest] = []
         private var _downloadedIdentities: [ArtworkIdentity] = []
 
-        var strictRequests: [ArtworkRequest] {
+        var strictRequests: [RecordedArtworkRequest] {
             withLock { _strictRequests }
         }
 
-        var staleRequests: [ArtworkRequest] {
+        var staleRequests: [RecordedArtworkRequest] {
             withLock { _staleRequests }
         }
 
-        var deletedRequests: [ArtworkRequest] {
+        var deletedRequests: [RecordedArtworkRequest] {
             withLock { _deletedRequests }
         }
 
@@ -114,7 +114,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             dateModifiedSeconds _: Int?
         ) async throws -> String? {
             withLock {
-                _strictRequests.append(ArtworkRequest(
+                _strictRequests.append(RecordedArtworkRequest(
                     ratingKey: ratingKey,
                     type: type,
                     sourceCompositeKey: sourceCompositeKey
@@ -137,7 +137,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             sourceCompositeKey: String?
         ) async throws -> String? {
             withLock {
-                _staleRequests.append(ArtworkRequest(
+                _staleRequests.append(RecordedArtworkRequest(
                     ratingKey: ratingKey,
                     type: type,
                     sourceCompositeKey: sourceCompositeKey
@@ -179,14 +179,14 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
 
         func deleteArtwork(ratingKey: String, type: ArtworkType) {
             withLock {
-                _deletedRequests.append(ArtworkRequest(ratingKey: ratingKey, type: type))
+                _deletedRequests.append(RecordedArtworkRequest(ratingKey: ratingKey, type: type))
             }
         }
 
         func deleteArtwork(forRatingKeys ratingKeys: Set<String>) {
             for ratingKey in ratingKeys {
                 withLock {
-                    _deletedRequests.append(ArtworkRequest(ratingKey: ratingKey, type: .album))
+                    _deletedRequests.append(RecordedArtworkRequest(ratingKey: ratingKey, type: .album))
                 }
             }
         }
@@ -364,7 +364,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
 
         XCTAssertEqual(resolvedURL, localURL)
         XCTAssertTrue(
-            artworkManager.staleRequests.contains(ArtworkRequest(
+            artworkManager.staleRequests.contains(RecordedArtworkRequest(
                 ratingKey: "album-1",
                 type: .album,
                 sourceCompositeKey: "plex:account-1:server-1:1"
@@ -406,7 +406,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         )
 
         XCTAssertEqual(sourceBURL, localURL)
-        XCTAssertTrue(artworkManager.strictRequests.contains(ArtworkRequest(
+        XCTAssertTrue(artworkManager.strictRequests.contains(RecordedArtworkRequest(
             ratingKey: "shared-album",
             type: .album,
             sourceCompositeKey: sourceB
@@ -429,9 +429,9 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         let downloadExpectation = expectation(description: "download replacement artwork")
         artworkManager.downloadExpectation = downloadExpectation
 
-        await artworkLoader.cacheResolvedArtwork(
+        _ = await artworkLoader.cacheRemoteArtwork(
             from: try XCTUnwrap(URL(string: "https://example.com/library/metadata/album-1/thumb/2000")),
-            cacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(
                 ratingKey: "album-1",
                 kind: .album,
                 sourcePath: "/library/metadata/album-1/thumb/2000",
@@ -469,9 +469,9 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         )
 
         let cacheTask = Task {
-            await artworkLoader.cacheResolvedArtwork(
+            _ = await artworkLoader.cacheRemoteArtwork(
                 from: try! XCTUnwrap(URL(string: "https://example.com/library/metadata/album-1/thumb/2000")),
-                cacheHint: PersistentArtworkCacheHint(
+                identity: ArtworkRequest.Identity(
                     ratingKey: "album-1",
                     kind: .album,
                     sourcePath: "/library/metadata/album-1/thumb/2000",

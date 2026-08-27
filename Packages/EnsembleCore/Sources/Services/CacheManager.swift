@@ -67,7 +67,7 @@ public final class CacheManager: ObservableObject {
     private let artworkDownloadManager: ArtworkDownloadManagerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let lyricsService: LyricsService
-    private let transientArtworkCacheReset: @MainActor () async throws -> Void
+    private let artworkCacheClear: @MainActor () async throws -> Void
     private let playbackArtifactCache = PlaybackArtifactCache.shared
     public var sourceCacheCleanupService: SourceCacheCleaning?
 
@@ -76,14 +76,15 @@ public final class CacheManager: ObservableObject {
         artworkDownloadManager: ArtworkDownloadManagerProtocol,
         downloadManager: DownloadManagerProtocol,
         lyricsService: LyricsService,
-        transientArtworkCacheReset: (@MainActor () async throws -> Void)? = nil
+        artworkCacheClear: (@MainActor () async throws -> Void)? = nil
     ) {
         self.libraryRepository = libraryRepository
         self.artworkDownloadManager = artworkDownloadManager
         self.downloadManager = downloadManager
         self.lyricsService = lyricsService
-        self.transientArtworkCacheReset = transientArtworkCacheReset ?? {
+        self.artworkCacheClear = artworkCacheClear ?? {
             try await ArtworkLoader.resetSharedPipelineCaches()
+            try await artworkDownloadManager.clearArtworkCache()
         }
     }
     
@@ -259,8 +260,7 @@ public final class CacheManager: ObservableObject {
 
     private func clearArtworkStorageAndConsumers() async throws {
         // Reset generations first so late requests cannot refill storage after deletion.
-        try await transientArtworkCacheReset()
-        try await artworkDownloadManager.clearArtworkCache()
+        try await artworkCacheClear()
         invalidateArtworkCacheConsumers()
         NotificationCenter.default.post(name: Self.artworkCachesDidClear, object: self)
     }
@@ -344,7 +344,7 @@ public final class CacheManager: ObservableObject {
     }
     
     private func clearNukeImageCache() async throws {
-        try await transientArtworkCacheReset()
+        try await ArtworkLoader.resetSharedPipelineCaches()
         invalidateArtworkCacheConsumers()
     }
     

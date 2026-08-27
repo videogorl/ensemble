@@ -1,5 +1,6 @@
 import EnsemblePersistence
 import MediaPlayer
+import Nuke
 import XCTest
 @testable import EnsembleCore
 
@@ -693,41 +694,42 @@ private final class MockArtworkLoader: ArtworkLoaderProtocol, @unchecked Sendabl
         locked { _localRequestCount }
     }
 
-    func artworkURLAsync(
-        for path: String?,
-        sourceKey: String?,
-        ratingKey: String?,
-        fallbackPath: String?,
-        fallbackRatingKey: String?,
-        size: Int
-    ) async -> URL? {
+    func resolve(
+        _ request: ArtworkRequest,
+        policy: ArtworkResolutionPolicy
+    ) async -> ArtworkImageResolutionOutcome {
         if responseDelayNanoseconds > 0 {
             try? await Task.sleep(nanoseconds: responseDelayNanoseconds)
         }
-        return locked {
+        let url = locked { () -> URL? in
+            if policy == .cachedOnly {
+                _localRequestCount += 1
+                return _localArtworkURL
+            }
             _requestCount += 1
             return _artworkURL
         }
-    }
-
-    func localArtworkURLAsync(
-        for path: String?,
-        ratingKey: String?,
-        fallbackPath: String?,
-        fallbackRatingKey: String?,
-        minimumPixelDimension: Int?,
-        allowStaleIdentity: Bool
-    ) async -> URL? {
-        if responseDelayNanoseconds > 0 {
-            try? await Task.sleep(nanoseconds: responseDelayNanoseconds)
+        guard let url else { return .unavailable(.noArtworkURL) }
+        let imageRequest = ArtworkImageRequest.resized(
+            url: url,
+            size: request.tier.rawValue,
+            priority: request.priority.nukePriority
+        )
+        guard let image = try? await ImagePipeline.shared.image(for: imageRequest) else {
+            return .unavailable(.imageLoadFailed(url))
         }
-        return locked {
-            _localRequestCount += 1
-            return _localArtworkURL
-        }
+        return .resolved(ArtworkResolvedImage(
+            url: url,
+            image: image,
+            blurCacheKey: request.stableBlurCacheKey,
+            identityKey: request.stableIdentityKey
+        ))
     }
 
     func invalidateURLCache() async {}
+
+    @MainActor
+    func clearCaches() async throws {}
 
     private func locked<T>(_ body: () -> T) -> T {
         lock.lock()

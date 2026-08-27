@@ -14,13 +14,13 @@ final class NowPlayingArtworkProjectionTests: XCTestCase {
         let firstTrack = makeTrack(id: "track-1", sourceKey: "plex:a:s:1", albumPath: albumPath)
         let sameAlbumTrack = makeTrack(id: "track-2", sourceKey: "plex:a:s:1", albumPath: albumPath)
         let otherSourceTrack = makeTrack(id: "track-3", sourceKey: "plex:a:other:1", albumPath: albumPath)
-        let firstDescriptor = ArtworkResolutionDescriptor(
+        let firstDescriptor = ArtworkRequest(
             track: firstTrack,
-            size: ArtworkSize.detail.requestPixelDimension,
+            tier: .hero,
             priority: .high
         )
         let firstIdentity = try XCTUnwrap(
-            ArtworkImageResolver.candidateIdentityKeys(for: firstDescriptor).first
+            firstDescriptor.candidateIdentityKeys.first
         )
         let image = makeImage()
         let resolved = ArtworkResolvedImage(
@@ -33,26 +33,26 @@ final class NowPlayingArtworkProjectionTests: XCTestCase {
 
         projection.beginLoading(
             firstTrack,
-            retaining: ArtworkImageResolver.candidateIdentityKeys(for: firstDescriptor)
+            retaining: firstDescriptor.candidateIdentityKeys
         )
         projection.resolveArtwork(resolved, for: firstTrack)
         projection.beginLoading(
             sameAlbumTrack,
-            retaining: ArtworkImageResolver.candidateIdentityKeys(for: ArtworkResolutionDescriptor(
+            retaining: ArtworkRequest(
                 track: sameAlbumTrack,
-                size: ArtworkSize.detail.requestPixelDimension,
+                tier: .hero,
                 priority: .high
-            ))
+            ).candidateIdentityKeys
         )
         XCTAssertTrue(projection.artworkImage === image)
 
         projection.beginLoading(
             otherSourceTrack,
-            retaining: ArtworkImageResolver.candidateIdentityKeys(for: ArtworkResolutionDescriptor(
+            retaining: ArtworkRequest(
                 track: otherSourceTrack,
-                size: ArtworkSize.detail.requestPixelDimension,
+                tier: .hero,
                 priority: .high
-            ))
+            ).candidateIdentityKeys
         )
         XCTAssertNil(projection.artworkImage)
 

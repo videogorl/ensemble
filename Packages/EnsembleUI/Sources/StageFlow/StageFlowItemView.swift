@@ -15,7 +15,7 @@ struct StageFlowItemView: View {
     let ratingKey: String
     let artworkPath: String?
     let sourceCompositeKey: String?
-    let cacheHint: PersistentArtworkCacheHint?
+    let identity: ArtworkRequest.Identity?
     /// When set, uses composite artwork (2x2 grid for merged playlists)
     let displayPlaylist: DisplayPlaylist?
 
@@ -23,13 +23,13 @@ struct StageFlowItemView: View {
         ratingKey: String,
         artworkPath: String?,
         sourceCompositeKey: String?,
-        cacheHint: PersistentArtworkCacheHint? = nil,
+        identity: ArtworkRequest.Identity? = nil,
         displayPlaylist: DisplayPlaylist? = nil
     ) {
         self.ratingKey = ratingKey
         self.artworkPath = artworkPath
         self.sourceCompositeKey = sourceCompositeKey
-        self.cacheHint = cacheHint
+        self.identity = identity
         self.displayPlaylist = displayPlaylist
     }
 
@@ -63,7 +63,7 @@ struct StageFlowItemView: View {
                 path: artworkPath,
                 sourceKey: sourceCompositeKey,
                 ratingKey: ratingKey,
-                cacheHint: cacheHint,
+                identity: identity,
                 size: .large,
                 cornerRadius: EnsembleDesign.Spacing.none,
                 isResponsive: true
@@ -78,7 +78,7 @@ extension StageFlowItemView {
             ratingKey: album.id,
             artworkPath: album.thumbPath,
             sourceCompositeKey: album.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(album: album)
+            identity: ArtworkRequest.Identity(album: album)
         )
     }
 
@@ -87,7 +87,7 @@ extension StageFlowItemView {
             ratingKey: dp.primaryPlaylist.id,
             artworkPath: dp.compositePath,
             sourceCompositeKey: dp.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(playlist: dp.primaryPlaylist),
+            identity: ArtworkRequest.Identity(playlist: dp.primaryPlaylist),
             displayPlaylist: dp.isMerged ? dp : nil
         )
     }
@@ -97,7 +97,7 @@ extension StageFlowItemView {
             ratingKey: albumItem.albumID,
             artworkPath: albumItem.thumbPath,
             sourceCompositeKey: albumItem.sourceCompositeKey,
-            cacheHint: PersistentArtworkCacheHint(
+            identity: ArtworkRequest.Identity(
                 ratingKey: albumItem.albumID,
                 kind: .album,
                 sourcePath: albumItem.thumbPath

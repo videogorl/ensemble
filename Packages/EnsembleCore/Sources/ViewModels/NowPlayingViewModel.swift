@@ -946,12 +946,12 @@ public final class NowPlayingViewModel: ObservableObject {
 
     private func loadArtworkImage(for track: Track) {
         let trackIdentity = track.sourceScopedID
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             track: track,
-            size: ArtworkSize.detail.requestPixelDimension,
+            tier: .hero,
             priority: .high
         )
-        let candidateIdentities = ArtworkImageResolver.candidateIdentityKeys(for: descriptor)
+        let candidateIdentities = request.candidateIdentityKeys
 
         artworkLoadTask?.cancel()
         blurGenerationTask?.cancel()
@@ -961,10 +961,7 @@ public final class NowPlayingViewModel: ObservableObject {
         artworkLoadTask = Task { @MainActor in
             guard !Task.isCancelled else { return }
 
-            switch await ArtworkImageResolver.resolveImage(
-                for: descriptor,
-                artworkLoader: DependencyContainer.shared.artworkLoader
-            ) {
+            switch await DependencyContainer.shared.artworkLoader.resolve(request) {
             case .resolved(let resolved):
                 guard !Task.isCancelled else { return }
 
@@ -991,7 +988,7 @@ public final class NowPlayingViewModel: ObservableObject {
         blurGenerationTask?.cancel()
 
         blurGenerationTask = Task { [weak self] in
-            let blurred = await ArtworkImageResolver.preBlurredImage(
+            let blurred = await DependencyContainer.shared.artworkLoader.blurredImage(
                 for: resolved.image,
                 cacheKey: resolved.blurCacheKey
             )

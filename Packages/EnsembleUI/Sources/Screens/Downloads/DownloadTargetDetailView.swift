@@ -80,7 +80,7 @@ public struct DownloadTargetDetailView: View {
                     path: viewModel.thumbPath,
                     sourceKey: viewModel.summary.sourceCompositeKey,
                     ratingKey: viewModel.summary.ratingKey,
-                    cacheHint: targetArtworkCacheHint,
+                    identity: targetArtworkIdentity,
                     size: .medium,
                     cornerRadius: ArtworkCornerRadius.square(for: ArtworkSize.medium)
                 )
@@ -337,31 +337,28 @@ public struct DownloadTargetDetailView: View {
 
     private func loadArtworkImage(path: String) async {
         currentArtworkPath = path
-        let descriptor = ArtworkResolutionDescriptor(
+        let request = ArtworkRequest(
             path: path,
             sourceKey: viewModel.summary.sourceCompositeKey,
             ratingKey: viewModel.summary.ratingKey,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            cacheHint: targetArtworkCacheHint,
-            fallbackCacheHint: nil,
-            size: ArtworkSize.detail.requestPixelDimension,
+            identity: targetArtworkIdentity,
+            fallbackIdentity: nil,
+            tier: .hero,
             priority: .high
         )
 
-        guard let resolved = await ArtworkImageResolver.resolvedImage(
-            for: descriptor,
-            artworkLoader: deps.artworkLoader
-        ) else { return }
+        guard let resolved = await deps.artworkLoader.resolvedImage(for: request) else { return }
 
         withAnimation(.easeInOut(duration: 0.2)) {
             artworkImage = resolved.image
         }
     }
 
-    private var targetArtworkCacheHint: PersistentArtworkCacheHint? {
-        guard let kind = PersistentArtworkCacheHint.Kind(viewModel.summary.kind) else { return nil }
-        return PersistentArtworkCacheHint(
+    private var targetArtworkIdentity: ArtworkRequest.Identity? {
+        guard let kind = ArtworkRequest.Identity.Kind(viewModel.summary.kind) else { return nil }
+        return ArtworkRequest.Identity(
             ratingKey: viewModel.summary.ratingKey,
             kind: kind,
             sourcePath: viewModel.thumbPath

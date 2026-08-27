@@ -1863,7 +1863,7 @@ public struct SidebarView: View {
                 path: playlist.compositePath,
                 sourceKey: playlist.sourceKey,
                 ratingKey: playlist.playlistID,
-                cacheHint: PersistentArtworkCacheHint(
+                identity: ArtworkRequest.Identity(
                     ratingKey: playlist.playlistID,
                     kind: .playlist,
                     sourcePath: playlist.compositePath

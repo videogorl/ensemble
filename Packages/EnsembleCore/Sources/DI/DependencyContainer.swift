@@ -495,7 +495,10 @@ public final class DependencyContainer: @unchecked Sendable {
         let lyricsService = MainActor.assumeIsolated {
             LyricsService(syncCoordinator: sync.syncCoordinator)
         }
-        let artworkLoader = ArtworkLoader(syncCoordinator: sync.syncCoordinator)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: sync.syncCoordinator,
+            artworkDownloadManager: core.artworkDownloadManager
+        )
         let audioAnalyzer = MainActor.assumeIsolated {
             FrequencyAnalysisService()
         }
@@ -515,8 +518,8 @@ public final class DependencyContainer: @unchecked Sendable {
                 artworkDownloadManager: core.artworkDownloadManager,
                 downloadManager: core.downloadManager,
                 lyricsService: lyricsService,
-                transientArtworkCacheReset: {
-                    try await artworkLoader.resetTransientCaches()
+                artworkCacheClear: {
+                    try await artworkLoader.clearCaches()
                 }
             )
         }

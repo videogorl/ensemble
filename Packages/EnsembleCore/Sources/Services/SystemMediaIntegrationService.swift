@@ -218,16 +218,21 @@ final class LiveSystemMediaArtworkProvider: SystemMediaArtworkProviding {
             return nil
         }
 
-        guard let artworkURL = await artworkLoader.artworkURLAsync(
-            for: artworkPath,
+        let request = ArtworkRequest(
+            path: artworkPath,
             sourceKey: reference.sourceCompositeKey,
             ratingKey: reference.artworkCacheKey ?? reference.id,
             fallbackPath: nil,
             fallbackRatingKey: nil,
-            size: SystemMediaIntegrationService.systemSuggestionArtworkSize
-        ) else {
+            identity: nil,
+            fallbackIdentity: nil,
+            tier: .standard,
+            priority: .low
+        )
+        guard case .resolved(let artwork) = await artworkLoader.resolve(request) else {
             return nil
         }
+        let artworkURL = artwork.url
 
         if artworkURL.isFileURL {
             return await Task.detached(priority: .utility) {
@@ -280,7 +285,6 @@ public final class SystemMediaIntegrationService {
     private static let spotlightFullRefreshInterval: TimeInterval = 24 * 60 * 60
     private static let spotlightLastFullRefreshKey = "SystemMediaIntegrationService.lastSpotlightFullRefresh"
     private static let siriVocabularyLimit = 750
-    nonisolated static let systemSuggestionArtworkSize = 500
     nonisolated static let maximumSystemArtworkBytes = 5 * 1024 * 1024
 
     private let siriMediaIndexStore: SiriMediaIndexStore
