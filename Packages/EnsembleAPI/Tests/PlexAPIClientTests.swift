@@ -1,11 +1,11 @@
 import XCTest
 @testable import EnsembleAPI
 
-private final class DownloadQueueURLProtocol: URLProtocol {
+private final class PlexAPIClientURLProtocol: URLProtocol {
     private static let lock = NSLock()
-    private static var handler: ((URLRequest) -> (Int, Data))?
+    private static var handler: ((URLRequest) throws -> (Int, Data))?
 
-    static func install(_ handler: @escaping (URLRequest) -> (Int, Data)) {
+    static func install(_ handler: @escaping (URLRequest) throws -> (Int, Data)) {
         lock.lock()
         self.handler = handler
         lock.unlock()
@@ -23,16 +23,20 @@ private final class DownloadQueueURLProtocol: URLProtocol {
             return
         }
 
-        let (statusCode, data) = handler(request)
-        let response = HTTPURLResponse(
-            url: url,
-            statusCode: statusCode,
-            httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"]
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        do {
+            let (statusCode, data) = try handler(request)
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
     }
 
     override func stopLoading() {}
@@ -44,7 +48,7 @@ final class PlexAPIClientTests: XCTestCase {
         let stateLock = NSLock()
         var queueRequests = 0
         var addPaths: [String] = []
-        DownloadQueueURLProtocol.install { request in
+        PlexAPIClientURLProtocol.install { request in
             stateLock.lock()
             defer { stateLock.unlock() }
 
@@ -64,7 +68,7 @@ final class PlexAPIClientTests: XCTestCase {
         }
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DownloadQueueURLProtocol.self]
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let client = PlexAPIClient(
@@ -102,7 +106,7 @@ final class PlexAPIClientTests: XCTestCase {
     func testConcurrentDownloadQueueEnqueuesShareQueueRequest() async throws {
         let stateLock = NSLock()
         var queueRequests = 0
-        DownloadQueueURLProtocol.install { request in
+        PlexAPIClientURLProtocol.install { request in
             stateLock.lock()
             defer { stateLock.unlock() }
 
@@ -115,7 +119,7 @@ final class PlexAPIClientTests: XCTestCase {
         }
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DownloadQueueURLProtocol.self]
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let client = PlexAPIClient(
@@ -207,6 +211,75 @@ final class PlexAPIClientTests: XCTestCase {
         XCTAssertTrue(didSync)
         XCTAssertEqual(currentURL, "https://fresh.example.com")
         XCTAssertFalse(didSyncAgain)
+    }
+
+    func testTranscodeDecisionSyncsEndpointAndRetriesAfterConnectionFailure() async throws {
+        PlexAPIClientURLProtocol.install { request in
+            let host = request.url?.host ?? ""
+            if host == "failed.example.com" {
+                throw URLError(.timedOut)
+            }
+            if host == "stale.example.com" {
+                return (500, Data())
+            }
+            return (
+                200,
+                Data(#"{"MediaContainer":{"Metadata":[{"Media":[{"Part":[{"decision":"transcode"}]}]}]}}"#.utf8)
+            )
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        let failoverManager = ConnectionFailoverManager(timeout: 0.1) { request in
+            let url = try XCTUnwrap(request.url)
+            let statusCode = url.host == "fallback.example.com" ? 200 : 500
+            let response = HTTPURLResponse(
+                url: url,
+                statusCode: statusCode,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (Data(), response)
+        }
+        let registry = ServerConnectionRegistry()
+        let serverKey = "account:server"
+        let client = PlexAPIClient(
+            connection: PlexServerConnection(
+                url: "https://stale.example.com",
+                alternativeURLs: ["https://failed.example.com", "https://fallback.example.com"],
+                token: "token123",
+                identifier: "server",
+                name: "Server"
+            ),
+            keychain: TestKeychain(),
+            failoverManager: failoverManager,
+            connectionRegistry: registry,
+            serverKey: serverKey,
+            urlSession: session
+        )
+
+        for _ in 0..<20 {
+            if await registry.currentURL(for: serverKey) != nil {
+                break
+            }
+            await Task.yield()
+        }
+        await registry.updateEndpoint(
+            for: serverKey,
+            endpoint: PlexEndpointDescriptor(url: "https://failed.example.com", local: true, relay: false),
+            source: .healthCheck
+        )
+
+        let result = try await client.callTranscodeDecision(
+            queryItems: [URLQueryItem(name: "session", value: "session-1")]
+        )
+        let currentURL = await client.getCurrentServerURL()
+
+        XCTAssertEqual(result.decision, .transcode)
+        XCTAssertEqual(currentURL, "https://fallback.example.com")
     }
 
     func testImmediateFailoverExcludesTheRequestURLThatJustFailed() async throws {
@@ -567,7 +640,7 @@ final class PlexAPIClientTests: XCTestCase {
     }
 
     func testPagedLibraryInventoryRejectsPrematureEmptyPage() async throws {
-        DownloadQueueURLProtocol.install { request in
+        PlexAPIClientURLProtocol.install { request in
             let components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)
             let start = components?.queryItems?.first {
                 $0.name == "X-Plex-Container-Start"
@@ -586,7 +659,7 @@ final class PlexAPIClientTests: XCTestCase {
         }
 
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [DownloadQueueURLProtocol.self]
+        configuration.protocolClasses = [PlexAPIClientURLProtocol.self]
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let client = PlexAPIClient(
