@@ -51,13 +51,24 @@ public struct ArtworkResolutionDescriptor: Sendable {
     ) {
         let sourceKey = track.sourceCompositeKey ?? fallbackSourceKey
         let albumRatingKey = track.fallbackRatingKey ?? track.albumRatingKey
+        let primaryIsAlbumArtwork = track.thumbPath?.isEmpty == false
+            && track.thumbPath == track.fallbackThumbPath
+            && albumRatingKey?.isEmpty == false
+        let primaryCacheHint = PersistentArtworkCacheHint(
+            ratingKey: primaryIsAlbumArtwork ? albumRatingKey : track.id,
+            kind: primaryIsAlbumArtwork ? .album : .track,
+            sourcePath: track.thumbPath,
+            dateModified: primaryIsAlbumArtwork ? nil : track.dateModified,
+            sourceCompositeKey: sourceKey
+        )
         self.init(
             path: track.thumbPath,
             sourceKey: sourceKey,
             ratingKey: track.id,
             fallbackPath: track.fallbackThumbPath,
             fallbackRatingKey: albumRatingKey,
-            cacheHint: nil,
+            fallbackSourceKey: fallbackSourceKey,
+            cacheHint: primaryCacheHint,
             fallbackCacheHint: PersistentArtworkCacheHint(
                 ratingKey: albumRatingKey,
                 kind: .album,
@@ -84,6 +95,10 @@ public struct ArtworkResolutionDescriptor: Sendable {
     }
 
     public var stableBlurCacheKey: String {
+        "\(stableIdentityKey)|\(size)"
+    }
+
+    public var stableIdentityKey: String {
         if let cacheHint = effectiveCacheHint {
             return [
                 "hint",
@@ -91,8 +106,7 @@ public struct ArtworkResolutionDescriptor: Sendable {
                 cacheHint.kind.rawValue,
                 cacheHint.ratingKey,
                 cacheHint.sourcePath,
-                cacheHint.dateModifiedSeconds.map(String.init) ?? "no-date",
-                String(size)
+                cacheHint.dateModifiedSeconds.map(String.init) ?? "no-date"
             ].joined(separator: "|")
         }
 
@@ -102,16 +116,17 @@ public struct ArtworkResolutionDescriptor: Sendable {
             ratingKey ?? "no-rating",
             path ?? "no-path",
             fallbackRatingKey ?? "no-fallback-rating",
-            fallbackPath ?? "no-fallback-path",
-            String(size)
+            fallbackPath ?? "no-fallback-path"
         ].joined(separator: "|")
     }
+
 }
 
 public struct ArtworkResolvedImage: Sendable {
     public let url: URL
     public let image: PlatformImage
     public let blurCacheKey: String
+    public let identityKey: String
 }
 
 public enum ArtworkImageResolutionOutcome: Sendable {
@@ -125,6 +140,12 @@ public enum ArtworkImageResolutionUnavailableReason: Sendable, Equatable {
 }
 
 public enum ArtworkImageResolver {
+    public static func candidateIdentityKeys(
+        for descriptor: ArtworkResolutionDescriptor
+    ) -> Set<String> {
+        Set(candidateDescriptors(for: descriptor).map(\.stableIdentityKey))
+    }
+
     public static func locallyCachedImage(
         for descriptor: ArtworkResolutionDescriptor,
         artworkLoader: ArtworkLoaderProtocol
@@ -181,14 +202,18 @@ public enum ArtworkImageResolver {
                 size: candidate.size
             )
 
-            if let url,
-               let resolved = await image(for: url, descriptor: candidate) {
-                await artworkLoader.cacheResolvedArtwork(
+            if let url {
+                if let localURL = await artworkLoader.cacheRemoteArtwork(
                     from: url,
                     cacheHint: candidate.cacheHint?.scoped(to: candidate.sourceKey),
                     minimumPixelDimension: candidate.size
-                )
-                return .resolved(resolved)
+                ),
+                   let resolved = await image(for: localURL, descriptor: candidate) {
+                    return .resolved(resolved)
+                }
+                if let resolved = await image(for: url, descriptor: candidate) {
+                    return .resolved(resolved)
+                }
             }
 
             if let url {
@@ -316,7 +341,8 @@ public enum ArtworkImageResolver {
             return ArtworkResolvedImage(
                 url: url,
                 image: cachedImage.image,
-                blurCacheKey: descriptor.stableBlurCacheKey
+                blurCacheKey: descriptor.stableBlurCacheKey,
+                identityKey: descriptor.stableIdentityKey
             )
         }
 
@@ -327,7 +353,8 @@ public enum ArtworkImageResolver {
         return ArtworkResolvedImage(
             url: url,
             image: image,
-            blurCacheKey: descriptor.stableBlurCacheKey
+            blurCacheKey: descriptor.stableBlurCacheKey,
+            identityKey: descriptor.stableIdentityKey
         )
     }
 }

@@ -16,7 +16,8 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         }
 
         let localArtworkPath: String?
-        private(set) var downloadedRecords: [DownloadRecord] = []
+        private let lock = NSLock()
+        private var records: [DownloadRecord] = []
 
         init(localArtworkPath: String? = nil) {
             self.localArtworkPath = localArtworkPath
@@ -26,13 +27,19 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
             downloadedRecords.map(\.identity)
         }
 
+        var downloadedRecords: [DownloadRecord] {
+            lock.withLock { records }
+        }
+
         func getLocalArtworkPath(for album: CDAlbum) async throws -> String? { localArtworkPath }
         func getLocalArtworkPath(for artist: CDArtist) async throws -> String? { localArtworkPath }
         func getLocalArtworkPath(for playlist: CDPlaylist) async throws -> String? { localArtworkPath }
         func downloadAndCacheArtwork(from url: URL, ratingKey: String, type: ArtworkType) async throws {}
 
         func downloadAndCacheArtwork(from url: URL, identity: ArtworkIdentity) async throws {
-            downloadedRecords.append(DownloadRecord(url: url, identity: identity))
+            lock.withLock {
+                records.append(DownloadRecord(url: url, identity: identity))
+            }
         }
 
         func deleteArtwork(ratingKey: String, type: ArtworkType) {}
@@ -48,7 +55,12 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         }
 
         let sourceIdentifier: MusicSourceIdentifier
-        private(set) var artworkRequests: [ArtworkRequest] = []
+        private let lock = NSLock()
+        private var requests: [ArtworkRequest] = []
+
+        var artworkRequests: [ArtworkRequest] {
+            lock.withLock { requests }
+        }
 
         init(sourceIdentifier: MusicSourceIdentifier) {
             self.sourceIdentifier = sourceIdentifier
@@ -98,7 +110,9 @@ final class SyncCoordinatorArtworkCachingTests: XCTestCase {
         }
 
         func getArtworkURL(path: String?, size: Int) async throws -> URL? {
-            artworkRequests.append(ArtworkRequest(path: path, size: size))
+            lock.withLock {
+                requests.append(ArtworkRequest(path: path, size: size))
+            }
             return URL(string: "https://example.com\(path ?? "/artwork").jpg")
         }
 

@@ -100,7 +100,7 @@ public struct ProfileView: View {
                     clearArtworkCaches()
                 }
             } message: {
-                Text("This deletes cached album, artist, and playlist images. Your library, downloads, accounts, and settings are preserved.")
+                Text("This deletes cached track, album, artist, and playlist images. Your library, downloads, accounts, and settings are preserved.")
             }
             .alert("Clear All Library Data", isPresented: $showingClearDataAlert) {
                 Button("Cancel", role: .cancel) {}

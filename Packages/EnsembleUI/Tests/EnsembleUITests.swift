@@ -197,8 +197,8 @@ final class EnsembleUITests: XCTestCase {
         let artworkPaths = await artworkLoader.artworkPaths
         XCTAssertEqual(artworkPaths, [primaryPath, fallbackPath])
         let cacheRequests = await artworkLoader.cacheRequests
-        XCTAssertEqual(cacheRequests.count, 1)
-        XCTAssertEqual(cacheRequests.first?.hint, fallbackHint?.scoped(to: "plex:account:server"))
+        XCTAssertEqual(cacheRequests.count, 2)
+        XCTAssertEqual(cacheRequests.last?.hint, fallbackHint?.scoped(to: "plex:account:server"))
     }
 
     func testArtworkResolverFindsSamePathLocalFallbackByCacheIdentity() async throws {
@@ -410,7 +410,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(image)
         let localRequests = await artworkLoader.localRequests
         XCTAssertEqual(localRequests.count, 1)
-        XCTAssertEqual(localRequests.first?.minimumPixelDimension, ArtworkSize.thumbnail.rawValue)
+        XCTAssertEqual(localRequests.first?.minimumPixelDimension, ArtworkSize.thumbnail.requestPixelDimension)
         XCTAssertEqual(localRequests.first?.allowStaleIdentity, true)
     }
 

@@ -178,6 +178,7 @@ final class PlaybackNowPlayingBridge {
     private var artworkRequestKey: String?
     private var artwork: MPMediaItemArtwork?
     private var artworkRecoveryObserver: NSObjectProtocol?
+    private var artworkCacheResetObserver: NSObjectProtocol?
     private var latestPlaybackState: PlaybackState = .stopped
     private var lastPublishedState: PlaybackNowPlayingState?
     private var lastPublishedPlaybackState: PlaybackState?
@@ -197,11 +198,21 @@ final class PlaybackNowPlayingBridge {
         ) { [weak self] _ in
             self?.prepareArtworkRetry()
         }
+        self.artworkCacheResetObserver = NotificationCenter.default.addObserver(
+            forName: CacheManager.artworkCachesDidClear,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadArtworkAfterCacheClear()
+        }
     }
 
     deinit {
         if let artworkRecoveryObserver {
             NotificationCenter.default.removeObserver(artworkRecoveryObserver)
+        }
+        if let artworkCacheResetObserver {
+            NotificationCenter.default.removeObserver(artworkCacheResetObserver)
         }
         removeRemoteCommandHandlers()
         cancelArtworkLoad(clearArtwork: true)
@@ -337,9 +348,6 @@ final class PlaybackNowPlayingBridge {
            artworkRequestKey == nextArtworkRequestKey,
            let artwork {
             artworkForMetadata = artwork
-        } else if hasArtworkPath,
-                  let artwork {
-            artworkForMetadata = artwork
         } else if hasArtworkPath {
             artworkForMetadata = nil
         } else {
@@ -392,7 +400,7 @@ final class PlaybackNowPlayingBridge {
     private func resolvedArtworkImage(for track: Track) async -> PlatformArtworkImage? {
         let descriptor = ArtworkResolutionDescriptor(
             track: track,
-            size: 600,
+            size: ArtworkSize.detail.requestPixelDimension,
             priority: .high
         )
 
@@ -445,6 +453,15 @@ final class PlaybackNowPlayingBridge {
         artworkRequestKey = nil
         lastPublishedState = nil
         lastPublishedPlaybackState = nil
+    }
+
+    private func reloadArtworkAfterCacheClear() {
+        guard let state = lastPublishedState else {
+            cancelArtworkLoad(clearArtwork: true)
+            return
+        }
+        cancelArtworkLoad(clearArtwork: true)
+        updateNowPlayingInfo(state)
     }
 
     func updateFeedbackCommandState(isLiked: Bool, isDisliked: Bool) {
@@ -613,14 +630,15 @@ final class PlaybackNowPlayingBridge {
     }
 
     private static func artworkRequestKey(for track: Track) -> String {
-        let source = track.sourceCompositeKey ?? ""
-        if let thumbPath = track.thumbPath, !thumbPath.isEmpty {
-            return "\(source)|\(thumbPath)|\(track.fallbackThumbPath ?? "")"
-        }
-        if let fallbackThumbPath = track.fallbackThumbPath, !fallbackThumbPath.isEmpty {
-            return "\(source)|\(fallbackThumbPath)"
-        }
-        return "\(source)|generated|\(track.id)"
+        let descriptor = ArtworkResolutionDescriptor(
+            track: track,
+            size: ArtworkSize.detail.requestPixelDimension,
+            priority: .high
+        )
+        let candidates = ArtworkImageResolver.candidateIdentityKeys(for: descriptor).sorted()
+        return candidates.isEmpty
+            ? "\(track.sourceCompositeKey ?? "")|generated|\(track.id)"
+            : candidates.joined(separator: "||")
     }
 
     private static func hasArtworkPath(for track: Track) -> Bool {

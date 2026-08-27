@@ -340,10 +340,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
     }
 
     func testInvalidatedArtworkKeepsPersistentFileAsOfflineFallback() async throws {
-        let localURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("jpg")
-        try Data("image".utf8).write(to: localURL)
+        let localURL = try makeTemporaryJPEG(width: 300, height: 300)
         defer { try? FileManager.default.removeItem(at: localURL) }
 
         let artworkManager = RecordingArtworkDownloadManager(
@@ -366,14 +363,6 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         )
 
         XCTAssertEqual(resolvedURL, localURL)
-        XCTAssertFalse(
-            artworkManager.strictRequests.contains(ArtworkRequest(
-                ratingKey: "album-1",
-                type: .album,
-                sourceCompositeKey: "plex:account-1:server-1:1"
-            )),
-            "Marked-stale artwork should not be treated as a fresh strict local hit."
-        )
         XCTAssertTrue(
             artworkManager.staleRequests.contains(ArtworkRequest(
                 ratingKey: "album-1",
@@ -389,10 +378,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
     }
 
     func testSourceScopedInvalidationDoesNotStaleAnotherSourcesMatchingKey() async throws {
-        let localURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("jpg")
-        try Data("image".utf8).write(to: localURL)
+        let localURL = try makeTemporaryJPEG(width: 300, height: 300)
         defer { try? FileManager.default.removeItem(at: localURL) }
 
         let artworkManager = RecordingArtworkDownloadManager(
@@ -482,16 +468,18 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             libraryId: "1"
         )
 
-        await artworkLoader.cacheResolvedArtwork(
-            from: try XCTUnwrap(URL(string: "https://example.com/library/metadata/album-1/thumb/2000")),
-            cacheHint: PersistentArtworkCacheHint(
-                ratingKey: "album-1",
-                kind: .album,
-                sourcePath: "/library/metadata/album-1/thumb/2000",
-                sourceCompositeKey: source.compositeKey
-            ),
-            minimumPixelDimension: ArtworkSize.detail.rawValue
-        )
+        let cacheTask = Task {
+            await artworkLoader.cacheResolvedArtwork(
+                from: try! XCTUnwrap(URL(string: "https://example.com/library/metadata/album-1/thumb/2000")),
+                cacheHint: PersistentArtworkCacheHint(
+                    ratingKey: "album-1",
+                    kind: .album,
+                    sourcePath: "/library/metadata/album-1/thumb/2000",
+                    sourceCompositeKey: source.compositeKey
+                ),
+                minimumPixelDimension: ArtworkSize.detail.requestPixelDimension
+            )
+        }
         await fulfillment(of: [writeStarted], timeout: 1)
 
         syncCoordinator.accountManager.removeMusicSource(source)
@@ -504,6 +492,7 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
         XCTAssertEqual(eventsBeforeRelease, [])
 
         await gate.releaseWrite()
+        await cacheTask.value
         let cleanupSucceeded = await cleanupTask.value
         let eventsAfterCleanup = await gate.recordedEvents()
         XCTAssertTrue(cleanupSucceeded)
@@ -624,8 +613,14 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
             try? artworkManager.deleteArtwork(forSourceCompositeKey: sourceA)
             try? artworkManager.deleteArtwork(forSourceCompositeKey: sourceB)
         }
-        try Data("source-a".utf8).write(to: urlA)
-        try Data("source-b".utf8).write(to: urlB)
+        let seededA = try makeTemporaryJPEG(width: 160, height: 160)
+        let seededB = try makeTemporaryJPEG(width: 160, height: 160)
+        defer {
+            try? FileManager.default.removeItem(at: seededA)
+            try? FileManager.default.removeItem(at: seededB)
+        }
+        try FileManager.default.copyItem(at: seededA, to: urlA)
+        try FileManager.default.copyItem(at: seededB, to: urlB)
         try JSONEncoder().encode(ArtworkIdentity(
             ratingKey: ratingKey,
             type: .album,
@@ -665,6 +660,67 @@ final class ArtworkLoaderPersistentCacheTests: XCTestCase {
 
         XCTAssertEqual(resolvedA, urlA)
         XCTAssertEqual(resolvedB, urlB)
+    }
+
+    func testBestAvailableArtworkIsReusedAndCorruptReplacementIsRejected() async throws {
+        let artworkManager = ArtworkDownloadManager()
+        let ratingKey = "best-available-\(UUID().uuidString)"
+        let sourceKey = "plex:account-1:server-1:1"
+        let sourcePath = "/library/metadata/\(ratingKey)/thumb"
+        let cachedURL = ArtworkDownloadManager.artworkDirectory.appendingPathComponent(
+            ArtworkDownloadManager.cacheFilename(
+                ratingKey: ratingKey,
+                type: .album,
+                sourceCompositeKey: sourceKey
+            )
+        )
+        let identityURL = cachedURL.deletingPathExtension().appendingPathExtension("identity.json")
+        defer {
+            try? FileManager.default.removeItem(at: cachedURL)
+            try? FileManager.default.removeItem(at: identityURL)
+        }
+
+        let seeded = try makeTemporaryJPEG(width: 500, height: 500)
+        defer { try? FileManager.default.removeItem(at: seeded) }
+        try FileManager.default.copyItem(at: seeded, to: cachedURL)
+        try JSONEncoder().encode(ArtworkIdentity(
+            ratingKey: ratingKey,
+            type: .album,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: nil,
+            requestedPixelDimension: 1_000,
+            sourceCompositeKey: sourceKey
+        )).write(to: identityURL)
+
+        let syncCoordinator = await makeOfflineSyncCoordinator(artworkManager: artworkManager)
+        let artworkLoader = ArtworkLoader(
+            syncCoordinator: syncCoordinator,
+            artworkDownloadManager: artworkManager
+        )
+        let bestAvailable = await artworkLoader.localArtworkURLAsync(
+            for: sourcePath,
+            sourceKey: sourceKey,
+            ratingKey: ratingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            minimumPixelDimension: 1_000,
+            allowStaleIdentity: false
+        )
+        XCTAssertEqual(bestAvailable, cachedURL)
+
+        try Data("not-an-image".utf8).write(to: cachedURL)
+        let corrupt = await artworkLoader.localArtworkURLAsync(
+            for: sourcePath,
+            sourceKey: sourceKey,
+            ratingKey: ratingKey,
+            fallbackPath: nil,
+            fallbackRatingKey: nil,
+            minimumPixelDimension: 1_000,
+            allowStaleIdentity: false
+        )
+        XCTAssertNil(corrupt)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cachedURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: identityURL.path))
     }
 
     private func makeOfflineSyncCoordinator(

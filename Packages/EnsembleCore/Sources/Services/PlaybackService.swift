@@ -1001,6 +1001,8 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     private var audioCriticalInteractionEndTask: Task<Void, Never>?
     private var postPlaybackAutoplayRefreshTask: Task<Void, Never>?
     private var downloadChangeObserver: AnyCancellable?
+    private var artworkCacheResetObserver: AnyCancellable?
+    private var artworkPrefetchTask: Task<Void, Never>?
     private var lastObservedNetworkState: NetworkState?
     private var stallRecoveryTask: Task<Void, Never>?
     /// Tracks the in-progress next()/previous() transition task so it can be
@@ -1060,6 +1062,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
 
     private let syncCoordinator: SyncCoordinator
     private let networkMonitor: NetworkMonitor
+    private let artworkLoader: ArtworkLoaderProtocol
     private let audioAnalyzer: AudioAnalyzerProtocol
     private let downloadManager: DownloadManagerProtocol
     private let trackRatingLocalStore: TrackRatingLocalStoring
@@ -1265,6 +1268,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
+        self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.trackRatingLocalStore = trackRatingLocalStore
@@ -1290,6 +1294,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioAnalyzer()
         setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
+        setupArtworkCacheResetObservation()
     }
 
     init(
@@ -1304,6 +1309,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     ) {
         self.syncCoordinator = syncCoordinator
         self.networkMonitor = networkMonitor
+        self.artworkLoader = artworkLoader
         self.audioAnalyzer = audioAnalyzer
         self.downloadManager = downloadManager
         self.trackRatingLocalStore = trackRatingLocalStore
@@ -1329,6 +1335,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setupAudioAnalyzer()
         setupPlaybackSettingsObservation()
         setupDownloadChangeObservation()
+        setupArtworkCacheResetObservation()
     }
 
     deinit {
@@ -1342,6 +1349,10 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         gaplessScheduleRequestTask = nil
         downloadChangeObserver?.cancel()
         downloadChangeObserver = nil
+        artworkCacheResetObserver?.cancel()
+        artworkCacheResetObserver = nil
+        artworkPrefetchTask?.cancel()
+        artworkPrefetchTask = nil
         settingsObserver.stop()
     }
 
@@ -5290,7 +5301,35 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func prefetchNextItem() async {
+        scheduleUpcomingArtworkPrefetch()
         await prefetchUpcomingItems(depth: 2)
+    }
+
+    private func scheduleUpcomingArtworkPrefetch() {
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let index = self.upcomingQueueIndices(depth: 1).first else { return }
+            let track = self.queue[index].track
+            let artworkLoader = self.artworkLoader
+
+            self.artworkPrefetchTask?.cancel()
+            self.artworkPrefetchTask = Task(priority: .utility) {
+                let descriptor = ArtworkResolutionDescriptor(
+                    track: track,
+                    size: ArtworkSize.detail.requestPixelDimension,
+                    priority: .low
+                )
+                guard case .resolved(let resolved) = await ArtworkImageResolver.resolveImage(
+                    for: descriptor,
+                    artworkLoader: artworkLoader
+                ), !Task.isCancelled else { return }
+                _ = await ArtworkImageResolver.preBlurredImage(
+                    for: resolved.image,
+                    cacheKey: resolved.blurCacheKey,
+                    requiresIdle: true
+                )
+            }
+        }
     }
 
     private func scheduleGaplessIfNeeded() {
@@ -6382,6 +6421,17 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
             Task {
                 await self.refreshQueueDownloadState()
             }
+        }
+    }
+
+    private func setupArtworkCacheResetObservation() {
+        artworkCacheResetObserver = NotificationCenter.default.publisher(
+            for: CacheManager.artworkCachesDidClear
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.artworkPrefetchTask?.cancel()
+            self?.artworkPrefetchTask = nil
         }
     }
 

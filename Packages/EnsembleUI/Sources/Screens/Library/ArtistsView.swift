@@ -888,7 +888,7 @@ public struct ArtistDetailView: View {
                 kind: .album,
                 sourcePath: artist.fallbackThumbPath
             ),
-            size: ArtworkSize.detail.rawValue,
+            size: ArtworkSize.detail.requestPixelDimension,
             priority: .high
         )
     }

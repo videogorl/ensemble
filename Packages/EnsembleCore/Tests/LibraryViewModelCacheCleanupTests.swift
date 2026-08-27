@@ -1243,7 +1243,19 @@ final class LibraryViewModelCacheCleanupTests: XCTestCase {
         XCTAssertEqual(before.downloadRecordCount, 1)
         XCTAssertEqual(cacheManager.artworkCacheInvalidationGeneration, 0)
 
+        let resetNotification = expectation(description: "artwork consumers reset once")
+        resetNotification.assertForOverFulfill = true
+        let observer = NotificationCenter.default.addObserver(
+            forName: CacheManager.artworkCachesDidClear,
+            object: cacheManager,
+            queue: nil
+        ) { _ in
+            resetNotification.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
         try await cacheManager.clearArtworkCaches()
+        await fulfillment(of: [resetNotification], timeout: 1)
 
         let after = try await cacheManager.cleanupSnapshot()
         XCTAssertEqual(after.libraryItemCount, before.libraryItemCount)

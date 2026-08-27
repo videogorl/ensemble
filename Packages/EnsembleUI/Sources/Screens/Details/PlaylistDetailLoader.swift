@@ -102,7 +102,7 @@ struct PlaylistDetailLoader: View {
                 sourcePath: playlist.fallbackArtworkPath,
                 sourceCompositeKey: fallbackSourceKey
             ),
-            size: 600,
+            size: ArtworkSize.detail.requestPixelDimension,
             priority: .high
         )
 

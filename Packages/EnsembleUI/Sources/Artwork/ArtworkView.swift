@@ -27,9 +27,7 @@ public struct ArtworkView: View {
     /// Snapshot of the last successfully loaded image, shown during URL transitions
     /// to prevent placeholder flash when switching albums.
     @State private var previousImage: PlatformImage?
-    /// Tracks the current artwork path so we can clear previousImage when switching
-    /// to a different artwork source (prevents stale art from a previous album)
-    @State private var currentArtworkPath: String?
+    @State private var currentArtworkIdentity: String?
     /// Incremented when artwork is invalidated to force a re-load
     @State private var invalidationToken: Int = 0
     @State private var serverRetryTask: Task<Void, Never>?
@@ -52,7 +50,7 @@ public struct ArtworkView: View {
     /// Unique ID to identify this specific artwork request — avoids string interpolation
     /// by using a stable struct key
     private var loadID: String {
-        "\(path ?? "")|\(ratingKey ?? "")|\(fallbackPath ?? "")|\(fallbackRatingKey ?? "")|\(sourceKey ?? "")|\(fallbackSourceKey ?? "")|\(size.rawValue)"
+        "\(path ?? "")|\(ratingKey ?? "")|\(fallbackPath ?? "")|\(fallbackRatingKey ?? "")|\(sourceKey ?? "")|\(fallbackSourceKey ?? "")|\(size.requestPixelDimension)"
     }
 
     private var imagePriority: ArtworkImagePriority {
@@ -61,9 +59,7 @@ public struct ArtworkView: View {
 
     private static func imagePriority(for size: ArtworkSize) -> ArtworkImagePriority {
         switch size {
-        case .tiny:
-            return .high
-        case .thumbnail, .card, .small:
+        case .tiny, .thumbnail, .card, .small:
             return .low
         case .medium, .large, .extraLarge:
             return .normal
@@ -101,7 +97,6 @@ public struct ArtworkView: View {
     public var body: some View {
         // Cache CGSize to avoid recomputing on each access
         let frameSize = size.cgSize
-        let iconSize = frameSize.width * 0.3
         let cornerRadiusRatio = frameSize.width > 0 ? (cornerRadius / frameSize.width) : 0
         let defaultSquareCornerRadius = ArtworkCornerRadius.square(for: size)
         let defaultCircleCornerRadius = ArtworkCornerRadius.circle(for: frameSize.width)
@@ -118,7 +113,7 @@ public struct ArtworkView: View {
                         : min(max(cornerRadius, 0), side / 2)
                     let artworkShape = RoundedRectangle(cornerRadius: responsiveRadius, style: .continuous)
 
-                    artworkContent(iconSize: iconSize)
+                    artworkContent
                         .frame(width: side, height: side)
                         .clipShape(artworkShape)
                         .contentShape(artworkShape)
@@ -126,7 +121,7 @@ public struct ArtworkView: View {
                 .aspectRatio(1, contentMode: .fit)
             } else {
                 let artworkShape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                artworkContent(iconSize: iconSize)
+                artworkContent
                     .frame(width: frameSize.width, height: frameSize.height)
                     .clipShape(artworkShape)
                     .contentShape(artworkShape)
@@ -138,9 +133,11 @@ public struct ArtworkView: View {
         .onReceive(
             NotificationCenter.default.publisher(for: ArtworkLoader.artworkDidInvalidate)
         ) { notification in
-            // Re-trigger load if this artwork's ratingKey was invalidated
-            guard let invalidatedKey = notification.userInfo?["ratingKey"] as? String else { return }
-            if invalidatedKey == ratingKey || invalidatedKey == fallbackRatingKey {
+            let invalidatedKeys = notification.userInfo?["ratingKeys"] as? Set<String>
+                ?? (notification.userInfo?["ratingKey"] as? String).map { Set([$0]) }
+                ?? []
+            if invalidatedKeys.contains(ratingKey ?? "")
+                || invalidatedKeys.contains(fallbackRatingKey ?? "") {
                 artworkURL = nil
                 resolvedImage = nil
                 invalidationToken += 1
@@ -151,6 +148,14 @@ public struct ArtworkView: View {
         ) { _ in
             scheduleServerAvailabilityRetry()
         }
+        .onReceive(
+            NotificationCenter.default.publisher(for: CacheManager.artworkCachesDidClear)
+        ) { _ in
+            artworkURL = nil
+            resolvedImage = nil
+            previousImage = nil
+            invalidationToken += 1
+        }
         .onDisappear {
             serverRetryTask?.cancel()
             serverRetryTask = nil
@@ -158,56 +163,23 @@ public struct ArtworkView: View {
     }
 
     @ViewBuilder
-    private func artworkContent(iconSize: CGFloat) -> some View {
-        ZStack {
-            EnsembleDesign.Color.placeholderArtwork
-
-            if let image = resolvedImage {
-                platformImageView(image)
-            } else if let previousImage {
-                // Show the last loaded image during URL transitions to avoid
-                // placeholder flash when switching between albums.
-                platformImageView(previousImage)
-            } else {
-                Image(systemName: EnsembleDesign.Icon.musicNote)
-                    .font(.system(size: iconSize))
-                    .foregroundColor(EnsembleDesign.Color.placeholderArtworkIcon)
-            }
-        }
+    private var artworkContent: some View {
+        ResolvedArtworkImageView(image: resolvedImage ?? previousImage)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
     }
 
-    @ViewBuilder
-    private func platformImageView(_ image: PlatformImage) -> some View {
-        #if canImport(UIKit)
-        Image(uiImage: image)
-            .resizable()
-            .scaledToFill()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #elseif canImport(AppKit)
-        Image(nsImage: image)
-            .resizable()
-            .scaledToFill()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #endif
-    }
-
     @MainActor
     private func loadArtwork() async {
-        let resolvedPath = effectivePath
         let requestedInvalidationToken = invalidationToken
 
-        // Clear stale artwork only when switching to a different artwork source
-        // (preserves smooth same-album transitions, prevents showing Album A's
-        // art when playing Album B's track that has no artwork).
-        if resolvedPath != currentArtworkPath {
+        if loadID != currentArtworkIdentity {
             resolvedImage = nil
             previousImage = nil
-            currentArtworkPath = resolvedPath
+            currentArtworkIdentity = loadID
         }
 
-        guard resolvedPath != nil else {
+        guard effectivePath != nil else {
             artworkURL = nil
             resolvedImage = nil
             return
@@ -222,7 +194,7 @@ public struct ArtworkView: View {
             fallbackSourceKey: fallbackSourceKey,
             cacheHint: cacheHint,
             fallbackCacheHint: fallbackCacheHint,
-            size: size.rawValue,
+            size: size.requestPixelDimension,
             priority: imagePriority
         )
 
@@ -230,7 +202,7 @@ public struct ArtworkView: View {
             for: descriptor,
             artworkLoader: dependencies.artworkLoader
         )
-        guard requestedInvalidationToken == invalidationToken, currentArtworkPath == resolvedPath else { return }
+        guard requestedInvalidationToken == invalidationToken, currentArtworkIdentity == loadID else { return }
         guard let resolved else {
             artworkURL = nil
             resolvedImage = nil
@@ -263,6 +235,38 @@ public struct ArtworkView: View {
             invalidationToken += 1
             serverRetryTask = nil
         }
+    }
+}
+
+struct ResolvedArtworkImageView: View {
+    let image: PlatformImage?
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                EnsembleDesign.Color.placeholderArtwork
+                if let image {
+                    platformImage(image)
+                } else {
+                    Image(systemName: EnsembleDesign.Icon.musicNote)
+                        .font(.system(size: min(proxy.size.width, proxy.size.height) * 0.3))
+                        .foregroundColor(EnsembleDesign.Color.placeholderArtworkIcon)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func platformImage(_ image: PlatformImage) -> some View {
+        #if canImport(UIKit)
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFill()
+        #elseif canImport(AppKit)
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+        #endif
     }
 }
 

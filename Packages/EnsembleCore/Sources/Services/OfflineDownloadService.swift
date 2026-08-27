@@ -1256,7 +1256,7 @@ public final class OfflineDownloadService: ObservableObject {
                 guard let artworkURL = try await syncCoordinator.getArtworkURL(
                     path: candidate.path,
                     sourceKey: ctx.sourceCompositeKey,
-                    size: ArtworkSize.detail.rawValue
+                    size: ArtworkSize.detail.requestPixelDimension
                 ) else {
                     continue
                 }
@@ -1439,7 +1439,7 @@ public final class OfflineDownloadService: ObservableObject {
             guard let artworkURL = try await syncCoordinator.getArtworkURL(
                 path: thumbPath,
                 sourceKey: sourceKey,
-                size: ArtworkSize.detail.rawValue
+                size: ArtworkSize.detail.requestPixelDimension
             ) else { return }
 
             try await artworkDownloadManager.downloadAndCacheArtwork(

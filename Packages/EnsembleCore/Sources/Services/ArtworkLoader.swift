@@ -7,6 +7,7 @@ public struct PersistentArtworkCacheHint: Sendable, Hashable {
     public enum Kind: String, Sendable, Codable, Hashable {
         case album
         case artist
+        case track
         case playlist
 
         public init?(_ pinnedItemType: PinnedItemType) {
@@ -138,6 +139,11 @@ public protocol ArtworkLoaderProtocol {
         allowStaleIdentity: Bool
     ) async -> URL?
     func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int?) async
+    func cacheRemoteArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int?
+    ) async -> URL?
     func invalidateURLCache() async
 }
 
@@ -173,6 +179,19 @@ public extension ArtworkLoaderProtocol {
     }
 
     func cacheResolvedArtwork(from url: URL, cacheHint: PersistentArtworkCacheHint?, minimumPixelDimension: Int? = nil) async {}
+
+    func cacheRemoteArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int?
+    ) async -> URL? {
+        await cacheResolvedArtwork(
+            from: url,
+            cacheHint: cacheHint,
+            minimumPixelDimension: minimumPixelDimension
+        )
+        return nil
+    }
 }
 
 public final class ArtworkLoader: ArtworkLoaderProtocol {
@@ -481,36 +500,54 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         type: ArtworkType,
         sourceCompositeKey: String? = nil
     ) async {
-        // Clear URL cache entries containing this ratingKey
-        await urlCache.clearEntries(matching: ratingKey)
+        await invalidateArtwork([
+            ArtworkInvalidationInfo(
+                ratingKey: ratingKey,
+                type: type,
+                reason: .metadataModified,
+                sourceCompositeKey: sourceCompositeKey
+            )
+        ])
+    }
 
-        await stalePersistentArtworkTracker.mark(
-            ratingKey: ratingKey,
-            type: type,
-            sourceCompositeKey: sourceCompositeKey
-        )
+    public func invalidateArtwork(_ invalidations: [ArtworkInvalidationInfo]) async {
+        let invalidations = Array(Set(invalidations))
+        guard !invalidations.isEmpty else { return }
 
-        // Evict tracked URLs from Nuke's cache (targeted instead of clearing all)
-        let trackedURLs = await artworkURLTracker.urls(forRatingKey: ratingKey)
-        if !trackedURLs.isEmpty {
-            for url in trackedURLs {
-                let request = ImageRequest(url: url)
-                ImagePipeline.shared.cache.removeCachedImage(for: request)
-            }
-            await artworkURLTracker.clear(forRatingKey: ratingKey)
-        } else {
-            // No tracked URLs (edge case) — fall back to clearing all
-            ImagePipeline.shared.cache.removeAll()
+        var trackedURLs = Set<URL>()
+        let ratingKeys = Set(invalidations.map(\.ratingKey))
+        for invalidation in invalidations {
+            await urlCache.clearEntries(matching: invalidation.ratingKey)
+            await stalePersistentArtworkTracker.mark(
+                ratingKey: invalidation.ratingKey,
+                type: invalidation.type,
+                sourceCompositeKey: invalidation.sourceCompositeKey
+            )
+            trackedURLs.formUnion(
+                await artworkURLTracker.urls(forRatingKey: invalidation.ratingKey)
+            )
+            await artworkURLTracker.clear(forRatingKey: invalidation.ratingKey)
         }
 
-        // Post notification so ArtworkView can re-trigger loads
+        if trackedURLs.isEmpty {
+            ImagePipeline.shared.cache.removeAll()
+        } else {
+            for url in trackedURLs {
+                ImagePipeline.shared.cache.removeCachedImage(for: ImageRequest(url: url))
+                for size in [160, 512, 1_000] {
+                    ImagePipeline.shared.cache.removeCachedImage(
+                        for: ArtworkImageRequest.resized(url: url, size: size)
+                    )
+                }
+            }
+        }
+
         NotificationCenter.default.post(
             name: Self.artworkDidInvalidate,
             object: nil,
-            userInfo: ["ratingKey": ratingKey]
+            userInfo: ["ratingKeys": ratingKeys]
         )
-
-        EnsembleLogger.debug("🎨 ArtworkLoader: Marked artwork stale for ratingKey=\(ratingKey)")
+        EnsembleLogger.debug("🎨 ArtworkLoader: Marked \(invalidations.count) artwork item(s) stale")
     }
 
     public func cacheResolvedArtwork(
@@ -518,69 +555,97 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         cacheHint: PersistentArtworkCacheHint?,
         minimumPixelDimension: Int? = nil
     ) async {
-        guard let cacheHint, !url.isFileURL else { return }
+        _ = await cacheRemoteArtwork(
+            from: url,
+            cacheHint: cacheHint,
+            minimumPixelDimension: minimumPixelDimension
+        )
+    }
+
+    public func cacheRemoteArtwork(
+        from url: URL,
+        cacheHint: PersistentArtworkCacheHint?,
+        minimumPixelDimension: Int? = nil
+    ) async -> URL? {
+        guard let cacheHint, !url.isFileURL else { return nil }
         let scopedHint = cacheHint.scoped(to: cacheHint.sourceCompositeKey)
         if let minimumPixelDimension,
            minimumPixelDimension < Self.minimumPersistentArtworkWriteDimension {
-            return
+            return nil
         }
-        guard await persistentCacheTracker.begin(scopedHint) else { return }
+        guard await persistentCacheTracker.begin(scopedHint) else { return nil }
 
         guard let sourceCompositeKey = scopedHint.sourceCompositeKey,
               let persistenceHandle = await syncCoordinator.beginCurrentSourcePersistenceWork(
                   sourceKey: sourceCompositeKey
               ) else {
             await persistentCacheTracker.finish(scopedHint)
-            return
+            return nil
         }
 
-        let artworkDownloadManager = artworkDownloadManager
-        let tracker = persistentCacheTracker
-        let staleTracker = stalePersistentArtworkTracker
-        let syncCoordinator = syncCoordinator
-        Task.detached(priority: .utility) {
-            let artworkType = scopedHint.kind.artworkType
-            let localPath = try? await artworkDownloadManager.getLocalArtworkPath(
-                ratingKey: scopedHint.ratingKey,
-                type: artworkType,
-                sourceCompositeKey: scopedHint.sourceCompositeKey,
-                sourcePath: scopedHint.sourcePath,
-                dateModifiedSeconds: scopedHint.dateModifiedSeconds
-            )
-            let hasUsableLocalArtwork = localPath.map {
-                ArtworkFileInspector.fileExists(
-                    atPath: $0,
-                    minimumPixelDimension: minimumPixelDimension
-                )
-            } ?? false
+        let generation = await urlCache.currentGeneration()
+        let artworkType = scopedHint.kind.artworkType
+        var resolvedLocalURL: URL?
 
-            if !hasUsableLocalArtwork {
-                do {
-                    try await artworkDownloadManager.downloadAndCacheArtwork(
-                        from: url,
-                        identity: ArtworkIdentity(
-                            ratingKey: scopedHint.ratingKey,
-                            type: artworkType,
-                            sourcePath: scopedHint.sourcePath,
-                            dateModifiedSeconds: scopedHint.dateModifiedSeconds,
-                            requestedPixelDimension: minimumPixelDimension,
-                            sourceCompositeKey: scopedHint.sourceCompositeKey
-                        )
+        if await artworkDownloadManager.localArtworkExists(
+            ratingKey: scopedHint.ratingKey,
+            type: artworkType,
+            sourceCompositeKey: scopedHint.sourceCompositeKey,
+            sourcePath: scopedHint.sourcePath,
+            dateModifiedSeconds: scopedHint.dateModifiedSeconds,
+            minimumPixelDimension: minimumPixelDimension
+        ),
+           let localPath = try? await artworkDownloadManager.getLocalArtworkPath(
+               ratingKey: scopedHint.ratingKey,
+               type: artworkType,
+               sourceCompositeKey: scopedHint.sourceCompositeKey,
+               sourcePath: scopedHint.sourcePath,
+               dateModifiedSeconds: scopedHint.dateModifiedSeconds
+           ) {
+            resolvedLocalURL = URL(fileURLWithPath: localPath)
+        } else {
+            do {
+                try await artworkDownloadManager.downloadAndCacheArtwork(
+                    from: url,
+                    identity: ArtworkIdentity(
+                        ratingKey: scopedHint.ratingKey,
+                        type: artworkType,
+                        sourcePath: scopedHint.sourcePath,
+                        dateModifiedSeconds: scopedHint.dateModifiedSeconds,
+                        requestedPixelDimension: minimumPixelDimension,
+                        sourceCompositeKey: scopedHint.sourceCompositeKey
                     )
-                    await staleTracker.clear(
+                )
+                if await urlCache.isCurrent(generation),
+                   let localPath = try? await artworkDownloadManager.getLocalArtworkPath(
+                       ratingKey: scopedHint.ratingKey,
+                       type: artworkType,
+                       sourceCompositeKey: scopedHint.sourceCompositeKey,
+                       sourcePath: scopedHint.sourcePath,
+                       dateModifiedSeconds: scopedHint.dateModifiedSeconds
+                   ) {
+                    await stalePersistentArtworkTracker.clear(
                         ratingKey: scopedHint.ratingKey,
                         type: artworkType,
                         sourceCompositeKey: scopedHint.sourceCompositeKey
                     )
+                    resolvedLocalURL = URL(fileURLWithPath: localPath)
                     EnsembleLogger.debug("🎨 ArtworkLoader: Persisted \(scopedHint.kind.rawValue) artwork for ratingKey=\(scopedHint.ratingKey)")
-                } catch {
-                    EnsembleLogger.debug("🎨 ArtworkLoader: Failed to persist \(scopedHint.kind.rawValue) artwork for ratingKey=\(scopedHint.ratingKey): \(error.localizedDescription)")
+                } else {
+                    artworkDownloadManager.deleteArtwork(
+                        ratingKey: scopedHint.ratingKey,
+                        type: artworkType,
+                        sourceCompositeKey: scopedHint.sourceCompositeKey
+                    )
                 }
+            } catch {
+                EnsembleLogger.debug("🎨 ArtworkLoader: Failed to persist \(scopedHint.kind.rawValue) artwork for ratingKey=\(scopedHint.ratingKey): \(error.localizedDescription)")
             }
-
-            await tracker.finish(scopedHint)
-            await syncCoordinator.finishSourcePersistenceWork(persistenceHandle)
         }
+
+        await persistentCacheTracker.finish(scopedHint)
+        await syncCoordinator.finishSourcePersistenceWork(persistenceHandle)
+        return resolvedLocalURL
     }
 
     /// Async version for modern Swift concurrency
@@ -769,93 +834,113 @@ public final class ArtworkLoader: ArtworkLoaderProtocol {
         allowStaleIdentity: Bool,
         minimumPixelDimension: Int?
     ) async -> URL? {
-        // Try the passed ratingKey first
-        if let key = ratingKey {
-            for type in [ArtworkType.album, .artist, .playlist] {
-                if await stalePersistentArtworkTracker.contains(
-                    ratingKey: key,
-                    type: type,
-                    sourceCompositeKey: sourceCompositeKey
-                ) {
-                    continue
-                }
-                if let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
-                    ratingKey: key,
-                    type: type,
-                    sourceCompositeKey: sourceCompositeKey,
-                    sourcePath: path,
-                    dateModifiedSeconds: nil
-                ),
-                   ArtworkFileInspector.fileExists(
-                       atPath: filePath,
-                       minimumPixelDimension: minimumPixelDimension
-                   ) {
-                    return URL(fileURLWithPath: filePath)
-                }
-            }
-
-            if allowStaleIdentity {
-                for type in [ArtworkType.album, .artist, .playlist] {
-                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(
-                        ratingKey: key,
-                        type: type,
-                        sourceCompositeKey: sourceCompositeKey
-                    ),
-                       ArtworkFileInspector.fileExists(
-                           atPath: filePath,
-                           minimumPixelDimension: minimumPixelDimension
-                       ) {
-                        return URL(fileURLWithPath: filePath)
-                    }
-                }
-            }
+        if let ratingKey,
+           let cached = await cachedArtworkURL(
+               ratingKey: ratingKey,
+               sourceCompositeKey: sourceCompositeKey,
+               sourcePath: path,
+               allowStaleIdentity: allowStaleIdentity,
+               minimumPixelDimension: minimumPixelDimension
+           ) {
+            return cached
         }
 
         // Fall back to the ratingKey embedded in the artwork path.
         // Tracks inherit their album's thumbPath (`parentThumb`), so the path
         // contains the album ratingKey while the passed ratingKey is the track's.
-        if let path, let pathKey = Self.extractRatingKey(from: path), pathKey != ratingKey {
-            for type in [ArtworkType.album, .artist, .playlist] {
-                if await stalePersistentArtworkTracker.contains(
-                    ratingKey: pathKey,
-                    type: type,
-                    sourceCompositeKey: sourceCompositeKey
-                ) {
-                    continue
-                }
-                if let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
-                    ratingKey: pathKey,
-                    type: type,
-                    sourceCompositeKey: sourceCompositeKey,
-                    sourcePath: path,
-                    dateModifiedSeconds: nil
-                ),
-                   ArtworkFileInspector.fileExists(
-                       atPath: filePath,
-                       minimumPixelDimension: minimumPixelDimension
-                   ) {
-                    return URL(fileURLWithPath: filePath)
-                }
-            }
-
-            if allowStaleIdentity {
-                for type in [ArtworkType.album, .artist, .playlist] {
-                    if let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(
-                        ratingKey: pathKey,
-                        type: type,
-                        sourceCompositeKey: sourceCompositeKey
-                    ),
-                       ArtworkFileInspector.fileExists(
-                           atPath: filePath,
-                           minimumPixelDimension: minimumPixelDimension
-                       ) {
-                        return URL(fileURLWithPath: filePath)
-                    }
-                }
-            }
+        if let path,
+           let pathKey = Self.extractRatingKey(from: path),
+           pathKey != ratingKey,
+           let cached = await cachedArtworkURL(
+               ratingKey: pathKey,
+               sourceCompositeKey: sourceCompositeKey,
+               sourcePath: path,
+               allowStaleIdentity: allowStaleIdentity,
+               minimumPixelDimension: minimumPixelDimension
+           ) {
+            return cached
         }
 
         return nil
+    }
+
+    private func cachedArtworkURL(
+        ratingKey: String,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        allowStaleIdentity: Bool,
+        minimumPixelDimension: Int?
+    ) async -> URL? {
+        for type in [ArtworkType.track, .album, .artist, .playlist] {
+            let isMarkedStale = await stalePersistentArtworkTracker.contains(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            if !isMarkedStale,
+               let filePath = try? await artworkDownloadManager.getLocalArtworkPath(
+                   ratingKey: ratingKey,
+                   type: type,
+                   sourceCompositeKey: sourceCompositeKey,
+                   sourcePath: sourcePath,
+                   dateModifiedSeconds: nil
+               ),
+               await persistentArtworkIsUsable(
+                   filePath: filePath,
+                   ratingKey: ratingKey,
+                   type: type,
+                   sourceCompositeKey: sourceCompositeKey,
+                   sourcePath: sourcePath,
+                   minimumPixelDimension: minimumPixelDimension
+               ) {
+                return URL(fileURLWithPath: filePath)
+            }
+
+            guard allowStaleIdentity,
+                  let filePath = try? await artworkDownloadManager.getStaleLocalArtworkPath(
+                      ratingKey: ratingKey,
+                      type: type,
+                      sourceCompositeKey: sourceCompositeKey
+                  ),
+                  await persistentArtworkIsUsable(
+                      filePath: filePath,
+                      ratingKey: ratingKey,
+                      type: type,
+                      sourceCompositeKey: sourceCompositeKey,
+                      sourcePath: nil,
+                      minimumPixelDimension: minimumPixelDimension
+                  ) else {
+                continue
+            }
+            return URL(fileURLWithPath: filePath)
+        }
+        return nil
+    }
+
+    private func persistentArtworkIsUsable(
+        filePath: String,
+        ratingKey: String,
+        type: ArtworkType,
+        sourceCompositeKey: String?,
+        sourcePath: String?,
+        minimumPixelDimension: Int?
+    ) async -> Bool {
+        guard ArtworkFileInspector.fileExists(atPath: filePath) else {
+            artworkDownloadManager.deleteArtwork(
+                ratingKey: ratingKey,
+                type: type,
+                sourceCompositeKey: sourceCompositeKey
+            )
+            return false
+        }
+        return await artworkDownloadManager.localArtworkExists(
+            ratingKey: ratingKey,
+            type: type,
+            sourceCompositeKey: sourceCompositeKey,
+            sourcePath: sourcePath,
+            dateModifiedSeconds: nil,
+            minimumPixelDimension: minimumPixelDimension
+        )
     }
 }
 
@@ -874,6 +959,17 @@ public enum ArtworkSize: Int {
     public var cgSize: CGSize {
         CGSize(width: rawValue, height: rawValue)
     }
+
+    public var requestPixelDimension: Int {
+        switch self {
+        case .tiny, .thumbnail, .card:
+            return 160
+        case .small, .medium, .large:
+            return 512
+        case .extraLarge, .detail:
+            return 1_000
+        }
+    }
 }
 
 private extension PersistentArtworkCacheHint.Kind {
@@ -883,6 +979,8 @@ private extension PersistentArtworkCacheHint.Kind {
             return .album
         case .artist:
             return .artist
+        case .track:
+            return .track
         case .playlist:
             return .playlist
         }

@@ -55,7 +55,8 @@ public struct CacheCleanupSnapshot: Sendable, Equatable {
 /// Coordinates all cache management across the app
 @MainActor
 public final class CacheManager: ObservableObject {
-    public static let libraryDataDidClear = Notification.Name("CacheManagerLibraryDataDidClear")
+    public nonisolated static let libraryDataDidClear = Notification.Name("CacheManagerLibraryDataDidClear")
+    public nonisolated static let artworkCachesDidClear = Notification.Name("CacheManagerArtworkCachesDidClear")
 
     @Published public private(set) var cacheInfos: [CacheType: CacheInfo] = [:]
     @Published public private(set) var isRefreshing = false
@@ -161,9 +162,7 @@ public final class CacheManager: ObservableObject {
         case .libraryMetadata:
             try await clearLibraryMetadata()
         case .albumArtwork:
-            try await artworkDownloadManager.clearArtworkCache()
-            ArtworkBlurRenderer.clearCache()
-            invalidateArtworkCacheConsumers()
+            try await clearArtworkStorageAndConsumers()
         case .downloadedTracks:
             try await clearAllDownloads()
         case .playbackAudio:
@@ -185,9 +184,7 @@ public final class CacheManager: ObservableObject {
         let before = try await cleanupSnapshot()
         EnsembleLogger.info("CacheManager: clearing artwork caches (before: \(before.logDescription))")
 
-        try await artworkDownloadManager.clearArtworkCache()
-        try await clearNukeImageCache()
-        try playbackArtifactCache.removeAll()
+        try await clearArtworkStorageAndConsumers()
         await refreshCacheInfo()
 
         let after = try await cleanupSnapshot()
@@ -258,6 +255,14 @@ public final class CacheManager: ObservableObject {
 
     private func invalidateArtworkCacheConsumers() {
         artworkCacheInvalidationGeneration &+= 1
+    }
+
+    private func clearArtworkStorageAndConsumers() async throws {
+        // Reset generations first so late requests cannot refill storage after deletion.
+        try await transientArtworkCacheReset()
+        try await artworkDownloadManager.clearArtworkCache()
+        invalidateArtworkCacheConsumers()
+        NotificationCenter.default.post(name: Self.artworkCachesDidClear, object: self)
     }
 
     private func notifyLibraryDataDidClear() {

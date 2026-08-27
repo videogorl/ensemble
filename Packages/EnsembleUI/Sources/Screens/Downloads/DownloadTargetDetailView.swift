@@ -345,7 +345,7 @@ public struct DownloadTargetDetailView: View {
             fallbackRatingKey: nil,
             cacheHint: targetArtworkCacheHint,
             fallbackCacheHint: nil,
-            size: 600,
+            size: ArtworkSize.detail.requestPixelDimension,
             priority: .high
         )
 

@@ -3,7 +3,9 @@ import SwiftUI
 
 /// Shared artwork/aurora backdrop for large Now Playing surfaces.
 struct NowPlayingBackdrop: View {
-    @ObservedObject var viewModel: NowPlayingViewModel
+    let viewModel: NowPlayingViewModel
+    @ObservedObject private var artworkProjection: NowPlayingArtworkProjection
+    @ObservedObject private var playbackProjection: NowPlayingPlaybackProjection
     let consumer: VisualizationConsumer
     let activeContentMaxWidth: CGFloat?
     let forceDarkPresentation: Bool
@@ -12,21 +14,35 @@ struct NowPlayingBackdrop: View {
     @ObservedObject private var powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @Environment(\.colorScheme) private var colorScheme
 
+    init(
+        viewModel: NowPlayingViewModel,
+        consumer: VisualizationConsumer,
+        activeContentMaxWidth: CGFloat?,
+        forceDarkPresentation: Bool
+    ) {
+        self.viewModel = viewModel
+        _artworkProjection = ObservedObject(wrappedValue: viewModel.artworkProjection)
+        _playbackProjection = ObservedObject(wrappedValue: viewModel.playbackProjection)
+        self.consumer = consumer
+        self.activeContentMaxWidth = activeContentMaxWidth
+        self.forceDarkPresentation = forceDarkPresentation
+    }
+
     var body: some View {
         ZStack {
             baseBackgroundColor
                 .ignoresSafeArea()
 
             BlurredArtworkBackground(
-                image: viewModel.artworkImage,
-                preBlurredImage: viewModel.blurredArtworkImage,
+                image: artworkProjection.artworkImage,
+                preBlurredImage: artworkProjection.blurredArtworkImage,
                 overlayColor: overlayColor
             )
 
             readabilityOverlay
                 .allowsHitTesting(false)
 
-            if settingsManager.auroraVisualizationEnabled && viewModel.currentTrack?.sourceCapabilities.supportsWaveform != false {
+            if settingsManager.auroraVisualizationEnabled && playbackProjection.currentTrack?.sourceCapabilities.supportsWaveform != false {
                 AuroraVisualizationView(
                     playbackService: DependencyContainer.shared.playbackService,
                     consumer: consumer,

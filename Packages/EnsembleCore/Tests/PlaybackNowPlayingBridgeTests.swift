@@ -188,9 +188,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
             )
         ))
 
-        let secondArtwork = try XCTUnwrap(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
-        XCTAssertTrue(firstArtwork === secondArtwork)
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
 
         await waitUntil("fallback artwork load") {
             guard let artwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
@@ -200,7 +199,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         }
     }
 
-    func testBridgeKeepsExistingArtworkUntilNewArtworkLoads() async throws {
+    func testBridgeDoesNotPublishPreviousArtworkWhileNewArtworkLoads() async throws {
         let firstArtworkURL = try makeTemporaryPNG()
         let secondArtworkURL = try makeTemporaryPNG()
         defer {
@@ -245,7 +244,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         ))
 
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
-        XCTAssertTrue(firstArtwork === nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork)
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
 
         await waitUntil("second artwork load") {
             guard let artwork = nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork else {
@@ -322,7 +321,7 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         XCTAssertEqual(artworkLoader.requestCount, 1)
     }
 
-    func testBridgeReusesArtworkWhenTracksSharePrimaryThumbPath() async throws {
+    func testBridgeReloadsTrackOwnedArtworkEvenWhenPathsMatch() async throws {
         let artworkURL = try makeTemporaryPNG()
         defer { try? FileManager.default.removeItem(at: artworkURL.deletingLastPathComponent()) }
 
@@ -359,8 +358,8 @@ final class PlaybackNowPlayingBridgeTests: XCTestCase {
         ))
 
         XCTAssertEqual(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyTitle] as? String, "Track Two")
-        XCTAssertTrue(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] is MPMediaItemArtwork)
-        XCTAssertEqual(artworkLoader.requestCount, 1)
+        XCTAssertNil(nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork])
+        await waitUntil("second track-owned artwork load") { artworkLoader.requestCount == 2 }
     }
 
     func testBridgeReloadsArtworkWhenSharedPrimaryHasDifferentFallback() async throws {

@@ -163,7 +163,7 @@ public final class SyncCoordinator: ObservableObject {
     /// Backoff for repeated playlist artwork failures to avoid retrying the same bad payload every sync.
     private var playlistArtworkRetryAfter: [String: Date] = [:]
     private let playlistArtworkFailureBackoff: TimeInterval = 5 * 60
-    internal static let fullSizeArtworkCacheDimension = ArtworkSize.detail.rawValue
+    internal static let fullSizeArtworkCacheDimension = ArtworkSize.detail.requestPixelDimension
 
     /// Closure called when API client connections are refreshed (e.g., after network change).
     /// Used by ArtworkLoader to invalidate stale URL cache entries.
@@ -2017,12 +2017,12 @@ public final class SyncCoordinator: ObservableObject {
     
     // MARK: - Artwork Pre-Caching
 
-    /// Cache artwork for all albums, artists, and playlists in a source.
+    /// Cache library artwork before the separate playlist phase.
     /// Each helper skips items already cached at detail size, so repeat calls are lightweight.
     private func cacheArtworkForSource(sourceId: MusicSourceIdentifier, provider: MusicSourceSyncProvider) async {
-        await cacheAlbumArtwork(sourceId: sourceId, provider: provider)
-        await cacheArtistArtwork(sourceId: sourceId, provider: provider)
-        await cachePlaylistArtwork(sourceId: sourceId, provider: provider)
+        async let albums: Void = cacheAlbumArtwork(sourceId: sourceId, provider: provider)
+        async let artists: Void = cacheArtistArtwork(sourceId: sourceId, provider: provider)
+        _ = await (albums, artists)
     }
 
     /// Cache artwork for all albums belonging to a source.

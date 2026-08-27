@@ -635,15 +635,10 @@ final class SyncExecutionController {
             }
 
             if cacheArtworkAfterSync {
-                await dependencies.cacheAlbumArtwork(source, provider)
-                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                    return staleSourceOutcome(for: source)
-                }
-                await dependencies.cacheArtistArtwork(source, provider)
-                guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
-                    return staleSourceOutcome(for: source)
-                }
-                await dependencies.cachePlaylistArtwork(source, provider)
+                async let albums: Void = dependencies.cacheAlbumArtwork(source, provider)
+                async let artists: Void = dependencies.cacheArtistArtwork(source, provider)
+                async let playlists: Void = dependencies.cachePlaylistArtwork(source, provider)
+                _ = await (albums, artists, playlists)
                 guard isSourcePersistenceWorkCurrent(sourceWork, for: source) else {
                     return staleSourceOutcome(for: source)
                 }

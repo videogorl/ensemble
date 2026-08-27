@@ -247,7 +247,7 @@ public extension ArtworkDownloadManagerProtocol {
 
 /// Shared file inspection for persistent artwork cache entries.
 public enum ArtworkFileInspector {
-    /// Returns true when the file exists and, when requested, meets a minimum width or height.
+    /// Returns true when the file is a readable image and, when requested, meets a minimum dimension.
     public static func fileExists(atPath path: String, minimumPixelDimension: Int? = nil) -> Bool {
         fileExists(at: URL(fileURLWithPath: path), minimumPixelDimension: minimumPixelDimension)
     }
@@ -255,15 +255,16 @@ public enum ArtworkFileInspector {
     /// Returns true when the file exists and, when requested, meets a minimum width or height.
     public static func fileExists(at url: URL, minimumPixelDimension: Int? = nil) -> Bool {
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
-        guard let minimumPixelDimension, minimumPixelDimension > 0 else { return true }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return true
+            return false
         }
 
         let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
-        return max(width, height) >= minimumPixelDimension
+        guard width > 0, height > 0 else { return false }
+        guard let minimumPixelDimension, minimumPixelDimension > 0 else { return true }
+        return min(width, height) >= minimumPixelDimension
     }
 }
 
@@ -495,6 +496,15 @@ public final class ArtworkDownloadManager: ArtworkDownloadManagerProtocol, @unch
                 throw ArtworkDownloadError.downloadFailed(
                     NSError(domain: "ArtworkDownload", code: -1, 
                            userInfo: [NSLocalizedDescriptionKey: "Invalid response"])
+                )
+            }
+            guard ArtworkFileInspector.fileExists(at: tempURL) else {
+                throw ArtworkDownloadError.downloadFailed(
+                    NSError(
+                        domain: "ArtworkDownload",
+                        code: -2,
+                        userInfo: [NSLocalizedDescriptionKey: "Response was not a readable image"]
+                    )
                 )
             }
             

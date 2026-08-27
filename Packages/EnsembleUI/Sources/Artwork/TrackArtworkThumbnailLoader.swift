@@ -13,8 +13,8 @@ enum TrackArtworkThumbnailLoader {
 
         let descriptor = ArtworkResolutionDescriptor(
             track: track,
-            size: ArtworkSize.thumbnail.rawValue,
-            priority: .high
+            size: ArtworkSize.thumbnail.requestPixelDimension,
+            priority: .low
         )
 
         let resolved = await ArtworkImageResolver.resolvedImage(for: descriptor, artworkLoader: artworkLoader)
