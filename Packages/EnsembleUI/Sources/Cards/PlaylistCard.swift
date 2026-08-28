@@ -18,7 +18,7 @@ public struct PlaylistCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
-            ArtworkView(playlist: playlist, size: .thumbnail)
+            ArtworkView(playlist: playlist, size: .thumbnail, isResponsive: true)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(playlist.title)
@@ -31,7 +31,7 @@ public struct PlaylistCard: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
         .if(onTap != nil) { view in
             view.onTapGesture {

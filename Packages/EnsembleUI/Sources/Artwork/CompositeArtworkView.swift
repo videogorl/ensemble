@@ -158,7 +158,7 @@ public struct DisplayPlaylistCard: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.contentSpacing) {
-            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail)
+            PlaylistArtwork(displayPlaylist: displayPlaylist, size: .thumbnail, isResponsive: true)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(displayPlaylist.title)
@@ -171,7 +171,7 @@ public struct DisplayPlaylistCard: View {
                     .foregroundColor(EnsembleDesign.Color.secondaryText)
             }
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
     }
 }
