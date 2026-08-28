@@ -22,7 +22,8 @@ final class PlaybackServiceTests: XCTestCase {
             renderSampleTime: nil,
             playerTimeBaseOffset: 0,
             seekFrameOffset: 3_282_300,
-            sampleRate: 44100
+            renderSampleRate: 48_000,
+            mediaSampleRate: 44_100
         )
 
         XCTAssertEqual(time, 74.428571, accuracy: 0.0001)
@@ -33,10 +34,23 @@ final class PlaybackServiceTests: XCTestCase {
             renderSampleTime: 350,
             playerTimeBaseOffset: 100,
             seekFrameOffset: 25,
-            sampleRate: 10
+            renderSampleRate: 10,
+            mediaSampleRate: 10
         )
 
         XCTAssertEqual(time, 27.5, accuracy: 0.0001)
+    }
+
+    func testAudioPlaybackEnginePlaybackPositionSeparatesRenderAndMediaSampleRates() {
+        let time = AudioPlaybackEngine.resolvedPlaybackPosition(
+            renderSampleTime: 48_000,
+            playerTimeBaseOffset: 0,
+            seekFrameOffset: 44_100,
+            renderSampleRate: 48_000,
+            mediaSampleRate: 44_100
+        )
+
+        XCTAssertEqual(time, 2, accuracy: 0.0001)
     }
 
     func testCurrentPlaybackPositionUsesDurablePlayheadWhenRenderClockIsUnavailable() {

@@ -16,7 +16,8 @@ public struct ArtistCard: View {
             ArtworkView(
                 artist: artist,
                 size: .thumbnail,
-                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width)
+                cornerRadius: ArtworkCornerRadius.circle(for: ArtworkSize.thumbnail.cgSize.width),
+                isResponsive: true
             )
 
             Text(artist.name)
@@ -25,7 +26,7 @@ public struct ArtistCard: View {
                 .multilineTextAlignment(.center)
                 .foregroundColor(EnsembleDesign.Color.primaryText)
         }
-        .frame(width: ArtworkSize.thumbnail.cgSize.width)
+        .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .if(onTap != nil) { view in
             view.onTapGesture {
