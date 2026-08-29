@@ -841,6 +841,29 @@ final class PlaybackServiceTests: XCTestCase {
         )
     }
 
+    func testRepeatedSmartMixPromotionDoesNotWrapToPastDuplicate() throws {
+        let duplicate = Track(id: "duplicate", key: "/duplicate", title: "Duplicate")
+        let queue = [
+            QueueItem(id: "past", track: duplicate),
+            QueueItem(id: "current", track: Track(id: "current", key: "/current", title: "Current")),
+            QueueItem(id: "future", track: duplicate)
+        ]
+
+        let promotedIndex = try XCTUnwrap(PlaybackService.smartMixPromotionQueueIndex(
+            matching: duplicate.playbackIdentity,
+            currentTrackIdentity: queue[1].track.playbackIdentity,
+            in: queue,
+            after: 1
+        ))
+        XCTAssertEqual(promotedIndex, 2)
+        XCTAssertNil(PlaybackService.smartMixPromotionQueueIndex(
+            matching: duplicate.playbackIdentity,
+            currentTrackIdentity: duplicate.playbackIdentity,
+            in: queue,
+            after: promotedIndex
+        ))
+    }
+
     func testSourceLessTrackIsRejectedEvenWhileSourceConfigurationIsUnresolved() {
         let track = Track(id: "legacy", key: "/library/metadata/1", title: "Legacy")
 

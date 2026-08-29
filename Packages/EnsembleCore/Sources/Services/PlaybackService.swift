@@ -559,6 +559,20 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         ) ?? queue.firstIndex { $0.track.playbackIdentity == playbackIdentity }
     }
 
+    static func smartMixPromotionQueueIndex(
+        matching playbackIdentity: String,
+        currentTrackIdentity: String?,
+        in queue: [QueueItem],
+        after currentQueueIndex: Int
+    ) -> Int? {
+        guard currentTrackIdentity != playbackIdentity else { return nil }
+        return queueIndexForAdvance(
+            matching: playbackIdentity,
+            in: queue,
+            after: currentQueueIndex
+        )
+    }
+
     static func isSameTrackIdentity(_ lhs: Track, _ rhs: Track) -> Bool {
         lhs.id == rhs.id && lhs.sourceCompositeKey == rhs.sourceCompositeKey
     }
@@ -1659,8 +1673,9 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
     }
 
     private func handleSmartMixPromotion(trackId: String) {
-        guard let index = Self.queueIndexForAdvance(
+        guard let index = Self.smartMixPromotionQueueIndex(
             matching: trackId,
+            currentTrackIdentity: currentTrack?.playbackIdentity,
             in: queue,
             after: currentQueueIndex
         ) else {
