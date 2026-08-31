@@ -1,6 +1,5 @@
 import EnsembleDesignTokens
 import EnsembleCore
-import EnsembleDomain
 import SwiftUI
 
 /// Main profile view that owns profile and settings content.
@@ -148,10 +147,17 @@ public struct ProfileView: View {
                 // Music Sources
                 sourcesSection
 
-                mergingSection
-
-                // iCloud Sync
                 Section {
+                    NavigationLink {
+                        MergingSettingsView()
+                    } label: {
+                        EnsembleUtilityRowLabel(
+                            iconSystemName: "arrow.triangle.merge",
+                            title: "Merging",
+                            iconColor: EnsembleDesign.Color.primaryText
+                        )
+                    }
+
                     NavigationLink {
                         SyncSettingsView()
                     } label: {
@@ -299,38 +305,6 @@ public struct ProfileView: View {
         case .idle, .lastSynced:
             return "This Device"
         }
-    }
-
-    private var mergingSection: some View {
-        Section {
-            Toggle(isOn: mergingBinding(\.isEnabled)) {
-                Text("Merge Similar Items")
-            }
-
-            Toggle("Artists", isOn: mergingBinding(\.mergeArtists))
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-            Toggle("Albums", isOn: mergingBinding(\.mergeAlbums))
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-            Toggle("Songs", isOn: mergingBinding(\.mergeTracks))
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-            Toggle("Playlists", isOn: mergingBinding(\.mergePlaylists))
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-        } header: {
-            EnsembleUtilitySectionHeader("Merging")
-        } footer: {
-            Text("Similar copies use your preferred library. Turn merging off to show every copy.")
-        }
-    }
-
-    private func mergingBinding(
-        _ keyPath: WritableKeyPath<EnsembleMergingPreferences, Bool>
-    ) -> Binding<Bool> {
-        Binding(
-            get: { settingsManager.mergingPreferences[keyPath: keyPath] },
-            set: { value in
-                settingsManager.updateMergingPreferences { $0[keyPath: keyPath] = value }
-            }
-        )
     }
 
     // MARK: - Appearance
@@ -600,9 +574,19 @@ public struct ProfileView: View {
 
             macOSSourcesSection
 
-            macOSMergingSection
-
             EnsembleUtilityCardSection {
+                macNavigationRow {
+                    MergingSettingsView()
+                } label: {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: "arrow.triangle.merge",
+                        title: "Merging",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+
+                EnsembleUtilityCardDivider()
+
                 macNavigationRow {
                     SyncSettingsView()
                 } label: {
@@ -686,24 +670,6 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.accent
                 )
             }
-        }
-    }
-
-    private var macOSMergingSection: some View {
-        EnsembleUtilityCardSection(
-            "Merging",
-            footer: "Similar copies use your preferred library. Turn merging off to show every copy."
-        ) {
-            EnsembleUtilityCardRow { Toggle("Merge Similar Items", isOn: mergingBinding(\.isEnabled)) }
-            EnsembleUtilityCardDivider()
-            EnsembleUtilityCardRow { Toggle("Artists", isOn: mergingBinding(\.mergeArtists)) }
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-            EnsembleUtilityCardRow { Toggle("Albums", isOn: mergingBinding(\.mergeAlbums)) }
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-            EnsembleUtilityCardRow { Toggle("Songs", isOn: mergingBinding(\.mergeTracks)) }
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
-            EnsembleUtilityCardRow { Toggle("Playlists", isOn: mergingBinding(\.mergePlaylists)) }
-                .disabled(!settingsManager.mergingPreferences.isEnabled)
         }
     }
 

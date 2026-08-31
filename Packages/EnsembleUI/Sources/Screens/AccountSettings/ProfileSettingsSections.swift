@@ -1,5 +1,6 @@
 import EnsembleDesignTokens
 import EnsembleCore
+import EnsembleDomain
 import SwiftUI
 
 // MARK: - Music Source Account Row
@@ -25,6 +26,7 @@ struct MusicSourceAccountRow: View {
                 .frame(width: 30, height: 30)
                 .background(sourceType == .plex ? Color.black : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(width: EnsembleScaffold.UtilityRow.iconLaneWidth)
         }
     }
 }
@@ -236,6 +238,77 @@ struct SmartMixSettingsView: View {
             )
         }
         .disabled(!isSmartMixEnabled)
+    }
+}
+
+// MARK: - Merging Settings
+
+struct MergingSettingsView: View {
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+
+    var body: some View {
+        EnsembleAdaptiveUtilityScaffold(title: "Merging") {
+            List {
+                Section {
+                    Toggle("Enable Merging", isOn: mergingBinding(\.isEnabled))
+                }
+
+                Section {
+                    categoryToggles
+                } footer: {
+                    Text(mergingFooterText)
+                }
+            }
+        } regularContent: {
+            VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.md) {
+                EnsembleUtilityCardSection(nil) {
+                    EnsembleUtilityCardRow {
+                        Toggle("Enable Merging", isOn: mergingBinding(\.isEnabled))
+                    }
+                }
+
+                EnsembleUtilityCardSection(nil, footer: mergingFooterText) {
+                    EnsembleUtilityCardRow { categoryToggle("Artists", \.mergeArtists) }
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow { categoryToggle("Albums", \.mergeAlbums) }
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow { categoryToggle("Songs", \.mergeTracks) }
+                    EnsembleUtilityCardDivider()
+                    EnsembleUtilityCardRow { categoryToggle("Playlists", \.mergePlaylists) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var categoryToggles: some View {
+        categoryToggle("Artists", \.mergeArtists)
+        categoryToggle("Albums", \.mergeAlbums)
+        categoryToggle("Songs", \.mergeTracks)
+        categoryToggle("Playlists", \.mergePlaylists)
+    }
+
+    private func categoryToggle(
+        _ title: String,
+        _ keyPath: WritableKeyPath<EnsembleMergingPreferences, Bool>
+    ) -> some View {
+        Toggle(title, isOn: mergingBinding(keyPath))
+            .disabled(!settingsManager.mergingPreferences.isEnabled)
+    }
+
+    private var mergingFooterText: String {
+        "Similar copies use your preferred library. Turn merging off to show every copy."
+    }
+
+    private func mergingBinding(
+        _ keyPath: WritableKeyPath<EnsembleMergingPreferences, Bool>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { settingsManager.mergingPreferences[keyPath: keyPath] },
+            set: { value in
+                settingsManager.updateMergingPreferences { $0[keyPath: keyPath] = value }
+            }
+        )
     }
 }
 
