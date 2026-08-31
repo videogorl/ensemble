@@ -139,6 +139,28 @@ struct NavigationDestinationFactory {
             #endif
             return AnyView(detailView)
         case .mergedPlaylist(let title, let isSmart):
+            if let displayPlaylist = playlistsVM.displayPlaylists.first(where: {
+                DisplayPlaylist.normalizedTitle($0.title) == DisplayPlaylist.normalizedTitle(title)
+                    && $0.isSmart == isSmart
+            }) {
+                let detailView = MergedPlaylistDetailView(
+                    displayPlaylist: displayPlaylist,
+                    nowPlayingVM: nowPlayingVM
+                )
+                #if os(iOS)
+                if #available(iOS 18.0, *), let mediaNavigationNamespace {
+                    return AnyView(
+                        detailView.navigationTransition(
+                            .zoom(
+                                sourceID: displayPlaylist.primaryPlaylist.sourceScopedID,
+                                in: mediaNavigationNamespace
+                            )
+                        )
+                    )
+                }
+                #endif
+                return AnyView(detailView)
+            }
             return AnyView(MergedPlaylistDetailLoader(
                 title: title,
                 isSmart: isSmart,

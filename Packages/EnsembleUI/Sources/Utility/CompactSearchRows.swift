@@ -102,9 +102,7 @@ public struct CompactPlaylistRow: View {
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.square(for: .tiny)
             )
-            .mediaNavigationTransitionSource(
-                id: displayPlaylist.isMerged ? nil : displayPlaylist.primaryPlaylist.sourceScopedID
-            )
+            .mediaNavigationTransitionSource(id: displayPlaylist.primaryPlaylist.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.cardTextGap) {
                 Text(displayPlaylist.title)

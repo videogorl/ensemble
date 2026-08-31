@@ -17,27 +17,31 @@ struct StageFlowItemView: View {
     let artworkPath: String?
     let sourceCompositeKey: String?
     let identity: ArtworkRequest.Identity?
-    /// When set, uses composite artwork (2x2 grid for merged playlists)
-    let displayPlaylist: DisplayPlaylist?
 
     init(
         ratingKey: String,
         artworkPath: String?,
         sourceCompositeKey: String?,
-        identity: ArtworkRequest.Identity? = nil,
-        displayPlaylist: DisplayPlaylist? = nil
+        identity: ArtworkRequest.Identity? = nil
     ) {
         self.ratingKey = ratingKey
         self.artworkPath = artworkPath
         self.sourceCompositeKey = sourceCompositeKey
         self.identity = identity
-        self.displayPlaylist = displayPlaylist
     }
 
     var body: some View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.large)
 
-        artworkContent
+        ArtworkView(
+            path: artworkPath,
+            sourceKey: sourceCompositeKey,
+            ratingKey: ratingKey,
+            identity: identity,
+            size: .large,
+            cornerRadius: EnsembleDesign.Spacing.none,
+            isResponsive: true
+        )
             .aspectRatio(1, contentMode: .fill)
             .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
             .overlay(
@@ -53,23 +57,6 @@ struct StageFlowItemView: View {
                 x: StageFlowItemChromeMetrics.artworkShadowX,
                 y: StageFlowItemChromeMetrics.artworkShadowY
             )
-    }
-
-    @ViewBuilder
-    private var artworkContent: some View {
-        if let dp = displayPlaylist, dp.isMerged {
-            PlaylistArtwork(displayPlaylist: dp, size: .large, cornerRadius: EnsembleDesign.Spacing.none, isResponsive: true)
-        } else {
-            ArtworkView(
-                path: artworkPath,
-                sourceKey: sourceCompositeKey,
-                ratingKey: ratingKey,
-                identity: identity,
-                size: .large,
-                cornerRadius: EnsembleDesign.Spacing.none,
-                isResponsive: true
-            )
-        }
     }
 }
 
@@ -88,8 +75,7 @@ extension StageFlowItemView {
             ratingKey: dp.primaryPlaylist.id,
             artworkPath: dp.compositePath,
             sourceCompositeKey: dp.sourceCompositeKey,
-            identity: ArtworkRequest.Identity(playlist: dp.primaryPlaylist),
-            displayPlaylist: dp.isMerged ? dp : nil
+            identity: ArtworkRequest.Identity(playlist: dp.primaryPlaylist)
         )
     }
 

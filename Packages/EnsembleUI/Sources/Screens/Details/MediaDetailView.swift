@@ -20,8 +20,6 @@ public struct MediaHeaderData {
     let sourceKey: String?
     let ratingKey: String?
     let artistRatingKey: String? // Added for cross-navigation
-    /// When set, renders composite 2x2 artwork from multiple playlists (for merged playlists)
-    let artworkPlaylists: [Playlist]?
 
     public init(
         title: String,
@@ -30,8 +28,7 @@ public struct MediaHeaderData {
         artworkPath: String?,
         sourceKey: String?,
         ratingKey: String? = nil,
-        artistRatingKey: String? = nil,
-        artworkPlaylists: [Playlist]? = nil
+        artistRatingKey: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -40,7 +37,6 @@ public struct MediaHeaderData {
         self.sourceKey = sourceKey
         self.ratingKey = ratingKey
         self.artistRatingKey = artistRatingKey
-        self.artworkPlaylists = artworkPlaylists
     }
 }
 
@@ -1190,15 +1186,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
     }
 
-    /// Header artwork — uses composite 2x2 grid for merged playlists, single artwork otherwise
     @ViewBuilder
     private var headerArtwork: some View {
         let artworkCornerRadius = ArtworkCornerRadius.square(for: ArtworkSize.medium)
 
-        if let playlists = headerData.artworkPlaylists, playlists.count > 1 {
-            CompositeArtworkView(playlists: playlists, size: .medium, cornerRadius: artworkCornerRadius)
-                .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
-        } else if let artworkImage {
+        if let artworkImage {
             platformHeaderArtwork(artworkImage)
                 .clipShape(RoundedRectangle(cornerRadius: artworkCornerRadius, style: .continuous))
         } else {

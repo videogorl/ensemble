@@ -90,6 +90,7 @@ public struct PlaylistRow: View {
                 size: .tiny,
                 cornerRadius: ArtworkCornerRadius.square(for: .tiny)
             )
+            .mediaNavigationTransitionSource(id: displayPlaylist.primaryPlaylist.sourceScopedID)
 
             VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
                 Text(displayPlaylist.title)
