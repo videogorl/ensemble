@@ -228,31 +228,32 @@ public enum DemoModeRedaction {
 @MainActor
 public final class SettingsManager: ObservableObject {
     nonisolated public static let scrobblingEnabledKey = "scrobblingEnabled"
-    public static let playlistMergeEnabledKey = "playlistMergeEnabled"
-    public static let defaultPlaylistMergeEnabled = true
+    public static let mergingPreferencesKey = "mergingPreferences"
     nonisolated private static let focusScrobblingOverrideKey = "focusScrobblingOverride"
     nonisolated private static let noFocusScrobblingOverride = -1
-    /// Posted when the persisted playlist merge preference changes.
-    public static let playlistMergePreferenceDidChange = Notification.Name(
-        "SettingsManager.playlistMergePreferenceDidChange"
+    /// Posted when the persisted merge preferences change.
+    public static let mergingPreferencesDidChange = Notification.Name(
+        "SettingsManager.mergingPreferencesDidChange"
     )
 
-    public static func storedPlaylistMergeEnabled(in defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: playlistMergeEnabledKey) != nil else {
-            return defaultPlaylistMergeEnabled
-        }
-        return defaults.bool(forKey: playlistMergeEnabledKey)
+    public static func storedMergingPreferences(
+        in defaults: UserDefaults = .standard
+    ) -> EnsembleMergingPreferences {
+        guard let data = defaults.data(forKey: mergingPreferencesKey),
+              let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data)
+        else { return .default }
+        return preferences
     }
 
-    /// Persists the playlist merge preference and notifies live projections.
-    public static func setStoredPlaylistMergeEnabled(
-        _ isEnabled: Bool,
+    public static func setStoredMergingPreferences(
+        _ preferences: EnsembleMergingPreferences,
         in defaults: UserDefaults = .standard
     ) {
-        guard storedPlaylistMergeEnabled(in: defaults) != isEnabled else { return }
-        defaults.set(isEnabled, forKey: playlistMergeEnabledKey)
+        guard storedMergingPreferences(in: defaults) != preferences,
+              let data = try? JSONEncoder().encode(preferences) else { return }
+        defaults.set(data, forKey: mergingPreferencesKey)
         NotificationCenter.default.post(
-            name: playlistMergePreferenceDidChange,
+            name: mergingPreferencesDidChange,
             object: defaults
         )
     }
@@ -277,7 +278,7 @@ public final class SettingsManager: ObservableObject {
     @AppStorage(AuroraVisualizationPreference.enabledKey) public var auroraVisualizationEnabled: Bool = AuroraVisualizationPreference.defaultEnabled
     @AppStorage(scrobblingEnabledKey) public var scrobblingEnabled: Bool = true
     @AppStorage(focusScrobblingOverrideKey) private var focusScrobblingOverrideRawValue = noFocusScrobblingOverride
-    @AppStorage(playlistMergeEnabledKey) public var playlistMergeEnabled: Bool = defaultPlaylistMergeEnabled
+    @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default
     #if DEBUG
     @AppStorage("demoModeEnabled") public var demoModeEnabled: Bool = false
     #else
@@ -288,14 +289,12 @@ public final class SettingsManager: ObservableObject {
     #endif
 
     public init() {
-        // Register defaults so UserDefaults.standard.bool(forKey:) returns true
-        // before the setting has ever been toggled (PlaybackService reads directly).
         UserDefaults.standard.register(defaults: [
             AuroraVisualizationPreference.enabledKey: AuroraVisualizationPreference.defaultEnabled,
             Self.scrobblingEnabledKey: true,
-            Self.playlistMergeEnabledKey: Self.defaultPlaylistMergeEnabled,
             "demoModeEnabled": false
         ])
+        mergingPreferences = Self.storedMergingPreferences()
         if enabledTabsData.isEmpty {
             // Default tabs
             let defaultTabs: [TabItem] = [.home, .artists, .playlists, .search]
@@ -315,6 +314,20 @@ public final class SettingsManager: ObservableObject {
 
     public var effectiveScrobblingEnabled: Bool {
         focusScrobblingOverride ?? scrobblingEnabled
+    }
+
+    public func setMergingPreferences(_ preferences: EnsembleMergingPreferences) {
+        guard mergingPreferences != preferences else { return }
+        Self.setStoredMergingPreferences(preferences)
+        mergingPreferences = preferences
+    }
+
+    public func updateMergingPreferences(
+        _ update: (inout EnsembleMergingPreferences) -> Void
+    ) {
+        var preferences = mergingPreferences
+        update(&preferences)
+        setMergingPreferences(preferences)
     }
 
     /// Applies or clears the temporary scrobbling value supplied by the active system Focus.

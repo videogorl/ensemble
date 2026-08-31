@@ -777,7 +777,11 @@ public struct SidebarView: View {
     private func buildMergedSidebarPlaylistItems() -> [SidebarPlaylistItem] {
         var seenIDs = Set<String>()
         let displayPlaylists = playlistsVM.sortedDisplayPlaylists.isEmpty
-            ? DisplayPlaylist.group(sortedSidebarSourcePlaylists(), merge: true)
+            ? DisplayPlaylist.group(
+                sortedSidebarSourcePlaylists(),
+                merge: true,
+                preferences: SettingsManager.storedMergingPreferences()
+            )
             : playlistsVM.sortedDisplayPlaylists
 
         return displayPlaylists.compactMap { dp in

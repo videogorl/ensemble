@@ -1,4 +1,5 @@
 import Combine
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
 
@@ -114,7 +115,7 @@ public final class PinnedViewModel: ObservableObject {
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(
-            for: SettingsManager.playlistMergePreferenceDidChange,
+            for: SettingsManager.mergingPreferencesDidChange,
             object: UserDefaults.standard
         )
         .receive(on: DispatchQueue.main)
@@ -199,9 +200,9 @@ public final class PinnedViewModel: ObservableObject {
         )
 
         // When merge is enabled, group adjacent playlist pins with the same title
-        let isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
-        if isMergeEnabled {
-            resolved = mergePlaylistPins(resolved)
+        let preferences = SettingsManager.storedMergingPreferences()
+        if preferences.isEnabled && preferences.mergePlaylists {
+            resolved = mergePlaylistPins(resolved, preferences: preferences)
         }
 
         resolvedPins = resolved
@@ -221,7 +222,10 @@ public final class PinnedViewModel: ObservableObject {
     /// Groups resolved playlist pins with the same normalized title and semantic kind.
     /// Non-playlist pins pass through unchanged. The first occurrence of each group key
     /// determines the merged entry's position in the output.
-    private func mergePlaylistPins(_ pins: [ResolvedPin]) -> [ResolvedPin] {
+    private func mergePlaylistPins(
+        _ pins: [ResolvedPin],
+        preferences: EnsembleMergingPreferences
+    ) -> [ResolvedPin] {
         struct GroupKey: Hashable {
             let normalizedTitle: String
             let isSmart: Bool
@@ -262,12 +266,16 @@ public final class PinnedViewModel: ObservableObject {
             let playlists = groupPlaylists[key] ?? []
             let pinnedItems = groupPins[key] ?? []
             if playlists.count > 1 {
-                let dp = DisplayPlaylist.merged(
-                    title: playlists[0].title,
-                    isSmart: playlists.contains(where: \.isSmart),
-                    playlists: playlists
+                let ordered = preferences.ordered(
+                    Array(zip(playlists, pinnedItems)),
+                    sourceKey: { $0.0.sourceCompositeKey }
                 )
-                output[index] = .mergedPlaylist(dp, pinnedItems)
+                let dp = DisplayPlaylist.merged(
+                    title: ordered[0].0.title,
+                    isSmart: playlists.contains(where: \.isSmart),
+                    playlists: ordered.map(\.0)
+                )
+                output[index] = .mergedPlaylist(dp, ordered.map(\.1))
             }
             // If only 1 playlist, the original .playlist entry is already in place
         }

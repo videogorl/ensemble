@@ -398,6 +398,8 @@ public struct SyncSettingsView: View {
             return EnsembleDesign.Icon.paintPalette
         case .swipeActions:
             return EnsembleDesign.Icon.tapGesture
+        case .merging:
+            return EnsembleDesign.Icon.merge
         }
     }
 

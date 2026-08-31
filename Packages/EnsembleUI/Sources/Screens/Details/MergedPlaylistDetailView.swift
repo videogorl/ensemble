@@ -372,7 +372,8 @@ public struct MergedPlaylistDetailLoader: View {
         // since navigation. Fall back to raw playlists wrapped as single.
         return DisplayPlaylist.group(
             playlistsVM.playlists.filter { DisplayPlaylist.normalizedTitle($0.title) == normalizedTitle },
-            merge: true
+            merge: true,
+            preferences: SettingsManager.storedMergingPreferences()
         ).first { $0.isSmart == isSmart }
     }
 }

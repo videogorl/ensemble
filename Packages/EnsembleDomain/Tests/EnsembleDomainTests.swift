@@ -139,6 +139,37 @@ final class EnsembleDomainTests: XCTestCase {
         XCTAssertFalse(EnsembleSourceScope.isCompatible("malformed", "plex:a:s:3"))
     }
 
+    func testMergingPrefersTheFirstAvailableSourceAndPreservesAmbiguousVariants() {
+        struct Item: Equatable {
+            let name: String
+            let source: String
+            let identity: String?
+        }
+
+        let preferences = EnsembleMergingPreferences(
+            preferredSourceKeys: ["plex:a:preferred:1", "plex:a:fallback:2"]
+        )
+        let collapsed = EnsembleMergeIdentity.collapsed(
+            [
+                Item(name: "fallback", source: "plex:a:fallback:2", identity: "same"),
+                Item(name: "ambiguous", source: "plex:a:fallback:2", identity: nil),
+                Item(name: "preferred", source: "plex:a:preferred", identity: "same")
+            ],
+            preferences: preferences,
+            identity: \.identity,
+            sourceKey: \.source
+        )
+
+        XCTAssertEqual(collapsed.map(\.name), ["preferred", "ambiguous"])
+        XCTAssertNil(EnsembleMergeIdentity.album(
+            title: "Album",
+            artist: "Artist",
+            year: nil,
+            trackCount: 10,
+            variant: "album"
+        ))
+    }
+
     func testMediaActionCatalogUsesSharedWatchAndIOSOrder() {
         XCTAssertEqual(
             EnsembleMediaActionCatalog.ordered.map(\.action),

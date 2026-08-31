@@ -86,6 +86,7 @@ public final class DependencyContainer: @unchecked Sendable {
     private var kvsSyncCancellables = Set<AnyCancellable>()
     private var lastSyncedAccentColor: String = AppAccentColor.blue.rawValue
     private var lastSyncedSwipeLayout: TrackSwipeLayout = .default
+    private var lastSyncedMergingPreferences = EnsembleMergingPreferences.default
     private var lastSyncedPinsData: Data?
     private var syncBootstrapTask: Task<Void, Never>?
     private var firstConnectRetryTask: Task<Void, Never>?
@@ -239,6 +240,7 @@ public final class DependencyContainer: @unchecked Sendable {
         ensemblePermalinkResolver = MainActor.assumeIsolated {
             EnsemblePermalinkResolver(
                 accountManager: network.accountManager,
+                settingsManager: core.settingsManager,
                 libraryRepository: core.libraryRepository,
                 playlistRepository: core.playlistRepository
             )
@@ -363,6 +365,7 @@ public final class DependencyContainer: @unchecked Sendable {
         MainActor.assumeIsolated {
             lastSyncedAccentColor = settingsManager.accentColorName
             lastSyncedSwipeLayout = settingsManager.trackSwipeLayout
+            lastSyncedMergingPreferences = settingsManager.mergingPreferences
             lastSyncedPinsData = pinManager.exportPinsData()
         }
 
@@ -1063,6 +1066,20 @@ public final class DependencyContainer: @unchecked Sendable {
             settings.trackSwipeLayout = layout
         }
 
+        kvsSyncService.onRemoteMergingPreferencesChanged = { [weak self] data in
+            guard let self else { return }
+            guard syncToggles.isFeatureEnabled(.merging) else { return }
+            guard let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data) else { return }
+            self.lastSyncedMergingPreferences = preferences
+            syncToggles.recordFeatureActivity(
+                for: .merging,
+                state: .appliedRemote,
+                direction: .pulledFromICloud,
+                detail: "Pulled merging preferences from iCloud."
+            )
+            settings.setMergingPreferences(preferences)
+        }
+
         settings.objectWillChange
             .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
             .sink { [weak self, weak settings, weak kvs, weak syncToggles] _ in
@@ -1079,20 +1096,35 @@ public final class DependencyContainer: @unchecked Sendable {
                     kvs.pushString(settings.accentColorName, forKey: KVSSyncService.KVSKey.accentColor)
                 }
 
-                guard syncToggles.isFeatureEnabled(.swipeActions) else { return }
-                let currentLayout = settings.trackSwipeLayout
-                guard currentLayout != self.lastSyncedSwipeLayout else { return }
-                self.lastSyncedSwipeLayout = currentLayout
+                if syncToggles.isFeatureEnabled(.swipeActions) {
+                    let currentLayout = settings.trackSwipeLayout
+                    if currentLayout != self.lastSyncedSwipeLayout {
+                        self.lastSyncedSwipeLayout = currentLayout
+                        syncToggles.recordFeatureActivity(
+                            for: .swipeActions,
+                            state: .seededLocal,
+                            direction: .pushedFromThisDevice,
+                            detail: "Pushed swipe actions from this device."
+                        )
+                        if let data = try? JSONEncoder().encode(currentLayout) {
+                            kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                        }
+                    }
+                }
+
+                guard syncToggles.isFeatureEnabled(.merging) else { return }
+                let preferences = settings.mergingPreferences
+                guard preferences != self.lastSyncedMergingPreferences,
+                      let data = try? JSONEncoder().encode(preferences) else { return }
+                self.lastSyncedMergingPreferences = preferences
                 syncToggles.recordFeatureActivity(
-                    for: .swipeActions,
+                    for: .merging,
                     state: .seededLocal,
                     direction: .pushedFromThisDevice,
-                    detail: "Pushed swipe actions from this device."
+                    detail: "Pushed merging preferences from this device."
                 )
-                if let data = try? JSONEncoder().encode(currentLayout) {
-                    kvs.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+                kvs.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
                 }
-            }
             .store(in: &kvsSyncCancellables)
 
         kvsSyncService.onRemotePinsChanged = { [weak self, weak pins] data in
@@ -1531,6 +1563,8 @@ public final class DependencyContainer: @unchecked Sendable {
             return await bootstrapAccentColor(reason: reason)
         case .swipeActions:
             return await bootstrapSwipeActions(reason: reason)
+        case .merging:
+            return await bootstrapMergingPreferences(reason: reason)
         case .pins:
             return await bootstrapPins(reason: reason)
         case .hiddenItems:
@@ -1700,6 +1734,51 @@ public final class DependencyContainer: @unchecked Sendable {
             detail: "Pushed swipe actions from this device."
         )
         kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.swipeLayout)
+        return true
+    }
+
+    @MainActor
+    private func bootstrapMergingPreferences(reason: String) async -> Bool {
+        guard syncSettingsManager.isFeatureEnabled(.merging) else {
+            syncSettingsManager.setFeatureState(.idle, for: .merging)
+            return true
+        }
+        guard kvsSyncService.isAvailable else {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .merging)
+            return true
+        }
+
+        syncSettingsManager.setFeatureState(.bootstrapping, for: .merging)
+        kvsSyncService.synchronize()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.mergingPreferences) {
+            kvsSyncService.onRemoteMergingPreferencesChanged?(data)
+            return true
+        }
+        if Self.isBootstrapTransportUnavailable(accountStatus: lastKnownICloudAccountStatus) {
+            syncSettingsManager.setFeatureState(.transportUnavailable, for: .merging)
+            return true
+        }
+
+        let didSettleInitialSync = await kvsSyncService.waitForInitialSync()
+        if let data = kvsSyncService.pullData(forKey: KVSSyncService.KVSKey.mergingPreferences) {
+            kvsSyncService.onRemoteMergingPreferencesChanged?(data)
+            return true
+        }
+        guard didSettleInitialSync,
+              let data = try? JSONEncoder().encode(settingsManager.mergingPreferences) else {
+            syncSettingsManager.setFeatureState(.waitingForTransport, for: .merging)
+            return false
+        }
+
+        lastSyncedMergingPreferences = settingsManager.mergingPreferences
+        EnsembleLogger.info("Sync bootstrap: seeding local merging preferences after \(reason)")
+        syncSettingsManager.recordFeatureActivity(
+            for: .merging,
+            state: .seededLocal,
+            direction: .pushedFromThisDevice,
+            detail: "Pushed merging preferences from this device."
+        )
+        kvsSyncService.pushData(data, forKey: KVSSyncService.KVSKey.mergingPreferences)
         return true
     }
 

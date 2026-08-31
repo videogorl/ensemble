@@ -177,7 +177,10 @@ struct NavigationDestinationFactory {
             return displayArtist
         }
 
-        return DisplayArtist.group(libraryVM.artists).first { $0.id == id }
+        return DisplayArtist.group(
+            libraryVM.artists,
+            preferences: SettingsManager.storedMergingPreferences()
+        ).first { $0.id == id }
     }
 
     @MainActor
@@ -185,7 +188,10 @@ struct NavigationDestinationFactory {
         let normalizedName = DisplayArtist.normalizedName(name)
         return libraryVM.artistBrowseSnapshot.displayArtists.first {
             DisplayArtist.normalizedName($0.name) == normalizedName
-        } ?? DisplayArtist.group(libraryVM.artists).first {
+        } ?? DisplayArtist.group(
+            libraryVM.artists,
+            preferences: SettingsManager.storedMergingPreferences()
+        ).first {
             DisplayArtist.normalizedName($0.name) == normalizedName
         }
     }

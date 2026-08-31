@@ -84,9 +84,10 @@ public final class LibraryViewModel: ObservableObject {
 
         let sorted = Self.sortTracks(tracks, by: trackSortOption, direction: tracksFilterOptions.sortDirection)
         let filtered = Self.filterTracks(sorted, with: tracksFilterOptions)
+        let projected = MergingProjection.tracks(filtered, preferences: settingsManager.mergingPreferences)
         return TrackBrowseSnapshot(
-            tracks: filtered,
-            sections: Self.computeTrackSections(from: filtered),
+            tracks: projected,
+            sections: Self.computeTrackSections(from: projected),
             availableGenres: availableTrackGenres,
             phase: trackBrowseSnapshot.phase,
             isShowingStaleSnapshot: trackBrowseSnapshot.isShowingStaleSnapshot
@@ -101,7 +102,7 @@ public final class LibraryViewModel: ObservableObject {
         let filtered = Self.filterArtists(artists, with: artistsFilterOptions, albums: albums)
         let sorted = Self.sortArtists(filtered, by: artistSortOption, direction: artistsFilterOptions.sortDirection)
         let displayArtists = Self.sortDisplayArtists(
-            DisplayArtist.group(filtered),
+            DisplayArtist.group(filtered, preferences: settingsManager.mergingPreferences),
             by: artistSortOption,
             direction: artistsFilterOptions.sortDirection
         )
@@ -122,9 +123,10 @@ public final class LibraryViewModel: ObservableObject {
 
         let sorted = Self.sortAlbums(albums, by: albumSortOption, direction: albumsFilterOptions.sortDirection)
         let filtered = Self.filterAlbums(sorted, with: albumsFilterOptions, tracks: tracks)
+        let projected = MergingProjection.albums(filtered, preferences: settingsManager.mergingPreferences)
         return AlbumBrowseSnapshot(
-            albums: filtered,
-            sections: Self.computeAlbumSections(from: filtered, sortOption: albumSortOption),
+            albums: projected,
+            sections: Self.computeAlbumSections(from: projected, sortOption: albumSortOption),
             availableGenres: availableAlbumGenres,
             phase: albumBrowseSnapshot.phase,
             isShowingStaleSnapshot: albumBrowseSnapshot.isShowingStaleSnapshot
@@ -153,6 +155,7 @@ public final class LibraryViewModel: ObservableObject {
     private let syncCoordinator: SyncCoordinator
     private let toastCenter: ToastCenter
     private let accountManager: AccountManager
+    private let settingsManager: SettingsManager
     private let visibilityStore: LibraryVisibilityStore
     private let hiddenMediaStore: HiddenMediaStore
     private let appReadinessCoordinator: AppReadinessCoordinator?
@@ -169,6 +172,7 @@ public final class LibraryViewModel: ObservableObject {
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         accountManager: AccountManager,
+        settingsManager: SettingsManager? = nil,
         visibilityStore: LibraryVisibilityStore? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
         toastCenter: ToastCenter,
@@ -177,6 +181,7 @@ public final class LibraryViewModel: ObservableObject {
         self.libraryRepository = libraryRepository
         self.syncCoordinator = syncCoordinator
         self.accountManager = accountManager
+        self.settingsManager = settingsManager ?? SettingsManager()
         self.visibilityStore = visibilityStore ?? .shared
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.toastCenter = toastCenter
@@ -300,13 +305,14 @@ public final class LibraryViewModel: ObservableObject {
         // Debounce by 100ms to coalesce search/filter typing without making tab switches feel delayed
         // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
         // removeDuplicates prevents no-op publishes during sync.
-        Publishers.CombineLatest3($tracks, $trackSortOption, $tracksFilterOptions)
+        Publishers.CombineLatest4($tracks, $trackSortOption, $tracksFilterOptions, settingsManager.$mergingPreferences)
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { tracks, sortOption, filterOptions -> TrackComputation in
+            .map { tracks, sortOption, filterOptions, preferences -> TrackComputation in
                 let sorted = LibraryViewModel.sortTracks(tracks, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterTracks(sorted, with: filterOptions)
-                let sections = LibraryViewModel.computeTrackSections(from: filtered)
-                return TrackComputation(tracks: filtered, sections: sections)
+                let projected = MergingProjection.tracks(filtered, preferences: preferences)
+                let sections = LibraryViewModel.computeTrackSections(from: projected)
+                return TrackComputation(tracks: projected, sections: sections)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
@@ -320,13 +326,19 @@ public final class LibraryViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // Artists — include albums for genre filtering (artist genres derived from album genres)
-        Publishers.CombineLatest4($artists, $artistSortOption, $artistsFilterOptions, $albums)
+        Publishers.CombineLatest4(
+            Publishers.CombineLatest($artists, settingsManager.$mergingPreferences),
+            $artistSortOption,
+            $artistsFilterOptions,
+            $albums
+        )
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { artists, sortOption, filterOptions, albums -> ArtistComputation in
+            .map { artistsAndPreferences, sortOption, filterOptions, albums -> ArtistComputation in
+                let (artists, preferences) = artistsAndPreferences
                 let filtered = LibraryViewModel.filterArtists(artists, with: filterOptions, albums: albums)
                 let sorted = LibraryViewModel.sortArtists(filtered, by: sortOption, direction: filterOptions.sortDirection)
                 let display = LibraryViewModel.sortDisplayArtists(
-                    DisplayArtist.group(filtered),
+                    DisplayArtist.group(filtered, preferences: preferences),
                     by: sortOption,
                     direction: filterOptions.sortDirection
                 )
@@ -348,13 +360,20 @@ public final class LibraryViewModel: ObservableObject {
         // Albums — debounce 100ms to coalesce search/filter typing without making tab switches feel delayed
         // (heavy SwiftUI re-renders cause audio stutter with AUSoundIsolation).
         // removeDuplicates prevents no-op publishes during sync.
-        Publishers.CombineLatest4($albums, $albumSortOption, $albumsFilterOptions, $tracks)
+        Publishers.CombineLatest4(
+            Publishers.CombineLatest($albums, settingsManager.$mergingPreferences),
+            $albumSortOption,
+            $albumsFilterOptions,
+            $tracks
+        )
             .debounce(for: .milliseconds(100), scheduler: Self.computeQueue)
-            .map { albums, sortOption, filterOptions, tracks -> AlbumComputation in
+            .map { albumsAndPreferences, sortOption, filterOptions, tracks -> AlbumComputation in
+                let (albums, preferences) = albumsAndPreferences
                 let sorted = LibraryViewModel.sortAlbums(albums, by: sortOption, direction: filterOptions.sortDirection)
                 let filtered = LibraryViewModel.filterAlbums(sorted, with: filterOptions, tracks: tracks)
-                let sections = LibraryViewModel.computeAlbumSections(from: filtered, sortOption: sortOption)
-                return AlbumComputation(albums: filtered, sections: sections)
+                let projected = MergingProjection.albums(filtered, preferences: preferences)
+                let sections = LibraryViewModel.computeAlbumSections(from: projected, sortOption: sortOption)
+                return AlbumComputation(albums: projected, sections: sections)
             }
             .removeDuplicates()
             .receive(on: DispatchQueue.main)

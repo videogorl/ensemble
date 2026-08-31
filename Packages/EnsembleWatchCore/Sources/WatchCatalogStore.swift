@@ -360,6 +360,9 @@ private extension WatchCatalogStore {
             album.artistName = item.subtitle
             album.summary = item.subtitle
             album.thumbPath = item.artworkPath
+            album.year = Int32(item.year ?? 0)
+            album.trackCount = Int32(item.trackCount ?? 0)
+            album.releaseFormat = item.variant
             album.updatedAt = fetchedAt
             album.sourceCompositeKey = item.sourceKey
             album.source = sources[item.sourceKey]
@@ -578,7 +581,10 @@ private extension WatchCatalogStore {
             subtitle: album.artistName ?? album.summary,
             artistID: album.artist?.ratingKey,
             artworkPath: album.thumbPath,
-            sourceKey: album.sourceCompositeKey ?? ""
+            sourceKey: album.sourceCompositeKey ?? "",
+            year: album.year > 0 ? Int(album.year) : nil,
+            trackCount: album.trackCount > 0 ? Int(album.trackCount) : nil,
+            variant: album.releaseFormat
         )
     }
 

@@ -20,6 +20,9 @@
   editorial kinds stay separate. A merged mutation splits only to compatible
   concrete constituents, reports partial outcomes, and retries only failed
   sources. Unsupported constituents remain visible with their reason.
+- Merging is presentation-only: exact source records remain stored and reappear
+  when disabled. Preferred source order may choose among proven copies but never
+  reroutes an explicit mutation, rating, download, or playback owner.
 - Playlist membership identity/order and enough display metadata remain durable
   independently of the current library cache, so disabled or unavailable library
   tracks remain visible and removable even when they cannot play/download.

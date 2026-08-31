@@ -191,7 +191,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let results = SearchViewModel.displayPlaylists(
             ambientElectricPlaylists(),
             scope: .library,
-            mergeEnabled: true
+            preferences: .default
         )
 
         let result = try XCTUnwrap(results.first)
@@ -208,7 +208,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let results = SearchViewModel.displayPlaylists(
             ambientElectricPlaylists(),
             scope: .library,
-            mergeEnabled: false
+            preferences: EnsembleMergingPreferences(isEnabled: false)
         )
 
         XCTAssertEqual(results.count, 3)
@@ -231,7 +231,10 @@ final class SearchViewModelResponseTests: XCTestCase {
             .first(where: { $0.count == 2 })
             .sink { _ in resultsUpdated.fulfill() }
 
-        SettingsManager.setStoredPlaylistMergeEnabled(false, in: harness.defaults)
+        SettingsManager.setStoredMergingPreferences(
+            EnsembleMergingPreferences(isEnabled: false),
+            in: harness.defaults
+        )
 
         await fulfillment(of: [resultsUpdated], timeout: 1)
         withExtendedLifetime(update) {}
@@ -243,7 +246,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let results = SearchViewModel.displayPlaylists(
             ambientElectricPlaylists(appleIsSmart: true),
             scope: .library,
-            mergeEnabled: true
+            preferences: .default
         )
 
         XCTAssertEqual(results.count, 2)
@@ -298,7 +301,7 @@ final class SearchViewModelResponseTests: XCTestCase {
         let results = SearchViewModel.displayPlaylists(
             playlists,
             scope: .appleMusic,
-            mergeEnabled: true
+            preferences: .default
         )
 
         XCTAssertEqual(results.count, 2)
@@ -589,7 +592,10 @@ final class SearchViewModelResponseTests: XCTestCase {
     ) -> SearchHarness {
         let accountManager = accountManager ?? AccountManager(keychain: TestKeychain())
         let defaults = isolatedUserDefaults()
-        defaults.set(mergeEnabled, forKey: SettingsManager.playlistMergeEnabledKey)
+        SettingsManager.setStoredMergingPreferences(
+            EnsembleMergingPreferences(isEnabled: mergeEnabled),
+            in: defaults
+        )
         let stack = CoreDataStack.inMemory()
         let libraryRepository = LibraryRepository(coreDataStack: stack)
         let playlistRepository = PlaylistRepository(coreDataStack: stack)

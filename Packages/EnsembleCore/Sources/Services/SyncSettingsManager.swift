@@ -69,6 +69,7 @@ public final class SyncSettingsManager: ObservableObject {
         case hiddenItems = "hiddenItems"
         case accentColor = "accentColor"
         case swipeActions = "swipeActions"
+        case merging = "merging"
 
         public var id: String { rawValue }
 
@@ -81,6 +82,7 @@ public final class SyncSettingsManager: ObservableObject {
             case .hiddenItems: return "Hidden Items"
             case .accentColor: return "Accent Color"
             case .swipeActions: return "Swipe Actions"
+            case .merging: return "Merging"
             }
         }
 
@@ -93,6 +95,7 @@ public final class SyncSettingsManager: ObservableObject {
             case .hiddenItems: return "Hidden playlists, artists, albums, and tracks"
             case .accentColor: return "App accent color preference"
             case .swipeActions: return "Track swipe action layout"
+            case .merging: return "Preferred library order and merge choices"
             }
         }
 

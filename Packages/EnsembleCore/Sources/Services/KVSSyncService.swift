@@ -32,6 +32,7 @@ public final class KVSSyncService: ObservableObject {
     public var onRemoteSwipeLayoutChanged: ((Data) -> Void)?
     public var onRemotePinsChanged: ((Data) -> Void)?
     public var onRemoteLibraryFlagsChanged: ((Data) -> Void)?
+    public var onRemoteMergingPreferencesChanged: ((Data) -> Void)?
     public var onInitialSyncCompleted: (() -> Void)?
 
     /// Guards against echo loops when pushing a value that just arrived remotely
@@ -207,6 +208,14 @@ public final class KVSSyncService: ObservableObject {
                     onRemoteLibraryFlagsChanged?(data)
                 }
 
+            case KVSKey.mergingPreferences:
+                if let data = store.data(forKey: key) {
+                    guard lastDeliveredDataValues[key] != data else { continue }
+                    lastDeliveredDataValues[key] = data
+                    EnsembleLogger.info("KVS: remote merging preferences change (\(data.count) bytes)")
+                    onRemoteMergingPreferencesChanged?(data)
+                }
+
             default:
                 break
             }
@@ -231,6 +240,9 @@ public final class KVSSyncService: ObservableObject {
         }
         if let data = store.data(forKey: KVSKey.libraryFlags) {
             onRemoteLibraryFlagsChanged?(data)
+        }
+        if let data = store.data(forKey: KVSKey.mergingPreferences) {
+            onRemoteMergingPreferencesChanged?(data)
         }
     }
 

@@ -12,6 +12,8 @@
 - Provider data and identity remain source-scoped. Apple Music authorization,
   tokens, enablement, caches, playback state, and library payloads remain device
   local. Exact typed Hidden references may sync through private CloudKit only.
+- Merge choices and preferred library order sync as one KVS preference. Watch
+  consumes that preference without exposing management controls or publishing defaults.
 - Each provider maps normalized hubs and metadata at its boundary.
   `HomeHubLoader` alone merges, globally orders, and saves the combined Feed
   snapshot; Search reads it rather than creating a second fetch/save path.

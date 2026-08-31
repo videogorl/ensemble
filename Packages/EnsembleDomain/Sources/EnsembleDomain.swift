@@ -154,6 +154,9 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
     public let artworkPath: String?
     public let sourceKey: String
     public let isSmart: Bool?
+    public let year: Int?
+    public let trackCount: Int?
+    public let variant: String?
 
     public init(
         id: String,
@@ -164,7 +167,10 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
         artistID: String? = nil,
         artworkPath: String? = nil,
         sourceKey: String,
-        isSmart: Bool? = nil
+        isSmart: Bool? = nil,
+        year: Int? = nil,
+        trackCount: Int? = nil,
+        variant: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -175,6 +181,9 @@ public struct EnsembleMediaSummary: Codable, Equatable, Sendable, Identifiable {
         self.artworkPath = artworkPath
         self.sourceKey = sourceKey
         self.isSmart = isSmart
+        self.year = year
+        self.trackCount = trackCount
+        self.variant = variant
     }
 }
 

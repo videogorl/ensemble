@@ -5,6 +5,147 @@ public enum EnsembleKVSKey {
     public static let swipeLayout = "ensemble.sync.swipeLayout"
     public static let pins = "ensemble.sync.pins"
     public static let libraryFlags = "ensemble.sync.libraryFlags"
+    public static let mergingPreferences = "ensemble.sync.mergingPreferences"
+}
+
+public struct EnsembleMergingPreferences: Codable, Equatable, Sendable {
+    public var isEnabled: Bool
+    public var mergeArtists: Bool
+    public var mergeAlbums: Bool
+    public var mergeTracks: Bool
+    public var mergePlaylists: Bool
+    public var preferredSourceKeys: [String]
+
+    public init(
+        isEnabled: Bool = true,
+        mergeArtists: Bool = true,
+        mergeAlbums: Bool = false,
+        mergeTracks: Bool = false,
+        mergePlaylists: Bool = true,
+        preferredSourceKeys: [String] = []
+    ) {
+        self.isEnabled = isEnabled
+        self.mergeArtists = mergeArtists
+        self.mergeAlbums = mergeAlbums
+        self.mergeTracks = mergeTracks
+        self.mergePlaylists = mergePlaylists
+        self.preferredSourceKeys = Self.uniqueSourceKeys(preferredSourceKeys)
+    }
+
+    public static let `default` = EnsembleMergingPreferences()
+
+    public func rank(for sourceKey: String?) -> Int {
+        guard let sourceKey else { return Int.max }
+        if let exact = preferredSourceKeys.firstIndex(of: sourceKey) { return exact }
+        guard let scope = EnsembleSourceScope(sourceKey: sourceKey) else { return Int.max }
+        return preferredSourceKeys.firstIndex {
+            EnsembleSourceScope(sourceKey: $0)?.sharesServer(with: scope) == true
+        } ?? Int.max
+    }
+
+    public func ordered<Value>(
+        _ values: [Value],
+        sourceKey: (Value) -> String?
+    ) -> [Value] {
+        values.enumerated().sorted { lhs, rhs in
+            let lhsRank = rank(for: sourceKey(lhs.element))
+            let rhsRank = rank(for: sourceKey(rhs.element))
+            return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
+        }.map(\.element)
+    }
+
+    public mutating func replaceVisibleSourceOrder(_ sourceKeys: [String]) {
+        let reordered = Self.uniqueSourceKeys(sourceKeys)
+        let visible = Set(reordered)
+        var iterator = reordered.makeIterator()
+        var result = preferredSourceKeys.map { visible.contains($0) ? iterator.next()! : $0 }
+        result.append(contentsOf: iterator)
+        preferredSourceKeys = Self.uniqueSourceKeys(result)
+    }
+
+    private static func uniqueSourceKeys(_ sourceKeys: [String]) -> [String] {
+        var seen = Set<String>()
+        return sourceKeys.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
+public enum EnsembleMergeIdentity {
+    public static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    public static func album(
+        title: String,
+        artist: String?,
+        year: Int?,
+        trackCount: Int,
+        variant: String?
+    ) -> String? {
+        guard let title = normalized(title),
+              let artist = normalized(artist),
+              let year,
+              trackCount > 0,
+              let variant = normalized(variant) else { return nil }
+        return [title, artist, String(year), String(trackCount), variant].joined(separator: "|")
+    }
+
+    public static func track(
+        title: String,
+        artist: String?,
+        album: String?,
+        trackNumber: Int?,
+        discNumber: Int?,
+        duration: TimeInterval
+    ) -> String? {
+        guard let title = normalized(title),
+              let artist = normalized(artist),
+              let album = normalized(album),
+              let trackNumber,
+              trackNumber > 0,
+              let discNumber,
+              discNumber > 0,
+              duration > 0 else { return nil }
+        return [
+            title,
+            artist,
+            album,
+            String(discNumber),
+            String(trackNumber),
+            String(Int(duration.rounded()))
+        ].joined(separator: "|")
+    }
+
+    public static func collapsed<Value>(
+        _ values: [Value],
+        preferences: EnsembleMergingPreferences,
+        identity: (Value) -> String?,
+        sourceKey: (Value) -> String?
+    ) -> [Value] {
+        var result: [Value] = []
+        var indexByIdentity: [String: Int] = [:]
+
+        for value in values {
+            guard let key = identity(value) else {
+                result.append(value)
+                continue
+            }
+            guard let index = indexByIdentity[key] else {
+                indexByIdentity[key] = result.count
+                result.append(value)
+                continue
+            }
+            if preferences.rank(for: sourceKey(value)) < preferences.rank(for: sourceKey(result[index])) {
+                result[index] = value
+            }
+        }
+        return result
+    }
 }
 
 public struct EnsembleLibraryFlagEntry: Codable, Equatable, Sendable {

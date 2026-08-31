@@ -1100,10 +1100,11 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         let suiteName = "PlaylistVisibility.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let wasMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
+        let previousPreferences = SettingsManager.storedMergingPreferences()
         defer {
-            SettingsManager.setStoredPlaylistMergeEnabled(wasMergeEnabled)
+            SettingsManager.setStoredMergingPreferences(previousPreferences)
         }
+        SettingsManager.setStoredMergingPreferences(.default)
         let visibilityStore = LibraryVisibilityStore(userDefaults: defaults)
         let syncCoordinator = makeSyncCoordinator()
         let playlistRepository = MockPlaylistRepository()
@@ -1131,21 +1132,19 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             toastCenter: ToastCenter(),
             visibilityStore: visibilityStore
         )
-        viewModel.isMergeEnabled = true
-
         await viewModel.loadPlaylists()
         XCTAssertEqual(Set(viewModel.playlists.map(\.id)), ["apple", "plex"])
         XCTAssertEqual(viewModel.displayPlaylists.first?.playlists.count, 2)
         XCTAssertTrue(viewModel.hasNameCollision("Road"))
 
-        SettingsManager.setStoredPlaylistMergeEnabled(false)
+        SettingsManager.setStoredMergingPreferences(EnsembleMergingPreferences(isEnabled: false))
         let unmergedDeadline = Date().addingTimeInterval(2)
         while viewModel.displayPlaylists.count != 2, Date() < unmergedDeadline {
             try await Task.sleep(for: .milliseconds(25))
         }
         XCTAssertTrue(viewModel.displayPlaylists.allSatisfy { !$0.isMerged })
 
-        SettingsManager.setStoredPlaylistMergeEnabled(true)
+        SettingsManager.setStoredMergingPreferences(.default)
         let mergedDeadline = Date().addingTimeInterval(2)
         while viewModel.displayPlaylists.first?.playlists.count != 2, Date() < mergedDeadline {
             try await Task.sleep(for: .milliseconds(25))

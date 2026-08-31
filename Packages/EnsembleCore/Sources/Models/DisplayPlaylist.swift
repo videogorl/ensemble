@@ -1,4 +1,5 @@
 import EnsembleAPI
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
 
@@ -92,7 +93,11 @@ public struct DisplayPlaylist: Identifiable, Equatable {
     /// When merge is disabled, each playlist becomes its own DisplayPlaylist.
     /// The input order is preserved — the first occurrence of each group key
     /// determines the group's position in the output.
-    public static func group(_ playlists: [Playlist], merge: Bool) -> [DisplayPlaylist] {
+    public static func group(
+        _ playlists: [Playlist],
+        merge: Bool,
+        preferences: EnsembleMergingPreferences = .default
+    ) -> [DisplayPlaylist] {
         guard merge else {
             return playlists.map { .single($0) }
         }
@@ -102,13 +107,14 @@ public struct DisplayPlaylist: Identifiable, Equatable {
             title: \.title,
             isSmart: \.isSmartForPlaylistGrouping
         ).map { group in
-            if group.count == 1 {
-                return .single(group[0])
+            let playlists = preferences.ordered(group, sourceKey: \.sourceCompositeKey)
+            if playlists.count == 1 {
+                return .single(playlists[0])
             }
             return .merged(
-                title: group[0].title,
-                isSmart: group.contains(where: \.isSmart),
-                playlists: group
+                title: playlists[0].title,
+                isSmart: playlists.contains(where: \.isSmart),
+                playlists: playlists
             )
         }
     }

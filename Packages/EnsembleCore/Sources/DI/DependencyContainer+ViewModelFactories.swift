@@ -33,6 +33,7 @@ public extension DependencyContainer {
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
             accountManager: accountManager,
+            settingsManager: settingsManager,
             visibilityStore: libraryVisibilityStore,
             hiddenMediaStore: hiddenMediaStore,
             toastCenter: toastCenter,

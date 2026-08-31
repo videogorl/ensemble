@@ -148,6 +148,8 @@ public struct ProfileView: View {
                 // Music Sources
                 sourcesSection
 
+                mergingSection
+
                 // iCloud Sync
                 Section {
                     NavigationLink {
@@ -246,6 +248,19 @@ public struct ProfileView: View {
             }
             #endif
 
+            if accountManager.enabledSources().count >= 2 {
+                NavigationLink {
+                    PreferredLibrariesView()
+                } label: {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.librarySelections,
+                        title: "Preferred Libraries",
+                        subtitle: "Choose which copy Ensemble uses first",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+            }
+
             // Navigate within the profile sheet rather than opening a second sheet.
             // iOS doesn't allow stacking sheets — the add-account sheet won't appear
             // while the profile sheet is already presented.
@@ -284,6 +299,38 @@ public struct ProfileView: View {
         case .idle, .lastSynced:
             return "This Device"
         }
+    }
+
+    private var mergingSection: some View {
+        Section {
+            Toggle(isOn: mergingBinding(\.isEnabled)) {
+                Text("Merge Similar Items")
+            }
+
+            Toggle("Artists", isOn: mergingBinding(\.mergeArtists))
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+            Toggle("Albums", isOn: mergingBinding(\.mergeAlbums))
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+            Toggle("Songs", isOn: mergingBinding(\.mergeTracks))
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+            Toggle("Playlists", isOn: mergingBinding(\.mergePlaylists))
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+        } header: {
+            EnsembleUtilitySectionHeader("Merging")
+        } footer: {
+            Text("Similar copies use your preferred library. Turn merging off to show every copy.")
+        }
+    }
+
+    private func mergingBinding(
+        _ keyPath: WritableKeyPath<EnsembleMergingPreferences, Bool>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { settingsManager.mergingPreferences[keyPath: keyPath] },
+            set: { value in
+                settingsManager.updateMergingPreferences { $0[keyPath: keyPath] = value }
+            }
+        )
     }
 
     // MARK: - Appearance
@@ -553,6 +600,8 @@ public struct ProfileView: View {
 
             macOSSourcesSection
 
+            macOSMergingSection
+
             EnsembleUtilityCardSection {
                 macNavigationRow {
                     SyncSettingsView()
@@ -614,6 +663,20 @@ public struct ProfileView: View {
                 EnsembleUtilityCardDivider()
             }
 
+            if accountManager.enabledSources().count >= 2 {
+                macNavigationRow {
+                    PreferredLibrariesView()
+                } label: {
+                    EnsembleUtilityRowLabel(
+                        iconSystemName: EnsembleDesign.Icon.librarySelections,
+                        title: "Preferred Libraries",
+                        subtitle: "Choose which copy Ensemble uses first",
+                        iconColor: EnsembleDesign.Color.primaryText
+                    )
+                }
+                EnsembleUtilityCardDivider()
+            }
+
             macNavigationRow {
                 AddSourceView(embedded: true)
             } label: {
@@ -623,6 +686,24 @@ public struct ProfileView: View {
                     iconColor: EnsembleDesign.Color.accent
                 )
             }
+        }
+    }
+
+    private var macOSMergingSection: some View {
+        EnsembleUtilityCardSection(
+            "Merging",
+            footer: "Similar copies use your preferred library. Turn merging off to show every copy."
+        ) {
+            EnsembleUtilityCardRow { Toggle("Merge Similar Items", isOn: mergingBinding(\.isEnabled)) }
+            EnsembleUtilityCardDivider()
+            EnsembleUtilityCardRow { Toggle("Artists", isOn: mergingBinding(\.mergeArtists)) }
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+            EnsembleUtilityCardRow { Toggle("Albums", isOn: mergingBinding(\.mergeAlbums)) }
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+            EnsembleUtilityCardRow { Toggle("Songs", isOn: mergingBinding(\.mergeTracks)) }
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
+            EnsembleUtilityCardRow { Toggle("Playlists", isOn: mergingBinding(\.mergePlaylists)) }
+                .disabled(!settingsManager.mergingPreferences.isEnabled)
         }
     }
 
@@ -1041,6 +1122,60 @@ public struct ProfileView: View {
             preferredAccountSubtitle(for: account),
             isEnabled: settingsManager.demoModeEnabled
         )
+    }
+}
+
+private struct PreferredLibrariesView: View {
+    @ObservedObject private var accountManager = DependencyContainer.shared.accountManager
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+    @State private var sourceKeys: [String] = []
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(sourceKeys, id: \.self) { sourceKey in
+                    let presentation = accountManager.sourcePresentation(for: sourceKey)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(presentation?.libraryName ?? "Music Library")
+                        if let presentation {
+                            Text("\(presentation.serverName) · \(presentation.accountName)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .onMove { source, destination in
+                    sourceKeys.move(fromOffsets: source, toOffset: destination)
+                    settingsManager.updateMergingPreferences {
+                        $0.replaceVisibleSourceOrder(sourceKeys)
+                    }
+                }
+            } footer: {
+                Text("Ensemble falls through to the next available library when a preferred source is unavailable.")
+            }
+        }
+        .preferredLibrariesEditMode()
+        .navigationTitle("Preferred Libraries")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .onAppear {
+            sourceKeys = settingsManager.mergingPreferences.ordered(
+                accountManager.enabledSources().map(\.compositeKey),
+                sourceKey: { $0 }
+            )
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func preferredLibrariesEditMode() -> some View {
+        #if os(iOS)
+        environment(\.editMode, .constant(.active))
+        #else
+        self
+        #endif
     }
 }
 

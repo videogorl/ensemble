@@ -761,9 +761,9 @@ private struct WatchCategoryView: View {
         case .genres:
             return []
         case .albums:
-            return snapshot.albums
+            return experience.libraryAlbums
         case .artists:
-            return snapshot.artists
+            return experience.libraryArtists
         case .playlists:
             return snapshot.playlists
         case .hidden:

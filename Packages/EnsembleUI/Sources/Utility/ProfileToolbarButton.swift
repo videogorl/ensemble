@@ -11,8 +11,7 @@ public struct ProfileToolbarButton: View {
     @ObservedObject private var profileStore: UserProfileStore
     @ObservedObject private var accountManager: AccountManager
     @ObservedObject private var visibilityStore: LibraryVisibilityStore
-    @AppStorage(SettingsManager.playlistMergeEnabledKey) private var playlistMergeEnabled =
-        SettingsManager.defaultPlaylistMergeEnabled
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
     public init(
@@ -42,11 +41,13 @@ public struct ProfileToolbarButton: View {
             Section {
                 Toggle(
                     isOn: Binding(
-                        get: { playlistMergeEnabled },
-                        set: { SettingsManager.setStoredPlaylistMergeEnabled($0) }
+                        get: { settingsManager.mergingPreferences.isEnabled },
+                        set: { enabled in
+                            settingsManager.updateMergingPreferences { $0.isEnabled = enabled }
+                        }
                     )
                 ) {
-                    Label("Merge Playlists", systemImage: EnsembleDesign.Icon.merge)
+                    Label("Merge Similar Items", systemImage: EnsembleDesign.Icon.merge)
                 }
             }
 

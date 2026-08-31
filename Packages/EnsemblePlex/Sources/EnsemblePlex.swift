@@ -941,7 +941,10 @@ private extension PlexAlbum {
             subtitle: parentTitle,
             artistID: parentRatingKey,
             artworkPath: thumb ?? art,
-            sourceKey: sourceKey
+            sourceKey: sourceKey,
+            year: year,
+            trackCount: leafCount,
+            variant: format?.first?.tag
         )
     }
 }

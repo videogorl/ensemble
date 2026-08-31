@@ -1,5 +1,6 @@
 import Combine
 import EnsembleAPI
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
 
@@ -86,7 +87,7 @@ public final class SearchViewModel: ObservableObject {
     private var unfilteredArtistResults: [Artist] = []
     private var unfilteredAlbumResults: [Album] = []
     private var unfilteredPlaylistResults: [Playlist] = []
-    private var isPlaylistMergeEnabled: Bool
+    private var mergingPreferences: EnsembleMergingPreferences
     private var unfilteredRecentlyPlayedAlbums: [Album] = []
     private var unfilteredRecentlyPlayedArtists: [Artist] = []
     private var unfilteredRecentlyAddedAlbums: [Album] = []
@@ -136,7 +137,7 @@ public final class SearchViewModel: ObservableObject {
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.playlistMergeDefaults = playlistMergeDefaults
         self.appleMusicCatalogSearch = appleMusicCatalogSearch
-        self.isPlaylistMergeEnabled = SettingsManager.storedPlaylistMergeEnabled(in: playlistMergeDefaults)
+        self.mergingPreferences = SettingsManager.storedMergingPreferences(in: playlistMergeDefaults)
         
         // Load recent searches
         self.recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
@@ -210,12 +211,12 @@ public final class SearchViewModel: ObservableObject {
             .store(in: &cancellables)
 
         NotificationCenter.default.publisher(
-            for: SettingsManager.playlistMergePreferenceDidChange,
+            for: SettingsManager.mergingPreferencesDidChange,
             object: playlistMergeDefaults
         )
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                self?.refreshPlaylistMergePreference()
+                self?.refreshMergingPreferences()
             }
             .store(in: &cancellables)
 
@@ -577,25 +578,27 @@ public final class SearchViewModel: ObservableObject {
             ? sourceConfiguration
             : sourceConfigurationForCachedFiltering(sourceConfiguration)
         let hiddenMedia = scope == .library ? hiddenMediaStore.snapshot : .empty
-        trackResults = LibraryVisibilityFiltering.visibleItems(
+        let visibleTracks = LibraryVisibilityFiltering.visibleItems(
             unfilteredTrackResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: cachedSourceFilter,
             hiddenMedia: hiddenMedia
         )
+        trackResults = MergingProjection.tracks(visibleTracks, preferences: mergingPreferences)
         artistResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredArtistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: cachedSourceFilter,
             hiddenMedia: hiddenMedia
         )
-        displayArtistResults = DisplayArtist.group(artistResults)
-        albumResults = LibraryVisibilityFiltering.visibleItems(
+        displayArtistResults = DisplayArtist.group(artistResults, preferences: mergingPreferences)
+        let visibleAlbums = LibraryVisibilityFiltering.visibleItems(
             unfilteredAlbumResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: cachedSourceFilter,
             hiddenMedia: hiddenMedia
         )
+        albumResults = MergingProjection.albums(visibleAlbums, preferences: mergingPreferences)
         let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
             unfilteredPlaylistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
@@ -606,7 +609,7 @@ public final class SearchViewModel: ObservableObject {
         let nextDisplayPlaylists = Self.displayPlaylists(
             visiblePlaylists,
             scope: scope,
-            mergeEnabled: isPlaylistMergeEnabled
+            preferences: mergingPreferences
         )
         if displayPlaylistResults != nextDisplayPlaylists {
             displayPlaylistResults = nextDisplayPlaylists
@@ -614,21 +617,23 @@ public final class SearchViewModel: ObservableObject {
         determineSearchSectionOrder()
     }
 
-    private func refreshPlaylistMergePreference() {
-        let nextValue = SettingsManager.storedPlaylistMergeEnabled(in: playlistMergeDefaults)
-        guard nextValue != isPlaylistMergeEnabled else { return }
-        isPlaylistMergeEnabled = nextValue
+    private func refreshMergingPreferences() {
+        let nextValue = SettingsManager.storedMergingPreferences(in: playlistMergeDefaults)
+        guard nextValue != mergingPreferences else { return }
+        mergingPreferences = nextValue
         applyVisibilityToSearchResults()
+        applyVisibilityToExploreContent()
     }
 
     internal nonisolated static func displayPlaylists(
         _ playlists: [Playlist],
         scope: SearchScope,
-        mergeEnabled: Bool
+        preferences: EnsembleMergingPreferences
     ) -> [DisplayPlaylist] {
         DisplayPlaylist.group(
             playlists,
-            merge: scope == .library && mergeEnabled
+            merge: scope == .library && preferences.isEnabled && preferences.mergePlaylists,
+            preferences: preferences
         )
     }
 
@@ -638,24 +643,24 @@ public final class SearchViewModel: ObservableObject {
             enabledSourceCompositeKeys: currentSourceConfiguration.enabledSourceKeys
         )
         let sourceConfiguration = sourceConfigurationForCachedFiltering(currentSourceConfiguration)
-        recentlyPlayedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
+        recentlyPlayedAlbums = Array(MergingProjection.albums(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: sourceConfiguration,
             hiddenMedia: hiddenMediaStore.snapshot
-        ).prefix(6))
+        ), preferences: mergingPreferences).prefix(6))
         recentlyPlayedArtists = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedArtists,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: sourceConfiguration,
             hiddenMedia: hiddenMediaStore.snapshot
         ).prefix(6))
-        recentlyAddedAlbums = Array(LibraryVisibilityFiltering.visibleItems(
+        recentlyAddedAlbums = Array(MergingProjection.albums(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyAddedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: sourceConfiguration,
             hiddenMedia: hiddenMediaStore.snapshot
-        ).prefix(6))
+        ), preferences: mergingPreferences).prefix(6))
         recommendedItems = Array(Self.filterHubItemsForVisibility(
             unfilteredRecommendedItems,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,

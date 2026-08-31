@@ -1,3 +1,4 @@
+import EnsembleDomain
 import Foundation
 
 /// UI artist entry that can represent one physical artist or a merged same-name group.
@@ -45,7 +46,13 @@ public struct DisplayArtist: Identifiable, Equatable, Sendable {
     }
 
     /// Groups visible artists by normalized display name while preserving each backing source item.
-    public static func group(_ artists: [Artist]) -> [DisplayArtist] {
+    public static func group(
+        _ artists: [Artist],
+        preferences: EnsembleMergingPreferences = .default
+    ) -> [DisplayArtist] {
+        guard preferences.isEnabled, preferences.mergeArtists else {
+            return artists.map(single)
+        }
         var groups: [(normalizedName: String, name: String, artists: [Artist])] = []
         var indexByName: [String: Int] = [:]
 
@@ -60,13 +67,14 @@ public struct DisplayArtist: Identifiable, Equatable, Sendable {
         }
 
         return groups.map { group in
-            if group.artists.count == 1 {
-                return .single(group.artists[0])
+            let artists = preferences.ordered(group.artists, sourceKey: \.sourceCompositeKey)
+            if artists.count == 1 {
+                return .single(artists[0])
             }
             return .merged(
                 name: group.name,
                 normalizedName: group.normalizedName,
-                artists: group.artists
+                artists: artists
             )
         }
     }

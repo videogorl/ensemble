@@ -1,3 +1,4 @@
+import EnsembleDomain
 import EnsemblePersistence
 import EnsembleSiriShared
 import Foundation
@@ -8,9 +9,11 @@ public final class EnsemblePermalinkResolver {
     private let libraryRepository: LibraryRepositoryProtocol
     private let playlistRepository: PlaylistRepositoryProtocol
     private let enabledSourceKeys: () -> Set<String>
+    private let mergingPreferences: () -> EnsembleMergingPreferences
 
     public init(
         accountManager: AccountManager,
+        settingsManager: SettingsManager,
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol
     ) {
@@ -19,16 +22,19 @@ public final class EnsemblePermalinkResolver {
         self.enabledSourceKeys = {
             Set(accountManager.enabledSources().map(\.compositeKey))
         }
+        self.mergingPreferences = { settingsManager.mergingPreferences }
     }
 
     init(
         libraryRepository: LibraryRepositoryProtocol,
         playlistRepository: PlaylistRepositoryProtocol,
-        enabledSourceKeys: @escaping () -> Set<String>
+        enabledSourceKeys: @escaping () -> Set<String>,
+        mergingPreferences: @escaping () -> EnsembleMergingPreferences = { .default }
     ) {
         self.libraryRepository = libraryRepository
         self.playlistRepository = playlistRepository
         self.enabledSourceKeys = enabledSourceKeys
+        self.mergingPreferences = mergingPreferences
     }
 
     /// Returns a typed scene-local navigation destination without starting playback.
@@ -60,7 +66,10 @@ public final class EnsemblePermalinkResolver {
         .filter { normalized($0.name) == normalized(permalink.title) }
 
         guard !artists.isEmpty else { return nil }
-        let displayArtist = DisplayArtist.group(artists).sorted { $0.id < $1.id }[0]
+        let displayArtist = DisplayArtist.group(
+            artists,
+            preferences: mergingPreferences()
+        ).sorted { $0.id < $1.id }[0]
         if displayArtist.isMerged {
             return .displayArtist(id: displayArtist.id)
         }
@@ -79,7 +88,7 @@ public final class EnsemblePermalinkResolver {
         .map(Album.init(from:))
         .filter { normalized($0.title) == normalized(permalink.title) }
 
-        guard let album = best(albums, score: { album in
+        guard let album = best(albums, sourceKey: \.sourceCompositeKey, score: { album in
             var score = 0
             if matches(permalink.artistName, album.artistName ?? album.albumArtist) { score += 8 }
             if permalink.year != nil, permalink.year == album.year { score += 4 }
@@ -101,7 +110,7 @@ public final class EnsemblePermalinkResolver {
         .map(Track.init(from:))
         .filter { normalized($0.title) == normalized(permalink.title) }
 
-        guard let track = best(tracks, score: { track in
+        guard let track = best(tracks, sourceKey: \.sourceCompositeKey, score: { track in
             var score = 0
             if matches(permalink.artistName, track.artistName ?? track.albumArtistName) { score += 8 }
             if matches(permalink.albumTitle, track.albumName) { score += 6 }
@@ -128,20 +137,28 @@ public final class EnsemblePermalinkResolver {
             normalized($0.title) == normalized(permalink.title)
                 && (permalink.isSmartPlaylist == nil || $0.isSmart == permalink.isSmartPlaylist)
         }
-        .sorted { $0.sourceScopedID < $1.sourceScopedID }
+        let orderedPlaylists = mergingPreferences().ordered(playlists, sourceKey: \.sourceCompositeKey)
 
-        guard let first = playlists.first else { return nil }
-        if playlists.count > 1 {
+        guard let first = orderedPlaylists.first else { return nil }
+        if orderedPlaylists.count > 1 {
             return .mergedPlaylist(title: first.title, isSmart: first.isSmart)
         }
         return .playlist(id: first.id, sourceKey: first.sourceCompositeKey)
     }
 
-    private func best<T>(_ candidates: [T], score: (T) -> Int) -> T? where T: Identifiable, T.ID == String {
-        candidates
+    private func best<T>(
+        _ candidates: [T],
+        sourceKey: (T) -> String?,
+        score: (T) -> Int
+    ) -> T? where T: Identifiable, T.ID == String {
+        let preferences = mergingPreferences()
+        return candidates
             .map { (candidate: $0, score: score($0)) }
             .sorted {
                 if $0.score != $1.score { return $0.score > $1.score }
+                let lhsRank = preferences.rank(for: sourceKey($0.candidate))
+                let rhsRank = preferences.rank(for: sourceKey($1.candidate))
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
                 return $0.candidate.id.localizedCaseInsensitiveCompare($1.candidate.id) == .orderedAscending
             }
             .first?

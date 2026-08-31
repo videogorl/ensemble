@@ -80,7 +80,9 @@ public struct WatchPlaylistGroup: Identifiable, Equatable, Sendable {
     public let playlists: [EnsembleMediaSummary]
 
     public var id: String {
-        PlexPlaylistMergeRules.key(title: primaryPlaylist.title, isSmart: isSmart)
+        isMerged
+            ? PlexPlaylistMergeRules.key(title: primaryPlaylist.title, isSmart: isSmart)
+            : "\(primaryPlaylist.sourceKey)||\(primaryPlaylist.id)"
     }
 
     public var title: String { primaryPlaylist.title }
@@ -94,12 +96,20 @@ public struct WatchPlaylistGroup: Identifiable, Equatable, Sendable {
     }
 
     /// Groups playlists with the shared iOS identity and stable ordering rules.
-    public static func grouped(_ playlists: [EnsembleMediaSummary]) -> [WatchPlaylistGroup] {
-        PlexPlaylistMergeRules.grouped(
+    public static func grouped(
+        _ playlists: [EnsembleMediaSummary],
+        preferences: EnsembleMergingPreferences = .default
+    ) -> [WatchPlaylistGroup] {
+        guard preferences.isEnabled, preferences.mergePlaylists else {
+            return playlists.map { WatchPlaylistGroup(playlists: [$0]) }
+        }
+        return PlexPlaylistMergeRules.grouped(
             playlists,
             title: \.title,
             isSmart: { $0.isSmart ?? false }
-        ).map { WatchPlaylistGroup(playlists: $0) }
+        ).map { group in
+            WatchPlaylistGroup(playlists: preferences.ordered(group, sourceKey: \.sourceKey))
+        }
     }
 }
 
@@ -183,6 +193,15 @@ public actor WatchCloudPreferenceStore {
         guard #available(watchOS 9.0, *) else { return "blue" }
         synchronize()
         return NSUbiquitousKeyValueStore.default.string(forKey: EnsembleKVSKey.accentColor) ?? "blue"
+    }
+
+    public func mergingPreferences() -> EnsembleMergingPreferences {
+        guard #available(watchOS 9.0, *) else { return .default }
+        synchronize()
+        guard let data = NSUbiquitousKeyValueStore.default.data(forKey: EnsembleKVSKey.mergingPreferences),
+              let preferences = try? JSONDecoder().decode(EnsembleMergingPreferences.self, from: data)
+        else { return .default }
+        return preferences
     }
 
     public func saveAccentColorName(_ name: String) {
@@ -1070,6 +1089,7 @@ public final class WatchExperienceModel: ObservableObject {
     @Published public private(set) var playbackStatusMessage = "Ready"
     @Published public private(set) var playlistTargets: [EnsemblePlexPlaylistTarget] = []
     @Published public private(set) var accentColorName = "blue"
+    @Published public private(set) var mergingPreferences = EnsembleMergingPreferences.default
     @Published public private(set) var pendingQueueReplacement: WatchQueueReplacementRequest?
     @Published public var playbackTarget: EnsemblePlaybackTarget =
         EnsemblePlaybackTarget(rawValue: UserDefaults.standard.string(forKey: "ensemble.watch.playbackTarget") ?? "") ?? .local {
@@ -1203,11 +1223,60 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public var playlistGroups: [WatchPlaylistGroup] {
-        WatchPlaylistGroup.grouped((catalogSnapshot?.playlists ?? []).filter { !isHidden($0) })
+        WatchPlaylistGroup.grouped(
+            (catalogSnapshot?.playlists ?? []).filter { !isHidden($0) },
+            preferences: mergingPreferences
+        )
     }
 
     public var libraryTracks: [EnsembleTrack] {
-        catalogSnapshot?.tracks.filter { !isHidden($0) } ?? []
+        let tracks = catalogSnapshot?.tracks.filter { !isHidden($0) } ?? []
+        guard mergingPreferences.isEnabled, mergingPreferences.mergeTracks else { return tracks }
+        return EnsembleMergeIdentity.collapsed(
+            tracks,
+            preferences: mergingPreferences,
+            identity: {
+                EnsembleMergeIdentity.track(
+                    title: $0.title,
+                    artist: $0.artistName,
+                    album: $0.albumTitle,
+                    trackNumber: $0.trackNumber,
+                    discNumber: $0.discNumber,
+                    duration: $0.duration
+                )
+            },
+            sourceKey: \.sourceKey
+        )
+    }
+
+    public var libraryArtists: [EnsembleMediaSummary] {
+        let artists = catalogSnapshot?.artists.filter { !isHidden($0) } ?? []
+        guard mergingPreferences.isEnabled, mergingPreferences.mergeArtists else { return artists }
+        return EnsembleMergeIdentity.collapsed(
+            artists,
+            preferences: mergingPreferences,
+            identity: { EnsembleMergeIdentity.normalized($0.title) },
+            sourceKey: \.sourceKey
+        )
+    }
+
+    public var libraryAlbums: [EnsembleMediaSummary] {
+        let albums = catalogSnapshot?.albums.filter { !isHidden($0) } ?? []
+        guard mergingPreferences.isEnabled, mergingPreferences.mergeAlbums else { return albums }
+        return EnsembleMergeIdentity.collapsed(
+            albums,
+            preferences: mergingPreferences,
+            identity: {
+                EnsembleMergeIdentity.album(
+                    title: $0.title,
+                    artist: $0.subtitle,
+                    year: $0.year,
+                    trackCount: $0.trackCount ?? 0,
+                    variant: $0.variant
+                )
+            },
+            sourceKey: \.sourceKey
+        )
     }
 
     public var libraryGenres: [EnsembleGenreSummary] {
@@ -1240,6 +1309,7 @@ public final class WatchExperienceModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             accentColorName = await cloudPreferences.accentColorName()
+            mergingPreferences = await cloudPreferences.mergingPreferences()
         }
         startBootstrapTask(forceRefresh: false)
     }
@@ -1254,6 +1324,7 @@ public final class WatchExperienceModel: ObservableObject {
     public func cloudPreferencesDidChange() {
         Task { [weak self] in
             guard let self else { return }
+            mergingPreferences = await cloudPreferences.mergingPreferences()
             if let pins = await cloudPreferences.pinnedReferences() {
                 await applyPinnedReferences(pins)
             }
@@ -2203,7 +2274,10 @@ public final class WatchExperienceModel: ObservableObject {
         pinnedItemIDs = Set(pins.map { Self.pinIdentity(id: $0.id, sourceKey: $0.sourceCompositeKey) })
 
         guard let snapshot = allCatalogSnapshot ?? catalogSnapshot else { return }
-        let pinnedItems = Self.mergedPinnedItems(Self.resolvedPinnedItems(pins, in: snapshot))
+        let pinnedItems = Self.mergedPinnedItems(
+            Self.resolvedPinnedItems(pins, in: snapshot),
+            preferences: mergingPreferences
+        )
 
         await replacePins(pinnedItems)
     }
@@ -2244,9 +2318,20 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
-    nonisolated static func mergedPinnedItems(_ items: [EnsembleMediaSummary]) -> [EnsembleMediaSummary] {
-        let groups = WatchPlaylistGroup.grouped(items.filter { $0.kind == .playlist })
-        let primaryByKey = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.primaryPlaylist) })
+    nonisolated static func mergedPinnedItems(
+        _ items: [EnsembleMediaSummary],
+        preferences: EnsembleMergingPreferences = .default
+    ) -> [EnsembleMediaSummary] {
+        guard preferences.isEnabled, preferences.mergePlaylists else {
+            return items
+        }
+        let groups = WatchPlaylistGroup.grouped(
+            items.filter { $0.kind == .playlist },
+            preferences: preferences
+        )
+        let primaryByKey = Dictionary(uniqueKeysWithValues: groups.map {
+            (PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.isSmart), $0.primaryPlaylist)
+        })
         var emittedPlaylistKeys = Set<String>()
 
         return items.compactMap { item in

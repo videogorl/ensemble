@@ -1,4 +1,5 @@
 import Combine
+import EnsembleDomain
 import EnsemblePersistence
 import Foundation
 
@@ -65,12 +66,8 @@ public final class PlaylistViewModel: ObservableObject {
 
     // MARK: - Merge Support
 
-    /// Whether cross-server playlist merging is enabled (persisted via SettingsManager)
-    @Published public var isMergeEnabled: Bool {
-        didSet {
-            SettingsManager.setStoredPlaylistMergeEnabled(isMergeEnabled)
-        }
-    }
+    @Published public private(set) var isMergeEnabled: Bool
+    @Published private var mergingPreferences: EnsembleMergingPreferences
     /// Merge-aware playlist list for the UI — groups same-named playlists when merge is on
     @Published public private(set) var displayPlaylists: [DisplayPlaylist] = []
     /// Merge-aware sorted list for the macOS sidebar
@@ -120,7 +117,9 @@ public final class PlaylistViewModel: ObservableObject {
         self.visibilityStore = visibilityStore ?? .shared
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
         self.lastObservedSourceConfiguration = accountManager?.sourceConfigurationSnapshot
-        self.isMergeEnabled = SettingsManager.storedPlaylistMergeEnabled()
+        let mergingPreferences = SettingsManager.storedMergingPreferences()
+        self.mergingPreferences = mergingPreferences
+        self.isMergeEnabled = mergingPreferences.isEnabled && mergingPreferences.mergePlaylists
         let savedFilters = FilterPersistence.load(for: "Playlists")
         self.filterOptions = savedFilters
 
@@ -217,16 +216,16 @@ public final class PlaylistViewModel: ObservableObject {
 
     private func setupPlaylistMergePreferenceObservation() {
         NotificationCenter.default.publisher(
-            for: SettingsManager.playlistMergePreferenceDidChange,
+            for: SettingsManager.mergingPreferencesDidChange,
             object: UserDefaults.standard
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in
             guard let self else { return }
-            let isEnabled = SettingsManager.storedPlaylistMergeEnabled()
-            if self.isMergeEnabled != isEnabled {
-                self.isMergeEnabled = isEnabled
-            }
+            let preferences = SettingsManager.storedMergingPreferences()
+            if self.mergingPreferences != preferences { self.mergingPreferences = preferences }
+            let isEnabled = preferences.isEnabled && preferences.mergePlaylists
+            if self.isMergeEnabled != isEnabled { self.isMergeEnabled = isEnabled }
         }
         .store(in: &cancellables)
     }
@@ -438,12 +437,16 @@ public final class PlaylistViewModel: ObservableObject {
 
     /// Filters raw playlists, then groups before sorting by aggregate display metadata.
     private func setupDisplayPlaylistsPipeline() {
-        Publishers.CombineLatest4($playlists, $isMergeEnabled, $playlistSortOption, $filterOptions)
+        Publishers.CombineLatest4($playlists, $mergingPreferences, $playlistSortOption, $filterOptions)
             .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
-            .map { playlists, merge, sortOption, filterOptions -> [DisplayPlaylist] in
+            .map { playlists, preferences, sortOption, filterOptions -> [DisplayPlaylist] in
                 let matching = Self.filterPlaylists(playlists, searchText: filterOptions.searchText)
                 return Self.sortDisplayPlaylists(
-                    DisplayPlaylist.group(matching, merge: merge),
+                    DisplayPlaylist.group(
+                        matching,
+                        merge: preferences.isEnabled && preferences.mergePlaylists,
+                        preferences: preferences
+                    ),
                     by: sortOption,
                     ascending: filterOptions.sortDirection == .ascending
                 )
@@ -462,14 +465,18 @@ public final class PlaylistViewModel: ObservableObject {
     private func setupSortedDisplayPlaylistsPipeline() {
         Publishers.CombineLatest4(
             $playlists,
-            $isMergeEnabled,
+            $mergingPreferences,
             $playlistSortOption,
             $filterOptions.map(\.sortDirection).removeDuplicates()
         )
             .debounce(for: .milliseconds(50), scheduler: Self.computeQueue)
-            .map { playlists, merge, sortOption, sortDirection -> [DisplayPlaylist] in
+            .map { playlists, preferences, sortOption, sortDirection -> [DisplayPlaylist] in
                 Self.sortDisplayPlaylists(
-                    DisplayPlaylist.group(playlists, merge: merge),
+                    DisplayPlaylist.group(
+                        playlists,
+                        merge: preferences.isEnabled && preferences.mergePlaylists,
+                        preferences: preferences
+                    ),
                     by: sortOption,
                     ascending: sortDirection == .ascending
                 )
@@ -661,12 +668,20 @@ public final class PlaylistViewModel: ObservableObject {
             ascending: filterOptions.sortDirection == .ascending
         )
         let nextDisplay = Self.sortDisplayPlaylists(
-            DisplayPlaylist.group(matching, merge: isMergeEnabled),
+            DisplayPlaylist.group(
+                matching,
+                merge: isMergeEnabled,
+                preferences: mergingPreferences
+            ),
             by: playlistSortOption,
             ascending: filterOptions.sortDirection == .ascending
         )
         let nextSortedDisplay = Self.sortDisplayPlaylists(
-            DisplayPlaylist.group(snapshot, merge: isMergeEnabled),
+            DisplayPlaylist.group(
+                snapshot,
+                merge: isMergeEnabled,
+                preferences: mergingPreferences
+            ),
             by: playlistSortOption,
             ascending: filterOptions.sortDirection == .ascending
         )
