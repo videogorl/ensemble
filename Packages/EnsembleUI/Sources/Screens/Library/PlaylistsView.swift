@@ -964,14 +964,6 @@ public struct PlaylistDetailView: View {
                     mediaType: .playlist,
                     hiddenCandidates: viewModel.playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
                     hiddenIdentity: HiddenMediaIdentity(viewModel.playlist),
-                    genreChipContent: AnyView(
-                        GenreFilterHeader(
-                            availableGenres: viewModel.availableGenres,
-                            selectedGenres: $viewModel.filterOptions.selectedGenres,
-                            excludedGenres: $viewModel.filterOptions.excludedGenres,
-                            reservesEmptySpace: true
-                        )
-                    ),
                     playlistMenuActions: PlaylistDetailMenuActions(
                         downloadAvailability: resolvedDownloadMenuAvailability(
                             isDownloaded: isDownloaded,
