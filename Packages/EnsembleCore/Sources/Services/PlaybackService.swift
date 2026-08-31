@@ -278,7 +278,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         currentTime: TimeInterval,
         restartWasObserved: Bool
     ) -> Bool {
-        (restartWasObserved || previousTime >= 1)
+        restartWasObserved
             && previousTime <= previousRestartThreshold
             && currentTime <= 0.75
             && previousTime - currentTime >= 0.25
