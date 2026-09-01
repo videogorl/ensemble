@@ -14,7 +14,13 @@ public struct ArtistDetailDisplaySnapshot: Equatable, Sendable {
     public static let empty = ArtistDetailDisplaySnapshot(albums: [], tracks: [], filterOptions: FilterOptions())
 
     public init(albums: [Album], tracks: [Track], filterOptions: FilterOptions) {
-        let filteredAlbums = MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail)
+        let sortOption = AlbumSortOption(rawValue: filterOptions.sortBy) ?? .year
+        let sortDirection = filterOptions.sortBy == "default" ? SortDirection.descending : filterOptions.sortDirection
+        let filteredAlbums = LibraryViewModel.sortAlbums(
+            MediaFilterEngine.filterAlbums(albums, with: filterOptions, configuration: .artistDetail),
+            by: sortOption,
+            direction: sortDirection
+        )
         let filteredTracks = MediaFilterEngine.filterTracks(tracks, with: filterOptions, configuration: .artistDetail)
 
         self.filteredAlbums = filteredAlbums

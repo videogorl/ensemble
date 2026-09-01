@@ -347,10 +347,13 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
     func testArtistDetailDisplaySnapshotCachesFilteredReleaseAndFavoriteCollections() {
         var filterOptions = FilterOptions()
         filterOptions.searchText = "maybe"
+        filterOptions.sortBy = AlbumSortOption.title.rawValue
+        filterOptions.sortDirection = .descending
 
         let snapshot = ArtistDetailDisplaySnapshot(
             albums: [
                 Album(id: "album", key: "/library/metadata/album", title: "Maybe Album", sourceCompositeKey: "source", releaseFormat: .album),
+                Album(id: "album-2", key: "/library/metadata/album-2", title: "Maybe Better Album", sourceCompositeKey: "source", releaseFormat: .album),
                 Album(id: "single", key: "/library/metadata/single", title: "Maybe Single", sourceCompositeKey: "source", releaseFormat: .single),
                 Album(id: "other", key: "/library/metadata/other", title: "Other", sourceCompositeKey: "source", releaseFormat: .album)
             ],
@@ -361,8 +364,8 @@ final class MergedArtistDetailViewModelTests: XCTestCase {
             filterOptions: filterOptions
         )
 
-        XCTAssertEqual(snapshot.filteredAlbums.map(\.id), ["album", "single"])
-        XCTAssertEqual(snapshot.studioAlbums.map(\.id), ["album"])
+        XCTAssertEqual(snapshot.filteredAlbums.map(\.id), ["single", "album-2", "album"])
+        XCTAssertEqual(snapshot.studioAlbums.map(\.id), ["album-2", "album"])
         XCTAssertEqual(snapshot.singlesAndEPs.map(\.id), ["single"])
         XCTAssertEqual(snapshot.filteredTracks.map(\.id), ["1"])
         XCTAssertEqual(snapshot.favoritedTracks.map(\.id), ["1"])

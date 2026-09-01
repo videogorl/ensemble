@@ -1077,7 +1077,7 @@ public final class LibraryViewModel: ObservableObject {
         }
     }
 
-    static func sortAlbums(_ albums: [Album], by option: AlbumSortOption, direction: SortDirection) -> [Album] {
+    nonisolated static func sortAlbums(_ albums: [Album], by option: AlbumSortOption, direction: SortDirection) -> [Album] {
         let asc = direction == .ascending
         switch option {
         case .title:

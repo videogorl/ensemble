@@ -669,6 +669,9 @@ public struct ArtistDetailView: View {
         #endif
         .toolbar {
             EnsembleDetailToolbarActions {
+                if !detailAlbums.isEmpty {
+                    artistAlbumSortMenu
+                }
                 artistPinMenuButton
             }
         }
@@ -813,6 +816,56 @@ public struct ArtistDetailView: View {
             )
         } label: {
             Image(systemName: EnsembleDesign.Icon.trackActionsCircle)
+        }
+    }
+
+    private var artistAlbumSortMenu: some View {
+        Menu {
+            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+                Button {
+                    selectAlbumSortOption(option)
+                } label: {
+                    HStack {
+                        Text(option.rawValue)
+                        if albumSortOption == option {
+                            Image(systemName: albumSortDirection == .ascending
+                                ? EnsembleDesign.Icon.chevronUp
+                                : EnsembleDesign.Icon.chevronDown)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label("Sort By", systemImage: EnsembleDesign.Icon.sort)
+        }
+        .accessibilityLabel("Sort Artist Albums")
+    }
+
+    private var detailFilterOptions: FilterOptions {
+        displayArtist.isMerged ? mergedViewModel.filterOptions : viewModel.filterOptions
+    }
+
+    private var albumSortOption: AlbumSortOption {
+        AlbumSortOption(rawValue: detailFilterOptions.sortBy) ?? .year
+    }
+
+    private var albumSortDirection: SortDirection {
+        detailFilterOptions.sortBy == "default" ? .descending : detailFilterOptions.sortDirection
+    }
+
+    private func selectAlbumSortOption(_ option: AlbumSortOption) {
+        var filterOptions = detailFilterOptions
+        if albumSortOption == option {
+            filterOptions.sortDirection = albumSortDirection == .ascending ? .descending : .ascending
+        } else {
+            filterOptions.sortDirection = option.defaultDirection
+        }
+        filterOptions.sortBy = option.rawValue
+
+        if displayArtist.isMerged {
+            mergedViewModel.filterOptions = filterOptions
+        } else {
+            viewModel.filterOptions = filterOptions
         }
     }
 

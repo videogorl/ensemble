@@ -18,6 +18,8 @@
 - Shared menus/swipes use centralized action availability and retain unavailable
   actions with a reason where the context provides a handler. Views do not infer
   provider capabilities or source ownership.
+- Artist-detail album sorting uses one option and direction for single-source
+  details and every source section of a merged detail.
 - Search pins are reordered by direct drag and removed from their context menu.
   A drag temporarily expands a collapsed pins grid and restores it after drop.
 - Sharing quality is one preference used by Share Audio File and external audio
