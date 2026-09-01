@@ -168,6 +168,17 @@ final class EnsembleDomainTests: XCTestCase {
         ))
     }
 
+    func testMergeIdentityNormalizesCaseAndTypographicApostrophes() {
+        let expected = EnsembleMergeIdentity.normalized("Don't Judge Me")
+
+        XCTAssertEqual(EnsembleMergeIdentity.normalized("DON’T JUDGE ME"), expected)
+        XCTAssertEqual(EnsembleMergeIdentity.normalized("Don‘t Judge Me"), expected)
+        XCTAssertNotEqual(
+            EnsembleMergeIdentity.normalized("Janelle Monáe Feat. Brian Wilson"),
+            EnsembleMergeIdentity.normalized("Janelle Monáe ft. Brian Wilson")
+        )
+    }
+
     func testMediaActionCatalogUsesSharedWatchAndIOSOrder() {
         XCTAssertEqual(
             EnsembleMediaActionCatalog.ordered.map(\.action),
