@@ -232,10 +232,15 @@ public struct SearchView: View {
             handleSearchResultNavigation()
             navigationCoordinator.navigateFromExternalSearch(to: destination)
         } else {
-            navigationCoordinator.beginRouteTransition(in: .search)
-            navigationCoordinator.push(destination, in: .search)
+            let tab = Self.resultNavigationTab(isMoreSearchRootActive: isMoreSearchRootActive)
+            navigationCoordinator.beginRouteTransition(in: tab)
+            navigationCoordinator.push(destination, in: tab)
             handleSearchResultNavigation()
         }
+    }
+
+    internal static func resultNavigationTab(isMoreSearchRootActive: Bool) -> TabItem {
+        isMoreSearchRootActive ? .settings : .search
     }
 
     internal static func playlistDestination(

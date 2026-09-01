@@ -358,7 +358,7 @@ final class NavigationRootHelperTests: XCTestCase {
     }
 
     @MainActor
-    func testSearchPlaylistDestinationRoutesMergedAndSingleResults() {
+    func testSearchResultsRouteThroughTheirVisibleHost() {
         let first = Self.playlist(id: "first", source: "plex:account:server")
         let second = Self.playlist(id: "second", source: MusicSourceIdentifier.appleMusic.compositeKey)
         let merged = DisplayPlaylist.merged(
@@ -375,6 +375,14 @@ final class NavigationRootHelperTests: XCTestCase {
         XCTAssertEqual(
             SearchView.playlistDestination(for: single),
             .playlistDetail(first)
+        )
+        XCTAssertEqual(
+            SearchView.resultNavigationTab(isMoreSearchRootActive: true),
+            .settings
+        )
+        XCTAssertEqual(
+            SearchView.resultNavigationTab(isMoreSearchRootActive: false),
+            .search
         )
     }
 
