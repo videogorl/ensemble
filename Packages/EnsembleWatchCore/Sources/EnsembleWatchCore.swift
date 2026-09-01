@@ -1431,10 +1431,10 @@ public final class WatchExperienceModel: ObservableObject {
         detailRequestID = requestID
         detailStatusMessage = "Loading \(item.title)"
         let items = presentationItems(for: item)
-        detailTracks = projectedTracks(items.flatMap(cachedTracks(for:)))
+        detailTracks = projectedTracks(items.flatMap(cachedTracks(for:)), albumOrdered: item.kind == .album)
         detailTask = Task { [weak self] in
             guard let self else { return }
-            let result = await loadTracks(for: items)
+            let result = await loadTracks(for: items, albumOrdered: item.kind == .album)
             guard !Task.isCancelled, detailRequestID == requestID else { return }
             if !result.tracks.isEmpty { detailTracks = result.tracks }
             detailStatusMessage = Self.trackLoadStatus(
@@ -1445,7 +1445,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func loadTracks(for item: EnsembleMediaSummary) async -> [EnsembleTrack] {
-        await loadTracks(for: presentationItems(for: item)).tracks
+        await loadTracks(for: presentationItems(for: item), albumOrdered: item.kind == .album).tracks
     }
 
     public func loadTracks(for group: WatchPlaylistGroup) async -> [EnsembleTrack] {
@@ -1654,7 +1654,10 @@ public final class WatchExperienceModel: ObservableObject {
         playbackTask?.cancel()
         queuePreparationTask = Task { [weak self] in
             guard let self else { return }
-            let result = await loadTracks(for: presentationItems(for: item))
+            let result = await loadTracks(
+                for: presentationItems(for: item),
+                albumOrdered: item.kind == .album
+            )
             guard !Task.isCancelled else { return }
             guard !result.tracks.isEmpty else {
                 playbackStatusMessage = Self.trackLoadStatus(trackCount: 0, failureCount: result.failureCount)
@@ -2078,7 +2081,8 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     private func loadTracks(
-        for items: [EnsembleMediaSummary]
+        for items: [EnsembleMediaSummary],
+        albumOrdered: Bool
     ) async -> (tracks: [EnsembleTrack], failureCount: Int) {
         let catalog = catalog
         let libraries = libraries
@@ -2100,13 +2104,28 @@ public final class WatchExperienceModel: ObservableObject {
                 failureCount += failed ? 1 : 0
             }
             return (
-                projectedTracks(trackSets.flatMap { $0 }.filter { !isHidden($0) }),
+                projectedTracks(
+                    trackSets.flatMap { $0 }.filter { !isHidden($0) },
+                    albumOrdered: albumOrdered
+                ),
                 failureCount
             )
         }
     }
 
-    private func projectedTracks(_ tracks: [EnsembleTrack]) -> [EnsembleTrack] {
+    private func projectedTracks(
+        _ tracks: [EnsembleTrack],
+        albumOrdered: Bool = false
+    ) -> [EnsembleTrack] {
+        let tracks = albumOrdered
+            ? EnsembleMergeIdentity.albumOrdered(
+                tracks,
+                preferences: mergingPreferences,
+                discNumber: \.discNumber,
+                trackNumber: \.trackNumber,
+                sourceKey: \.sourceKey
+            )
+            : tracks
         guard mergingPreferences.isEnabled, mergingPreferences.mergeTracks else { return tracks }
         return EnsembleMergeIdentity.collapsed(
             tracks,

@@ -62,7 +62,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         if let initialTracks {
             let visible = includesHidden ? initialTracks : hiddenMediaStore.snapshot.visibleTracks(initialTracks)
             self.sourceTracks = visible
-            self.tracks = MergingProjection.tracks(visible, preferences: self.settingsManager.mergingPreferences)
+            self.tracks = MergingProjection.albumTracks(visible, preferences: self.settingsManager.mergingPreferences)
             self.hasLoadedTracks = true
         }
         self.libraryRepository = libraryRepository
@@ -82,7 +82,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         }.store(in: &cancellables)
         self.settingsManager.$mergingPreferences.dropFirst().sink { [weak self] preferences in
             guard let self else { return }
-            let projected = MergingProjection.tracks(self.sourceTracks, preferences: preferences)
+            let projected = MergingProjection.albumTracks(self.sourceTracks, preferences: preferences)
             if self.tracks != projected { self.tracks = projected }
         }.store(in: &cancellables)
     }
@@ -128,7 +128,7 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         let visible = includesHidden ? loadedTracks : hiddenMediaStore.snapshot.visibleTracks(loadedTracks)
         sourceTracks = visible
-        let projected = MergingProjection.tracks(visible, preferences: settingsManager.mergingPreferences)
+        let projected = MergingProjection.albumTracks(visible, preferences: settingsManager.mergingPreferences)
         if tracks != projected { tracks = projected }
         if loadedTracks.isEmpty, let lastError {
             self.error = lastError.localizedDescription

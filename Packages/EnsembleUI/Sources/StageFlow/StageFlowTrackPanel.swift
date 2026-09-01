@@ -51,7 +51,7 @@ struct StageFlowTrackLoader {
                     (lhs.discNumber, lhs.trackNumber) < (rhs.discNumber, rhs.trackNumber)
                 })
             }
-            return MergingProjection.tracks(tracks, preferences: mergingPreferences)
+            return MergingProjection.albumTracks(tracks, preferences: mergingPreferences)
 
         case .playlist(let id, let sourceCompositeKey):
             guard let playlist = try await playlistRepository.fetchPlaylist(

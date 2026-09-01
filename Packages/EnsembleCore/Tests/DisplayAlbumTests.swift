@@ -51,4 +51,54 @@ final class DisplayAlbumTests: XCTestCase {
         XCTAssertEqual(groups[1].primaryAlbum.id, "standard")
         XCTAssertEqual(groups[2].primaryAlbum.id, "unknown")
     }
+
+    func testAlbumTrackProjectionKeepsSourceCopiesInTrackOrder() {
+        let plexSource = "plex:a:s:3"
+        let appleSource = "appleMusic:a:d:l"
+        let tracks = [
+            makeTrack(id: "plex-14", title: "Breathing Underwater", number: 14, duration: 230, source: plexSource),
+            makeTrack(id: "plex-15", title: "Gimme Sympathy", number: 15, duration: 210, source: plexSource),
+            makeTrack(id: "plex-16", title: "Black Sheep", number: 16, duration: 250, source: plexSource),
+            makeTrack(id: "apple-14", title: "Breathing Underwater", number: 14, duration: 230, source: appleSource),
+            makeTrack(id: "apple-15", title: "Gimme Sympathy", number: 15, duration: 215, source: appleSource),
+            makeTrack(id: "apple-16", title: "Black Sheep", number: 16, duration: 250, source: appleSource),
+        ]
+
+        let separate = MergingProjection.albumTracks(
+            tracks,
+            preferences: EnsembleMergingPreferences(
+                mergeTracks: false,
+                preferredSourceKeys: [plexSource, appleSource]
+            )
+        )
+        let merged = MergingProjection.albumTracks(
+            tracks,
+            preferences: EnsembleMergingPreferences(
+                mergeTracks: true,
+                preferredSourceKeys: [plexSource, appleSource]
+            )
+        )
+
+        XCTAssertEqual(separate.map(\.id), ["plex-14", "apple-14", "plex-15", "apple-15", "plex-16", "apple-16"])
+        XCTAssertEqual(merged.map(\.id), ["plex-14", "plex-15", "apple-15", "plex-16"])
+    }
+
+    private func makeTrack(
+        id: String,
+        title: String,
+        number: Int,
+        duration: TimeInterval,
+        source: String
+    ) -> Track {
+        Track(
+            id: id,
+            key: "/\(id)",
+            title: title,
+            artistName: "Metric",
+            albumName: "Synthetica (Deluxe Edition)",
+            trackNumber: number,
+            duration: duration,
+            sourceCompositeKey: source
+        )
+    }
 }

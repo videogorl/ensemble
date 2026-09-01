@@ -30,4 +30,18 @@ public enum MergingProjection {
             sourceKey: \.sourceCompositeKey
         )
     }
+
+    public static func albumTracks(
+        _ tracks: [Track],
+        preferences: EnsembleMergingPreferences
+    ) -> [Track] {
+        let ordered = EnsembleMergeIdentity.albumOrdered(
+            tracks,
+            preferences: preferences,
+            discNumber: { $0.discNumber },
+            trackNumber: { $0.trackNumber },
+            sourceKey: \.sourceCompositeKey
+        )
+        return self.tracks(ordered, preferences: preferences)
+    }
 }

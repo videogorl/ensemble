@@ -70,6 +70,28 @@ public struct EnsembleMergingPreferences: Codable, Equatable, Sendable {
 }
 
 public enum EnsembleMergeIdentity {
+    public static func albumOrdered<Value>(
+        _ values: [Value],
+        preferences: EnsembleMergingPreferences,
+        discNumber: (Value) -> Int?,
+        trackNumber: (Value) -> Int?,
+        sourceKey: (Value) -> String?
+    ) -> [Value] {
+        values.enumerated().sorted { lhs, rhs in
+            let lhsDisc = discNumber(lhs.element).flatMap { $0 > 0 ? $0 : nil } ?? 1
+            let rhsDisc = discNumber(rhs.element).flatMap { $0 > 0 ? $0 : nil } ?? 1
+            if lhsDisc != rhsDisc { return lhsDisc < rhsDisc }
+
+            let lhsTrack = trackNumber(lhs.element).flatMap { $0 > 0 ? $0 : nil } ?? Int.max
+            let rhsTrack = trackNumber(rhs.element).flatMap { $0 > 0 ? $0 : nil } ?? Int.max
+            if lhsTrack != rhsTrack { return lhsTrack < rhsTrack }
+
+            let lhsRank = preferences.rank(for: sourceKey(lhs.element))
+            let rhsRank = preferences.rank(for: sourceKey(rhs.element))
+            return lhsRank == rhsRank ? lhs.offset < rhs.offset : lhsRank < rhsRank
+        }.map(\.element)
+    }
+
     public static func normalized(_ value: String?) -> String? {
         guard let value else { return nil }
         let normalized = value

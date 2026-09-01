@@ -520,12 +520,12 @@ struct GenreDetailContentView: View {
             tracksByAlbum[key]?.sort(by: trackPrecedes)
         }
 
-        let tracks = albums.flatMap { displayAlbum in
-            displayAlbum.albums.flatMap { album in
+        return albums.flatMap { displayAlbum in
+            let tracks = displayAlbum.albums.flatMap { album in
                 tracksByAlbum[sourceScopedAlbumKey(id: album.id, sourceCompositeKey: album.sourceCompositeKey)] ?? []
             }
+            return MergingProjection.albumTracks(tracks, preferences: settingsManager.mergingPreferences)
         }
-        return MergingProjection.tracks(tracks, preferences: settingsManager.mergingPreferences)
     }
 
     private func sourceScopedAlbumKey(id: String, sourceCompositeKey: String?) -> String {

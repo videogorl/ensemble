@@ -265,7 +265,7 @@ public struct AlbumsView: View {
             )) ?? []
             tracks.append(contentsOf: cachedTracks.map { Track(from: $0) })
         }
-        return MergingProjection.tracks(tracks, preferences: deps.settingsManager.mergingPreferences)
+        return MergingProjection.albumTracks(tracks, preferences: deps.settingsManager.mergingPreferences)
     }
 
     private var albumGenreChipBar: some View {
