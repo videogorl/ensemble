@@ -821,7 +821,7 @@ public struct ArtistDetailView: View {
 
     private var artistAlbumSortMenu: some View {
         Menu {
-            ForEach(AlbumSortOption.allCases, id: \.self) { option in
+            ForEach(AlbumSortOption.allCases.filter { $0 != .albumArtist }, id: \.self) { option in
                 Button {
                     selectAlbumSortOption(option)
                 } label: {
