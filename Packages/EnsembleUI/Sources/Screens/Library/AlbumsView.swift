@@ -475,6 +475,10 @@ public struct AlbumDetailView: View {
             metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
         }
 
+        if displayAlbum.isMerged {
+            metadataParts.append("\(displayAlbum.albums.count) sources")
+        }
+
         return MediaHeaderData(
             title: album.title,
             subtitle: album.artistName,
@@ -482,7 +486,14 @@ public struct AlbumDetailView: View {
             artworkPath: album.thumbPath,
             sourceKey: album.sourceCompositeKey,
             ratingKey: album.id,
-            artistRatingKey: album.artistRatingKey
+            artistRatingKey: album.artistRatingKey,
+            trackSourceLabels: displayAlbum.isMerged
+                ? mediaDetailTrackSourceLabels(
+                    tracks: viewModel.tracks,
+                    accountManager: deps.accountManager,
+                    demoModeEnabled: deps.settingsManager.demoModeEnabled
+                )
+                : [:]
         )
     }
 

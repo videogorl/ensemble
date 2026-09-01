@@ -20,6 +20,7 @@ public struct MediaHeaderData {
     let sourceKey: String?
     let ratingKey: String?
     let artistRatingKey: String? // Added for cross-navigation
+    let trackSourceLabels: [String: String]
 
     public init(
         title: String,
@@ -28,7 +29,8 @@ public struct MediaHeaderData {
         artworkPath: String?,
         sourceKey: String?,
         ratingKey: String? = nil,
-        artistRatingKey: String? = nil
+        artistRatingKey: String? = nil,
+        trackSourceLabels: [String: String] = [:]
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -37,7 +39,44 @@ public struct MediaHeaderData {
         self.sourceKey = sourceKey
         self.ratingKey = ratingKey
         self.artistRatingKey = artistRatingKey
+        self.trackSourceLabels = trackSourceLabels
     }
+}
+
+func mediaDetailSourceLabel(
+    sourceType: MusicSourceType,
+    presentation: MusicSourcePresentation,
+    demoModeEnabled: Bool
+) -> String {
+    let serverName = DemoModeRedaction.serverName(
+        presentation.serverName,
+        isEnabled: demoModeEnabled
+    )
+    guard sourceType != .appleMusic,
+          presentation.libraryName != presentation.serverName else {
+        return serverName
+    }
+    return "\(presentation.libraryName) · \(serverName)"
+}
+
+@MainActor
+func mediaDetailTrackSourceLabels(
+    tracks: [Track],
+    accountManager: AccountManager,
+    demoModeEnabled: Bool
+) -> [String: String] {
+    Dictionary(uniqueKeysWithValues: Set(tracks.compactMap(\.sourceCompositeKey)).compactMap { sourceKey in
+        guard let sourceType = MediaSourceIdentity.sourceType(from: sourceKey),
+              let presentation = accountManager.sourcePresentation(for: sourceKey) else { return nil }
+        return (
+            sourceKey,
+            mediaDetailSourceLabel(
+                sourceType: sourceType,
+                presentation: presentation,
+                demoModeEnabled: demoModeEnabled
+            )
+        )
+    })
 }
 
 public struct PlaylistDetailMenuActions {
@@ -1459,6 +1498,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             interactionModel: trackInteractionModel,
             supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+            trackSourceLabels: headerData.trackSourceLabels,
             onRemoveFromPlaylist: playlistTrackRemovalHandler
         ) { track, _ in
             guard track.isLibraryAvailable,
@@ -1479,6 +1519,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
                 tableHeaderExtraHeight: macTableHeaderExtraHeight,
                 supplementalMetadataWidth: trackListSupplementalMetadataWidth,
+                trackSourceLabels: headerData.trackSourceLabels,
                 currentTrackId: currentTrackId,
                 selectedTrackId: selectedTrackId,
                 availabilityGeneration: availabilityGeneration,

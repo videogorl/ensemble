@@ -193,12 +193,12 @@ public struct MergedPlaylistDetailView: View {
             metadataParts.append("Smart Playlist")
         }
 
-        let sourceCount = viewModel.displayPlaylist.playlists.count
-        metadataParts.append("Merged from \(sourceCount) source\(sourceCount == 1 ? "" : "s")")
-
         if !viewModel.tracks.isEmpty {
             metadataParts.append("\(viewModel.tracks.count) songs, \(viewModel.totalDuration)")
         }
+
+        let sourceCount = dp.playlists.count
+        metadataParts.append("\(sourceCount) source\(sourceCount == 1 ? "" : "s")")
 
         return MediaHeaderData(
             title: dp.title,
@@ -206,7 +206,12 @@ public struct MergedPlaylistDetailView: View {
             metadataLine: metadataParts.joined(separator: " \u{00B7} "),
             artworkPath: dp.compositePath,
             sourceKey: dp.sourceCompositeKey,
-            ratingKey: dp.primaryPlaylist.id
+            ratingKey: dp.primaryPlaylist.id,
+            trackSourceLabels: mediaDetailTrackSourceLabels(
+                tracks: viewModel.tracks,
+                accountManager: deps.accountManager,
+                demoModeEnabled: deps.settingsManager.demoModeEnabled
+            )
         )
     }
 

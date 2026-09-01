@@ -18,6 +18,7 @@ public struct NativeTrackListConfiguration {
     public var tableHeaderExtraHeight: CGFloat
     public var usesDynamicTableHeaderHeight: Bool
     public var supplementalMetadataWidth: CGFloat?
+    public var trackSourceLabels: [String: String]
     public var currentTrackId: String?
     public var selectedTrackId: String?
     public var availabilityGeneration: UInt64
@@ -36,6 +37,7 @@ public struct NativeTrackListConfiguration {
         tableHeaderExtraHeight: CGFloat = 0,
         usesDynamicTableHeaderHeight: Bool = false,
         supplementalMetadataWidth: CGFloat? = nil,
+        trackSourceLabels: [String: String] = [:],
         currentTrackId: String? = nil,
         selectedTrackId: String? = nil,
         availabilityGeneration: UInt64 = 0,
@@ -53,6 +55,7 @@ public struct NativeTrackListConfiguration {
         self.tableHeaderExtraHeight = tableHeaderExtraHeight
         self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.trackSourceLabels = trackSourceLabels
         self.currentTrackId = currentTrackId
         self.selectedTrackId = selectedTrackId
         self.availabilityGeneration = availabilityGeneration

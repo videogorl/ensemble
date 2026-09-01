@@ -342,6 +342,7 @@ public class TrackTableViewCell: UITableViewCell {
         isActivelyDownloading: Bool = false,
         isFavorited: Bool = false,
         supplementalMetadataWidth: CGFloat? = nil,
+        sourceLabel: String? = nil,
         menu: UIMenu?,
         rowHeight: CGFloat = 68,
         artworkLoader: ArtworkLoaderProtocol
@@ -388,9 +389,13 @@ public class TrackTableViewCell: UITableViewCell {
         if let unavailableReason = track.unavailableReason {
             subtitleParts.append(unavailableReason)
         }
+        if let sourceLabel {
+            subtitleParts.append(sourceLabel)
+        }
         subtitleLabel.text = showsArtistMetadataColumn ? nil : subtitleParts.joined(separator: " · ")
         subtitleLabel.isHidden = showsArtistMetadataColumn
-        artistMetadataLabel.text = track.unavailableReason ?? track.artistName ?? "Unknown Artist"
+        let artistMetadata = track.unavailableReason ?? track.artistName ?? "Unknown Artist"
+        artistMetadataLabel.text = [artistMetadata, sourceLabel].compactMap { $0 }.joined(separator: " · ")
         albumMetadataLabel.text = track.unavailableReason == nil ? track.albumName ?? "Unknown Album" : ""
         
         durationLabel.text = track.formattedDuration
@@ -583,6 +588,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let interactionModel: TrackRowInteractionModel
     /// Optional available width used to reveal wide artist/album metadata columns.
     let supplementalMetadataWidth: CGFloat?
+    let trackSourceLabels: [String: String]
 
     /// Change token from TrackAvailabilityResolver — parent observes the singleton
     /// and passes the generation here so MediaTrackList doesn't subscribe itself.
@@ -638,6 +644,7 @@ public struct MediaTrackList: UIViewRepresentable {
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        trackSourceLabels: [String: String] = [:],
         onPlayNext: ((Track) -> Void)? = nil,
         onPlayLast: ((Track) -> Void)? = nil,
         onAddToPlaylist: ((Track) -> Void)? = nil,
@@ -673,6 +680,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.trackSourceLabels = trackSourceLabels
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
         self.onAddToPlaylist = onAddToPlaylist
@@ -726,6 +734,7 @@ public struct MediaTrackList: UIViewRepresentable {
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
+        trackSourceLabels: [String: String] = [:],
         showsNativeSectionIndex: Bool = false,
         sectionScrollRequestID: Int? = nil,
         sectionScrollTargetID: String? = nil,
@@ -751,6 +760,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
+        self.trackSourceLabels = trackSourceLabels
         self.onPlayNext = nil
         self.onPlayLast = nil
         self.onAddToPlaylist = nil
@@ -882,6 +892,7 @@ public struct MediaTrackList: UIViewRepresentable {
         let activeDownloadsChanged = context.coordinator.activeDownloadTrackIdentities != activeDownloadTrackIdentities
         let availabilityChanged = context.coordinator.lastAvailabilityGeneration != availabilityGeneration
         let supplementalMetadataWidthChanged = context.coordinator.supplementalMetadataWidth != supplementalMetadataWidth
+        let trackSourceLabelsChanged = context.coordinator.trackSourceLabels != trackSourceLabels
         let displayRatingsChanged = context.coordinator.lastDisplayRatingsRevision != displayRatingsRevision
         let newFavoriteStateSignature = !trackState.identityOrderMatches || displayRatingsChanged
             ? favoriteStateSignature(for: tracks)
@@ -915,6 +926,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.showsNativeSectionIndex = showsNativeSectionIndex
         context.coordinator.interactionModel = interactionModel
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
+        context.coordinator.trackSourceLabels = trackSourceLabels
         context.coordinator.artworkLoader = dependencies.artworkLoader
         context.coordinator.toastCenter = dependencies.toastCenter
         context.coordinator.settingsManager = dependencies.settingsManager
@@ -974,7 +986,7 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.selectRow(at: indexPath, animated: false, scrollPosition: .middle)
         }
 
-        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || favoriteStateChanged) {
+        if !dataChanged && (currentTrackChanged || offlineStateChanged || downloadStateChanged || activeDownloadsChanged || availabilityChanged || supplementalMetadataWidthChanged || trackSourceLabelsChanged || favoriteStateChanged) {
             // Reconfigure visible cells when track state or adaptive metadata width changes.
             // Bounds-check indexPaths since visible cells may reference stale geometry.
             tableView.visibleCells.forEach { cell in
@@ -994,6 +1006,7 @@ public struct MediaTrackList: UIViewRepresentable {
                         isActivelyDownloading: context.coordinator.activeDownloadTrackIdentities.contains(track.sourceScopedID),
                         isFavorited: context.coordinator.interactionModel.isFavorited(track),
                         supplementalMetadataWidth: context.coordinator.supplementalMetadataWidth,
+                        sourceLabel: context.coordinator.sourceLabel(for: track),
                         menu: context.coordinator.makeDeferredContextMenu(for: track, at: indexPath),
                         rowHeight: context.coordinator.rowHeight,
                         artworkLoader: dependencies.artworkLoader
@@ -1029,6 +1042,7 @@ public struct MediaTrackList: UIViewRepresentable {
             showsNativeSectionIndex: showsNativeSectionIndex,
             interactionModel: interactionModel,
             supplementalMetadataWidth: supplementalMetadataWidth,
+            trackSourceLabels: trackSourceLabels,
             artworkLoader: dependencies.artworkLoader,
             shareService: dependencies.shareService,
             toastCenter: dependencies.toastCenter,
@@ -1114,6 +1128,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var consumedSelectedTrackId: String?
         var interactionModel: TrackRowInteractionModel
         var supplementalMetadataWidth: CGFloat?
+        var trackSourceLabels: [String: String]
         var artworkLoader: ArtworkLoaderProtocol
         var shareService: ShareService
         var toastCenter: ToastCenter
@@ -1164,6 +1179,7 @@ public struct MediaTrackList: UIViewRepresentable {
             showsNativeSectionIndex: Bool,
             interactionModel: TrackRowInteractionModel,
             supplementalMetadataWidth: CGFloat?,
+            trackSourceLabels: [String: String],
             artworkLoader: ArtworkLoaderProtocol,
             shareService: ShareService,
             toastCenter: ToastCenter,
@@ -1202,6 +1218,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.showsNativeSectionIndex = showsNativeSectionIndex
             self.interactionModel = interactionModel
             self.supplementalMetadataWidth = supplementalMetadataWidth
+            self.trackSourceLabels = trackSourceLabels
             self.artworkLoader = artworkLoader
             self.shareService = shareService
             self.toastCenter = toastCenter
@@ -1247,6 +1264,10 @@ public struct MediaTrackList: UIViewRepresentable {
         /// after groupedTracks has been updated but before reloadData completes.
         private func track(at indexPath: IndexPath) -> Track? {
             indexedTrack(at: indexPath)?.track
+        }
+
+        func sourceLabel(for track: Track) -> String? {
+            track.sourceCompositeKey.flatMap { trackSourceLabels[$0] }
         }
 
         private func indexedTrack(at indexPath: IndexPath) -> (track: Track, index: Int)? {
@@ -1342,6 +1363,7 @@ public struct MediaTrackList: UIViewRepresentable {
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
                 isFavorited: interactionModel.isFavorited(track),
                 supplementalMetadataWidth: supplementalMetadataWidth,
+                sourceLabel: sourceLabel(for: track),
                 menu: makeDeferredContextMenu(for: track, at: indexPath),
                 rowHeight: rowHeight,
                 artworkLoader: artworkLoader

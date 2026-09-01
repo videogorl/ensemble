@@ -14,6 +14,46 @@ import AppKit
 #endif
 
 final class EnsembleUITests: XCTestCase {
+    func testMediaDetailSourceLabelsUseProviderOrLibraryAndServer() {
+        let appleMusic = MusicSourcePresentation(
+            capabilities: MusicSourceType.appleMusic.capabilities,
+            serverName: "Apple Music",
+            libraryName: "Apple Music",
+            accountName: "This Device"
+        )
+        let plex = MusicSourcePresentation(
+            capabilities: MusicSourceType.plex.capabilities,
+            serverName: "Minibar",
+            libraryName: "Music",
+            accountName: "Plex Account"
+        )
+
+        XCTAssertEqual(
+            mediaDetailSourceLabel(
+                sourceType: .appleMusic,
+                presentation: appleMusic,
+                demoModeEnabled: false
+            ),
+            "Apple Music"
+        )
+        XCTAssertEqual(
+            mediaDetailSourceLabel(
+                sourceType: .plex,
+                presentation: plex,
+                demoModeEnabled: false
+            ),
+            "Music · Minibar"
+        )
+        XCTAssertEqual(
+            mediaDetailSourceLabel(
+                sourceType: .plex,
+                presentation: plex,
+                demoModeEnabled: true
+            ),
+            "Music · Plex Server"
+        )
+    }
+
     func testDuplicateProfileFocusServerTitleIncludesAccountEmail() {
         XCTAssertEqual(
             ProfileToolbarButton.serverSectionTitle(

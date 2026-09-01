@@ -185,6 +185,7 @@ public struct SongsTrackListHost: View {
                 searchTextBinding: searchTextBinding,
                 interactionModel: configuration.interactionModel,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                trackSourceLabels: configuration.trackSourceLabels,
                 sectionScrollRequestID: sectionScrollRequest?.id,
                 sectionScrollTargetID: sectionScrollRequest?.sectionID,
                 onRemoveFromPlaylist: onRemoveFromPlaylist
@@ -224,6 +225,7 @@ public struct SongsTrackListHost: View {
             searchTextBinding: searchTextBinding,
             interactionModel: configuration.interactionModel,
             supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+            trackSourceLabels: configuration.trackSourceLabels,
             onRemoveFromPlaylist: onRemoveFromPlaylist
         ) { track, index in
             onTrackTap(track, index)
@@ -250,6 +252,7 @@ public struct SongsTrackListHost: View {
                 tableHeaderExtraHeight: configuration.tableHeaderExtraHeight,
                 usesDynamicTableHeaderHeight: configuration.usesDynamicTableHeaderHeight,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+                trackSourceLabels: configuration.trackSourceLabels,
                 rowHeight: configuration.rowHeight,
                 interactionModel: configuration.interactionModel,
                 onRemoveFromPlaylist: onRemoveFromPlaylist,

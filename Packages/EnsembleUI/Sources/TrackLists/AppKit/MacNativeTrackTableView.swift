@@ -20,6 +20,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
     let tableHeaderExtraHeight: CGFloat
     let usesDynamicTableHeaderHeight: Bool
     let supplementalMetadataWidth: CGFloat?
+    let trackSourceLabels: [String: String]
     let rowHeight: CGFloat
     let interactionModel: TrackRowInteractionModel
     let onRemoveFromPlaylist: ((Track, Int) -> Void)?
@@ -102,6 +103,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         context.coordinator.tableHeaderExtraHeight = tableHeaderExtraHeight
         context.coordinator.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
         context.coordinator.supplementalMetadataWidth = supplementalMetadataWidth
+        context.coordinator.trackSourceLabels = trackSourceLabels
         context.coordinator.rowHeight = rowHeight
         context.coordinator.interactionModel = interactionModel
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -154,6 +156,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableHeaderExtraHeight: tableHeaderExtraHeight,
             usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
+            trackSourceLabels: trackSourceLabels,
             rowHeight: rowHeight,
             interactionModel: interactionModel,
             artworkLoader: dependencies.artworkLoader,
@@ -180,6 +183,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
         var tableHeaderExtraHeight: CGFloat
         var usesDynamicTableHeaderHeight: Bool
         var supplementalMetadataWidth: CGFloat?
+        var trackSourceLabels: [String: String]
         var rowHeight: CGFloat
         var interactionModel: TrackRowInteractionModel
         var artworkLoader: ArtworkLoaderProtocol
@@ -207,6 +211,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             tableHeaderExtraHeight: CGFloat,
             usesDynamicTableHeaderHeight: Bool,
             supplementalMetadataWidth: CGFloat?,
+            trackSourceLabels: [String: String],
             rowHeight: CGFloat,
             interactionModel: TrackRowInteractionModel,
             artworkLoader: ArtworkLoaderProtocol,
@@ -229,6 +234,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
             self.tableHeaderExtraHeight = tableHeaderExtraHeight
             self.usesDynamicTableHeaderHeight = usesDynamicTableHeaderHeight
             self.supplementalMetadataWidth = supplementalMetadataWidth
+            self.trackSourceLabels = trackSourceLabels
             self.rowHeight = rowHeight
             self.interactionModel = interactionModel
             self.artworkLoader = artworkLoader
@@ -439,6 +445,7 @@ struct MacNativeTrackTableView: NSViewRepresentable {
                 isActivelyDownloading: activeDownloadTrackIdentities.contains(track.sourceScopedID),
                 isFavorited: resolvedActions.isFavorited,
                 supplementalMetadataWidth: supplementalMetadataWidth,
+                sourceLabel: track.sourceCompositeKey.flatMap { trackSourceLabels[$0] },
                 artworkLoader: artworkLoader,
                 menuProvider: { [weak self] in
                     self?.makeMenu(for: track, globalIndex: globalIndex, resolvedActions: resolvedActions)
@@ -760,13 +767,16 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         isActivelyDownloading: Bool,
         isFavorited: Bool,
         supplementalMetadataWidth: CGFloat?,
+        sourceLabel: String?,
         artworkLoader: ArtworkLoaderProtocol,
         menuProvider: @escaping () -> NSMenu?
     ) {
         self.menuProvider = menuProvider
         titleField.stringValue = track.title
         trackNumberField.stringValue = isPlaying ? "" : "\(track.trackNumber)"
-        artistField.stringValue = track.artistName ?? "Unknown Artist"
+        artistField.stringValue = [track.artistName ?? "Unknown Artist", sourceLabel]
+            .compactMap { $0 }
+            .joined(separator: " · ")
         albumField.stringValue = track.albumName ?? "Unknown Album"
         durationField.stringValue = track.formattedDuration
 
@@ -779,6 +789,7 @@ private final class MacNativeTrackTableCell: NSTableCellView {
         if let artist = track.artistName { subtitleParts.append(artist) }
         if showAlbumName, let album = track.albumName { subtitleParts.append(album) }
         if let unavailableReason = track.unavailableReason { subtitleParts.append(unavailableReason) }
+        if let sourceLabel { subtitleParts.append(sourceLabel) }
         subtitleField.stringValue = showsArtist ? "" : subtitleParts.joined(separator: " · ")
         subtitleField.isHidden = showsArtist
 
