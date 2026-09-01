@@ -693,7 +693,6 @@ extension MediaDetailSurface {
     >: View {
         @Environment(\.nativeTrackListHeaderWidth) private var nativeTrackListHeaderWidth
         @State private var containerWidth: CGFloat = 0
-        @State private var actionColumnWidth: CGFloat = 0
 
         private let wideLayoutThreshold: CGFloat
         private let artworkWidth: CGFloat
@@ -741,17 +740,19 @@ extension MediaDetailSurface {
                     .padding(.vertical, topContentVerticalPadding)
                 adaptiveBody
             }
-            .background(
-                GeometryReader { geometry in
-                    Color.clear
-                        .onAppear {
-                            updateContainerWidth(geometry.size.width)
-                        }
-                        .onChange(of: geometry.size.width) { newWidth in
-                            updateContainerWidth(newWidth)
-                        }
+            .background {
+                if nativeTrackListHeaderWidth <= 1 {
+                    GeometryReader { geometry in
+                        Color.clear
+                            .onAppear {
+                                updateContainerWidth(geometry.size.width)
+                            }
+                            .onChange(of: geometry.size.width) { newWidth in
+                                updateContainerWidth(newWidth)
+                            }
+                    }
                 }
-            )
+            }
         }
 
         @ViewBuilder
@@ -792,21 +793,10 @@ extension MediaDetailSurface {
 
                 VStack(alignment: .leading, spacing: EnsembleScaffold.DetailSurface.metadataSpacing) {
                     metadata(.leading)
-                    wideActions(actionColumnWidth > 0 ? actionColumnWidth : estimatedActionColumnWidth)
+                    wideActions(estimatedActionColumnWidth)
                         .padding(.top, EnsembleScaffold.DetailSurface.actionTopPadding)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    GeometryReader { geometry in
-                        Color.clear
-                            .onAppear {
-                                updateActionColumnWidth(geometry.size.width)
-                            }
-                            .onChange(of: geometry.size.width) { newWidth in
-                                updateActionColumnWidth(newWidth)
-                            }
-                    }
-                )
             }
             .padding(.horizontal, horizontalPadding)
             .padding(.bottom, bottomPadding)
@@ -829,12 +819,6 @@ extension MediaDetailSurface {
         private func updateContainerWidth(_ newWidth: CGFloat) {
             if abs(containerWidth - newWidth) > 1 {
                 containerWidth = newWidth
-            }
-        }
-
-        private func updateActionColumnWidth(_ newWidth: CGFloat) {
-            if abs(actionColumnWidth - newWidth) > 1 {
-                actionColumnWidth = newWidth
             }
         }
     }

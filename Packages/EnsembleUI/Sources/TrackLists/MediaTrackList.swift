@@ -45,7 +45,7 @@ class DeferredLayoutTableView: UITableView {
     }
 }
 
-private final class TableFooterHostingController: UIHostingController<AnyView> {
+private final class HostedContentController: UIHostingController<AnyView> {
     var onContentHeightChange: ((CGFloat) -> Void)?
     private var contentHeight: CGFloat = 0
 
@@ -64,9 +64,9 @@ private final class TableFooterHostingController: UIHostingController<AnyView> {
     }
 }
 
-private final class TableFooterCell: UITableViewCell {
-    static let reuseIdentifier = "TableFooterCell"
-    private var hostingController: TableFooterHostingController?
+private final class HostedContentCell: UITableViewCell {
+    static let reuseIdentifier = "HostedContentCell"
+    private var hostingController: HostedContentController?
 
     func configure(content: AnyView, tableView: UITableView) {
         selectionStyle = .none
@@ -89,7 +89,7 @@ private final class TableFooterCell: UITableViewCell {
             return
         }
 
-        let hostingController = TableFooterHostingController(rootView: content)
+        let hostingController = HostedContentController(rootView: content)
         hostingController.view.backgroundColor = .clear
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(hostingController.view)
@@ -601,10 +601,11 @@ public struct MediaTrackList: UIViewRepresentable {
     let bottomContentInset: CGFloat
     /// Fixed height for each row. StageFlow uses a denser value while standard lists keep 68pt.
     let rowHeight: CGFloat
-    /// Optional SwiftUI content to embed as the UITableView's `tableHeaderView`.
+    /// Optional SwiftUI content to embed as the table's self-sizing first row.
     /// Scrolls naturally with the table while preserving full cell recycling.
     /// Used by MediaDetailView to scroll album art + action buttons with the track list.
     let tableHeaderContent: AnyView?
+    let tableHeaderRevision: String?
     /// Optional SwiftUI content to embed as the UITableView's `tableFooterView`.
     /// Used to show loading/empty indicators below the track list while keeping
     /// the header (chips + artwork + buttons) structurally identical across all states.
@@ -632,6 +633,7 @@ public struct MediaTrackList: UIViewRepresentable {
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
+        tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
@@ -667,6 +669,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
+        self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -718,6 +721,7 @@ public struct MediaTrackList: UIViewRepresentable {
         bottomContentInset: CGFloat = 0,
         rowHeight: CGFloat = TrackListLayoutMetrics.defaultRowHeight,
         tableHeaderContent: AnyView? = nil,
+        tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
         searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
@@ -743,6 +747,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.bottomContentInset = bottomContentInset
         self.rowHeight = rowHeight
         self.tableHeaderContent = tableHeaderContent
+        self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
         self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
@@ -779,7 +784,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.dataSource = context.coordinator
         tableView.register(TrackTableViewCell.self, forCellReuseIdentifier: "TrackCell")
-        tableView.register(TableFooterCell.self, forCellReuseIdentifier: TableFooterCell.reuseIdentifier)
+        tableView.register(HostedContentCell.self, forCellReuseIdentifier: HostedContentCell.reuseIdentifier)
         tableView.separatorStyle = .singleLine
         tableView.separatorInset = UIEdgeInsets(
             top: 0,
@@ -826,24 +831,6 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.dragInteractionEnabled = true
         context.coordinator.tableView = tableView
 
-        // Install optional SwiftUI table header (album art, action buttons, etc.).
-        // Uses UIHostingController to bridge SwiftUI content into the UITableView's
-        // native tableHeaderView, which scrolls with the table and preserves cell recycling.
-        if let tableHeaderContent {
-            let hostingController = UIHostingController(rootView: tableHeaderContent)
-            hostingController.view.backgroundColor = .clear
-            // Size the header to fit its content
-            let targetWidth = tableView.bounds.width > 0 ? tableView.bounds.width : UIScreen.main.bounds.width
-            let fittingSize = hostingController.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            hostingController.view.frame = CGRect(origin: .zero, size: fittingSize)
-            tableView.tableHeaderView = hostingController.view
-            context.coordinator.headerHostingController = hostingController
-        }
-
         // When a search binding is provided, set up a UISearchController once the
         // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
         // UIViewController and attach the search controller to its navigation item.
@@ -881,6 +868,8 @@ public struct MediaTrackList: UIViewRepresentable {
         let trackState = compareTrackListState(context.coordinator.tracks, tracks)
         let dataChanged = !trackState.identityOrderMatches ||
             context.coordinator.groupSignature != newGroupSignature ||
+            (context.coordinator.tableHeaderContent == nil) != (tableHeaderContent == nil) ||
+            context.coordinator.tableHeaderRevision != tableHeaderRevision ||
             (context.coordinator.tableFooterContent == nil) != (tableFooterContent == nil)
 
         // Check if any track's download state changed (localFilePath set or cleared)
@@ -935,6 +924,8 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.rowHeight = rowHeight
         context.coordinator.lastAvailabilityGeneration = availabilityGeneration
         context.coordinator.lastDisplayRatingsRevision = displayRatingsRevision
+        context.coordinator.tableHeaderContent = tableHeaderContent
+        context.coordinator.tableHeaderRevision = tableHeaderRevision
         context.coordinator.tableFooterContent = tableFooterContent
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
@@ -948,30 +939,9 @@ public struct MediaTrackList: UIViewRepresentable {
 
         if let tableFooterContent,
            let footerCell = tableView.cellForRow(
-               at: IndexPath(row: 0, section: newGroupedTracks.count)
-           ) as? TableFooterCell {
+               at: IndexPath(row: 0, section: context.coordinator.footerSection)
+           ) as? HostedContentCell {
             footerCell.configure(content: tableFooterContent, tableView: tableView)
-        }
-
-        // Update table header view size if needed (e.g., after initial width becomes available).
-        // UITableView requires explicit header resizing — it doesn't auto-layout the header.
-        if let headerHost = context.coordinator.headerHostingController,
-           let headerView = tableView.tableHeaderView,
-           tableView.bounds.width > 0 {
-            if let tableHeaderContent {
-                headerHost.rootView = tableHeaderContent
-            }
-            let targetWidth = tableView.bounds.width
-            let fittingSize = headerHost.view.systemLayoutSizeFitting(
-                CGSize(width: targetWidth, height: UIView.layoutFittingCompressedSize.height),
-                withHorizontalFittingPriority: .required,
-                verticalFittingPriority: .fittingSizeLevel
-            )
-            // Only reassign when height actually changes to avoid layout loops
-            if abs(headerView.frame.height - fittingSize.height) > 1 {
-                headerView.frame = CGRect(origin: .zero, size: CGSize(width: targetWidth, height: fittingSize.height))
-                tableView.tableHeaderView = headerView
-            }
         }
 
         // Skip remaining work when the table isn't in a window yet — DeferredLayoutTableView
@@ -1010,9 +980,9 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.visibleCells.forEach { cell in
                 if let trackCell = cell as? TrackTableViewCell,
                    let indexPath = tableView.indexPath(for: cell),
-                   indexPath.section < newGroupedTracks.count,
-                   indexPath.row < newGroupedTracks[indexPath.section].tracks.count {
-                    let track = newGroupedTracks[indexPath.section].tracks[indexPath.row]
+                   let groupIndex = context.coordinator.groupIndex(forTableSection: indexPath.section),
+                   indexPath.row < newGroupedTracks[groupIndex].tracks.count {
+                    let track = newGroupedTracks[groupIndex].tracks[indexPath.row]
                     let isPlaying = track.playbackIdentity == currentTrackId
                     trackCell.configure(
                         with: track,
@@ -1067,6 +1037,8 @@ public struct MediaTrackList: UIViewRepresentable {
             isOffline: !dependencies.networkMonitor.isConnected,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             rowHeight: rowHeight,
+            tableHeaderContent: tableHeaderContent,
+            tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: tableFooterContent
         )
         return coordinator
@@ -1153,8 +1125,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var tableFooterContent: AnyView?
         var lastAvailabilityGeneration: UInt64 = 0
         var lastDisplayRatingsRevision: UInt64 = 0
-        /// Retains the UIHostingController used for the table header view
-        var headerHostingController: UIHostingController<AnyView>?
+        var tableHeaderContent: AnyView?
+        var tableHeaderRevision: String?
         /// Pending search binding — set before the table is in a window, consumed
         /// once the UISearchController is attached to the navigation item.
         var pendingSearchBinding: Binding<String>?
@@ -1200,6 +1172,8 @@ public struct MediaTrackList: UIViewRepresentable {
             isOffline: Bool,
             activeDownloadTrackIdentities: Set<String> = [],
             rowHeight: CGFloat,
+            tableHeaderContent: AnyView?,
+            tableHeaderRevision: String?,
             tableFooterContent: AnyView?
         ) {
             self.tracks = tracks
@@ -1236,6 +1210,8 @@ public struct MediaTrackList: UIViewRepresentable {
             self.isOffline = isOffline
             self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
             self.rowHeight = rowHeight
+            self.tableHeaderContent = tableHeaderContent
+            self.tableHeaderRevision = tableHeaderRevision
             self.tableFooterContent = tableFooterContent
             super.init()
             artworkRecoveryObserver = NotificationCenter.default.addObserver(
@@ -1274,45 +1250,80 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         private func indexedTrack(at indexPath: IndexPath) -> (track: Track, index: Int)? {
-            guard indexPath.section < groupedTracks.count,
-                  indexPath.row < groupedTracks[indexPath.section].tracks.count else {
+            guard let groupIndex = groupIndex(forTableSection: indexPath.section),
+                  indexPath.row < groupedTracks[groupIndex].tracks.count else {
                 return nil
             }
-            let index = groupedTracks[..<indexPath.section].reduce(0) { $0 + $1.tracks.count } + indexPath.row
-            return (groupedTracks[indexPath.section].tracks[indexPath.row], index)
+            let index = groupedTracks[..<groupIndex].reduce(0) { $0 + $1.tracks.count } + indexPath.row
+            return (groupedTracks[groupIndex].tracks[indexPath.row], index)
+        }
+
+        private var headerSectionCount: Int {
+            tableHeaderContent == nil ? 0 : 1
+        }
+
+        var footerSection: Int {
+            headerSectionCount + groupedTracks.count
+        }
+
+        fileprivate func groupIndex(forTableSection section: Int) -> Int? {
+            let groupIndex = section - headerSectionCount
+            return groupedTracks.indices.contains(groupIndex) ? groupIndex : nil
+        }
+
+        private func tableSection(forGroupIndex groupIndex: Int) -> Int {
+            headerSectionCount + groupIndex
         }
 
         func sectionIndex(forID sectionID: String) -> Int? {
-            groupedTracks.firstIndex { $0.id == sectionID }
+            groupedTracks.firstIndex { $0.id == sectionID }.map(tableSection(forGroupIndex:))
         }
 
         func indexPath(forTrackId id: String) -> IndexPath? {
             for (section, group) in groupedTracks.enumerated() {
                 if let row = group.tracks.firstIndex(where: { $0.playbackIdentity == id }) {
-                    return IndexPath(row: row, section: section)
+                    return IndexPath(row: row, section: tableSection(forGroupIndex: section))
                 }
             }
             return nil
         }
 
         public func numberOfSections(in tableView: UITableView) -> Int {
-            groupedTracks.count + (tableFooterContent == nil ? 0 : 1)
+            footerSection + (tableFooterContent == nil ? 0 : 1)
         }
 
         public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-            if section == groupedTracks.count {
+            if tableHeaderContent != nil, section == 0 {
+                return 1
+            }
+            if section == footerSection {
                 return tableFooterContent == nil ? 0 : 1
             }
-            guard section < groupedTracks.count else { return 0 }
-            return groupedTracks[section].tracks.count
+            guard let groupIndex = groupIndex(forTableSection: section) else { return 0 }
+            return groupedTracks[groupIndex].tracks.count
         }
 
         public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-            if indexPath.section == groupedTracks.count, let tableFooterContent {
+            if tableHeaderContent != nil, indexPath.section == 0, let tableHeaderContent {
+                let targetWidth = tableView.bounds.width > 1
+                    ? tableView.bounds.width
+                    : UIScreen.main.bounds.width
                 let cell = tableView.dequeueReusableCell(
-                    withIdentifier: TableFooterCell.reuseIdentifier,
+                    withIdentifier: HostedContentCell.reuseIdentifier,
                     for: indexPath
-                ) as! TableFooterCell
+                ) as! HostedContentCell
+                cell.configure(
+                    content: AnyView(tableHeaderContent.nativeTrackListHeaderWidth(targetWidth)),
+                    tableView: tableView
+                )
+                return cell
+            }
+
+            if indexPath.section == footerSection, let tableFooterContent {
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: HostedContentCell.reuseIdentifier,
+                    for: indexPath
+                ) as! HostedContentCell
                 cell.configure(content: tableFooterContent, tableView: tableView)
                 return cell
             }
@@ -1343,7 +1354,8 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-            guard section < groupedTracks.count, let title = groupedTracks[section].title else { return nil }
+            guard let groupIndex = groupIndex(forTableSection: section),
+                  let title = groupedTracks[groupIndex].title else { return nil }
 
             let headerView = UIView()
             headerView.backgroundColor = .clear
@@ -1372,8 +1384,8 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-            guard section < groupedTracks.count else { return 0 }
-            return groupedTracks[section].title == nil ? 0 : Self.sectionHeaderHeight
+            guard let groupIndex = groupIndex(forTableSection: section) else { return 0 }
+            return groupedTracks[groupIndex].title == nil ? 0 : Self.sectionHeaderHeight
         }
 
         private static var sectionHeaderFont: UIFont {
@@ -1395,14 +1407,14 @@ public struct MediaTrackList: UIViewRepresentable {
 
         public func tableView(_ tableView: UITableView, sectionForSectionIndexTitle title: String, at index: Int) -> Int {
             if let section = groupedTracks.firstIndex(where: { $0.isIndexable && $0.title == title }) {
-                return section
+                return tableSection(forGroupIndex: section)
             }
 
             guard index >= 0, index < groupedTracks.count else {
                 return NSNotFound
             }
 
-            return index
+            return tableSection(forGroupIndex: index)
         }
 
         public func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
@@ -1434,7 +1446,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-            indexPath.section == groupedTracks.count ? UITableView.automaticDimension : rowHeight
+            groupIndex(forTableSection: indexPath.section) == nil ? UITableView.automaticDimension : rowHeight
         }
 
         public func tableView(_ tableView: UITableView, contextMenuConfigurationForRowAt indexPath: IndexPath, point: CGPoint) -> UIContextMenuConfiguration? {

@@ -435,7 +435,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             headerData.sourceKey ?? "",
             headerData.artworkPath ?? "",
             headerData.ratingKey ?? ""
-        ].joined(separator: "|")
+        ].description
     }
 
     private func updatePinStateForHeader(pinnedItems: [PinnedItem]) {
@@ -1435,7 +1435,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @ViewBuilder
     private var tracksSection: some View {
         #if os(iOS)
-        // Self-scrolling UITableView with the header embedded as tableHeaderView.
+        // Self-scrolling UITableView with the header embedded as its first row.
         // Header (album art + action buttons) scrolls naturally with the tracks
         // while preserving UIKit cell recycling for large track lists.
         MediaTrackList(
@@ -1451,6 +1451,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             managesOwnScrolling: true,
             bottomContentInset: TrackListLayoutMetrics.miniPlayerBottomSpacing,
             tableHeaderContent: AnyView(tableHeaderForTrackList),
+            tableHeaderRevision: tableHeaderRevision,
             tableFooterContent: AnyView(VStack(spacing: EnsembleDesign.Spacing.none) {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
@@ -1560,7 +1561,19 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         genreChipContent == nil ? 0 : EnsembleDesign.Spacing.sm
     }
 
-    /// SwiftUI header content embedded as the UITableView's native tableHeaderView.
+    private var tableHeaderRevision: String {
+        [
+            headerData.title,
+            headerData.subtitle ?? "",
+            headerData.metadataLine,
+            headerArtworkLoadKey,
+            resolvedHeaderBlurCacheKey ?? "",
+            artworkImage == nil ? "placeholder" : "artwork",
+            playableTracks.isEmpty ? "disabled" : "enabled"
+        ].joined(separator: "|")
+    }
+
+    /// SwiftUI header content embedded as the UITableView's self-sizing first row.
     /// Scrolls with the track list while preserving cell recycling.
     /// The header is structurally identical across all states (loading, empty, populated)
     /// so the genre chips and artwork maintain consistent positioning.
