@@ -161,7 +161,6 @@ final class StreamingAudioPipeline: NSObject {
 
         private static func defaultSessionConfiguration() -> URLSessionConfiguration {
             let configuration = URLSessionConfiguration.default
-            configuration.networkServiceType = .avStreaming
             configuration.waitsForConnectivity = true
             return configuration
         }
