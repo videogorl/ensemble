@@ -47,6 +47,7 @@ public final class SearchViewModel: ObservableObject {
     @Published public private(set) var artistResults: [Artist] = []
     @Published public private(set) var displayArtistResults: [DisplayArtist] = []
     @Published public private(set) var albumResults: [Album] = []
+    @Published public private(set) var displayAlbumResults: [DisplayAlbum] = []
     @Published public private(set) var playlistResults: [Playlist] = []
     @Published public private(set) var displayPlaylistResults: [DisplayPlaylist] = []
     @Published public private(set) var orderedSections: [SearchSection] = []
@@ -56,8 +57,10 @@ public final class SearchViewModel: ObservableObject {
     // MARK: - Explore Content
     
     @Published public private(set) var recentlyPlayedAlbums: [Album] = []
+    @Published public private(set) var recentlyPlayedDisplayAlbums: [DisplayAlbum] = []
     @Published public private(set) var recentlyPlayedArtists: [Artist] = []
     @Published public private(set) var recentlyAddedAlbums: [Album] = []
+    @Published public private(set) var recentlyAddedDisplayAlbums: [DisplayAlbum] = []
     @Published public private(set) var recommendedItems: [HubItem] = []
     @Published public private(set) var allMoods: [Mood] = []
     @Published public private(set) var isLoadingExplore = false
@@ -423,6 +426,7 @@ public final class SearchViewModel: ObservableObject {
         artistResults = []
         displayArtistResults = []
         albumResults = []
+        displayAlbumResults = []
         playlistResults = []
         displayPlaylistResults = []
         orderedSections = []
@@ -560,7 +564,7 @@ public final class SearchViewModel: ObservableObject {
     private func determineSearchSectionOrder() {
         let sectionCounts: [SearchSection: Int] = [
             .artists: displayArtistResults.count,
-            .albums: albumResults.count,
+            .albums: displayAlbumResults.count,
             .playlists: displayPlaylistResults.count,
             .songs: trackResults.count
         ]
@@ -598,7 +602,8 @@ public final class SearchViewModel: ObservableObject {
             sourceConfiguration: cachedSourceFilter,
             hiddenMedia: hiddenMedia
         )
-        albumResults = MergingProjection.albums(visibleAlbums, preferences: mergingPreferences)
+        albumResults = visibleAlbums
+        displayAlbumResults = MergingProjection.albums(visibleAlbums, preferences: mergingPreferences)
         let visiblePlaylists = LibraryVisibilityFiltering.visibleItems(
             unfilteredPlaylistResults,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
@@ -643,24 +648,30 @@ public final class SearchViewModel: ObservableObject {
             enabledSourceCompositeKeys: currentSourceConfiguration.enabledSourceKeys
         )
         let sourceConfiguration = sourceConfigurationForCachedFiltering(currentSourceConfiguration)
-        recentlyPlayedAlbums = Array(MergingProjection.albums(LibraryVisibilityFiltering.visibleItems(
+        recentlyPlayedAlbums = LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: sourceConfiguration,
             hiddenMedia: hiddenMediaStore.snapshot
-        ), preferences: mergingPreferences).prefix(6))
+        )
+        recentlyPlayedDisplayAlbums = Array(
+            MergingProjection.albums(recentlyPlayedAlbums, preferences: mergingPreferences).prefix(6)
+        )
         recentlyPlayedArtists = Array(LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyPlayedArtists,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: sourceConfiguration,
             hiddenMedia: hiddenMediaStore.snapshot
         ).prefix(6))
-        recentlyAddedAlbums = Array(MergingProjection.albums(LibraryVisibilityFiltering.visibleItems(
+        recentlyAddedAlbums = LibraryVisibilityFiltering.visibleItems(
             unfilteredRecentlyAddedAlbums,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
             sourceConfiguration: sourceConfiguration,
             hiddenMedia: hiddenMediaStore.snapshot
-        ), preferences: mergingPreferences).prefix(6))
+        )
+        recentlyAddedDisplayAlbums = Array(
+            MergingProjection.albums(recentlyAddedAlbums, preferences: mergingPreferences).prefix(6)
+        )
         recommendedItems = Array(Self.filterHubItemsForVisibility(
             unfilteredRecommendedItems,
             hiddenSourceCompositeKeys: hiddenSourceCompositeKeys,
@@ -736,6 +747,7 @@ public final class SearchViewModel: ObservableObject {
         artistResults = []
         displayArtistResults = []
         albumResults = []
+        displayAlbumResults = []
         playlistResults = []
         displayPlaylistResults = []
         orderedSections = []

@@ -96,7 +96,10 @@ public final class EnsemblePermalinkResolver {
         }) else {
             return nil
         }
-        return .album(id: album.id, sourceKey: album.sourceCompositeKey)
+        let displayAlbum = DisplayAlbum.group(albums, preferences: mergingPreferences())
+            .first { $0.albums.contains(where: { $0.sourceScopedID == album.sourceScopedID }) }
+            ?? .single(album)
+        return .albumDetail(displayAlbum)
     }
 
     private func resolveTrack(

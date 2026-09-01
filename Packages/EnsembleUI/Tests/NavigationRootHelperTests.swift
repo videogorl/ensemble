@@ -25,7 +25,7 @@ final class NavigationRootHelperTests: XCTestCase {
             .library(.albums)
         )
         XCTAssertEqual(
-            SidebarSelection.selection(for: .albumDetail(Self.album()), fallback: nil),
+            SidebarSelection.selection(for: .albumDetail(.single(Self.album())), fallback: nil),
             .library(.albums)
         )
         XCTAssertEqual(
@@ -289,7 +289,7 @@ final class NavigationRootHelperTests: XCTestCase {
     }
 
     func testConcreteAlbumDetailDestinationTargetsAlbums() {
-        XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(Self.album())), .albums)
+        XCTAssertEqual(NavigationCoordinator.targetTab(for: .albumDetail(.single(Self.album()))), .albums)
     }
 
     func testNestedDetailDestinationsKeepHiddenCollectionScope() {
@@ -298,8 +298,8 @@ final class NavigationRootHelperTests: XCTestCase {
         let playlist = Self.playlist()
 
         XCTAssertNotEqual(
-            NavigationCoordinator.Destination.albumDetail(album),
-            .albumDetail(album, includesHidden: true)
+            NavigationCoordinator.Destination.albumDetail(.single(album)),
+            .albumDetail(.single(album), includesHidden: true)
         )
         XCTAssertNotEqual(
             NavigationCoordinator.Destination.artistDetail(artist),
@@ -382,14 +382,14 @@ final class NavigationRootHelperTests: XCTestCase {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
             .view(.albums),
-            .albumDetail(album),
+            .albumDetail(.single(album)),
             .artist(id: "artist", sourceKey: "server/library")
         ]
 
         XCTAssertEqual(NestedNavigationLink.destination(in: path, at: 0), .view(.albums))
         XCTAssertEqual(
             NestedNavigationLink.destination(in: path, at: 1),
-            .albumDetail(album)
+            .albumDetail(.single(album))
         )
         XCTAssertEqual(
             NestedNavigationLink.destination(in: path, at: 2),
@@ -402,13 +402,13 @@ final class NavigationRootHelperTests: XCTestCase {
         let album = Self.album()
         let path: [NavigationCoordinator.Destination] = [
             .view(.albums),
-            .albumDetail(album),
+            .albumDetail(.single(album)),
             .artist(id: "artist", sourceKey: "server/library")
         ]
 
         XCTAssertEqual(
             NestedNavigationLink.pathAfterDeactivatingLink(at: 2, in: path),
-            [.view(.albums), .albumDetail(album)]
+            [.view(.albums), .albumDetail(.single(album))]
         )
         XCTAssertEqual(
             NestedNavigationLink.pathAfterDeactivatingLink(at: 1, in: path),

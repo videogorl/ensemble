@@ -78,7 +78,7 @@ public struct ArtistBrowseSnapshot: Equatable, Sendable {
 }
 
 public struct AlbumBrowseSnapshot: Equatable, Sendable {
-    public let albums: [Album]
+    public let albums: [DisplayAlbum]
     public let sections: [LibraryViewModel.AlbumSection]
     public let availableGenres: [String]
     public let phase: LibraryBrowseRefreshPhase

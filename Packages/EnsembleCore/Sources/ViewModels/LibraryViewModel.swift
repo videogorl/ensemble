@@ -23,7 +23,7 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private struct AlbumComputation: Equatable, Sendable {
-        let albums: [Album]
+        let albums: [DisplayAlbum]
         let sections: [AlbumSection]
     }
 
@@ -66,7 +66,7 @@ public final class LibraryViewModel: ObservableObject {
     @Published public private(set) var filteredTracks: [Track] = []
     @Published public private(set) var filteredArtists: [Artist] = []
     @Published public private(set) var displayArtists: [DisplayArtist] = []
-    @Published public private(set) var filteredAlbums: [Album] = []
+    @Published public private(set) var filteredAlbums: [DisplayAlbum] = []
     @Published public private(set) var filteredGenres: [DisplayGenre] = []
     @Published public private(set) var trackSections: [TrackSection] = []
     @Published public private(set) var artistSections: [ArtistSection] = []
@@ -490,8 +490,8 @@ public final class LibraryViewModel: ObservableObject {
             .sorted { $0.letter < $1.letter }
     }
 
-    private static func computeAlbumSections(from albums: [Album], sortOption: AlbumSortOption) -> [AlbumSection] {
-        let groupingKey: (Album) -> String
+    private static func computeAlbumSections(from albums: [DisplayAlbum], sortOption: AlbumSortOption) -> [AlbumSection] {
+        let groupingKey: (DisplayAlbum) -> String
         switch sortOption {
         case .title:
             groupingKey = { $0.title.indexingLetter }
@@ -952,7 +952,7 @@ public final class LibraryViewModel: ObservableObject {
     }
 
     private func commitAlbumSnapshot(
-        albums: [Album],
+        albums: [DisplayAlbum],
         sections: [AlbumSection],
         rawAlbumCount: Int
     ) {
@@ -1113,10 +1113,10 @@ public final class LibraryViewModel: ObservableObject {
 
     public struct AlbumSection: Identifiable, Equatable, Sendable {
         public let letter: String
-        public let albums: [Album]
+        public let albums: [DisplayAlbum]
         public var id: String { letter }
 
-        public init(letter: String, albums: [Album]) {
+        public init(letter: String, albums: [DisplayAlbum]) {
             self.letter = letter
             self.albums = albums
         }

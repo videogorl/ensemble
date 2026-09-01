@@ -9,7 +9,7 @@ public struct AlbumsView: View {
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var showFilterSheet = false
-    @State private var selectedAlbum: Album?
+    @State private var selectedAlbum: DisplayAlbum?
     @State private var cachedAlbumSnapshot: AlbumBrowseSnapshot = .empty
 
     public init(
@@ -236,15 +236,12 @@ public struct AlbumsView: View {
         StageFlowView(
             items: albumSnapshot.albums,
             nowPlayingVM: nowPlayingVM,
-            itemView: { album in
-                StageFlowItemView(album: album)
+            itemView: { displayAlbum in
+                StageFlowItemView(album: displayAlbum.primaryAlbum)
             },
             detailView: { selectedAlbum in
                 StageFlowTrackPanel(
-                    contentType: .album(
-                        id: selectedAlbum.id,
-                        sourceCompositeKey: selectedAlbum.sourceCompositeKey
-                    ),
+                    contentType: .albumGroup(selectedAlbum.albums),
                     nowPlayingVM: nowPlayingVM
                 )
             },
@@ -257,15 +254,18 @@ public struct AlbumsView: View {
         )
     }
 
-    private func resolveStageFlowTracks(for album: Album) async -> [Track] {
-        guard let sourceCompositeKey = album.sourceCompositeKey,
-              MediaSourceIdentity.parse(sourceCompositeKey) != nil else { return [] }
-        let cachedTracks = (try? await deps.libraryRepository.fetchTracks(
-            forAlbum: album.id,
-            sourceCompositeKey: sourceCompositeKey
-        )) ?? []
-
-        return cachedTracks.map { Track(from: $0) }
+    private func resolveStageFlowTracks(for displayAlbum: DisplayAlbum) async -> [Track] {
+        var tracks: [Track] = []
+        for album in displayAlbum.albums {
+            guard let sourceCompositeKey = album.sourceCompositeKey,
+                  MediaSourceIdentity.parse(sourceCompositeKey) != nil else { continue }
+            let cachedTracks = (try? await deps.libraryRepository.fetchTracks(
+                forAlbum: album.id,
+                sourceCompositeKey: sourceCompositeKey
+            )) ?? []
+            tracks.append(contentsOf: cachedTracks.map { Track(from: $0) })
+        }
+        return MergingProjection.tracks(tracks, preferences: deps.settingsManager.mergingPreferences)
     }
 
     private var albumGenreChipBar: some View {
@@ -295,6 +295,7 @@ public struct AlbumDetailView: View {
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
     private let album: Album
+    private let displayAlbum: DisplayAlbum
     private let selectedTrackId: String?
     private let includesHidden: Bool
 
@@ -305,12 +306,29 @@ public struct AlbumDetailView: View {
         selectedTrackId: String? = nil,
         includesHidden: Bool = false
     ) {
-        self.album = album
+        self.init(
+            displayAlbum: .single(album),
+            nowPlayingVM: nowPlayingVM,
+            initialTracks: initialTracks,
+            selectedTrackId: selectedTrackId,
+            includesHidden: includesHidden
+        )
+    }
+
+    public init(
+        displayAlbum: DisplayAlbum,
+        nowPlayingVM: NowPlayingViewModel,
+        initialTracks: [Track]? = nil,
+        selectedTrackId: String? = nil,
+        includesHidden: Bool = false
+    ) {
+        self.displayAlbum = displayAlbum
+        self.album = displayAlbum.primaryAlbum
         self.selectedTrackId = selectedTrackId
         self.includesHidden = includesHidden
         self._viewModel = StateObject(
             wrappedValue: DependencyContainer.shared.makeAlbumDetailViewModel(
-                album: album,
+                displayAlbum: displayAlbum,
                 initialTracks: initialTracks,
                 includesHidden: includesHidden
             )
@@ -319,6 +337,7 @@ public struct AlbumDetailView: View {
     }
 
     public init(viewModel: AlbumDetailViewModel, nowPlayingVM: NowPlayingViewModel) {
+        self.displayAlbum = viewModel.displayAlbum
         self.album = viewModel.album
         self.selectedTrackId = nil
         self.includesHidden = false
@@ -392,6 +411,20 @@ public struct AlbumDetailView: View {
                 await viewModel.loadAlbumDetail()
                 await viewModel.loadRelatedAlbums()
                 await viewModel.loadSimilarAlbums()
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(
+                        identities: Set(displayAlbum.albums.map(\.sourceScopedID))
+                    )
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: { pinnedIdentities in
+                displayAlbum.albums.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
             }
         )
         .metadataEditorSheet(request: $metadataEditorRequest)
@@ -551,22 +584,23 @@ public struct AlbumDetailView: View {
     /// detail table remains the only scroll view in the footer path.
     @ViewBuilder
     private func albumCardCollection(albums: [Album]) -> some View {
+        let displayAlbums = DisplayAlbum.group(albums, preferences: deps.settingsManager.mergingPreferences)
         #if os(macOS)
         LazyVGrid(
             columns: AlbumCardLayoutMetrics.shelf.gridColumns,
             alignment: .leading,
             spacing: AlbumCardLayoutMetrics.shelf.rowSpacing
         ) {
-            ForEach(AlbumBrowseItem.identify(albums)) { item in
-                albumCardLink(for: item.album)
+            ForEach(AlbumBrowseItem.identify(displayAlbums)) { item in
+                albumCardLink(for: item.displayAlbum)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         #else
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: AlbumCardLayoutMetrics.shelf.gridSpacing) {
-                ForEach(AlbumBrowseItem.identify(albums)) { item in
-                    albumCardLink(for: item.album)
+                ForEach(AlbumBrowseItem.identify(displayAlbums)) { item in
+                    albumCardLink(for: item.displayAlbum)
                 }
             }
         }
@@ -576,11 +610,11 @@ public struct AlbumDetailView: View {
     }
 
     @ViewBuilder
-    private func albumCardLink(for scrollAlbum: Album) -> some View {
+    private func albumCardLink(for scrollAlbum: DisplayAlbum) -> some View {
         navigationCoordinator.routeLink(
             to: .albumDetail(scrollAlbum, includesHidden: includesHidden)
         ) {
-            AlbumCard(album: scrollAlbum, layout: .shelf)
+            AlbumCard(displayAlbum: scrollAlbum, layout: .shelf)
         }
         .buttonStyle(.plain)
     }

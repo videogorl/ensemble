@@ -66,7 +66,7 @@ public enum AlbumCardLayoutMetrics {
 }
 
 public struct AlbumCard: View {
-    let album: Album
+    let displayAlbum: DisplayAlbum
     let layout: AlbumCardLayoutMetrics
     let allowsDragExport: Bool
 
@@ -75,12 +75,23 @@ public struct AlbumCard: View {
         layout: AlbumCardLayoutMetrics = .compact,
         allowsDragExport: Bool = true
     ) {
-        self.album = album
+        self.displayAlbum = .single(album)
+        self.layout = layout
+        self.allowsDragExport = allowsDragExport
+    }
+
+    public init(
+        displayAlbum: DisplayAlbum,
+        layout: AlbumCardLayoutMetrics = .compact,
+        allowsDragExport: Bool = true
+    ) {
+        self.displayAlbum = displayAlbum
         self.layout = layout
         self.allowsDragExport = allowsDragExport
     }
 
     public var body: some View {
+        let album = displayAlbum.primaryAlbum
         let artworkCornerRadius = ArtworkCornerRadius.square(for: layout.artworkSize)
         let artistLine = album.artistName ?? " "
         let yearLine = album.year.map(String.init) ?? " "
@@ -93,7 +104,7 @@ public struct AlbumCard: View {
                 cornerRadius: artworkCornerRadius,
                 isResponsive: true
             )
-            .mediaNavigationTransitionSource(id: album.sourceScopedID)
+            .mediaNavigationTransitionSource(id: displayAlbum.id)
 
             VStack(alignment: .leading, spacing: EnsembleScaffold.MediaCard.textSpacing) {
                 Text(album.title)
@@ -152,43 +163,47 @@ public struct AlbumCard: View {
 
 struct AlbumBrowseItem: Identifiable {
     let id: String
-    let album: Album
+    let displayAlbum: DisplayAlbum
 
-    init(album: Album) {
-        self.id = album.sourceScopedID
-        self.album = album
+    init(displayAlbum: DisplayAlbum) {
+        self.id = displayAlbum.id
+        self.displayAlbum = displayAlbum
     }
 
-    static func identify(_ albums: [Album]) -> [AlbumBrowseItem] {
-        albums.map(AlbumBrowseItem.init(album:))
+    static func identify(_ albums: [DisplayAlbum]) -> [AlbumBrowseItem] {
+        albums.map(AlbumBrowseItem.init(displayAlbum:))
     }
 }
 
 public struct AlbumGrid: View {
-    let albums: [Album]
+    let albums: [DisplayAlbum]
+    let rawAlbums: [Album]?
     let nowPlayingVM: NowPlayingViewModel
     let navigationCoordinator: NavigationCoordinator
-    let onAlbumTap: ((Album) -> Void)?
+    let onAlbumTap: ((DisplayAlbum) -> Void)?
     let layout: AlbumCardLayoutMetrics
     let horizontalPadding: CGFloat
     let includesHidden: Bool
 
     @Environment(\.dependencies) private var deps
+    @ObservedObject private var settingsManager: SettingsManager
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
     @State private var pendingAlbumDeletion: Album?
 
     public init(
-        albums: [Album],
+        albums: [DisplayAlbum],
         nowPlayingVM: NowPlayingViewModel,
         navigationCoordinator: NavigationCoordinator,
         layout: AlbumCardLayoutMetrics = .prominent,
         horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
         includesHidden: Bool = false,
-        onAlbumTap: ((Album) -> Void)? = nil
+        onAlbumTap: ((DisplayAlbum) -> Void)? = nil
     ) {
         self.albums = albums
+        self.rawAlbums = nil
+        self.settingsManager = DependencyContainer.shared.settingsManager
         self.nowPlayingVM = nowPlayingVM
         self.navigationCoordinator = navigationCoordinator
         self.layout = layout
@@ -197,29 +212,53 @@ public struct AlbumGrid: View {
         self.onAlbumTap = onAlbumTap
     }
 
+    public init(
+        albums: [Album],
+        nowPlayingVM: NowPlayingViewModel,
+        navigationCoordinator: NavigationCoordinator,
+        layout: AlbumCardLayoutMetrics = .prominent,
+        horizontalPadding: CGFloat = TrackListLayoutMetrics.rowHorizontalPadding,
+        includesHidden: Bool = false,
+        onAlbumTap: ((DisplayAlbum) -> Void)? = nil
+    ) {
+        self.albums = []
+        self.rawAlbums = albums
+        self.settingsManager = DependencyContainer.shared.settingsManager
+        self.nowPlayingVM = nowPlayingVM
+        self.navigationCoordinator = navigationCoordinator
+        self.layout = layout
+        self.horizontalPadding = horizontalPadding
+        self.includesHidden = includesHidden
+        self.onAlbumTap = onAlbumTap
+    }
+
+    private var displayedAlbums: [DisplayAlbum] {
+        rawAlbums.map { DisplayAlbum.group($0, preferences: settingsManager.mergingPreferences) } ?? albums
+    }
+
     public var body: some View {
         LazyVGrid(columns: layout.gridColumns, spacing: layout.rowSpacing) {
-            ForEach(AlbumBrowseItem.identify(albums)) { item in
-                let album = item.album
+            ForEach(AlbumBrowseItem.identify(displayedAlbums)) { item in
+                let displayAlbum = item.displayAlbum
                 if let onAlbumTap {
                     Button {
-                        onAlbumTap(album)
+                        onAlbumTap(displayAlbum)
                     } label: {
-                        AlbumCard(album: album, layout: layout)
+                        AlbumCard(displayAlbum: displayAlbum, layout: layout)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        albumContextMenu(for: album)
+                        albumContextMenu(for: displayAlbum)
                     }
                 } else {
                     navigationCoordinator.routeLink(
-                        to: .albumDetail(album, includesHidden: includesHidden)
+                        to: .albumDetail(displayAlbum, includesHidden: includesHidden)
                     ) {
-                        AlbumCard(album: album, layout: layout)
+                        AlbumCard(displayAlbum: displayAlbum, layout: layout)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        albumContextMenu(for: album)
+                        albumContextMenu(for: displayAlbum)
                     }
                 }
             }
@@ -254,7 +293,8 @@ public struct AlbumGrid: View {
     }
 
     @ViewBuilder
-    private func albumContextMenu(for album: Album) -> some View {
+    private func albumContextMenu(for displayAlbum: DisplayAlbum) -> some View {
+        let album = displayAlbum.primaryAlbum
         AlbumActionsContextMenu(
             album: album,
             nowPlayingVM: nowPlayingVM,
@@ -269,6 +309,20 @@ public struct AlbumGrid: View {
             },
             onDelete: {
                 pendingAlbumDeletion = album
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayAlbum.albums.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
             }
         )
     }

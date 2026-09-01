@@ -641,7 +641,9 @@ public struct ArtistDetailView: View {
         )
         self.nowPlayingVM = nowPlayingVM
         let pinnedIdentities = Set(DependencyContainer.shared.pinManager.pinnedItems.map(\.sourceScopedID))
-        self._isArtistPinned = State(initialValue: pinnedIdentities.contains(artist.sourceScopedID))
+        self._isArtistPinned = State(
+            initialValue: displayArtist.artists.allSatisfy { pinnedIdentities.contains($0.sourceScopedID) }
+        )
     }
 
     public var body: some View {
@@ -719,8 +721,14 @@ public struct ArtistDetailView: View {
                             ProgressView()
                                 .padding(.top, EnsembleScaffold.ArtistDetail.loadingTopPadding)
                         } else if !mergedViewModel.sourceSections.isEmpty {
-                            mergedSourceSections
-                                .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            if !detailAlbums.isEmpty {
+                                albumsSection
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
+                            if !detailFavoritedTracks.isEmpty {
+                                favoritedTracksSection
+                                    .padding(.top, EnsembleScaffold.ArtistDetail.sectionTopPadding)
+                            }
                         }
                     } else {
                         // Albums Section
@@ -759,7 +767,8 @@ public struct ArtistDetailView: View {
     }
 
     private func updateArtistPinState(pinnedItems: [PinnedItem]) {
-        let latest = pinnedItems.contains { $0.sourceScopedID == viewModel.artist.sourceScopedID }
+        let identities = Set(pinnedItems.map(\.sourceScopedID))
+        let latest = displayArtist.artists.allSatisfy { identities.contains($0.sourceScopedID) }
         if latest != isArtistPinned {
             isArtistPinned = latest
         }
@@ -773,13 +782,15 @@ public struct ArtistDetailView: View {
         let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
             Button {
-                dependencies.pinMutationWorkflow.togglePin(
-                    id: viewModel.artist.id,
-                    sourceKey: viewModel.artist.sourceCompositeKey ?? "",
-                    type: .artist,
-                    title: viewModel.artist.name,
-                    isPinned: isPinned
-                )
+                if isPinned {
+                    dependencies.pinMutationWorkflow.unpinAll(
+                        identities: Set(displayArtist.artists.map(\.sourceScopedID))
+                    )
+                } else {
+                    dependencies.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                        (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
+                    })
+                }
             } label: {
                 MediaActionLabel(kind: .pin(isPinned: isPinned))
             }
@@ -1079,7 +1090,10 @@ public struct ArtistDetailView: View {
     }
 
     private var detailTracks: [Track] {
-        detailSnapshot.filteredTracks
+        MergingProjection.tracks(
+            detailSnapshot.filteredTracks,
+            preferences: settingsManager.mergingPreferences
+        )
     }
 
     private var detailTrackCount: Int {
@@ -1087,7 +1101,10 @@ public struct ArtistDetailView: View {
     }
 
     private var detailFavoritedTracks: [Track] {
-        detailSnapshot.favoritedTracks
+        MergingProjection.tracks(
+            detailSnapshot.favoritedTracks,
+            preferences: settingsManager.mergingPreferences
+        )
     }
 
     // MARK: - Hero Banner
@@ -1455,17 +1472,18 @@ public struct ArtistDetailView: View {
 
     /// Shows only related artists that exist in the user's library (across all sources)
     private func relatedArtistsSection(artists: [Artist]) -> some View {
-        VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
+        let displayArtists = DisplayArtist.group(artists, preferences: settingsManager.mergingPreferences)
+        return VStack(alignment: .leading, spacing: EnsembleScaffold.ArtistDetail.aboutSpacing) {
             EnsembleContentSectionHeader("Related Artists")
                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: EnsembleDesign.Spacing.lg) {
-                    ForEach(artists, id: \.sourceScopedID) { artist in
+                    ForEach(displayArtists) { displayArtist in
                         navigationCoordinator.routeLink(
-                            to: .artistDetail(artist)
+                            to: .displayArtist(id: displayArtist.id)
                         ) {
-                            similarArtistCard(artist: artist)
+                            similarArtistCard(artist: displayArtist.artworkArtist)
                         }
                         .buttonStyle(.plain)
                     }

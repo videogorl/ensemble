@@ -462,15 +462,47 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(WatchExperienceModel.trackLoadStatus(trackCount: 4, failureCount: 1), "Some sources unavailable.")
     }
 
-    func testMergedPlaylistIsPinnedWhenAnyConstituentIsPinned() {
+    func testWatchAlbumGroupsUseSyncedIdentityAndSourceOrder() {
+        let plex = EnsembleMediaSummary(
+            id: "plex",
+            kind: .album,
+            title: "Synthetica Deluxe Edition",
+            subtitle: "Metric",
+            sourceKey: "plex:a:s1",
+            year: 2012
+        )
+        let apple = EnsembleMediaSummary(
+            id: "apple",
+            kind: .album,
+            title: "Synthetica Deluxe Edition",
+            subtitle: "Metric",
+            sourceKey: "applemusic:a:catalog",
+            year: 2012
+        )
+        let preferences = EnsembleMergingPreferences(
+            mergeAlbums: true,
+            preferredSourceKeys: [apple.sourceKey, plex.sourceKey]
+        )
+
+        let groups = WatchMediaGroup.grouped([plex, apple], preferences: preferences)
+
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].items.map(\.id), ["apple", "plex"])
+    }
+
+    func testMergedPlaylistIsPinnedOnlyWhenEveryConstituentIsPinned() {
         let playlists = [
             EnsembleMediaSummary(id: "a", kind: .playlist, title: "Mix", sourceKey: "plex:a:s1"),
             EnsembleMediaSummary(id: "b", kind: .playlist, title: "Mix", sourceKey: "plex:a:s2")
         ]
 
-        XCTAssertTrue(WatchExperienceModel.containsPinnedItem(
+        XCTAssertFalse(WatchExperienceModel.containsPinnedItem(
             playlists,
             pinnedItemIDs: ["plex:a:s1||a"]
+        ))
+        XCTAssertTrue(WatchExperienceModel.containsPinnedItem(
+            playlists,
+            pinnedItemIDs: ["plex:a:s1||a", "plex:a:s2||b"]
         ))
         XCTAssertFalse(WatchExperienceModel.containsPinnedItem(playlists, pinnedItemIDs: []))
     }

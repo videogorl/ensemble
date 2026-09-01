@@ -23,6 +23,13 @@
 - Merging is presentation-only: exact source records remain stored and reappear
   when disabled. Preferred source order may choose among proven copies but never
   reroutes an explicit mutation, rating, download, or playback owner.
+- Album families require the same normalized title, album artist, and release
+  year. Edition markers remain part of the title; missing years stay separate.
+  A merged album shows every constituent track, then collapses matching rows only
+  when Songs merging is enabled.
+- A merged artist, album, or playlist is pinned only when every constituent is
+  pinned. Pin and unpin update every exact-source constituent as one reversible
+  batch while persistence remains source-scoped.
 - Playlist membership identity/order and enough display metadata remain durable
   independently of the current library cache, so disabled or unavailable library
   tracks remain visible and removable even when they cannot play/download.

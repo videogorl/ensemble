@@ -6,7 +6,9 @@ import Foundation
 /// Resolved pinned item ready for display, wrapping the domain object with its pin metadata
 public enum ResolvedPin: Identifiable {
     case album(Album, PinnedItem)
+    case mergedAlbum(DisplayAlbum, [PinnedItem])
     case artist(Artist, PinnedItem)
+    case mergedArtist(DisplayArtist, [PinnedItem])
     case playlist(Playlist, PinnedItem)
     /// Merged playlist group — multiple pinned playlists with the same title grouped together
     case mergedPlaylist(DisplayPlaylist, [PinnedItem])
@@ -14,7 +16,9 @@ public enum ResolvedPin: Identifiable {
     public var id: String {
         switch self {
         case let .album(_, pin): return pin.sourceScopedID
+        case let .mergedAlbum(display, _): return "merged-pin:\(display.id)"
         case let .artist(_, pin): return pin.sourceScopedID
+        case let .mergedArtist(display, _): return "merged-pin:\(display.id)"
         case let .playlist(_, pin): return pin.sourceScopedID
         case let .mergedPlaylist(dp, _): return "merged-pin:\(dp.id)"
         }
@@ -23,7 +27,9 @@ public enum ResolvedPin: Identifiable {
     public var pinnedItem: PinnedItem {
         switch self {
         case let .album(_, pin): return pin
+        case let .mergedAlbum(_, pins): return pins[0]
         case let .artist(_, pin): return pin
+        case let .mergedArtist(_, pins): return pins[0]
         case let .playlist(_, pin): return pin
         case let .mergedPlaylist(_, pins): return pins[0]
         }
@@ -33,7 +39,9 @@ public enum ResolvedPin: Identifiable {
     public var allPinnedIdentities: Set<String> {
         switch self {
         case let .album(_, pin): return [pin.sourceScopedID]
+        case let .mergedAlbum(_, pins): return Set(pins.map(\.sourceScopedID))
         case let .artist(_, pin): return [pin.sourceScopedID]
+        case let .mergedArtist(_, pins): return Set(pins.map(\.sourceScopedID))
         case let .playlist(_, pin): return [pin.sourceScopedID]
         case let .mergedPlaylist(_, pins): return Set(pins.map(\.sourceScopedID))
         }
@@ -43,7 +51,9 @@ public enum ResolvedPin: Identifiable {
     public var reorderIdentities: [String] {
         switch self {
         case let .album(_, pin): return [pin.sourceScopedID]
+        case let .mergedAlbum(_, pins): return pins.map(\.sourceScopedID)
         case let .artist(_, pin): return [pin.sourceScopedID]
+        case let .mergedArtist(_, pins): return pins.map(\.sourceScopedID)
         case let .playlist(_, pin): return [pin.sourceScopedID]
         case let .mergedPlaylist(_, pins): return pins.map(\.sourceScopedID)
         }
@@ -53,7 +63,7 @@ public enum ResolvedPin: Identifiable {
 extension ResolvedPin: LibraryVisibilitySourceIdentifiable {
     var sourceCompositeKey: String? {
         switch self {
-        case .mergedPlaylist: return nil
+        case .mergedAlbum, .mergedArtist, .mergedPlaylist: return nil
         default: return pinnedItem.sourceCompositeKey
         }
     }
@@ -61,7 +71,9 @@ extension ResolvedPin: LibraryVisibilitySourceIdentifiable {
     func isHidden(in snapshot: HiddenMediaSnapshot) -> Bool {
         switch self {
         case .album(let album, _): return snapshot.isHidden(album)
+        case .mergedAlbum(let display, _): return display.albums.allSatisfy(snapshot.isHidden)
         case .artist(let artist, _): return snapshot.isHidden(artist)
+        case .mergedArtist(let display, _): return display.artists.allSatisfy(snapshot.isHidden)
         case .playlist(let playlist, _): return snapshot.isHidden(playlist)
         case .mergedPlaylist(let display, _): return display.playlists.allSatisfy(snapshot.isHidden)
         }
@@ -199,14 +211,101 @@ public final class PinnedViewModel: ObservableObject {
             hiddenMedia: hiddenMediaStore.snapshot
         )
 
-        // When merge is enabled, group adjacent playlist pins with the same title
         let preferences = SettingsManager.storedMergingPreferences()
+        if preferences.isEnabled && preferences.mergeAlbums {
+            resolved = mergeAlbumPins(resolved, preferences: preferences)
+        }
+        if preferences.isEnabled && preferences.mergeArtists {
+            resolved = mergeArtistPins(resolved, preferences: preferences)
+        }
         if preferences.isEnabled && preferences.mergePlaylists {
             resolved = mergePlaylistPins(resolved, preferences: preferences)
         }
 
         resolvedPins = resolved
         isLoading = false
+    }
+
+    private func mergeAlbumPins(
+        _ pins: [ResolvedPin],
+        preferences: EnsembleMergingPreferences
+    ) -> [ResolvedPin] {
+        mergePins(
+            pins,
+            preferences: preferences,
+            value: { pin in
+                guard case let .album(album, pinnedItem) = pin,
+                      let identity = EnsembleMergeIdentity.albumFamily(
+                          title: album.title,
+                          artist: album.albumArtist ?? album.artistName,
+                          year: album.year
+                      ) else { return nil }
+                return (identity, album, pinnedItem)
+            },
+            sourceKey: { $0.sourceCompositeKey },
+            merged: { values, pinnedItems in
+                .mergedAlbum(
+                    DisplayAlbum(id: "merged:\(values[0].identity)", albums: values.map(\.value)),
+                    pinnedItems
+                )
+            }
+        )
+    }
+
+    private func mergeArtistPins(
+        _ pins: [ResolvedPin],
+        preferences: EnsembleMergingPreferences
+    ) -> [ResolvedPin] {
+        mergePins(
+            pins,
+            preferences: preferences,
+            value: { pin in
+                guard case let .artist(artist, pinnedItem) = pin else { return nil }
+                return (DisplayArtist.normalizedName(artist.name), artist, pinnedItem)
+            },
+            sourceKey: { $0.sourceCompositeKey },
+            merged: { values, pinnedItems in
+                .mergedArtist(
+                    DisplayArtist.merged(
+                        name: values[0].value.name,
+                        normalizedName: values[0].identity,
+                        artists: values.map(\.value)
+                    ),
+                    pinnedItems
+                )
+            }
+        )
+    }
+
+    private func mergePins<Value>(
+        _ pins: [ResolvedPin],
+        preferences: EnsembleMergingPreferences,
+        value: (ResolvedPin) -> (identity: String, value: Value, pin: PinnedItem)?,
+        sourceKey: (Value) -> String?,
+        merged: ([(identity: String, value: Value, pin: PinnedItem)], [PinnedItem]) -> ResolvedPin
+    ) -> [ResolvedPin] {
+        var output: [ResolvedPin] = []
+        var groupIndex: [String: Int] = [:]
+        var groups: [String: [(identity: String, value: Value, pin: PinnedItem)]] = [:]
+
+        for pin in pins {
+            guard let item = value(pin) else {
+                output.append(pin)
+                continue
+            }
+            if groupIndex[item.identity] == nil {
+                groupIndex[item.identity] = output.count
+                output.append(pin)
+            }
+            groups[item.identity, default: []].append(item)
+        }
+
+        for (identity, index) in groupIndex {
+            guard let values = groups[identity], values.count > 1 else { continue }
+            let ordered = preferences.ordered(values, sourceKey: { sourceKey($0.value) })
+            output[index] = merged(ordered, ordered.map(\.pin))
+        }
+        return output
     }
 
     private func references(in pins: [PinnedItem], matching type: PinnedItemType) -> [SourceScopedArtworkReference] {

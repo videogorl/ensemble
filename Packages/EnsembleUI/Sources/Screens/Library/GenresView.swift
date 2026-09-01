@@ -223,6 +223,7 @@ struct GenreDetailContentView: View {
     }
 
     @ObservedObject var libraryVM: LibraryViewModel
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let genre: DisplayGenre
     let nowPlayingVM: NowPlayingViewModel
     let presentationStyle: PresentationStyle
@@ -244,16 +245,17 @@ struct GenreDetailContentView: View {
     var body: some View {
         let genreAlbums = albums(for: genre)
         let albums = filteredAndSortedAlbums(from: genreAlbums)
-        let sections = albumSections(from: albums)
+        let displayAlbums = DisplayAlbum.group(albums, preferences: settingsManager.mergingPreferences)
+        let sections = albumSections(from: displayAlbums)
 
         VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.none) {
             if genreAlbums.isEmpty {
                 LargeScreenPlaceholderView(systemImage: EnsembleDesign.Icon.album, title: "No Albums")
             } else {
                 genreAlbumList(
-                    albums: albums,
+                    albums: displayAlbums,
                     sections: sections,
-                    playbackTracks: playbackTracks(for: albums)
+                    playbackTracks: playbackTracks(for: displayAlbums)
                 )
             }
         }
@@ -276,7 +278,7 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private func genreHeader(albums: [Album]) -> some View {
+    private func genreHeader(albums: [DisplayAlbum]) -> some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Genres.detailHeaderSpacing) {
             Text(genre.title)
                 .font(EnsembleDesign.Typography.stateTitle)
@@ -312,7 +314,7 @@ struct GenreDetailContentView: View {
     }
 
     private func genreAlbumList(
-        albums: [Album],
+        albums: [DisplayAlbum],
         sections: [LibraryViewModel.AlbumSection],
         playbackTracks: [Track]
     ) -> some View {
@@ -470,7 +472,7 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private func albumSections(from albums: [Album]) -> [LibraryViewModel.AlbumSection] {
+    private func albumSections(from albums: [DisplayAlbum]) -> [LibraryViewModel.AlbumSection] {
         let grouped = Dictionary(grouping: albums) { indexingLetter(for: $0) }
         return grouped.map { LibraryViewModel.AlbumSection(letter: $0.key, albums: $0.value) }
             .sorted {
@@ -489,7 +491,7 @@ struct GenreDetailContentView: View {
         }
     }
 
-    private func indexingLetter(for album: Album) -> String {
+    private func indexingLetter(for album: DisplayAlbum) -> String {
         switch libraryVM.genreDetailAlbumSortOption {
         case .title:
             return album.title.indexingLetter
@@ -506,7 +508,7 @@ struct GenreDetailContentView: View {
         Array(Set(albums.compactMap { $0.artistName ?? $0.albumArtist })).sorted()
     }
 
-    private func playbackTracks(for albums: [Album]) -> [Track] {
+    private func playbackTracks(for albums: [DisplayAlbum]) -> [Track] {
         var tracksByAlbum: [String: [Track]] = [:]
 
         for track in libraryVM.tracks {
@@ -518,9 +520,12 @@ struct GenreDetailContentView: View {
             tracksByAlbum[key]?.sort(by: trackPrecedes)
         }
 
-        return albums.flatMap { album in
-            tracksByAlbum[sourceScopedAlbumKey(id: album.id, sourceCompositeKey: album.sourceCompositeKey)] ?? []
+        let tracks = albums.flatMap { displayAlbum in
+            displayAlbum.albums.flatMap { album in
+                tracksByAlbum[sourceScopedAlbumKey(id: album.id, sourceCompositeKey: album.sourceCompositeKey)] ?? []
+            }
         }
+        return MergingProjection.tracks(tracks, preferences: settingsManager.mergingPreferences)
     }
 
     private func sourceScopedAlbumKey(id: String, sourceCompositeKey: String?) -> String {

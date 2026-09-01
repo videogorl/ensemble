@@ -31,11 +31,17 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
 
     private let libraryRepository: LibraryRepositoryProtocol
     private let hiddenMediaStore: HiddenMediaStore
+    private let settingsManager: SettingsManager
     private var cancellables = Set<AnyCancellable>()
 
-    public init(libraryRepository: LibraryRepositoryProtocol, hiddenMediaStore: HiddenMediaStore? = nil) {
+    public init(
+        libraryRepository: LibraryRepositoryProtocol,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil
+    ) {
         self.libraryRepository = libraryRepository
         self.hiddenMediaStore = hiddenMediaStore ?? .shared
+        self.settingsManager = settingsManager ?? SettingsManager()
 
         let savedFilters = FilterPersistence.load(for: "Favorites")
         self.filterOptions = savedFilters
@@ -67,11 +73,14 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     /// Reactive pipeline: recompute filteredTracks whenever inputs change.
     /// Runs filter+sort on a background queue with debouncing.
     private func setupFilteredTracksPipeline() {
-        Publishers.CombineLatest3($tracks, $favoritesSortOption, $filterOptions)
+        Publishers.CombineLatest4($tracks, $favoritesSortOption, $filterOptions, settingsManager.$mergingPreferences)
             .debounce(for: .milliseconds(100), scheduler: DispatchQueue.global(qos: .userInitiated))
-            .map { [weak self] tracks, sortOption, filterOptions -> [Track] in
+            .map { [weak self] tracks, sortOption, filterOptions, preferences -> [Track] in
                 guard self != nil else { return tracks }
-                return FavoritesViewModel.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions)
+                return MergingProjection.tracks(
+                    FavoritesViewModel.filterAndSort(tracks, sortOption: sortOption, filterOptions: filterOptions),
+                    preferences: preferences
+                )
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] filtered in
@@ -193,7 +202,10 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
     }
 
     private func applyFilteredTracks(_ nextTracks: [Track]) {
-        let filtered = Self.filterAndSort(nextTracks, sortOption: favoritesSortOption, filterOptions: filterOptions)
+        let filtered = MergingProjection.tracks(
+            Self.filterAndSort(nextTracks, sortOption: favoritesSortOption, filterOptions: filterOptions),
+            preferences: settingsManager.mergingPreferences
+        )
         if filteredTracks != filtered {
             filteredTracks = filtered
         }

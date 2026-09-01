@@ -266,9 +266,8 @@ struct WatchRootView: View {
                 }
             }
 
-            if let recentlyAdded = experience.catalogSnapshot?.recentlyAdded
-                .filter({ $0.kind == .album })
-                .prefix(6), !recentlyAdded.isEmpty {
+            let recentlyAdded = Array(experience.recentlyAddedAlbums.prefix(6))
+            if !recentlyAdded.isEmpty {
                 Section("Recently Added") {
                     LazyVGrid(columns: WatchRecentGrid.columns, spacing: WatchRecentGrid.spacing) {
                         ForEach(Array(recentlyAdded), id: \.watchListID) { item in
@@ -769,7 +768,7 @@ private struct WatchCategoryView: View {
         case .hidden:
             return experience.hiddenItems
         case .recentlyAdded:
-            return snapshot.recentlyAdded
+            return experience.recentlyAddedAlbums
         }
     }
 }
@@ -833,7 +832,7 @@ private struct WatchArtistAlbumsView: View {
                     ForEach(artistAlbums) { album in
                         NavigationLink(destination: WatchTrackCollectionDetailView(
                             title: album.title,
-                            source: .artistAlbum(album.id)
+                            source: .artistAlbum(album)
                         )) {
                             if let summary = album.mediaSummary {
                                 WatchMediaRow(item: summary)
@@ -856,7 +855,11 @@ private struct WatchArtistAlbumsView: View {
     }
 
     private var artistAlbums: [WatchArtistAlbumSummary] {
-        WatchArtistAlbumSummary.albums(from: experience.detailTracks)
+        WatchArtistAlbumSummary.albums(
+            from: experience.detailTracks,
+            catalogAlbums: experience.catalogSnapshot?.albums ?? [],
+            preferences: experience.mergingPreferences
+        )
             .filter { searchText.isEmpty || $0.title.localizedCaseInsensitiveContains(searchText) }
             .sorted {
                 $0.title.localizedStandardCompare($1.title)
@@ -1003,8 +1006,8 @@ private struct WatchTrackCollectionDetailView: View {
         switch source {
         case .media, .playlistGroup, .genre:
             return experience.detailTracks
-        case .artistAlbum(let id):
-            return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.tracks ?? []
+        case .artistAlbum(let album):
+            return album.tracks
         }
     }
 
@@ -1039,10 +1042,8 @@ private struct WatchTrackCollectionDetailView: View {
             return .playlistGroup(group)
         case .genre(let genre):
             return .genre(genre)
-        case .artistAlbum(let id):
-            return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks).map {
-                .artistAlbum($0)
-            }
+        case .artistAlbum(let album):
+            return .artistAlbum(album)
         }
     }
 
@@ -1054,8 +1055,8 @@ private struct WatchTrackCollectionDetailView: View {
             return group.primaryPlaylist
         case .genre:
             return nil
-        case .artistAlbum(let id):
-            return WatchArtistAlbumSummary.album(withID: id, in: experience.detailTracks)?.mediaSummary
+        case .artistAlbum(let album):
+            return album.mediaSummary
         }
     }
 }
@@ -1080,7 +1081,7 @@ private enum WatchTrackCollectionSource {
     case media(EnsembleMediaSummary)
     case playlistGroup(WatchPlaylistGroup)
     case genre(EnsembleGenreSummary)
-    case artistAlbum(String)
+    case artistAlbum(WatchArtistAlbumSummary)
 }
 
 private enum WatchMediaActionTarget: Identifiable {
@@ -2232,7 +2233,11 @@ private struct WatchArtistAlbumSummary: Identifiable {
         return count == 1 ? "1 track" : "\(count) tracks"
     }
 
-    static func albums(from tracks: [EnsembleTrack]) -> [WatchArtistAlbumSummary] {
+    static func albums(
+        from tracks: [EnsembleTrack],
+        catalogAlbums: [EnsembleMediaSummary],
+        preferences: EnsembleMergingPreferences
+    ) -> [WatchArtistAlbumSummary] {
         var albums: [WatchArtistAlbumSummary] = []
         var albumIndexesByKey: [String: Int] = [:]
 
@@ -2266,11 +2271,29 @@ private struct WatchArtistAlbumSummary: Identifiable {
             }
         }
 
-        return albums
-    }
+        let summaries = albums.compactMap { album -> EnsembleMediaSummary? in
+            guard let albumID = album.representativeTrack?.albumID else { return nil }
+            return catalogAlbums.first { $0.id == albumID && $0.sourceKey == album.sourceKey }
+                ?? album.mediaSummary
+        }
+        guard summaries.count == albums.count else { return albums }
 
-    static func album(withID id: String, in tracks: [EnsembleTrack]) -> WatchArtistAlbumSummary? {
-        albums(from: tracks).first { $0.id == id }
+        return WatchMediaGroup.grouped(summaries, preferences: preferences).compactMap { group in
+            let members = albums.filter { album in
+                guard let albumID = album.representativeTrack?.albumID else { return false }
+                return group.items.contains { $0.id == albumID && $0.sourceKey == album.sourceKey }
+            }
+            guard let primary = members.first(where: {
+                $0.representativeTrack?.albumID == group.primaryItem.id && $0.sourceKey == group.primaryItem.sourceKey
+            }) else { return nil }
+            return WatchArtistAlbumSummary(
+                id: group.id,
+                title: primary.title,
+                artistName: primary.artistName,
+                sourceKey: primary.sourceKey,
+                tracks: members.flatMap(\.tracks)
+            )
+        }
     }
 
     private static func normalizedAlbumTitle(for track: EnsembleTrack) -> String {

@@ -100,16 +100,30 @@ public extension DependencyContainer {
 
     @MainActor
     func makeAlbumDetailViewModel(
-        album: Album,
+        displayAlbum: DisplayAlbum,
         initialTracks: [Track]? = nil,
         includesHidden: Bool = false
     ) -> AlbumDetailViewModel {
         AlbumDetailViewModel(
-            album: album,
+            displayAlbum: displayAlbum,
             libraryRepository: libraryRepository,
             syncCoordinator: syncCoordinator,
             initialTracks: initialTracks,
             hiddenMediaStore: hiddenMediaStore,
+            settingsManager: settingsManager,
+            includesHidden: includesHidden
+        )
+    }
+
+    @MainActor
+    func makeAlbumDetailViewModel(
+        album: Album,
+        initialTracks: [Track]? = nil,
+        includesHidden: Bool = false
+    ) -> AlbumDetailViewModel {
+        makeAlbumDetailViewModel(
+            displayAlbum: .single(album),
+            initialTracks: initialTracks,
             includesHidden: includesHidden
         )
     }
@@ -245,7 +259,11 @@ public extension DependencyContainer {
 
     @MainActor
     func makeFavoritesViewModel() -> FavoritesViewModel {
-        FavoritesViewModel(libraryRepository: libraryRepository, hiddenMediaStore: hiddenMediaStore)
+        FavoritesViewModel(
+            libraryRepository: libraryRepository,
+            hiddenMediaStore: hiddenMediaStore,
+            settingsManager: settingsManager
+        )
     }
 
     @MainActor

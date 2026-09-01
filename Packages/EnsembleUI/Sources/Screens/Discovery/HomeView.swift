@@ -311,6 +311,11 @@ struct HubSection: View {
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
+
+    private var displayItems: [DisplayHubItem] {
+        DisplayHubItem.group(hub.items, preferences: settingsManager.mergingPreferences)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: EnsembleScaffold.Discovery.subsectionSpacing) {
@@ -319,9 +324,9 @@ struct HubSection: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                    ForEach(hub.items, id: \.sourceScopedID) { item in
+                    ForEach(displayItems) { item in
                         HubItemCard(
-                            item: item,
+                            displayItem: item,
                             nowPlayingVM: nowPlayingVM,
                             navigationCoordinator: navigationCoordinator,
                             includesHidden: false,
@@ -362,14 +367,17 @@ struct HubSection: View {
 /// Card view for individual hub items (albums, artists, tracks, playlists)
 /// Uses local-first artwork loading and skeleton models for offline-friendly navigation
 struct HubItemCard: View {
-    let item: HubItem
+    let displayItem: DisplayHubItem
     let nowPlayingVM: NowPlayingViewModel
     let navigationCoordinator: NavigationCoordinator
     let includesHidden: Bool
     @Binding var playlistActionRequest: PlaylistActionPresentationRequest?
     @Binding var libraryItemInfoRequest: LibraryItemInfoRequest?
+    @Environment(\.dependencies) private var deps
 
     private let artworkDimension = EnsembleScaffold.MediaCard.hubArtworkDimension
+
+    private var item: HubItem { displayItem.primaryItem }
 
     private var isArtist: Bool {
         item.type == "artist"
@@ -442,17 +450,31 @@ struct HubItemCard: View {
     private var navigationDestination: NavigationCoordinator.Destination? {
         switch item.type {
         case "album":
+            if let displayAlbum = displayItem.displayAlbum {
+                return .albumDetail(displayAlbum, includesHidden: includesHidden)
+            }
             if let album = item.album {
-                return .albumDetail(album, includesHidden: includesHidden)
+                return .albumDetail(.single(album), includesHidden: includesHidden)
             } else {
                 return .album(id: item.id, sourceKey: item.sourceCompositeKey)
             }
         case "artist":
+            if let displayArtist = displayItem.displayArtist {
+                return .artistNamed(
+                    name: displayArtist.name,
+                    fallbackID: displayArtist.primaryArtist.id,
+                    sourceKey: displayArtist.primaryArtist.sourceCompositeKey,
+                    includesHidden: includesHidden
+                )
+            }
             if let artist = item.artist {
                 return .artistDetail(artist, includesHidden: includesHidden)
             }
             return .artist(id: item.id, sourceKey: item.sourceCompositeKey)
         case "playlist":
+            if let displayPlaylist = displayItem.displayPlaylist, displayPlaylist.isMerged {
+                return .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+            }
             if let playlist = item.playlist {
                 return .playlistDetail(playlist, includesHidden: includesHidden)
             }
@@ -463,7 +485,7 @@ struct HubItemCard: View {
     }
 
     private var mediaNavigationTransitionID: String? {
-        item.album?.sourceScopedID ?? item.artist?.sourceScopedID ?? item.playlist?.sourceScopedID
+        displayItem.id
     }
 
     private var artworkIdentity: ArtworkRequest.Identity? {
@@ -533,7 +555,8 @@ struct HubItemCard: View {
     // MARK: Album Context Menu
 
     private var albumContextMenu: some View {
-        AlbumActionsContextMenu(
+        let displayAlbum = displayItem.displayAlbum ?? .single(resolvedAlbum)
+        return AlbumActionsContextMenu(
             album: resolvedAlbum,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
@@ -548,6 +571,20 @@ struct HubItemCard: View {
             },
             onGetInfo: {
                 libraryItemInfoRequest = .album(resolvedAlbum)
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayAlbum.albums.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
             }
         )
     }
@@ -555,10 +592,25 @@ struct HubItemCard: View {
     // MARK: Artist Context Menu
 
     private var artistContextMenu: some View {
-        ArtistActionsContextMenu(
+        let displayArtist = displayItem.displayArtist ?? .single(resolvedArtist)
+        return ArtistActionsContextMenu(
             artist: resolvedArtist,
             nowPlayingVM: nowPlayingVM,
-            toastNamespace: "hub-artist-menu"
+            toastNamespace: "hub-artist-menu",
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayArtist.artists.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                        (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayArtist.artists.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
+            }
         )
     }
 

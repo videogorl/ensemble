@@ -80,19 +80,15 @@ public enum EnsembleMergeIdentity {
         return normalized.isEmpty ? nil : normalized
     }
 
-    public static func album(
+    public static func albumFamily(
         title: String,
         artist: String?,
-        year: Int?,
-        trackCount: Int,
-        variant: String?
+        year: Int?
     ) -> String? {
         guard let title = normalized(title),
               let artist = normalized(artist),
-              let year,
-              trackCount > 0,
-              let variant = normalized(variant) else { return nil }
-        return [title, artist, String(year), String(trackCount), variant].joined(separator: "|")
+              let year else { return nil }
+        return [title, artist, String(year)].joined(separator: "|")
     }
 
     public static func track(
@@ -145,6 +141,30 @@ public enum EnsembleMergeIdentity {
             }
         }
         return result
+    }
+
+    public static func grouped<Value>(
+        _ values: [Value],
+        preferences: EnsembleMergingPreferences,
+        identity: (Value) -> String?,
+        sourceKey: (Value) -> String?
+    ) -> [[Value]] {
+        var groups: [[Value]] = []
+        var indexByIdentity: [String: Int] = [:]
+
+        for value in values {
+            guard let key = identity(value) else {
+                groups.append([value])
+                continue
+            }
+            if let index = indexByIdentity[key] {
+                groups[index].append(value)
+            } else {
+                indexByIdentity[key] = groups.count
+                groups.append([value])
+            }
+        }
+        return groups.map { preferences.ordered($0, sourceKey: sourceKey) }
     }
 }
 

@@ -91,7 +91,7 @@ struct HiddenMediaView: View {
             LazyVGrid(columns: columns, spacing: EnsembleScaffold.MediaCard.rowSpacing) {
                 ForEach(displayed) { item in
                     HubItemCard(
-                        item: item.hubItem,
+                        displayItem: DisplayHubItem(items: [item.hubItem]),
                         nowPlayingVM: nowPlayingVM,
                         navigationCoordinator: navigationCoordinator,
                         includesHidden: true,

@@ -309,18 +309,18 @@ public struct SearchView: View {
                     pinnedSection
 
                     // Recently Played Albums
-                    if !viewModel.recentlyPlayedAlbums.isEmpty {
+                    if !viewModel.recentlyPlayedDisplayAlbums.isEmpty {
                         exploreSection(
                             title: "Recently Played Albums",
-                            items: viewModel.recentlyPlayedAlbums,
-                            id: \.sourceScopedID
-                        ) { album in
-                            navigationCoordinator.routeLink(to: .albumDetail(album)) {
-                                AlbumCard(album: album)
+                            items: viewModel.recentlyPlayedDisplayAlbums,
+                            id: \.id
+                        ) { displayAlbum in
+                            navigationCoordinator.routeLink(to: .albumDetail(displayAlbum)) {
+                                AlbumCard(displayAlbum: displayAlbum)
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                albumContextMenu(for: album)
+                                albumContextMenu(for: displayAlbum)
                             }
                         }
                     }
@@ -332,7 +332,7 @@ public struct SearchView: View {
                                 .padding(.horizontal, TrackListLayoutMetrics.rowHorizontalPadding)
 
                             LazyVGrid(columns: gridColumns, spacing: EnsembleScaffold.Discovery.gridSpacing) {
-                                ForEach(recommendedDisplayItems, id: \.sourceScopedID) { item in
+                                ForEach(recommendedDisplayItems) { item in
                                     recommendedItemCard(item)
                                 }
                             }
@@ -369,8 +369,8 @@ public struct SearchView: View {
                     }
 
                     // Empty state if no explore content (excluding pinned since we always show it)
-                    if viewModel.recentlyPlayedAlbums.isEmpty &&
-                        viewModel.recentlyAddedAlbums.isEmpty &&
+                    if viewModel.recentlyPlayedDisplayAlbums.isEmpty &&
+                        viewModel.recentlyAddedDisplayAlbums.isEmpty &&
                         viewModel.recommendedItems.isEmpty &&
                         viewModel.allMoods.isEmpty &&
                         viewModel.recentSearches.isEmpty
@@ -468,39 +468,62 @@ public struct SearchView: View {
         }
     }
 
-    private func recommendedItemCard(_ item: HubItem) -> some View {
-        Group {
-            if let album = item.album {
-                navigationCoordinator.routeLink(to: .albumDetail(album)) {
-                    AlbumCard(album: album)
+    private func recommendedItemCard(_ displayItem: DisplayHubItem) -> some View {
+        return Group {
+            if let displayAlbum = displayItem.displayAlbum {
+                navigationCoordinator.routeLink(to: .albumDetail(displayAlbum)) {
+                    AlbumCard(displayAlbum: displayAlbum)
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    albumContextMenu(for: album)
+                    albumContextMenu(for: displayAlbum)
                 }
-            } else if let artist = item.artist {
+            } else if let displayArtist = displayItem.displayArtist {
                 navigationCoordinator.routeLink(
-                    to: .artistDetail(artist)
+                    to: .artistNamed(
+                        name: displayArtist.name,
+                        fallbackID: displayArtist.primaryArtist.id,
+                        sourceKey: displayArtist.primaryArtist.sourceCompositeKey
+                    )
                 ) {
-                    ArtistCard(artist: artist)
+                    ArtistCard(artist: displayArtist.primaryArtist)
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    ArtistActionsContextMenu(artist: artist, nowPlayingVM: nowPlayingVM)
+                    ArtistActionsContextMenu(
+                        artist: displayArtist.primaryArtist,
+                        nowPlayingVM: nowPlayingVM,
+                        customPinAction: { isPinned in
+                            if isPinned {
+                                deps.pinMutationWorkflow.unpinAll(identities: Set(displayArtist.artists.map(\.sourceScopedID)))
+                            } else {
+                                deps.pinMutationWorkflow.pinAll(items: displayArtist.artists.map { artist in
+                                    (id: artist.id, sourceKey: artist.sourceCompositeKey ?? "", type: .artist, title: displayArtist.name)
+                                })
+                            }
+                        },
+                        customIsPinned: {
+                            displayArtist.artists.allSatisfy {
+                                deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                            }
+                        }
+                    )
                 }
-            } else if let playlist = item.playlist {
+            } else if let displayPlaylist = displayItem.displayPlaylist {
                 navigationCoordinator.routeLink(
-                    to: .playlistDetail(playlist)
+                    to: displayPlaylist.isMerged
+                        ? .mergedPlaylist(title: displayPlaylist.title, isSmart: displayPlaylist.isSmart)
+                        : .playlistDetail(displayPlaylist.primaryPlaylist)
                 ) {
-                    PlaylistCard(playlist: playlist)
+                    DisplayPlaylistCard(displayPlaylist: displayPlaylist)
                 }
                 .buttonStyle(.plain)
                 .contextMenu {
                     PlaylistActionsContextMenu(
-                        playlist: playlist,
+                        playlist: displayPlaylist.primaryPlaylist,
                         nowPlayingVM: nowPlayingVM,
                         onGetInfo: {
-                            libraryItemInfoRequest = .playlist(playlist)
+                            libraryItemInfoRequest = .playlist(displayPlaylist.primaryPlaylist)
                         }
                     )
                 }
@@ -596,9 +619,17 @@ public struct SearchView: View {
     private func pinnedItemCard(_ pin: ResolvedPin) -> some View {
         switch pin {
         case let .album(album, _):
-            navigationCoordinator.routeLink(to: .albumDetail(album)) {
+            navigationCoordinator.routeLink(to: .albumDetail(.single(album))) {
                 pinnedItemCardLabel(
                     AlbumCard(album: album, allowsDragExport: false),
+                    pin: pin
+                )
+            }
+            .buttonStyle(.plain)
+        case let .mergedAlbum(displayAlbum, _):
+            navigationCoordinator.routeLink(to: .albumDetail(displayAlbum)) {
+                pinnedItemCardLabel(
+                    AlbumCard(displayAlbum: displayAlbum, allowsDragExport: false),
                     pin: pin
                 )
             }
@@ -606,6 +637,11 @@ public struct SearchView: View {
         case let .artist(artist, _):
             navigationCoordinator.routeLink(to: .artistDetail(artist)) {
                 pinnedItemCardLabel(ArtistCard(artist: artist), pin: pin)
+            }
+            .buttonStyle(.plain)
+        case let .mergedArtist(displayArtist, _):
+            navigationCoordinator.routeLink(to: .displayArtist(id: displayArtist.id)) {
+                pinnedItemCardLabel(ArtistCard(artist: displayArtist.primaryArtist), pin: pin)
             }
             .buttonStyle(.plain)
         case let .playlist(playlist, _):
@@ -775,21 +811,22 @@ public struct SearchView: View {
             }
 
         case .albums:
-            if !viewModel.albumResults.isEmpty {
+            if !viewModel.displayAlbumResults.isEmpty {
                 compactSection(
                     section: .albums,
                     title: "Albums",
-                    count: viewModel.albumResults.count,
-                    items: displayedResults(viewModel.albumResults)
-                ) { album in
+                    count: viewModel.displayAlbumResults.count,
+                    items: displayedResults(viewModel.displayAlbumResults)
+                ) { displayAlbum in
+                    let album = displayAlbum.primaryAlbum
                     Button {
-                        routeSearchResult(to: .albumDetail(album))
+                        routeSearchResult(to: .albumDetail(displayAlbum))
                     } label: {
                         CompactAlbumRow(album: album)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        albumContextMenu(for: album)
+                        albumContextMenu(for: displayAlbum)
                     }
                 }
             }
@@ -904,8 +941,9 @@ public struct SearchView: View {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
     }
 
-    private func albumContextMenu(for album: Album) -> some View {
-        AlbumActionsContextMenu(
+    private func albumContextMenu(for displayAlbum: DisplayAlbum) -> some View {
+        let album = displayAlbum.primaryAlbum
+        return AlbumActionsContextMenu(
             album: album,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
@@ -913,6 +951,20 @@ public struct SearchView: View {
             },
             onGetInfo: {
                 libraryItemInfoRequest = .album(album)
+            },
+            customPinAction: { isPinned in
+                if isPinned {
+                    deps.pinMutationWorkflow.unpinAll(identities: Set(displayAlbum.albums.map(\.sourceScopedID)))
+                } else {
+                    deps.pinMutationWorkflow.pinAll(items: displayAlbum.albums.map { album in
+                        (id: album.id, sourceKey: album.sourceCompositeKey ?? "", type: .album, title: displayAlbum.title)
+                    })
+                }
+            },
+            customIsPinned: {
+                displayAlbum.albums.allSatisfy {
+                    deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+                }
             }
         )
     }
@@ -1054,9 +1106,12 @@ public struct SearchView: View {
         viewModel.scope == .library && isSyncing
     }
 
-    private var recommendedDisplayItems: [HubItem] {
-        viewModel.recommendedItems.filter { item in
+    private var recommendedDisplayItems: [DisplayHubItem] {
+        DisplayHubItem.group(
+            viewModel.recommendedItems.filter { item in
             item.album != nil || item.artist != nil || item.playlist != nil
-        }
+            },
+            preferences: deps.settingsManager.mergingPreferences
+        )
     }
 }

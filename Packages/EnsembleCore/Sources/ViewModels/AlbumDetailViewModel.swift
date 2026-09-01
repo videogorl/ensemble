@@ -21,6 +21,7 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
 
 @MainActor
 public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelProtocol {
+    public let displayAlbum: DisplayAlbum
     @Published public private(set) var album: Album
     @Published public private(set) var tracks: [Track] = []
     @Published public private(set) var isLoading = false
@@ -40,21 +41,28 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     private let libraryRepository: LibraryRepositoryProtocol
     private let syncCoordinator: SyncCoordinator
     private let hiddenMediaStore: HiddenMediaStore
+    private let settingsManager: SettingsManager
     private let includesHidden: Bool
+    private var sourceTracks: [Track] = []
     private var cancellables = Set<AnyCancellable>()
 
     public init(
-        album: Album,
+        displayAlbum: DisplayAlbum,
         libraryRepository: LibraryRepositoryProtocol,
         syncCoordinator: SyncCoordinator,
         initialTracks: [Track]? = nil,
         hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil,
         includesHidden: Bool = false
     ) {
         let hiddenMediaStore = hiddenMediaStore ?? .shared
-        self.album = album
+        self.displayAlbum = displayAlbum
+        self.album = displayAlbum.primaryAlbum
+        self.settingsManager = settingsManager ?? SettingsManager()
         if let initialTracks {
-            self.tracks = includesHidden ? initialTracks : hiddenMediaStore.snapshot.visibleTracks(initialTracks)
+            let visible = includesHidden ? initialTracks : hiddenMediaStore.snapshot.visibleTracks(initialTracks)
+            self.sourceTracks = visible
+            self.tracks = MergingProjection.tracks(visible, preferences: self.settingsManager.mergingPreferences)
             self.hasLoadedTracks = true
         }
         self.libraryRepository = libraryRepository
@@ -72,6 +80,31 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         hiddenMediaStore.$snapshot.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { await self?.loadTracks() }
         }.store(in: &cancellables)
+        self.settingsManager.$mergingPreferences.dropFirst().sink { [weak self] preferences in
+            guard let self else { return }
+            let projected = MergingProjection.tracks(self.sourceTracks, preferences: preferences)
+            if self.tracks != projected { self.tracks = projected }
+        }.store(in: &cancellables)
+    }
+
+    public convenience init(
+        album: Album,
+        libraryRepository: LibraryRepositoryProtocol,
+        syncCoordinator: SyncCoordinator,
+        initialTracks: [Track]? = nil,
+        hiddenMediaStore: HiddenMediaStore? = nil,
+        settingsManager: SettingsManager? = nil,
+        includesHidden: Bool = false
+    ) {
+        self.init(
+            displayAlbum: .single(album),
+            libraryRepository: libraryRepository,
+            syncCoordinator: syncCoordinator,
+            initialTracks: initialTracks,
+            hiddenMediaStore: hiddenMediaStore,
+            settingsManager: settingsManager,
+            includesHidden: includesHidden
+        )
     }
     
     private func setupFilterPersistence() {
@@ -82,44 +115,41 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
         isLoading = true
         error = nil
 
-        guard let sourceKey = album.sourceCompositeKey,
-              MediaSourceIdentity.parse(sourceKey) != nil else {
-            if !tracks.isEmpty { tracks = [] }
-            hasLoadedTracks = true
-            isLoading = false
-            return
+        var loadedTracks: [Track] = []
+        var lastError: Error?
+        for sourceAlbum in displayAlbum.albums {
+            do {
+                loadedTracks.append(contentsOf: try await loadTracks(for: sourceAlbum))
+            } catch {
+                lastError = error
+                EnsembleLogger.debug("AlbumDetailViewModel error for \(sourceAlbum.sourceScopedID): \(error.localizedDescription)")
+            }
         }
 
-        do {
-            // First try to fetch from local repository
-            let cachedTracks = try await libraryRepository.fetchTracks(
-                forAlbum: album.id,
-                sourceCompositeKey: sourceKey
-            )
-
-            if !cachedTracks.isEmpty {
-                let loaded = cachedTracks.map { Track(from: $0) }
-                let mapped = includesHidden ? loaded : hiddenMediaStore.snapshot.visibleTracks(loaded)
-                // Diagnostic: detect "Unknown Track" entries to trace empty-title source
-                let unknownCount = mapped.lazy.filter { $0.title == "Unknown Track" }.count
-                if unknownCount > 0 {
-                    EnsembleLogger.debug("AlbumDetailViewModel.loadTracks: \(unknownCount)/\(mapped.count) tracks have 'Unknown Track' title for album \(album.id)")
-                }
-                if tracks != mapped { tracks = mapped }
-            } else {
-                // If not found and we have a source key, try to fetch from API
-                EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
-                let loaded = try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
-                let apiTracks = includesHidden ? loaded : hiddenMediaStore.snapshot.visibleTracks(loaded)
-                if tracks != apiTracks { tracks = apiTracks }
-            }
-        } catch {
-            EnsembleLogger.debug("AlbumDetailViewModel error: \(error.localizedDescription)")
-            self.error = error.localizedDescription
+        let visible = includesHidden ? loadedTracks : hiddenMediaStore.snapshot.visibleTracks(loadedTracks)
+        sourceTracks = visible
+        let projected = MergingProjection.tracks(visible, preferences: settingsManager.mergingPreferences)
+        if tracks != projected { tracks = projected }
+        if loadedTracks.isEmpty, let lastError {
+            self.error = lastError.localizedDescription
         }
 
         hasLoadedTracks = true
         isLoading = false
+    }
+
+    private func loadTracks(for album: Album) async throws -> [Track] {
+        guard let sourceKey = album.sourceCompositeKey,
+              MediaSourceIdentity.parse(sourceKey) != nil else { return [] }
+        let cachedTracks = try await libraryRepository.fetchTracks(
+            forAlbum: album.id,
+            sourceCompositeKey: sourceKey
+        )
+        if !cachedTracks.isEmpty {
+            return cachedTracks.map { Track(from: $0) }
+        }
+        EnsembleLogger.debug("AlbumDetailViewModel: Tracks not found locally, fetching from API for source: \(sourceKey)")
+        return try await syncCoordinator.getAlbumTracks(albumId: album.id, sourceKey: sourceKey)
     }
     
     /// Loads rich album metadata (genres, styles, studio/label) from the API

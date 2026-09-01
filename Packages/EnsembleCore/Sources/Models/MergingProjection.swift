@@ -5,22 +5,8 @@ public enum MergingProjection {
     public static func albums(
         _ albums: [Album],
         preferences: EnsembleMergingPreferences
-    ) -> [Album] {
-        guard preferences.isEnabled, preferences.mergeAlbums else { return albums }
-        return EnsembleMergeIdentity.collapsed(
-            albums,
-            preferences: preferences,
-            identity: {
-                EnsembleMergeIdentity.album(
-                    title: $0.title,
-                    artist: $0.albumArtist ?? $0.artistName,
-                    year: $0.year,
-                    trackCount: $0.trackCount,
-                    variant: $0.releaseFormat?.rawValue
-                )
-            },
-            sourceKey: \.sourceCompositeKey
-        )
+    ) -> [DisplayAlbum] {
+        DisplayAlbum.group(albums, preferences: preferences)
     }
 
     public static func tracks(

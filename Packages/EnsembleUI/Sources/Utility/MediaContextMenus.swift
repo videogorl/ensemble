@@ -174,6 +174,7 @@ struct AlbumActionsContextMenu: View {
     var onEditMetadata: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
+    var customIsPinned: (() -> Bool)? = nil
 
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
@@ -189,7 +190,8 @@ struct AlbumActionsContextMenu: View {
         )
         let editAvailability = album.actionAvailability(for: .editMetadata)
         let deleteAvailability = album.actionAvailability(for: .delete)
-        let isPinned = pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
+        let isPinned = customIsPinned?()
+            ?? pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
         let recentTarget = nowPlayingVM.lastPlaylistTarget
         let recentPlaylistTitle = recentTarget.flatMap { target in
             nowPlayingVM.compatibleTrackCount([album.sourceProbeTrack], forServerSourceKey: target.sourceCompositeKey) > 0
@@ -390,6 +392,7 @@ struct ArtistActionsContextMenu: View {
     var toastNamespace: String = "artist-menu"
     var onEditMetadata: (() -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
+    var customIsPinned: (() -> Bool)? = nil
 
     @Environment(\.dependencies) private var deps
     private let pinManager = DependencyContainer.shared.pinManager
@@ -403,7 +406,8 @@ struct ArtistActionsContextMenu: View {
             sourceAvailability: artist.actionAvailability(for: .download)
         )
         let editAvailability = artist.actionAvailability(for: .editMetadata)
-        let isPinned = pinManager.isPinned(id: artist.id, sourceKey: artist.sourceCompositeKey ?? "")
+        let isPinned = customIsPinned?()
+            ?? pinManager.isPinned(id: artist.id, sourceKey: artist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
@@ -768,6 +772,9 @@ struct MergedPlaylistActionsContextMenu: View {
             displayPlaylist.playlists.map { $0.actionAvailability(for: .delete) }
         )
         let isDownloaded = isAnyConstituentDownloaded
+        let isPinned = displayPlaylist.playlists.allSatisfy {
+            deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
+        }
         let removeDownloadAvailability = resolvedDownloadMenuAvailability(
             isDownloaded: isDownloaded,
             sourceAvailability: downloadAvailability
@@ -800,7 +807,7 @@ struct MergedPlaylistActionsContextMenu: View {
                     canShareAudioFile: false,
                     canFavorite: false,
                     canDownload: true,
-                    canPin: false,
+                    canPin: true,
                     canEditMetadata: false,
                     canDelete: onDelete != nil,
                     canRename: onRename != nil,
@@ -814,7 +821,7 @@ struct MergedPlaylistActionsContextMenu: View {
                     ]
                 )
             ),
-            state: MediaMenuState(isDownloaded: isDownloaded),
+            state: MediaMenuState(isDownloaded: isDownloaded, isPinned: isPinned),
             handlers: MediaMenuHandlers(
                 play: {
                     withMergedTracks { tracks in
@@ -839,6 +846,21 @@ struct MergedPlaylistActionsContextMenu: View {
                 renameAll: onRename,
                 downloadAll: downloadAll,
                 removeDownloads: removeDownloads,
+                pin: {
+                    if isPinned {
+                        if let onUnpinAll {
+                            onUnpinAll()
+                        } else {
+                            deps.pinMutationWorkflow.unpinAll(
+                                identities: Set(displayPlaylist.playlists.map(\.sourceScopedID))
+                            )
+                        }
+                    } else {
+                        deps.pinMutationWorkflow.pinAll(items: displayPlaylist.playlists.map { playlist in
+                            (id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "", type: .playlist, title: displayPlaylist.title)
+                        })
+                    }
+                },
                 unpinAll: onUnpinAll,
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(displayPlaylist, deps: deps)

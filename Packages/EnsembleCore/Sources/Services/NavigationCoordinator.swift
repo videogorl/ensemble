@@ -42,7 +42,7 @@ public final class NavigationCoordinator: ObservableObject {
         case artistDetail(Artist, includesHidden: Bool = false)
         case artist(id: String, sourceKey: String? = nil)
         case album(id: String, sourceKey: String? = nil)
-        case albumDetail(Album, includesHidden: Bool = false)
+        case albumDetail(DisplayAlbum, includesHidden: Bool = false)
         case song(id: String, sourceKey: String? = nil)
         case playlist(id: String, sourceKey: String?)
         case playlistDetail(Playlist, includesHidden: Bool = false)

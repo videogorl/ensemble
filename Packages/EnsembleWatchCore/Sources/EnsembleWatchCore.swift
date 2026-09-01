@@ -113,6 +113,77 @@ public struct WatchPlaylistGroup: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Watch presentation group for exact-source albums, artists, or playlists.
+public struct WatchMediaGroup: Identifiable, Equatable, Sendable {
+    public let items: [EnsembleMediaSummary]
+
+    public var id: String {
+        isMerged ? "merged:\(Self.identity(for: primaryItem) ?? primaryItem.id)" : primaryItem.watchScopedID
+    }
+    public var primaryItem: EnsembleMediaSummary { items[0] }
+    public var isMerged: Bool { items.count > 1 }
+    public var title: String { primaryItem.title }
+
+    private init(items: [EnsembleMediaSummary]) {
+        self.items = items
+    }
+
+    public static func grouped(
+        _ items: [EnsembleMediaSummary],
+        preferences: EnsembleMergingPreferences = .default
+    ) -> [WatchMediaGroup] {
+        EnsembleMergeIdentity.grouped(
+            items,
+            preferences: preferences,
+            identity: { item in
+                guard preferences.isEnabled else { return nil }
+                return identity(for: item, preferences: preferences)
+            },
+            sourceKey: \.sourceKey
+        ).map(WatchMediaGroup.init(items:))
+    }
+
+    private static func identity(
+        for item: EnsembleMediaSummary,
+        preferences: EnsembleMergingPreferences
+    ) -> String? {
+        switch item.kind {
+        case .album where preferences.mergeAlbums:
+            guard let identity = EnsembleMergeIdentity.albumFamily(
+                title: item.title,
+                artist: item.subtitle,
+                year: item.year
+            ) else { return nil }
+            return "album:\(identity)"
+        case .artist where preferences.mergeArtists:
+            return EnsembleMergeIdentity.normalized(item.title).map { "artist:\($0)" }
+        case .playlist where preferences.mergePlaylists:
+            return "playlist:\(PlexPlaylistMergeRules.key(title: item.title, isSmart: item.isSmart ?? false))"
+        default:
+            return nil
+        }
+    }
+
+    private static func identity(for item: EnsembleMediaSummary) -> String? {
+        switch item.kind {
+        case .album:
+            return EnsembleMergeIdentity.albumFamily(title: item.title, artist: item.subtitle, year: item.year)
+                .map { "album:\($0)" }
+        case .artist:
+            return EnsembleMergeIdentity.normalized(item.title).map { "artist:\($0)" }
+        case .playlist:
+            return "playlist:\(PlexPlaylistMergeRules.key(title: item.title, isSmart: item.isSmart ?? false))"
+        case .track:
+            return nil
+        }
+    }
+}
+
+private extension EnsembleMediaSummary {
+    var watchScopedID: String { "\(sourceKey)||\(id)" }
+}
+
+
 public struct WatchPinnedReference: Codable, Equatable, Sendable {
     public let id: String
     public let sourceCompositeKey: String
@@ -1231,52 +1302,22 @@ public final class WatchExperienceModel: ObservableObject {
 
     public var libraryTracks: [EnsembleTrack] {
         let tracks = catalogSnapshot?.tracks.filter { !isHidden($0) } ?? []
-        guard mergingPreferences.isEnabled, mergingPreferences.mergeTracks else { return tracks }
-        return EnsembleMergeIdentity.collapsed(
-            tracks,
-            preferences: mergingPreferences,
-            identity: {
-                EnsembleMergeIdentity.track(
-                    title: $0.title,
-                    artist: $0.artistName,
-                    album: $0.albumTitle,
-                    trackNumber: $0.trackNumber,
-                    discNumber: $0.discNumber,
-                    duration: $0.duration
-                )
-            },
-            sourceKey: \.sourceKey
-        )
+        return projectedTracks(tracks)
     }
 
     public var libraryArtists: [EnsembleMediaSummary] {
         let artists = catalogSnapshot?.artists.filter { !isHidden($0) } ?? []
-        guard mergingPreferences.isEnabled, mergingPreferences.mergeArtists else { return artists }
-        return EnsembleMergeIdentity.collapsed(
-            artists,
-            preferences: mergingPreferences,
-            identity: { EnsembleMergeIdentity.normalized($0.title) },
-            sourceKey: \.sourceKey
-        )
+        return WatchMediaGroup.grouped(artists, preferences: mergingPreferences).map(\.primaryItem)
     }
 
     public var libraryAlbums: [EnsembleMediaSummary] {
         let albums = catalogSnapshot?.albums.filter { !isHidden($0) } ?? []
-        guard mergingPreferences.isEnabled, mergingPreferences.mergeAlbums else { return albums }
-        return EnsembleMergeIdentity.collapsed(
-            albums,
-            preferences: mergingPreferences,
-            identity: {
-                EnsembleMergeIdentity.album(
-                    title: $0.title,
-                    artist: $0.subtitle,
-                    year: $0.year,
-                    trackCount: $0.trackCount ?? 0,
-                    variant: $0.variant
-                )
-            },
-            sourceKey: \.sourceKey
-        )
+        return WatchMediaGroup.grouped(albums, preferences: mergingPreferences).map(\.primaryItem)
+    }
+
+    public var recentlyAddedAlbums: [EnsembleMediaSummary] {
+        let albums = (catalogSnapshot?.recentlyAdded ?? []).filter { $0.kind == .album && !isHidden($0) }
+        return WatchMediaGroup.grouped(albums, preferences: mergingPreferences).map(\.primaryItem)
     }
 
     public var libraryGenres: [EnsembleGenreSummary] {
@@ -1303,6 +1344,19 @@ public final class WatchExperienceModel: ObservableObject {
         }
     }
 
+    public func mediaGroup(containing item: EnsembleMediaSummary) -> WatchMediaGroup? {
+        guard let snapshot = catalogSnapshot else { return nil }
+        let candidates: [EnsembleMediaSummary]
+        switch item.kind {
+        case .album: candidates = snapshot.albums
+        case .artist: candidates = snapshot.artists
+        case .playlist: candidates = snapshot.playlists
+        case .track: return nil
+        }
+        return WatchMediaGroup.grouped(candidates.filter { !isHidden($0) }, preferences: mergingPreferences)
+            .first { group in group.items.contains { $0.id == item.id && $0.sourceKey == item.sourceKey } }
+    }
+
     public func start() {
         guard bootstrapTask == nil else { return }
         refreshHiddenMedia()
@@ -1310,6 +1364,9 @@ public final class WatchExperienceModel: ObservableObject {
             guard let self else { return }
             accentColorName = await cloudPreferences.accentColorName()
             mergingPreferences = await cloudPreferences.mergingPreferences()
+            if let pins = await cloudPreferences.pinnedReferences() {
+                await applyPinnedReferences(pins)
+            }
         }
         startBootstrapTask(forceRefresh: false)
     }
@@ -1373,25 +1430,22 @@ public final class WatchExperienceModel: ObservableObject {
         let requestID = UUID()
         detailRequestID = requestID
         detailStatusMessage = "Loading \(item.title)"
-        detailTracks = cachedTracks(for: item)
+        let items = presentationItems(for: item)
+        detailTracks = projectedTracks(items.flatMap(cachedTracks(for:)))
         detailTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                let tracks = try await catalog.tracks(for: item, in: libraries)
-                guard !Task.isCancelled, detailRequestID == requestID else { return }
-                let visibleTracks = tracks.filter { !self.isHidden($0) }
-                detailTracks = visibleTracks
-                detailStatusMessage = visibleTracks.isEmpty ? "No tracks found." : "Ready"
-            } catch {
-                guard !Task.isCancelled, detailRequestID == requestID else { return }
-                detailStatusMessage = detailTracks.isEmpty ? error.localizedDescription : "Using cached tracks."
-            }
+            let result = await loadTracks(for: items)
+            guard !Task.isCancelled, detailRequestID == requestID else { return }
+            if !result.tracks.isEmpty { detailTracks = result.tracks }
+            detailStatusMessage = Self.trackLoadStatus(
+                trackCount: detailTracks.count,
+                failureCount: result.failureCount
+            )
         }
     }
 
     public func loadTracks(for item: EnsembleMediaSummary) async -> [EnsembleTrack] {
-        guard let tracks = try? await catalog.tracks(for: item, in: libraries) else { return [] }
-        return tracks.filter { !isHidden($0) }
+        await loadTracks(for: presentationItems(for: item)).tracks
     }
 
     public func loadTracks(for group: WatchPlaylistGroup) async -> [EnsembleTrack] {
@@ -1600,26 +1654,18 @@ public final class WatchExperienceModel: ObservableObject {
         playbackTask?.cancel()
         queuePreparationTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                let tracks = try await catalog.tracks(for: item, in: libraries)
-                guard !Task.isCancelled else { return }
-                let visibleTracks = tracks.filter { !self.isHidden($0) }
-                guard !visibleTracks.isEmpty else {
-                    playbackStatusMessage = "No tracks found."
-                    return
-                }
-                requestQueueReplacement(
-                    WatchQueueReplacementRequest(
-                        tracks: visibleTracks,
-                        kind: shuffled ? .shuffle : .play
-                    )
-                )
-            } catch is CancellationError {
+            let result = await loadTracks(for: presentationItems(for: item))
+            guard !Task.isCancelled else { return }
+            guard !result.tracks.isEmpty else {
+                playbackStatusMessage = Self.trackLoadStatus(trackCount: 0, failureCount: result.failureCount)
                 return
-            } catch {
-                guard !Task.isCancelled else { return }
-                playbackStatusMessage = error.localizedDescription
             }
+            requestQueueReplacement(
+                WatchQueueReplacementRequest(
+                    tracks: result.tracks,
+                    kind: shuffled ? .shuffle : .play
+                )
+            )
         }
     }
 
@@ -1841,7 +1887,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func isPinned(_ item: EnsembleMediaSummary) -> Bool {
-        pinnedItemIDs.contains(Self.pinIdentity(id: item.id, sourceKey: item.sourceKey))
+        Self.containsPinnedItem(presentationItems(for: item), pinnedItemIDs: pinnedItemIDs)
     }
 
     public func canPin(_ item: EnsembleMediaSummary) -> Bool {
@@ -1849,7 +1895,7 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func togglePin(_ item: EnsembleMediaSummary) {
-        togglePins([item], title: item.title)
+        togglePins(presentationItems(for: item), title: item.title)
     }
 
     public func isPinned(_ group: WatchPlaylistGroup) -> Bool {
@@ -2020,8 +2066,63 @@ public final class WatchExperienceModel: ObservableObject {
                 trackSets[index] = tracks ?? []
                 failureCount += failed ? 1 : 0
             }
-            return (PlexPlaylistMergeRules.interleaved(trackSets).filter { !self.isHidden($0) }, failureCount)
+            return (
+                self.projectedTracks(PlexPlaylistMergeRules.interleaved(trackSets).filter { !self.isHidden($0) }),
+                failureCount
+            )
         }
+    }
+
+    private func presentationItems(for item: EnsembleMediaSummary) -> [EnsembleMediaSummary] {
+        mediaGroup(containing: item)?.items ?? [item]
+    }
+
+    private func loadTracks(
+        for items: [EnsembleMediaSummary]
+    ) async -> (tracks: [EnsembleTrack], failureCount: Int) {
+        let catalog = catalog
+        let libraries = libraries
+        return await withTaskGroup(of: (Int, [EnsembleTrack]?, Bool).self) { tasks in
+            for (index, item) in items.enumerated() {
+                tasks.addTask {
+                    do {
+                        return (index, try await catalog.tracks(for: item, in: libraries), false)
+                    } catch {
+                        return (index, nil, true)
+                    }
+                }
+            }
+
+            var trackSets = Array(repeating: [EnsembleTrack](), count: items.count)
+            var failureCount = 0
+            for await (index, tracks, failed) in tasks {
+                trackSets[index] = tracks ?? []
+                failureCount += failed ? 1 : 0
+            }
+            return (
+                projectedTracks(trackSets.flatMap { $0 }.filter { !isHidden($0) }),
+                failureCount
+            )
+        }
+    }
+
+    private func projectedTracks(_ tracks: [EnsembleTrack]) -> [EnsembleTrack] {
+        guard mergingPreferences.isEnabled, mergingPreferences.mergeTracks else { return tracks }
+        return EnsembleMergeIdentity.collapsed(
+            tracks,
+            preferences: mergingPreferences,
+            identity: {
+                EnsembleMergeIdentity.track(
+                    title: $0.title,
+                    artist: $0.artistName,
+                    album: $0.albumTitle,
+                    trackNumber: $0.trackNumber,
+                    discNumber: $0.discNumber,
+                    duration: $0.duration
+                )
+            },
+            sourceKey: \.sourceKey
+        )
     }
 
     private func refreshHiddenMedia() {
@@ -2322,24 +2423,7 @@ public final class WatchExperienceModel: ObservableObject {
         _ items: [EnsembleMediaSummary],
         preferences: EnsembleMergingPreferences = .default
     ) -> [EnsembleMediaSummary] {
-        guard preferences.isEnabled, preferences.mergePlaylists else {
-            return items
-        }
-        let groups = WatchPlaylistGroup.grouped(
-            items.filter { $0.kind == .playlist },
-            preferences: preferences
-        )
-        let primaryByKey = Dictionary(uniqueKeysWithValues: groups.map {
-            (PlexPlaylistMergeRules.key(title: $0.title, isSmart: $0.isSmart), $0.primaryPlaylist)
-        })
-        var emittedPlaylistKeys = Set<String>()
-
-        return items.compactMap { item in
-            guard item.kind == .playlist else { return item }
-            let key = PlexPlaylistMergeRules.key(title: item.title, isSmart: item.isSmart ?? false)
-            guard emittedPlaylistKeys.insert(key).inserted else { return nil }
-            return primaryByKey[key]
-        }
+        WatchMediaGroup.grouped(items, preferences: preferences).map(\.primaryItem)
     }
 
     nonisolated static func playbackStatusMessage(for status: EnsemblePlaybackStatus) -> String {
@@ -2386,7 +2470,9 @@ public final class WatchExperienceModel: ObservableObject {
         _ items: [EnsembleMediaSummary],
         pinnedItemIDs: Set<String>
     ) -> Bool {
-        items.contains { pinnedItemIDs.contains(pinIdentity(id: $0.id, sourceKey: $0.sourceKey)) }
+        !items.isEmpty && items.allSatisfy {
+            pinnedItemIDs.contains(pinIdentity(id: $0.id, sourceKey: $0.sourceKey))
+        }
     }
 
     private nonisolated static func pinIdentity(id: String, sourceKey: String) -> String {

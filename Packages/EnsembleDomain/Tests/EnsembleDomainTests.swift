@@ -161,12 +161,10 @@ final class EnsembleDomainTests: XCTestCase {
         )
 
         XCTAssertEqual(collapsed.map(\.name), ["preferred", "ambiguous"])
-        XCTAssertNil(EnsembleMergeIdentity.album(
+        XCTAssertNil(EnsembleMergeIdentity.albumFamily(
             title: "Album",
             artist: "Artist",
-            year: nil,
-            trackCount: 10,
-            variant: "album"
+            year: nil
         ))
     }
 

@@ -1489,8 +1489,12 @@ public struct SidebarView: View {
             switch resolvedPin {
             case .album(let album, _):
                 AlbumDetailView(album: album, nowPlayingVM: nowPlayingVM)
+            case .mergedAlbum(let displayAlbum, _):
+                AlbumDetailView(displayAlbum: displayAlbum, nowPlayingVM: nowPlayingVM)
             case .artist(let artist, _):
                 ArtistDetailView(artist: artist, nowPlayingVM: nowPlayingVM)
+            case .mergedArtist(let displayArtist, _):
+                ArtistDetailView(displayArtist: displayArtist, nowPlayingVM: nowPlayingVM)
             case .playlist(let playlist, _):
                 PlaylistDetailView(playlist: playlist, nowPlayingVM: nowPlayingVM)
             case .mergedPlaylist(let displayPlaylist, _):
@@ -1516,6 +1520,9 @@ public struct SidebarView: View {
                  let .artist(_, pinnedItem),
                  let .playlist(_, pinnedItem):
                 return pinnedItem.type == type && pinnedItem.sourceScopedID == identity
+            case let .mergedAlbum(_, pinnedItems),
+                 let .mergedArtist(_, pinnedItems):
+                return pinnedItems.contains { $0.type == type && $0.sourceScopedID == identity }
             case let .mergedPlaylist(_, pinnedItems):
                 return type == .playlist && pinnedItems.contains { $0.sourceScopedID == identity }
             }
@@ -1701,6 +1708,34 @@ public struct SidebarView: View {
                 )
             }
 
+        case .mergedArtist(let displayArtist, let pinnedItems):
+            let pinnedItem = pinnedItems[0]
+            let artist = displayArtist.primaryArtist
+            Label {
+                Text(displayArtist.name)
+            } icon: {
+                ArtworkView(artist: displayArtist.artworkArtist, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .frame(width: artworkDimension, height: artworkDimension)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+            .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .sidebarAccessibilityAction {
+                selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            }
+            .contextMenu {
+                ArtistActionsContextMenu(
+                    artist: artist,
+                    nowPlayingVM: nowPlayingVM,
+                    toastNamespace: "sidebar-merged-artist-menu",
+                    customPinAction: { isPinned in
+                        guard isPinned else { return }
+                        let identities = Set(pinnedItems.map(\.sourceScopedID))
+                        handlePinnedSelectionRemoval(identities: identities, fallback: .library(.artists))
+                        deps.pinMutationWorkflow.unpinAll(identities: identities)
+                    }
+                )
+            }
+
         case .album(let album, let pinnedItem):
             Label {
                 Text(pinnedItem.title)
@@ -1749,6 +1784,38 @@ public struct SidebarView: View {
                                 title: album.title
                             )
                         }
+                    }
+                )
+            }
+
+        case .mergedAlbum(let displayAlbum, let pinnedItems):
+            let pinnedItem = pinnedItems[0]
+            let album = displayAlbum.primaryAlbum
+            Label {
+                Text(displayAlbum.title)
+            } icon: {
+                ArtworkView(album: album, size: .tiny, cornerRadius: cornerRadius, isResponsive: true)
+                    .frame(width: artworkDimension, height: artworkDimension)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            }
+            .tag(SidebarSelection.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            .sidebarAccessibilityAction {
+                selectSidebar(.pin(id: pinnedItem.id, sourceKey: pinnedItem.sourceCompositeKey, type: pinnedItem.type))
+            }
+            .contextMenu {
+                AlbumActionsContextMenu(
+                    album: album,
+                    nowPlayingVM: nowPlayingVM,
+                    presentPlaylistPicker: { tracks, title in
+                        playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
+                    },
+                    toastNamespace: "sidebar-merged-album-menu",
+                    onGetInfo: { libraryItemInfoRequest = .album(album) },
+                    customPinAction: { isPinned in
+                        guard isPinned else { return }
+                        let identities = Set(pinnedItems.map(\.sourceScopedID))
+                        handlePinnedSelectionRemoval(identities: identities, fallback: .library(.albums))
+                        deps.pinMutationWorkflow.unpinAll(identities: identities)
                     }
                 )
             }

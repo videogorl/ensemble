@@ -6,7 +6,7 @@ struct AlbumDetailLoader: View {
     let albumSourceKey: String?
     let selectedTrackId: String?
     let nowPlayingVM: NowPlayingViewModel
-    @State private var album: Album?
+    @State private var displayAlbum: DisplayAlbum?
     @State private var initialTracks: [Track]?
     @State private var isLoading = true
     @State private var error: Error?
@@ -27,9 +27,9 @@ struct AlbumDetailLoader: View {
     
     var body: some View {
         Group {
-            if let album = album {
+            if let displayAlbum {
                 AlbumDetailView(
-                    album: album,
+                    displayAlbum: displayAlbum,
                     nowPlayingVM: nowPlayingVM,
                     initialTracks: initialTracks,
                     selectedTrackId: selectedTrackId
@@ -62,18 +62,34 @@ struct AlbumDetailLoader: View {
             async let trackFetch = loadCachedTracks(albumId: albumId, sourceKey: albumSourceKey)
 
             guard let cdAlbum = try await albumFetch else {
-                finishLoading(album: nil, initialTracks: nil, error: nil)
+                finishLoading(displayAlbum: nil, initialTracks: nil, error: nil)
                 EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
                 return
             }
 
             let loadedAlbum = Album(from: cdAlbum)
+            let displayAlbum = await resolveDisplayAlbum(containing: loadedAlbum)
             let loadedTracks = await trackFetch
-            finishLoading(album: loadedAlbum, initialTracks: loadedTracks, error: nil)
+            finishLoading(
+                displayAlbum: displayAlbum,
+                initialTracks: displayAlbum.isMerged ? nil : loadedTracks,
+                error: nil
+            )
         } catch {
-            finishLoading(album: nil, initialTracks: nil, error: error)
+            finishLoading(displayAlbum: nil, initialTracks: nil, error: error)
         }
         EnsembleLogger.debug("💿 AlbumDetailLoader: finished loading album \(albumId)")
+    }
+
+    private func resolveDisplayAlbum(containing album: Album) async -> DisplayAlbum {
+        let preferences = deps.settingsManager.mergingPreferences
+        guard preferences.isEnabled, preferences.mergeAlbums,
+              let albums = try? await deps.libraryRepository.fetchAlbums().map({ Album(from: $0) }) else {
+            return .single(album)
+        }
+        return DisplayAlbum.group(albums, preferences: preferences)
+            .first { $0.albums.contains(where: { $0.sourceScopedID == album.sourceScopedID }) }
+            ?? .single(album)
     }
 
     private func loadCachedTracks(albumId: String, sourceKey: String?) async -> [Track]? {
@@ -92,7 +108,7 @@ struct AlbumDetailLoader: View {
     }
 
     @MainActor
-    private func finishLoading(album: Album?, initialTracks: [Track]?, error: Error?) {
+    private func finishLoading(displayAlbum: DisplayAlbum?, initialTracks: [Track]?, error: Error?) {
         guard !Task.isCancelled else { return }
 
         var transaction = Transaction()
@@ -101,7 +117,7 @@ struct AlbumDetailLoader: View {
 
         withTransaction(transaction) {
             self.initialTracks = initialTracks
-            self.album = album
+            self.displayAlbum = displayAlbum
             self.error = error
             self.isLoading = false
         }

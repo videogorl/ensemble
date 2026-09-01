@@ -253,14 +253,14 @@ final class NormalizedBrowseSortingTests: XCTestCase {
         XCTAssertNotEqual(oldTrack, changedFavorite)
         XCTAssertNotEqual(
             AlbumBrowseSnapshot(
-                albums: [oldAlbum],
+                albums: [.single(oldAlbum)],
                 sections: [],
                 availableGenres: [],
                 phase: .idle,
                 isShowingStaleSnapshot: false
             ),
             AlbumBrowseSnapshot(
-                albums: [changedDate],
+                albums: [.single(changedDate)],
                 sections: [],
                 availableGenres: [],
                 phase: .idle,

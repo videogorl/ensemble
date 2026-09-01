@@ -5,6 +5,7 @@ import SwiftUI
 /// Supported detail sources for the StageFlow track panel.
 enum StageFlowContentType: Equatable {
     case album(id: String, sourceCompositeKey: String?)
+    case albumGroup([Album])
     case playlist(id: String, sourceCompositeKey: String?)
     case mergedPlaylist(playlists: [Playlist])
 }
@@ -13,6 +14,7 @@ enum StageFlowContentType: Equatable {
 struct StageFlowTrackLoader {
     let libraryRepository: LibraryRepositoryProtocol
     let playlistRepository: PlaylistRepositoryProtocol
+    let mergingPreferences: EnsembleMergingPreferences
 
     func loadTracks(for contentType: StageFlowContentType) async throws -> [Track] {
         switch contentType {
@@ -35,6 +37,21 @@ struct StageFlowTrackLoader {
                     }
                     return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
                 }
+
+        case .albumGroup(let albums):
+            var tracks: [Track] = []
+            for album in albums {
+                guard let sourceKey = album.sourceCompositeKey,
+                      MediaSourceIdentity.parse(sourceKey) != nil else { continue }
+                let sourceTracks = try await libraryRepository.fetchTracks(
+                    forAlbum: album.id,
+                    sourceCompositeKey: sourceKey
+                ).map { Track(from: $0) }
+                tracks.append(contentsOf: sourceTracks.sorted { lhs, rhs in
+                    (lhs.discNumber, lhs.trackNumber) < (rhs.discNumber, rhs.trackNumber)
+                })
+            }
+            return MergingProjection.tracks(tracks, preferences: mergingPreferences)
 
         case .playlist(let id, let sourceCompositeKey):
             guard let playlist = try await playlistRepository.fetchPlaylist(
@@ -162,7 +179,8 @@ struct StageFlowTrackPanel: View {
         do {
             let loader = StageFlowTrackLoader(
                 libraryRepository: deps.libraryRepository,
-                playlistRepository: deps.playlistRepository
+                playlistRepository: deps.playlistRepository,
+                mergingPreferences: deps.settingsManager.mergingPreferences
             )
             tracks = try await loader.loadTracks(for: contentType)
             isLoading = false

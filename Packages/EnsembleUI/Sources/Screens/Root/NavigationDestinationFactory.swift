@@ -100,9 +100,9 @@ struct NavigationDestinationFactory {
             return AnyView(ArtistDetailLoader(artistId: id, artistSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
         case .album(let id, let sourceKey):
             return AnyView(AlbumDetailLoader(albumId: id, albumSourceKey: sourceKey, nowPlayingVM: nowPlayingVM))
-        case .albumDetail(let album, let includesHidden):
+        case .albumDetail(let displayAlbum, let includesHidden):
             let detailView = AlbumDetailView(
-                album: album,
+                displayAlbum: displayAlbum,
                 nowPlayingVM: nowPlayingVM,
                 includesHidden: includesHidden
             )
@@ -111,7 +111,7 @@ struct NavigationDestinationFactory {
             if #available(iOS 18.0, *), let mediaNavigationNamespace {
                 return AnyView(
                     detailView.navigationTransition(
-                        .zoom(sourceID: album.sourceScopedID, in: mediaNavigationNamespace)
+                        .zoom(sourceID: displayAlbum.id, in: mediaNavigationNamespace)
                     )
                 )
             }
