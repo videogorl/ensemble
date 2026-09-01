@@ -631,10 +631,7 @@ public struct SidebarView: View {
     @State private var playlistForEditSheet: Playlist?
     @State private var playlistPendingRename: Playlist?
     @State private var playlistPendingRenameTitle = ""
-    @State private var mergedPlaylistPendingRename: DisplayPlaylist?
-    @State private var mergedPlaylistPendingRenameTitle = ""
     @State private var playlistPendingDelete: Playlist?
-    @State private var mergedPlaylistPendingDelete: DisplayPlaylist?
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
     @SceneStorage("sidebarSmartPlaylistsExpanded") private var isSmartPlaylistsExpanded = true
     @SceneStorage("sidebarPlaylistsExpanded") private var isPlaylistsExpanded = true
@@ -1026,11 +1023,6 @@ public struct SidebarView: View {
         }
     }
 
-    private var mergedPlaylistRenameMessage: String {
-        let count = mergedPlaylistPendingRename?.editablePlaylists.count ?? 0
-        return "This will rename on \(count) source\(count == 1 ? "" : "s")."
-    }
-
     public var body: some View {
         splitNavigationView
         .onReceive(settingsManager.objectWillChange) { _ in
@@ -1082,27 +1074,6 @@ public struct SidebarView: View {
         } message: {
             Text("Choose a new playlist name.")
         }
-        .alert("Rename Playlist", isPresented: Binding(
-            get: { mergedPlaylistPendingRename != nil },
-            set: { if !$0 { mergedPlaylistPendingRename = nil } }
-        )) {
-            TextField("Playlist name", text: $mergedPlaylistPendingRenameTitle)
-            Button("Cancel", role: .cancel) {
-                mergedPlaylistPendingRename = nil
-            }
-            Button("Save") {
-                guard let displayPlaylist = mergedPlaylistPendingRename else { return }
-                let title = mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                mergedPlaylistPendingRename = nil
-                playlistsVM.applyOptimisticRenameForMerged(displayPlaylist, newTitle: title)
-                for playlist in displayPlaylist.editablePlaylists {
-                    renamePinnedPlaylist(playlist, to: title)
-                }
-            }
-            .disabled(mergedPlaylistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        } message: {
-            Text(mergedPlaylistRenameMessage)
-        }
         .alert("Delete Playlist?", isPresented: Binding(
             get: { playlistPendingDelete != nil },
             set: { if !$0 { playlistPendingDelete = nil } }
@@ -1117,29 +1088,6 @@ public struct SidebarView: View {
             }
         } message: {
             Text("This will permanently delete \"\(playlistPendingDelete?.title ?? "this playlist")\" from its source.")
-        }
-        .alert("Delete Merged Playlist?", isPresented: Binding(
-            get: { mergedPlaylistPendingDelete != nil },
-            set: { if !$0 { mergedPlaylistPendingDelete = nil } }
-        )) {
-            Button("Cancel", role: .cancel) {
-                mergedPlaylistPendingDelete = nil
-            }
-            Button("Delete All", role: .destructive) {
-                guard let displayPlaylist = mergedPlaylistPendingDelete else { return }
-                mergedPlaylistPendingDelete = nil
-                let deletablePlaylists = displayPlaylist.deletablePlaylists
-                handlePinnedSelectionRemoval(
-                    identities: Set(deletablePlaylists.map(\.sourceScopedID)),
-                    fallback: .library(.playlists)
-                )
-                for playlist in deletablePlaylists {
-                    startPinnedPlaylistDelete(for: playlist)
-                }
-            }
-        } message: {
-            let count = mergedPlaylistPendingDelete?.deletablePlaylists.count ?? 0
-            Text("This will permanently delete \"\(mergedPlaylistPendingDelete?.title ?? "")\" from \(count) source\(count == 1 ? "" : "s").")
         }
         .task {
             // Load all sidebar data concurrently so playlists appear
@@ -1725,6 +1673,7 @@ public struct SidebarView: View {
             .contextMenu {
                 ArtistActionsContextMenu(
                     artist: artist,
+                    sourceArtists: displayArtist.artists,
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-merged-artist-menu",
                     customPinAction: { isPinned in
@@ -1756,6 +1705,7 @@ public struct SidebarView: View {
             .contextMenu {
                 AlbumActionsContextMenu(
                     album: album,
+                    sourceAlbums: [album],
                     nowPlayingVM: nowPlayingVM,
                     presentPlaylistPicker: { tracks, title in
                         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
@@ -1805,6 +1755,7 @@ public struct SidebarView: View {
             .contextMenu {
                 AlbumActionsContextMenu(
                     album: album,
+                    sourceAlbums: displayAlbum.albums,
                     nowPlayingVM: nowPlayingVM,
                     presentPlaylistPicker: { tracks, title in
                         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
@@ -1845,15 +1796,15 @@ public struct SidebarView: View {
                     onGetInfo: {
                         libraryItemInfoRequest = .playlist(playlist)
                     },
-                    onRename: {
-                        playlistPendingRenameTitle = playlist.title
-                        playlistPendingRename = playlist
+                    onRename: { selectedPlaylist in
+                        playlistPendingRenameTitle = selectedPlaylist.title
+                        playlistPendingRename = selectedPlaylist
                     },
-                    onEdit: {
-                        playlistForEditSheet = playlist
+                    onEdit: { selectedPlaylist in
+                        playlistForEditSheet = selectedPlaylist
                     },
-                    onDelete: {
-                        playlistPendingDelete = playlist
+                    onDelete: { selectedPlaylist in
+                        playlistPendingDelete = selectedPlaylist
                     },
                     customPinAction: { isPinned in
                         if isPinned {
@@ -1907,12 +1858,12 @@ public struct SidebarView: View {
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-merged-playlist-menu",
                     context: .sidebar,
-                    onRename: {
-                        mergedPlaylistPendingRenameTitle = displayPlaylist.title
-                        mergedPlaylistPendingRename = displayPlaylist
+                    onRename: { playlist in
+                        playlistPendingRenameTitle = playlist.title
+                        playlistPendingRename = playlist
                     },
-                    onDelete: {
-                        mergedPlaylistPendingDelete = displayPlaylist
+                    onDelete: { playlist in
+                        playlistPendingDelete = playlist
                     },
                     onUnpinAll: {
                         handlePinnedSelectionRemoval(

@@ -116,6 +116,14 @@ public final class LibraryViewModel: ObservableObject {
         )
     }
 
+    public func mutationCandidates(for track: Track) -> [Track] {
+        MergingProjection.mutationCandidates(
+            for: track,
+            in: tracks,
+            preferences: settingsManager.mergingPreferences
+        )
+    }
+
     public var immediateAlbumBrowseSnapshot: AlbumBrowseSnapshot {
         guard !albumBrowseSnapshot.hasVisibleContent, !albums.isEmpty else {
             return albumBrowseSnapshot

@@ -31,6 +31,7 @@ public struct FavoritesView: View {
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     public init(libraryVM _: LibraryViewModel, nowPlayingVM: NowPlayingViewModel) {
         _viewModel = StateObject(wrappedValue: DependencyContainer.shared.makeFavoritesViewModel())
@@ -189,7 +190,9 @@ public struct FavoritesView: View {
             nowPlayingVM: nowPlayingVM,
             deps: deps,
             navigationCoordinator: navigationCoordinator,
-            recentPlaylistTitle: nvmRecentPlaylistTitle
+            recentPlaylistTitle: nvmRecentPlaylistTitle,
+            mutationCandidates: viewModel.mutationCandidates(for:),
+            sourceActionPresenter: sourceActionPresenter
         ) { tracks in
             presentPlaylistPicker(with: tracks)
         } onGetInfo: { track in

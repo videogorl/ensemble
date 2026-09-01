@@ -186,6 +186,15 @@ public final class MergedPlaylistDetailViewModel: ObservableObject, MediaDetailV
         return .available
     }
 
+    public var preferredFilteredTracks: [Track] {
+        let preferred = displayPlaylist.primaryPlaylist
+        let sourceTracks = loadedItemsByPlaylistID[preferred.sourceScopedID]?.map(\.track)
+            ?? tracks.filter {
+                mutationSourceKey($0.sourceCompositeKey) == mutationSourceKey(preferred.sourceCompositeKey)
+            }
+        return PlaylistDetailTrackDerivation.filter(sourceTracks, with: filterOptions)
+    }
+
     public func canRemoveTrackFromPlaylist(_ track: Track) -> Bool {
         guard let playlist = playlistOwningTrack(track) else { return false }
         return editAvailability(for: playlist).isAvailable

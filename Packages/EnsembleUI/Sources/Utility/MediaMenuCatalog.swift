@@ -71,11 +71,8 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case getInfo
     case editMetadata
     case rename
-    case renameAll
     case editPlaylist
     case download
-    case downloadAll
-    case removeDownloads
     case favorite
     case pin
     case unpinAll
@@ -88,7 +85,6 @@ enum MediaMenuActionID: String, Equatable, Hashable {
     case deleteTrack
     case deleteAlbum
     case deletePlaylist
-    case deleteAll
 }
 
 enum MediaMenuSectionID: String, Equatable, Hashable {
@@ -151,11 +147,8 @@ struct MediaMenuHandlers {
     var getInfo: (() -> Void)?
     var editMetadata: (() -> Void)?
     var rename: (() -> Void)?
-    var renameAll: (() -> Void)?
     var editPlaylist: (() -> Void)?
     var download: (() -> Void)?
-    var downloadAll: (() -> Void)?
-    var removeDownloads: (() -> Void)?
     var favorite: (() -> Void)?
     var pin: (() -> Void)?
     var unpinAll: (() -> Void)?
@@ -167,7 +160,6 @@ struct MediaMenuHandlers {
     var deleteTrack: (() -> Void)?
     var deleteAlbum: (() -> Void)?
     var deletePlaylist: (() -> Void)?
-    var deleteAll: (() -> Void)?
     var toggleHidden: (() -> Void)?
 
     func handler(for actionID: MediaMenuActionID) -> (() -> Void)? {
@@ -188,11 +180,8 @@ struct MediaMenuHandlers {
         case .getInfo: return getInfo
         case .editMetadata: return editMetadata
         case .rename: return rename
-        case .renameAll: return renameAll
         case .editPlaylist: return editPlaylist
         case .download: return download
-        case .downloadAll: return downloadAll
-        case .removeDownloads: return removeDownloads
         case .favorite: return favorite
         case .pin: return pin
         case .unpinAll: return unpinAll
@@ -205,7 +194,6 @@ struct MediaMenuHandlers {
         case .deleteTrack: return deleteTrack
         case .deleteAlbum: return deleteAlbum
         case .deletePlaylist: return deletePlaylist
-        case .deleteAll: return deleteAll
         }
     }
 }
@@ -515,7 +503,7 @@ enum MediaMenuCatalog {
     ) -> [MediaMenuSection] {
         var sections = [
             section(.playback, [.play, .shuffle, .playNext, .playLast]),
-            section(.offline, [.downloadAll, .removeDownloads])
+            section(.offline, [.download])
         ]
 
         if context == .pinned || context == .sidebar {
@@ -528,13 +516,13 @@ enum MediaMenuCatalog {
 
         var management: [MediaMenuActionID] = []
         if context.allowsPlaylistManagement, availability.canRename {
-            management.append(.renameAll)
+            management.append(.rename)
         }
         management.append(.toggleHidden)
         if context.allowsPlaylistManagement, availability.canDelete {
-            management.append(.deleteAll)
+            management.append(.deletePlaylist)
         }
-        sections.append(section(.management, management, destructive: [.deleteAll]))
+        sections.append(section(.management, management, destructive: [.deletePlaylist]))
         return sections.filter { !$0.actions.isEmpty }
     }
 
@@ -584,7 +572,7 @@ private extension MediaMenuActionID {
         case .goToAlbum: .goToAlbum
         case .goToArtist: .goToArtist
         case .shareEnsembleLink: .share
-        case .deleteTrack, .deleteAlbum, .deletePlaylist, .deleteAll: .delete
+        case .deleteTrack, .deleteAlbum, .deletePlaylist: .delete
         default: nil
         }
     }
@@ -642,8 +630,6 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Edit Metadata…", systemImage: EnsembleDesign.Icon.edit)
         case .rename:
             return MediaMenuLabel(title: "Rename…", systemImage: EnsembleDesign.Icon.edit)
-        case .renameAll:
-            return MediaMenuLabel(title: "Rename All…", systemImage: EnsembleDesign.Icon.edit)
         case .editPlaylist:
             return MediaMenuLabel(title: "Edit Playlist", systemImage: EnsembleDesign.Icon.editPlaylist)
         case .download:
@@ -651,10 +637,6 @@ extension MediaMenuActionDescriptor {
                 title: state.isDownloaded ? "Remove Download" : "Download",
                 systemImage: state.isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
             )
-        case .downloadAll:
-            return MediaMenuLabel(title: "Download All", systemImage: EnsembleDesign.Icon.download)
-        case .removeDownloads:
-            return MediaMenuLabel(title: "Remove Downloads", systemImage: EnsembleDesign.Icon.removeDownload)
         case .favorite:
             return MediaMenuLabel(
                 title: state.isFavorited ? "Unfavorite" : "Favorite",
@@ -688,8 +670,6 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Delete Album", systemImage: EnsembleDesign.Icon.delete)
         case .deletePlaylist:
             return MediaMenuLabel(title: "Delete Playlist", systemImage: EnsembleDesign.Icon.delete)
-        case .deleteAll:
-            return MediaMenuLabel(title: "Delete All", systemImage: EnsembleDesign.Icon.delete)
         }
     }
 
@@ -718,11 +698,8 @@ extension MediaMenuActionDescriptor {
         case .getInfo: return .getInfo
         case .editMetadata: return .editMetadata
         case .rename: return .rename
-        case .renameAll: return .renameAll
         case .editPlaylist: return .editPlaylist
         case .download: return .download(isDownloaded: state.isDownloaded)
-        case .downloadAll: return .downloadAll
-        case .removeDownloads: return .removeDownloads
         case .favorite: return .favorite(isFavorited: state.isFavorited, usesFilledIcon: false)
         case .pin: return .pin(isPinned: state.isPinned)
         case .unpinAll: return .unpinAll
@@ -735,7 +712,6 @@ extension MediaMenuActionDescriptor {
         case .deleteTrack: return .deleteTrack
         case .deleteAlbum: return .deleteAlbum
         case .deletePlaylist: return .deletePlaylist
-        case .deleteAll: return .deleteAll
         }
     }
 }

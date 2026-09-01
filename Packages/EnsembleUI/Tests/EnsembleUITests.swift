@@ -1425,7 +1425,7 @@ final class EnsembleUITests: XCTestCase {
 
         XCTAssertEqual(sections.ids, [.playback, .offline, .sharing, .management])
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
-        XCTAssertEqual(sections.actions(in: .offline), [.downloadAll, .removeDownloads])
+        XCTAssertEqual(sections.actions(in: .offline), [.download])
         XCTAssertEqual(sections.actions(in: .sharing), [.shareEnsembleLink])
         XCTAssertEqual(sections.actions(in: .management), [.toggleHidden])
     }
@@ -1480,14 +1480,14 @@ final class EnsembleUITests: XCTestCase {
             context: .library,
             availability: MediaMenuAvailability(
                 itemActions: [
-                    .renameAll: readOnly,
-                    .deleteAll: readOnly
+                    .rename: readOnly,
+                    .deletePlaylist: readOnly
                 ]
             )
         )
 
-        XCTAssertEqual(sections.actions(in: .management), [.renameAll, .toggleHidden, .deleteAll])
-        for actionID in [MediaMenuActionID.renameAll, .deleteAll] {
+        XCTAssertEqual(sections.actions(in: .management), [.rename, .toggleHidden, .deletePlaylist])
+        for actionID in [MediaMenuActionID.rename, .deletePlaylist] {
             let action = try XCTUnwrap(sections.flatMap(\.actions).first { $0.id == actionID })
             XCTAssertEqual(action.availability, readOnly)
         }
@@ -1591,7 +1591,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertEqual(sections.actions(in: .playback), [.play, .shuffle, .playNext, .playLast])
         XCTAssertEqual(sections.actions(in: .pinning), [.unpinAll])
         XCTAssertEqual(sections.role(for: .unpinAll), .destructive)
-        XCTAssertEqual(sections.actions(in: .management), [.renameAll, .toggleHidden, .deleteAll])
+        XCTAssertEqual(sections.actions(in: .management), [.rename, .toggleHidden, .deletePlaylist])
     }
 
     func testTrackActionPresentationUsesSharedFavoriteState() {

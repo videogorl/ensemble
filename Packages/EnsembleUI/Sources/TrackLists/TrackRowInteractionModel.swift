@@ -67,6 +67,8 @@ public struct TrackRowInteractionModel {
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
     public let canRemoveFromPlaylist: ((Track) -> Bool)?
     public let recentPlaylistTitle: String?
+    public let mutationCandidates: ((Track) -> [Track])?
+    public let onSelectMutationSource: ((String, [Track], @escaping (Track) -> Void) -> Void)?
 
     public init(
         onPlayNext: ((Track) -> Void)? = nil,
@@ -90,7 +92,9 @@ public struct TrackRowInteractionModel {
         canAddToLibrary: ((Track) -> Bool)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         canRemoveFromPlaylist: ((Track) -> Bool)? = nil,
-        recentPlaylistTitle: String? = nil
+        recentPlaylistTitle: String? = nil,
+        mutationCandidates: ((Track) -> [Track])? = nil,
+        onSelectMutationSource: ((String, [Track], @escaping (Track) -> Void) -> Void)? = nil
     ) {
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
@@ -114,6 +118,8 @@ public struct TrackRowInteractionModel {
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.canRemoveFromPlaylist = canRemoveFromPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.mutationCandidates = mutationCandidates
+        self.onSelectMutationSource = onSelectMutationSource
     }
 
     public func isFavorited(_ track: Track) -> Bool {
@@ -177,30 +183,80 @@ public struct TrackRowInteractionModel {
         }
         let allowRecentPlaylist = onAddToRecentPlaylist != nil && (canAddToRecentPlaylist?(track) ?? true)
         let isFavorited = isFavorited(track)
+        let candidates = mutationCandidates?(track) ?? [track]
+        let addToLibraryCandidates = candidates.filter(canAddTrackToLibrary)
+        let favoriteCandidates = candidates.filter {
+            $0.actionAvailability(for: .favorite, isFavorited: self.isFavorited($0)).isAvailable
+        }
+        let editCandidates = candidates.filter {
+            $0.actionAvailability(for: .editMetadata).isAvailable
+        }
+        let deleteCandidates = candidates.filter {
+            $0.actionAvailability(for: .delete).isAvailable
+        }
+        let hiddenCandidates = candidates.filter { canToggleHidden?($0) ?? true }
 
         return ResolvedActions(
             onPlayNext: onPlayNext.map { callback in { callback(track) } },
             onPlayLast: onPlayLast.map { callback in { callback(track) } },
-            onAddToLibrary: canAddTrackToLibrary(track) ? onAddToLibrary.map { callback in { callback(track) } } : nil,
+            onAddToLibrary: mutationAction(
+                title: "Add Song to Library",
+                candidates: addToLibraryCandidates,
+                callback: onAddToLibrary
+            ),
             onAddToPlaylist: onAddToPlaylist.map { callback in { callback(track) } },
             onAddToRecentPlaylist: allowRecentPlaylist ? onAddToRecentPlaylist.map { callback in { callback(track) } } : nil,
-            onToggleFavorite: onToggleFavorite.map { callback in { callback(track) } },
+            onToggleFavorite: mutationAction(
+                title: isFavorited ? "Unfavorite Song" : "Favorite Song",
+                candidates: favoriteCandidates.isEmpty ? candidates : favoriteCandidates,
+                callback: onToggleFavorite
+            ),
             onGoToAlbum: onGoToAlbum.map { callback in { callback(track) } },
             onGoToArtist: onGoToArtist.map { callback in { callback(track) } },
             onGetInfo: onGetInfo.map { callback in { callback(track) } },
-            onEditMetadata: onEditMetadata.map { callback in { callback(track) } },
+            onEditMetadata: mutationAction(
+                title: "Edit Song Metadata",
+                candidates: editCandidates.isEmpty ? candidates : editCandidates,
+                callback: onEditMetadata
+            ),
             onShareEnsembleLink: onShareEnsembleLink.map { callback in { callback(track) } },
             onShareLink: onShareLink.map { callback in { callback(track) } },
             onShareFile: track.sourceCapabilities.supportsAudioFileSharing ? onShareFile.map { callback in { callback(track) } } : nil,
-            onDeleteTrack: onDeleteTrack.map { callback in { callback(track) } },
-            onToggleHidden: (canToggleHidden?(track) ?? true) ? onToggleHidden.map { callback in { callback(track) } } : nil,
+            onDeleteTrack: mutationAction(
+                title: "Delete Song",
+                candidates: deleteCandidates.isEmpty ? candidates : deleteCandidates,
+                callback: onDeleteTrack
+            ),
+            onToggleHidden: mutationAction(
+                title: "Hide Song",
+                candidates: hiddenCandidates,
+                callback: onToggleHidden
+            ),
             isFavorited: isFavorited,
             isHidden: isTrackHidden?(track) ?? false,
             recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil,
-            favoriteAvailability: track.actionAvailability(for: .favorite, isFavorited: isFavorited),
-            editMetadataAvailability: track.actionAvailability(for: .editMetadata),
-            deleteAvailability: track.actionAvailability(for: .delete)
+            favoriteAvailability: .combined(candidates.map {
+                $0.actionAvailability(for: .favorite, isFavorited: self.isFavorited($0))
+            }),
+            editMetadataAvailability: .combined(candidates.map {
+                $0.actionAvailability(for: .editMetadata)
+            }),
+            deleteAvailability: .combined(candidates.map {
+                $0.actionAvailability(for: .delete)
+            })
         )
+    }
+
+    private func mutationAction(
+        title: String,
+        candidates: [Track],
+        callback: ((Track) -> Void)?
+    ) -> (() -> Void)? {
+        guard let callback, let first = candidates.first else { return nil }
+        guard candidates.count > 1, let onSelectMutationSource else {
+            return { callback(first) }
+        }
+        return { onSelectMutationSource(title, candidates, callback) }
     }
 }
 
@@ -213,6 +269,8 @@ extension TrackRowInteractionModel {
         includeAlbumNavigation: Bool = true,
         includeArtistNavigation: Bool = true,
         recentPlaylistTitle: String?,
+        mutationCandidates: ((Track) -> [Track])? = nil,
+        sourceActionPresenter: MediaSourceActionPresenter? = nil,
         onAddToPlaylist: @escaping ([Track]) -> Void,
         onGetInfo: @escaping (Track) -> Void
     ) -> TrackRowInteractionModel {
@@ -292,7 +350,19 @@ extension TrackRowInteractionModel {
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM) != nil
             },
-            recentPlaylistTitle: recentPlaylistTitle
+            recentPlaylistTitle: recentPlaylistTitle,
+            mutationCandidates: mutationCandidates,
+            onSelectMutationSource: sourceActionPresenter.map { presenter in
+                { title, tracks, action in
+                    sourceMutationAction(
+                        title: title,
+                        tracks: tracks,
+                        presenter: presenter,
+                        deps: deps,
+                        action: action
+                    )?()
+                }
+            }
         )
     }
 }

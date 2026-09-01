@@ -558,6 +558,7 @@ struct HubItemCard: View {
         let displayAlbum = displayItem.displayAlbum ?? .single(resolvedAlbum)
         return AlbumActionsContextMenu(
             album: resolvedAlbum,
+            sourceAlbums: displayAlbum.albums,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
@@ -595,6 +596,7 @@ struct HubItemCard: View {
         let displayArtist = displayItem.displayArtist ?? .single(resolvedArtist)
         return ArtistActionsContextMenu(
             artist: resolvedArtist,
+            sourceArtists: displayArtist.artists,
             nowPlayingVM: nowPlayingVM,
             toastNamespace: "hub-artist-menu",
             customPinAction: { isPinned in
@@ -616,15 +618,26 @@ struct HubItemCard: View {
 
     // MARK: Playlist Context Menu
 
+    @ViewBuilder
     private var playlistContextMenu: some View {
-        PlaylistActionsContextMenu(
-            playlist: resolvedPlaylist,
-            nowPlayingVM: nowPlayingVM,
-            toastNamespace: "hub-playlist-menu",
-            onGetInfo: {
-                libraryItemInfoRequest = .playlist(resolvedPlaylist)
-            }
-        )
+        let displayPlaylist = displayItem.displayPlaylist ?? .single(resolvedPlaylist)
+        if displayPlaylist.isMerged {
+            MergedPlaylistActionsContextMenu(
+                displayPlaylist: displayPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "hub-merged-playlist-menu",
+                context: .search
+            )
+        } else {
+            PlaylistActionsContextMenu(
+                playlist: resolvedPlaylist,
+                nowPlayingVM: nowPlayingVM,
+                toastNamespace: "hub-playlist-menu",
+                onGetInfo: {
+                    libraryItemInfoRequest = .playlist(resolvedPlaylist)
+                }
+            )
+        }
     }
 
     // MARK: Track Context Menu
@@ -634,6 +647,7 @@ struct HubItemCard: View {
         let track = resolvedTrack
         TrackActionsContextMenu(
             track: track,
+            sourceTracks: displayItem.items.compactMap(\.track),
             nowPlayingVM: nowPlayingVM,
             context: .search,
             onAddToPlaylist: {

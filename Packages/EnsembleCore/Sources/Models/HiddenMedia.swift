@@ -72,7 +72,6 @@ public final class HiddenMediaStore: ObservableObject {
     public static let shared = HiddenMediaStore()
 
     @Published public private(set) var snapshot: HiddenMediaSnapshot = .empty
-    @Published public var pendingCandidates: [HiddenMediaCandidate] = []
     @Published public private(set) var sectionOrder: [HiddenMediaKind]
 
     public private(set) var lastRemoteApplyTime: Date?
@@ -110,20 +109,6 @@ public final class HiddenMediaStore: ObservableObject {
             modifiedAt: date,
             relatedCatalogID: relatedCatalogID ?? mutations[identity]?.relatedCatalogID
         ))
-    }
-
-    public func choose(_ candidate: HiddenMediaCandidate) {
-        setHidden(true, identity: candidate.identity, relatedCatalogID: candidate.relatedCatalogID)
-        pendingCandidates = []
-    }
-
-    public func requestHide(_ candidates: [HiddenMediaCandidate]) {
-        let visible = candidates.filter { !snapshot.contains($0.identity) }
-        if visible.count == 1, let candidate = visible.first {
-            choose(candidate)
-        } else {
-            pendingCandidates = visible
-        }
     }
 
     public func moveSections(fromOffsets source: IndexSet, toOffset destination: Int) {

@@ -436,8 +436,8 @@ private struct DisplayArtistGrid: View {
             ArtistActionsContextMenu(
                 artist: displayArtist.primaryArtist,
                 nowPlayingVM: nowPlayingVM,
-                onEditMetadata: {
-                    presentArtistMetadataEditor(displayArtist.primaryArtist)
+                onEditMetadata: { artist in
+                    presentArtistMetadataEditor(artist)
                 }
             )
         } else {
@@ -588,6 +588,7 @@ public struct ArtistDetailView: View {
 
     @Environment(\.dependencies) private var dependencies
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -797,16 +798,24 @@ public struct ArtistDetailView: View {
 
             if displayArtist.isMerged, !downloadableMergedArtists.isEmpty {
                 Button {
-                    Task {
-                        for artist in downloadableMergedArtists {
+                    sourceMutationAction(
+                        title: "Manage Artist Download",
+                        items: downloadableMergedArtists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.name,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: dependencies
+                    ) { artist in
+                        Task {
                             await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
                                 artist,
-                                isEnabled: true
+                                isEnabled: !dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
                             )
                         }
-                    }
+                    }?()
                 } label: {
-                    MediaActionLabel(kind: .downloadAll)
+                    MediaActionLabel(kind: .download(isDownloaded: false))
                 }
             } else if canDownload {
                 Button {
@@ -882,7 +891,12 @@ public struct ArtistDetailView: View {
 
     private var mergedDownloadableArtists: [Artist] {
         guard displayArtist.isMerged else { return [] }
-        return displayArtist.artists.filter { canDownload($0) }
+        return displayArtist.artists.filter {
+            resolvedDownloadMenuAvailability(
+                isDownloaded: dependencies.offlineDownloadService.isArtistDownloadEnabled($0),
+                sourceAvailability: $0.actionAvailability(for: .download)
+            ).isAvailable
+        }
     }
 
     private var artworkArtist: Artist {
@@ -1686,13 +1700,18 @@ public struct ArtistDetailView: View {
                 }
             )
 
-            favoriteTrackList(tracks: detailFavoritedTracks, supplementalMetadataWidth: favoritedTrackListWidth)
+            favoriteTrackList(
+                tracks: detailFavoritedTracks,
+                mutationSourceTracks: detailSnapshot.favoritedTracks,
+                supplementalMetadataWidth: favoritedTrackListWidth
+            )
         }
         .measuredWidth(onChange: updateFavoritedTrackListWidth)
     }
 
     private func favoriteTrackList(
         tracks: [Track],
+        mutationSourceTracks: [Track]? = nil,
         supplementalMetadataWidth: CGFloat
     ) -> some View {
             let interactionModel = TrackRowInteractionModel.nowPlayingActions(
@@ -1700,7 +1719,15 @@ public struct ArtistDetailView: View {
                 deps: dependencies,
                 navigationCoordinator: navigationCoordinator,
                 includeArtistNavigation: false,
-                recentPlaylistTitle: nvmRecentPlaylistTitle
+                recentPlaylistTitle: nvmRecentPlaylistTitle,
+                mutationCandidates: { track in
+                    MergingProjection.mutationCandidates(
+                        for: track,
+                        in: mutationSourceTracks ?? tracks,
+                        preferences: settingsManager.mergingPreferences
+                    )
+                },
+                sourceActionPresenter: sourceActionPresenter
             ) { tracks in
                 presentPlaylistPicker(with: tracks)
             } onGetInfo: { track in

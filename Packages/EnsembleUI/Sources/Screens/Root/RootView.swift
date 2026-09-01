@@ -15,12 +15,12 @@ import AppKit
 public struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
-    @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
     private let powerStateMonitor = DependencyContainer.shared.powerStateMonitor
     @StateObject private var navigationCoordinator: NavigationCoordinator
     @StateObject private var nowPlayingVM: NowPlayingViewModel
     @StateObject private var artworkDetailBackgroundContinuity = ArtworkDetailBackgroundContinuityStore()
     @StateObject private var artistDetailArtworkContinuity = ArtistDetailArtworkContinuityStore()
+    @StateObject private var sourceActionPresenter = MediaSourceActionPresenter()
     @State private var isNowPlayingPresented = false
     @State private var sidebarSelection: SidebarSelection? = .library(.home)
     @State private var rootSidebarChromeRegistration: RootSidebarChromeRegistration = .absent
@@ -72,11 +72,9 @@ public struct RootView: View {
             mainContentView
         }
         .auxiliaryPresentationSheets()
-        .sheet(isPresented: Binding(
-            get: { !hiddenMediaStore.pendingCandidates.isEmpty },
-            set: { if !$0 { hiddenMediaStore.pendingCandidates = [] } }
-        )) {
-            HiddenSourcePicker(store: hiddenMediaStore)
+        .environmentObject(sourceActionPresenter)
+        .sheet(item: $sourceActionPresenter.pendingRequest, onDismiss: sourceActionPresenter.completeSelection) { request in
+            MediaSourceActionPicker(request: request, presenter: sourceActionPresenter)
         }
         .alert("Replace Queue?", isPresented: Binding(
             get: { nowPlayingVM.isQueueReplacementConfirmationPresented },
@@ -472,30 +470,33 @@ public struct RootView: View {
     }
 }
 
-private struct HiddenSourcePicker: View {
-    @ObservedObject var store: HiddenMediaStore
+private struct MediaSourceActionPicker: View {
+    let request: MediaSourceActionRequest
+    @ObservedObject var presenter: MediaSourceActionPresenter
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationView {
-            List(store.pendingCandidates) { candidate in
+            List(request.choices) { choice in
                 Button {
-                    store.choose(candidate)
-                    dismiss()
+                    presenter.choose(choice)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(candidate.title)
+                        Text(choice.title)
                             .foregroundColor(EnsembleDesign.Color.primaryText)
-                        Text(candidate.source)
+                        Text(choice.source)
                             .font(.caption)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
                     }
                 }
             }
-            .navigationTitle("Hide Item")
+            .navigationTitle(request.title)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button("Cancel") {
+                        presenter.cancel()
+                        dismiss()
+                    }
                 }
             }
         }

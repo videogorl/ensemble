@@ -87,6 +87,7 @@ public final class SearchViewModel: ObservableObject {
     private let recentSearchesKey = "ensemble_recent_searches"
     private var hasLoadedExploreContent = false
     private var unfilteredTrackResults: [Track] = []
+    private var visibleTrackResults: [Track] = []
     private var unfilteredArtistResults: [Artist] = []
     private var unfilteredAlbumResults: [Album] = []
     private var unfilteredPlaylistResults: [Playlist] = []
@@ -588,6 +589,7 @@ public final class SearchViewModel: ObservableObject {
             sourceConfiguration: cachedSourceFilter,
             hiddenMedia: hiddenMedia
         )
+        visibleTrackResults = visibleTracks
         trackResults = MergingProjection.tracks(visibleTracks, preferences: mergingPreferences)
         artistResults = LibraryVisibilityFiltering.visibleItems(
             unfilteredArtistResults,
@@ -620,6 +622,14 @@ public final class SearchViewModel: ObservableObject {
             displayPlaylistResults = nextDisplayPlaylists
         }
         determineSearchSectionOrder()
+    }
+
+    public func mutationCandidates(for track: Track) -> [Track] {
+        MergingProjection.mutationCandidates(
+            for: track,
+            in: visibleTrackResults,
+            preferences: mergingPreferences
+        )
     }
 
     private func refreshMergingPreferences() {

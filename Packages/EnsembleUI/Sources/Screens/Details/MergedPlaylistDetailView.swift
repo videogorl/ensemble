@@ -3,21 +3,19 @@ import EnsembleCore
 import SwiftUI
 
 /// Detail view for a merged playlist — shows interleaved tracks from all constituent
-/// playlists across sources, with source chips and edit/delete-all flows.
+/// playlists across sources, with source chips and exact-source mutation flows.
 public struct MergedPlaylistDetailView: View {
     @StateObject private var viewModel: MergedPlaylistDetailViewModel
-    @ObservedObject private var settingsManager = DependencyContainer.shared.settingsManager
     let nowPlayingVM: NowPlayingViewModel
 
     @State private var showRenamePrompt = false
     @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
-    @State private var showEditPicker = false
-    @State private var isDeletingPlaylist = false
+    @State private var renameTarget: Playlist?
+    @State private var deleteTarget: Playlist?
     @State private var editTarget: Playlist?
-    @State private var pendingEditTarget: Playlist?
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     public init(displayPlaylist: DisplayPlaylist, nowPlayingVM: NowPlayingViewModel) {
         self._viewModel = StateObject(
@@ -35,7 +33,10 @@ public struct MergedPlaylistDetailView: View {
             deps.offlineDownloadService.isPlaylistDownloadEnabled($0)
         }
         let downloadablePlaylists = zip(playlists, downloadAvailabilities).compactMap { playlist, availability in
-            availability.isAvailable ? playlist : nil
+            resolvedDownloadMenuAvailability(
+                isDownloaded: deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist),
+                sourceAvailability: availability
+            ).isAvailable ? playlist : nil
         }
         MediaDetailView(
             viewModel: viewModel,
@@ -46,6 +47,7 @@ public struct MergedPlaylistDetailView: View {
             showTrackNumbers: false,
             groupByDisc: false,
             mediaType: .playlist,
+            actionTracks: viewModel.preferredFilteredTracks,
             hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
             playlistMenuActions: PlaylistDetailMenuActions(
                 downloadAvailability: resolvedMergedDownloadMenuAvailability(
@@ -63,31 +65,70 @@ public struct MergedPlaylistDetailView: View {
                     playlists.map { $0.actionAvailability(for: .delete) }
                 ),
                 onToggleDownload: {
-                    Task {
-                        let targets = isAnyDownloaded ? playlists : downloadablePlaylists
-                        for playlist in targets {
+                    sourceMutationAction(
+                        title: "Manage Playlist Download",
+                        items: downloadablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        Task {
                             await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
                                 playlist,
-                                isEnabled: !isAnyDownloaded
+                                isEnabled: !deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
                             )
                         }
-                    }
+                    }?()
                 },
                 onRename: {
-                    renamePromptText = viewModel.displayPlaylist.title
-                    showRenamePrompt = true
+                    sourceMutationAction(
+                        title: "Rename Playlist",
+                        items: viewModel.displayPlaylist.editablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        renameTarget = playlist
+                        renamePromptText = playlist.title
+                        showRenamePrompt = true
+                    }?()
                 },
                 onEdit: {
-                    showEditPicker = true
+                    sourceMutationAction(
+                        title: "Edit Playlist",
+                        items: playlists.filter { viewModel.editAvailability(for: $0).isAvailable },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        editTarget = playlist
+                    }?()
                 },
                 onDelete: {
-                    showDeleteConfirmation = true
+                    sourceMutationAction(
+                        title: "Delete Playlist",
+                        items: viewModel.displayPlaylist.deletablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { playlist in
+                        deleteTarget = playlist
+                        showDeleteConfirmation = true
+                    }?()
                 },
                 onPlayNext: {
-                    nowPlayingVM.playNext(viewModel.filteredTracks)
+                    nowPlayingVM.playNext(viewModel.preferredFilteredTracks)
                 },
                 onPlayLast: {
-                    nowPlayingVM.playLast(viewModel.filteredTracks)
+                    nowPlayingVM.playLast(viewModel.preferredFilteredTracks)
                 }
             ),
             // Pin/unpin ALL constituent playlists as a batch
@@ -108,45 +149,26 @@ public struct MergedPlaylistDetailView: View {
         )
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {
             TextField("Playlist name", text: $renamePromptText)
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) {
+                renameTarget = nil
+            }
             Button("Save") {
-                renameMergedPlaylistFromPrompt()
+                renamePlaylistFromPrompt()
             }
             .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            let count = viewModel.displayPlaylist.editablePlaylists.count
-            Text("This will rename the playlist in \(count) source\(count == 1 ? "" : "s").")
+            Text("Choose a new playlist name for the selected source.")
         }
-        // Delete all constituent playlists
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete All", role: .destructive) {
-                guard !isDeletingPlaylist else { return }
-                guard let start = deps.playlistMutationWorkflow.beginDeleteAll(
-                    displayPlaylist: viewModel.displayPlaylist
-                ) else { return }
-                isDeletingPlaylist = true
-                let deletingToast = start.pendingToast
-                deps.toastCenter.show(deletingToast)
-                dismiss()
-                Task {
-                    let result = await deps.playlistMutationWorkflow.finishDeleteAll(
-                        displayPlaylist: viewModel.displayPlaylist
-                    )
-                    isDeletingPlaylist = false
-                    deps.toastCenter.dismiss(id: deletingToast.id)
-                    deps.toastCenter.show(result.resultToast)
-                }
+            Button("Cancel", role: .cancel) {
+                deleteTarget = nil
+            }
+            Button("Delete", role: .destructive) {
+                deleteSelectedPlaylist()
             }
         } message: {
-            let count = viewModel.displayPlaylist.deletablePlaylists.count
-            Text("This will permanently delete \"\(viewModel.displayPlaylist.title)\" from \(count) source\(count == 1 ? "" : "s").")
+            Text("This will permanently delete \"\(deleteTarget?.title ?? viewModel.displayPlaylist.title)\" from the selected source.")
         }
-        // Edit picker — choose which constituent playlist to edit
-        .sheet(isPresented: $showEditPicker, onDismiss: presentPendingEditTarget) {
-            editPickerSheet
-        }
-        // Individual playlist edit sheet (opened after picking a constituent)
         .sheet(item: $editTarget) { playlist in
             PlaylistDetailView(
                 playlist: playlist,
@@ -165,23 +187,59 @@ public struct MergedPlaylistDetailView: View {
 
     // MARK: - Header
 
-    private func renameMergedPlaylistFromPrompt() {
+    private func renamePlaylistFromPrompt() {
+        guard let playlist = renameTarget else { return }
+        renameTarget = nil
         let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !newTitle.isEmpty else { return }
-        guard let start = deps.playlistMutationWorkflow.beginRenameAll(
-            displayPlaylist: viewModel.displayPlaylist,
+        guard let start = deps.playlistMutationWorkflow.beginRename(
+            playlist: playlist,
             to: newTitle
         ) else { return }
 
         let renamingToast = start.pendingToast
         deps.toastCenter.show(renamingToast)
         Task {
-            let result = await deps.playlistMutationWorkflow.finishRenameAll(
-                displayPlaylist: viewModel.displayPlaylist,
-                trimmedTitle: start.trimmedTitle
-            )
-            deps.toastCenter.dismiss(id: renamingToast.id)
-            deps.toastCenter.show(result.resultToast)
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishRename(
+                    playlist: playlist,
+                    trimmedTitle: start.trimmedTitle
+                )
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(result.successToast)
+                await viewModel.refreshFromServer()
+            } catch {
+                deps.toastCenter.dismiss(id: renamingToast.id)
+                deps.toastCenter.show(
+                    deps.playlistMutationWorkflow.renameFailureToast(
+                        playlist: playlist,
+                        error: error
+                    )
+                )
+            }
+        }
+    }
+
+    private func deleteSelectedPlaylist() {
+        guard let playlist = deleteTarget,
+              let start = deps.playlistMutationWorkflow.beginDelete(playlist: playlist) else { return }
+        deleteTarget = nil
+        let deletingToast = start.pendingToast
+        deps.toastCenter.show(deletingToast)
+        Task {
+            do {
+                let result = try await deps.playlistMutationWorkflow.finishDelete(playlist: playlist)
+                deps.toastCenter.dismiss(id: deletingToast.id)
+                deps.toastCenter.show(result.successToast)
+                await viewModel.refreshFromServer()
+            } catch {
+                deps.toastCenter.dismiss(id: deletingToast.id)
+                deps.toastCenter.show(
+                    deps.playlistMutationWorkflow.deleteFailureToast(
+                        playlist: playlist,
+                        errorMessage: error.localizedDescription
+                    )
+                )
+            }
         }
     }
 
@@ -213,74 +271,6 @@ public struct MergedPlaylistDetailView: View {
                 demoModeEnabled: deps.settingsManager.demoModeEnabled
             )
         )
-    }
-
-    // MARK: - Edit Picker
-
-    /// Sheet listing each constituent playlist with its source name.
-    private var editPickerSheet: some View {
-        List {
-            ForEach(viewModel.displayPlaylist.playlists, id: \.sourceScopedID) { playlist in
-                let editAvailability = viewModel.editAvailability(for: playlist)
-                Button {
-                    pendingEditTarget = playlist
-                    showEditPicker = false
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: EnsembleDesign.Spacing.xs) {
-                            Text(sourceName(for: playlist))
-                                .font(EnsembleDesign.Typography.rowPrimary)
-                            Text("\(playlist.trackCount) songs")
-                                .font(EnsembleDesign.Typography.rowSecondary)
-                                .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            if let reason = editAvailability.reason {
-                                Text(reason)
-                                    .font(EnsembleDesign.Typography.rowSecondary)
-                                    .foregroundColor(EnsembleDesign.Color.secondaryText)
-                            }
-                        }
-                        Spacer()
-                        Image(systemName: EnsembleDesign.Icon.chevronRight)
-                            .font(EnsembleDesign.Typography.rowSecondary)
-                            .foregroundColor(EnsembleDesign.Color.secondaryText)
-                    }
-                }
-                .foregroundColor(EnsembleDesign.Color.primaryText)
-                .disabled(!editAvailability.isAvailable)
-            }
-        }
-        .listStyle(.plain)
-        .navigationTitle("Choose Playlist to Edit")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Cancel") { showEditPicker = false }
-            }
-            #else
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { showEditPicker = false }
-            }
-            #endif
-        }
-        .nativeSheetNavigationContainer()
-    }
-
-    private func sourceName(for playlist: Playlist) -> String {
-        guard let sourceKey = playlist.sourceCompositeKey else { return "Unknown Source" }
-        return displaySourceName(DependencyContainer.shared.accountManager.serverName(for: sourceKey) ?? "Unknown Source")
-    }
-
-    private func displaySourceName(_ sourceName: String) -> String {
-        DemoModeRedaction.serverName(sourceName, isEnabled: settingsManager.demoModeEnabled)
-    }
-
-    private func presentPendingEditTarget() {
-        guard let playlist = pendingEditTarget else { return }
-        pendingEditTarget = nil
-        editTarget = playlist
     }
 }
 

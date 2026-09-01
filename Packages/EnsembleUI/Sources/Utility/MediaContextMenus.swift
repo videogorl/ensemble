@@ -2,6 +2,50 @@ import EnsembleDesignTokens
 import EnsembleCore
 import SwiftUI
 
+struct MediaSourceActionChoice: Identifiable {
+    let id: String
+    let title: String
+    let source: String
+    let action: () -> Void
+}
+
+struct MediaSourceActionRequest: Identifiable {
+    let id = UUID()
+    let title: String
+    let choices: [MediaSourceActionChoice]
+}
+
+@MainActor
+final class MediaSourceActionPresenter: ObservableObject {
+    @Published var pendingRequest: MediaSourceActionRequest?
+    private var selectedAction: (() -> Void)?
+
+    func present(title: String, choices: [MediaSourceActionChoice]) {
+        guard !choices.isEmpty else { return }
+        if choices.count == 1 {
+            choices[0].action()
+        } else {
+            pendingRequest = MediaSourceActionRequest(title: title, choices: choices)
+        }
+    }
+
+    func choose(_ choice: MediaSourceActionChoice) {
+        selectedAction = choice.action
+        pendingRequest = nil
+    }
+
+    func completeSelection() {
+        let action = selectedAction
+        selectedAction = nil
+        action?()
+    }
+
+    func cancel() {
+        selectedAction = nil
+        pendingRequest = nil
+    }
+}
+
 func resolvedDownloadMenuAvailability(
     isDownloaded: Bool,
     sourceAvailability: MusicItemActionAvailability
@@ -12,6 +56,7 @@ func resolvedDownloadMenuAvailability(
 /// Shared track actions used by standalone media cards, feed rows, mini player, and fallback queue rows.
 struct TrackActionsContextMenu: View {
     let track: Track
+    var sourceTracks: [Track] = []
     let nowPlayingVM: NowPlayingViewModel
     var context: MediaMenuContext = .search
     var recentPlaylistTarget: Playlist? = nil
@@ -21,18 +66,35 @@ struct TrackActionsContextMenu: View {
     var onGetInfo: (() -> Void)? = nil
     var onRemoveFromQueue: (() -> Void)? = nil
     var onRemoveFromPlaylist: (() -> Void)? = nil
-    var onEditMetadata: (() -> Void)? = nil
-    var onDelete: (() -> Void)? = nil
+    var onEditMetadata: ((Track) -> Void)? = nil
+    var onDelete: ((Track) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+
+    private var mutationTracks: [Track] {
+        sourceTracks.isEmpty ? [track] : sourceTracks
+    }
 
     var body: some View {
         let hiddenIdentity = trackHiddenIdentity
+        let hiddenCandidates = mutationTracks.compactMap { $0.hiddenCandidate(deps: deps) }
+        let isHidden = hiddenMediaIsHidden(
+            identity: hiddenIdentity,
+            candidates: hiddenCandidates,
+            store: deps.hiddenMediaStore
+        )
         let isFavorited = nowPlayingVM.isTrackFavorited(track)
-        let favoriteAvailability = track.actionAvailability(for: .favorite, isFavorited: isFavorited)
-        let editAvailability = track.actionAvailability(for: .editMetadata)
-        let deleteAvailability = track.actionAvailability(for: .delete)
+        let favoriteAvailability = MusicItemActionAvailability.combined(mutationTracks.map {
+            $0.actionAvailability(for: .favorite, isFavorited: nowPlayingVM.isTrackFavorited($0))
+        })
+        let editAvailability = MusicItemActionAvailability.combined(
+            mutationTracks.map { $0.actionAvailability(for: .editMetadata) }
+        )
+        let deleteAvailability = MusicItemActionAvailability.combined(
+            mutationTracks.map { $0.actionAvailability(for: .delete) }
+        )
         let recentTitle = recentPlaylistTarget.map { target in
             PlaylistActionPresentationHost.recentPlaylistTitle(
                 for: [track],
@@ -50,7 +112,7 @@ struct TrackActionsContextMenu: View {
                 context: context,
                 availability: MediaMenuAvailability(
                     hasRecentPlaylist: recentTitle != nil,
-                    canAddToLibrary: nowPlayingVM.canAddTrackToLibrary(track),
+                    canAddToLibrary: mutationTracks.contains(where: nowPlayingVM.canAddTrackToLibrary),
                     canAddToRecentPlaylist: recentTitle != nil,
                     canGoToAlbum: track.albumRatingKey != nil,
                     canGoToArtist: track.artistRatingKey != nil,
@@ -76,7 +138,7 @@ struct TrackActionsContextMenu: View {
             state: MediaMenuState(
                 recentPlaylistTitle: recentTitle,
                 isFavorited: isFavorited,
-                isHidden: hiddenIdentity != nil,
+                isHidden: isHidden,
                 isShuffleEnabled: nowPlayingVM.isShuffleEnabled,
                 repeatMode: nowPlayingVM.repeatMode
             ),
@@ -96,8 +158,13 @@ struct TrackActionsContextMenu: View {
                 playLast: {
                     nowPlayingVM.playLast(track)
                 },
-                addToLibrary: {
-                    Task { await nowPlayingVM.addTrackToLibrary(track) }
+                addToLibrary: sourceMutationAction(
+                    title: "Add Song to Library",
+                    tracks: mutationTracks.filter(nowPlayingVM.canAddTrackToLibrary),
+                    presenter: sourceActionPresenter,
+                    deps: deps
+                ) { selectedTrack in
+                    Task { await nowPlayingVM.addTrackToLibrary(selectedTrack) }
                 },
                 addToRecentPlaylist: {
                     if let recentPlaylistTarget {
@@ -132,12 +199,32 @@ struct TrackActionsContextMenu: View {
                     }
                 },
                 getInfo: onGetInfo,
-                editMetadata: onEditMetadata,
-                favorite: {
+                editMetadata: onEditMetadata.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Edit Song Metadata",
+                        tracks: mutationTracks.filter {
+                            $0.actionAvailability(for: .editMetadata).isAvailable
+                        },
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                favorite: sourceMutationAction(
+                    title: isFavorited ? "Unfavorite Song" : "Favorite Song",
+                    tracks: mutationTracks.filter {
+                        $0.actionAvailability(
+                            for: .favorite,
+                            isFavorited: nowPlayingVM.isTrackFavorited($0)
+                        ).isAvailable
+                    },
+                    presenter: sourceActionPresenter,
+                    deps: deps
+                ) { selectedTrack in
                     Task {
                         await nowPlayingVM.setTrackFavorite(
-                            !nowPlayingVM.isTrackFavorited(track),
-                            for: track
+                            !isFavorited,
+                            for: selectedTrack
                         )
                     }
                 },
@@ -152,8 +239,23 @@ struct TrackActionsContextMenu: View {
                 },
                 removeFromPlaylist: onRemoveFromPlaylist,
                 removeFromQueue: onRemoveFromQueue,
-                deleteTrack: onDelete,
-                toggleHidden: track.hiddenToggleAction(deps: deps)
+                deleteTrack: onDelete.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Delete Song",
+                        tracks: mutationTracks.filter {
+                            $0.actionAvailability(for: .delete).isAvailable
+                        },
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                toggleHidden: hiddenMediaToggleAction(
+                    identity: hiddenIdentity,
+                    candidates: hiddenCandidates,
+                    store: deps.hiddenMediaStore,
+                    presenter: sourceActionPresenter
+                )
             )
         )
     }
@@ -166,30 +268,49 @@ struct TrackActionsContextMenu: View {
 /// Shared album actions used by album grids, search results, and pinned sidebar rows.
 struct AlbumActionsContextMenu: View {
     let album: Album
+    var sourceAlbums: [Album] = []
     let nowPlayingVM: NowPlayingViewModel
     var presentPlaylistPicker: (([Track], String) -> Void)? = nil
     var toastNamespace: String = "album-menu"
     var navigateToArtist: ((String) -> Void)? = nil
     var onGetInfo: (() -> Void)? = nil
-    var onEditMetadata: (() -> Void)? = nil
-    var onDelete: (() -> Void)? = nil
+    var onEditMetadata: ((Album) -> Void)? = nil
+    var onDelete: ((Album) -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
     var customIsPinned: (() -> Bool)? = nil
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     private let pinManager = DependencyContainer.shared.pinManager
 
+    private var mutationAlbums: [Album] {
+        sourceAlbums.isEmpty ? [album] : sourceAlbums
+    }
+
     var body: some View {
         let hiddenIdentity = HiddenMediaIdentity(album)
-        let isHidden = hiddenIdentity.map(deps.hiddenMediaStore.snapshot.contains) ?? false
-        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
-        let downloadAvailability = resolvedDownloadMenuAvailability(
-            isDownloaded: isDownloaded,
-            sourceAvailability: album.actionAvailability(for: .download)
+        let hiddenCandidates = mutationAlbums.compactMap { $0.hiddenCandidate(deps: deps) }
+        let isHidden = hiddenMediaIsHidden(
+            identity: hiddenIdentity,
+            candidates: hiddenCandidates,
+            store: deps.hiddenMediaStore
         )
-        let editAvailability = album.actionAvailability(for: .editMetadata)
-        let deleteAvailability = album.actionAvailability(for: .delete)
+        let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
+        let downloadAvailability = MusicItemActionAvailability.combined(
+            mutationAlbums.map {
+                resolvedDownloadMenuAvailability(
+                    isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
+                    sourceAvailability: $0.actionAvailability(for: .download)
+                )
+            }
+        )
+        let editAvailability = MusicItemActionAvailability.combined(
+            mutationAlbums.map { $0.actionAvailability(for: .editMetadata) }
+        )
+        let deleteAvailability = MusicItemActionAvailability.combined(
+            mutationAlbums.map { $0.actionAvailability(for: .delete) }
+        )
         let isPinned = customIsPinned?()
             ?? pinManager.isPinned(id: album.id, sourceKey: album.sourceCompositeKey ?? "")
         let recentTarget = nowPlayingVM.lastPlaylistTarget
@@ -274,10 +395,39 @@ struct AlbumActionsContextMenu: View {
                 },
                 goToArtist: goToArtist,
                 getInfo: onGetInfo,
-                editMetadata: onEditMetadata,
-                download: {
+                editMetadata: onEditMetadata.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Edit Album Metadata",
+                        items: mutationAlbums.filter {
+                            $0.actionAvailability(for: .editMetadata).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                download: sourceMutationAction(
+                    title: "Manage Album Download",
+                    items: mutationAlbums.filter {
+                        resolvedDownloadMenuAvailability(
+                            isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
+                            sourceAvailability: $0.actionAvailability(for: .download)
+                        ).isAvailable
+                    },
+                    id: \.sourceScopedID,
+                    itemTitle: \.title,
+                    sourceKey: \.sourceCompositeKey,
+                    presenter: sourceActionPresenter,
+                    deps: deps
+                ) { selectedAlbum in
                     Task {
-                        await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
+                        await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(
+                            selectedAlbum,
+                            isEnabled: !deps.offlineDownloadService.isAlbumDownloadEnabled(selectedAlbum)
+                        )
                     }
                 },
                 pin: {
@@ -299,11 +449,25 @@ struct AlbumActionsContextMenu: View {
                 shareLink: {
                     ShareActions.shareAlbumLink(album, deps: deps)
                 },
-                deleteAlbum: onDelete,
+                deleteAlbum: onDelete.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Delete Album",
+                        items: mutationAlbums.filter {
+                            $0.actionAvailability(for: .delete).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
                 toggleHidden: hiddenMediaToggleAction(
                     identity: hiddenIdentity,
-                    candidates: album.hiddenCandidate(deps: deps).map { [$0] } ?? [],
-                    store: deps.hiddenMediaStore
+                    candidates: hiddenCandidates,
+                    store: deps.hiddenMediaStore,
+                    presenter: sourceActionPresenter
                 )
             )
         )
@@ -388,24 +552,41 @@ struct AlbumActionsContextMenu: View {
 /// Shared artist actions used by artist grids, search results, and pinned sidebar rows.
 struct ArtistActionsContextMenu: View {
     let artist: Artist
+    var sourceArtists: [Artist] = []
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "artist-menu"
-    var onEditMetadata: (() -> Void)? = nil
+    var onEditMetadata: ((Artist) -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
     var customIsPinned: (() -> Bool)? = nil
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
+
+    private var mutationArtists: [Artist] {
+        sourceArtists.isEmpty ? [artist] : sourceArtists
+    }
 
     var body: some View {
         let hiddenIdentity = HiddenMediaIdentity(artist)
-        let isHidden = hiddenIdentity.map(deps.hiddenMediaStore.snapshot.contains) ?? false
-        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
-        let downloadAvailability = resolvedDownloadMenuAvailability(
-            isDownloaded: isDownloaded,
-            sourceAvailability: artist.actionAvailability(for: .download)
+        let hiddenCandidates = mutationArtists.compactMap { $0.hiddenCandidate(deps: deps) }
+        let isHidden = hiddenMediaIsHidden(
+            identity: hiddenIdentity,
+            candidates: hiddenCandidates,
+            store: deps.hiddenMediaStore
         )
-        let editAvailability = artist.actionAvailability(for: .editMetadata)
+        let isDownloaded = deps.offlineDownloadService.isArtistDownloadEnabled(artist)
+        let downloadAvailability = MusicItemActionAvailability.combined(
+            mutationArtists.map {
+                resolvedDownloadMenuAvailability(
+                    isDownloaded: deps.offlineDownloadService.isArtistDownloadEnabled($0),
+                    sourceAvailability: $0.actionAvailability(for: .download)
+                )
+            }
+        )
+        let editAvailability = MusicItemActionAvailability.combined(
+            mutationArtists.map { $0.actionAvailability(for: .editMetadata) }
+        )
         let isPinned = customIsPinned?()
             ?? pinManager.isPinned(id: artist.id, sourceKey: artist.sourceCompositeKey ?? "")
 
@@ -455,10 +636,39 @@ struct ArtistActionsContextMenu: View {
                         nowPlayingVM.enableRadio(tracks: tracks)
                     }
                 },
-                editMetadata: onEditMetadata,
-                download: {
+                editMetadata: onEditMetadata.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Edit Artist Metadata",
+                        items: mutationArtists.filter {
+                            $0.actionAvailability(for: .editMetadata).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.name,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                download: sourceMutationAction(
+                    title: "Manage Artist Download",
+                    items: mutationArtists.filter {
+                        resolvedDownloadMenuAvailability(
+                            isDownloaded: deps.offlineDownloadService.isArtistDownloadEnabled($0),
+                            sourceAvailability: $0.actionAvailability(for: .download)
+                        ).isAvailable
+                    },
+                    id: \.sourceScopedID,
+                    itemTitle: \.name,
+                    sourceKey: \.sourceCompositeKey,
+                    presenter: sourceActionPresenter,
+                    deps: deps
+                ) { selectedArtist in
                     Task {
-                        await deps.downloadMutationWorkflow.setArtistDownloadEnabled(artist, isEnabled: !isDownloaded)
+                        await deps.downloadMutationWorkflow.setArtistDownloadEnabled(
+                            selectedArtist,
+                            isEnabled: !deps.offlineDownloadService.isArtistDownloadEnabled(selectedArtist)
+                        )
                     }
                 },
                 pin: {
@@ -479,8 +689,9 @@ struct ArtistActionsContextMenu: View {
                 },
                 toggleHidden: hiddenMediaToggleAction(
                     identity: hiddenIdentity,
-                    candidates: artist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
-                    store: deps.hiddenMediaStore
+                    candidates: hiddenCandidates,
+                    store: deps.hiddenMediaStore,
+                    presenter: sourceActionPresenter
                 )
             )
         )
@@ -523,15 +734,23 @@ struct ArtistActionsContextMenu: View {
 struct MergedArtistHiddenContextMenu: View {
     let displayArtist: DisplayArtist
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     @ViewBuilder
     var body: some View {
-        if let action = hiddenMediaToggleAction(
-            candidates: displayArtist.artists.compactMap { $0.hiddenCandidate(deps: deps) },
+        let candidates = displayArtist.artists.compactMap { $0.hiddenCandidate(deps: deps) }
+        let isHidden = hiddenMediaIsHidden(
+            identity: nil,
+            candidates: candidates,
             store: deps.hiddenMediaStore
+        )
+        if let action = hiddenMediaToggleAction(
+            candidates: candidates,
+            store: deps.hiddenMediaStore,
+            presenter: sourceActionPresenter
         ) {
             Button(action: action) {
-                MediaActionLabel(kind: .toggleHidden(isHidden: false))
+                MediaActionLabel(kind: .toggleHidden(isHidden: isHidden))
             }
         }
     }
@@ -541,13 +760,46 @@ struct MergedArtistHiddenContextMenu: View {
 func hiddenMediaToggleAction(
     identity: HiddenMediaIdentity? = nil,
     candidates: [HiddenMediaCandidate],
-    store: HiddenMediaStore
+    store: HiddenMediaStore,
+    presenter: MediaSourceActionPresenter
 ) -> (() -> Void)? {
-    if let identity, store.snapshot.contains(identity) {
-        return { store.setHidden(false, identity: identity) }
+    let isHidden = hiddenMediaIsHidden(identity: identity, candidates: candidates, store: store)
+    let eligible = candidates.filter { store.snapshot.contains($0.identity) == isHidden }
+    if eligible.isEmpty, let identity {
+        return { store.setHidden(!isHidden, identity: identity) }
     }
-    guard candidates.contains(where: { !store.snapshot.contains($0.identity) }) else { return nil }
-    return { store.requestHide(candidates) }
+    guard !eligible.isEmpty else { return nil }
+    return {
+        presenter.present(
+            title: isHidden ? "Unhide Item" : "Hide Item",
+            choices: eligible.map { candidate in
+                MediaSourceActionChoice(
+                    id: candidate.id,
+                    title: candidate.title,
+                    source: candidate.source
+                ) {
+                    store.setHidden(
+                        !isHidden,
+                        identity: candidate.identity,
+                        relatedCatalogID: candidate.relatedCatalogID
+                    )
+                }
+            }
+        )
+    }
+}
+
+@MainActor
+func hiddenMediaIsHidden(
+    identity: HiddenMediaIdentity?,
+    candidates: [HiddenMediaCandidate],
+    store: HiddenMediaStore
+) -> Bool {
+    if candidates.count > 1 {
+        return candidates.allSatisfy { store.snapshot.contains($0.identity) }
+    }
+    if let identity { return store.snapshot.contains(identity) }
+    return candidates.first.map { store.snapshot.contains($0.identity) } ?? false
 }
 
 struct HiddenMediaDetailMenuButton: View {
@@ -556,6 +808,7 @@ struct HiddenMediaDetailMenuButton: View {
 
     @ObservedObject private var hiddenMediaStore = DependencyContainer.shared.hiddenMediaStore
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @State private var requestedHideIdentities: Set<HiddenMediaIdentity> = []
 
     @ViewBuilder
@@ -564,9 +817,14 @@ struct HiddenMediaDetailMenuButton: View {
             if let action = hiddenMediaToggleAction(
                 identity: identity,
                 candidates: candidates,
-                store: hiddenMediaStore
+                store: hiddenMediaStore,
+                presenter: sourceActionPresenter
             ) {
-                let isHidden = identity.map(hiddenMediaStore.snapshot.contains) ?? false
+                let isHidden = hiddenMediaIsHidden(
+                    identity: identity,
+                    candidates: candidates,
+                    store: hiddenMediaStore
+                )
                 Button {
                     if !isHidden {
                         requestedHideIdentities = Set(
@@ -600,28 +858,49 @@ struct HiddenMediaDetailMenuButton: View {
 /// Shared playlist actions used by playlist lists, search results, and pinned sidebar rows.
 struct PlaylistActionsContextMenu: View {
     let playlist: Playlist
+    var sourcePlaylists: [Playlist] = []
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "playlist-menu"
     var onGetInfo: (() -> Void)? = nil
-    var onRename: (() -> Void)? = nil
-    var onEdit: (() -> Void)? = nil
-    var onDelete: (() -> Void)? = nil
+    var onRename: ((Playlist) -> Void)? = nil
+    var onEdit: ((Playlist) -> Void)? = nil
+    var onDelete: ((Playlist) -> Void)? = nil
     var customPinAction: ((Bool) -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
+
+    private var mutationPlaylists: [Playlist] {
+        sourcePlaylists.isEmpty ? [playlist] : sourcePlaylists
+    }
 
     var body: some View {
         let hiddenIdentity = HiddenMediaIdentity(playlist)
-        let isHidden = hiddenIdentity.map(deps.hiddenMediaStore.snapshot.contains) ?? false
-        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-        let downloadAvailability = resolvedDownloadMenuAvailability(
-            isDownloaded: isDownloaded,
-            sourceAvailability: playlist.actionAvailability(for: .download)
+        let hiddenCandidates = mutationPlaylists.compactMap { $0.hiddenCandidate(deps: deps) }
+        let isHidden = hiddenMediaIsHidden(
+            identity: hiddenIdentity,
+            candidates: hiddenCandidates,
+            store: deps.hiddenMediaStore
         )
-        let renameAvailability = playlist.actionAvailability(for: .rename)
-        let reorderAvailability = playlist.actionAvailability(for: .reorder)
-        let deleteAvailability = playlist.actionAvailability(for: .delete)
+        let isDownloaded = deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
+        let downloadAvailability = MusicItemActionAvailability.combined(
+            mutationPlaylists.map {
+                resolvedDownloadMenuAvailability(
+                    isDownloaded: deps.offlineDownloadService.isPlaylistDownloadEnabled($0),
+                    sourceAvailability: $0.actionAvailability(for: .download)
+                )
+            }
+        )
+        let renameAvailability = MusicItemActionAvailability.combined(
+            mutationPlaylists.map { $0.actionAvailability(for: .rename) }
+        )
+        let reorderAvailability = MusicItemActionAvailability.combined(
+            mutationPlaylists.map { $0.actionAvailability(for: .reorder) }
+        )
+        let deleteAvailability = MusicItemActionAvailability.combined(
+            mutationPlaylists.map { $0.actionAvailability(for: .delete) }
+        )
         let isPinned = pinManager.isPinned(id: playlist.id, sourceKey: playlist.sourceCompositeKey ?? "")
 
         SwiftUIMediaMenuRenderer(
@@ -679,11 +958,53 @@ struct PlaylistActionsContextMenu: View {
                     }
                 },
                 getInfo: onGetInfo,
-                rename: onRename,
-                editPlaylist: onEdit,
-                download: {
+                rename: onRename.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Rename Playlist",
+                        items: mutationPlaylists.filter {
+                            $0.actionAvailability(for: .rename).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                editPlaylist: onEdit.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Edit Playlist",
+                        items: mutationPlaylists.filter {
+                            $0.actionAvailability(for: .reorder).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                download: sourceMutationAction(
+                    title: "Manage Playlist Download",
+                    items: mutationPlaylists.filter {
+                        resolvedDownloadMenuAvailability(
+                            isDownloaded: deps.offlineDownloadService.isPlaylistDownloadEnabled($0),
+                            sourceAvailability: $0.actionAvailability(for: .download)
+                        ).isAvailable
+                    },
+                    id: \.sourceScopedID,
+                    itemTitle: \.title,
+                    sourceKey: \.sourceCompositeKey,
+                    presenter: sourceActionPresenter,
+                    deps: deps
+                ) { selectedPlaylist in
                     Task {
-                        await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: !isDownloaded)
+                        await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                            selectedPlaylist,
+                            isEnabled: !deps.offlineDownloadService.isPlaylistDownloadEnabled(selectedPlaylist)
+                        )
                     }
                 },
                 pin: {
@@ -702,11 +1023,25 @@ struct PlaylistActionsContextMenu: View {
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(playlist, deps: deps)
                 },
-                deletePlaylist: onDelete,
+                deletePlaylist: onDelete.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Delete Playlist",
+                        items: mutationPlaylists.filter {
+                            $0.actionAvailability(for: .delete).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
                 toggleHidden: hiddenMediaToggleAction(
                     identity: hiddenIdentity,
-                    candidates: playlist.hiddenCandidate(deps: deps).map { [$0] } ?? [],
-                    store: deps.hiddenMediaStore
+                    candidates: hiddenCandidates,
+                    store: deps.hiddenMediaStore,
+                    presenter: sourceActionPresenter
                 )
             )
         )
@@ -749,20 +1084,21 @@ struct MergedPlaylistActionsContextMenu: View {
     let nowPlayingVM: NowPlayingViewModel
     var toastNamespace: String = "merged-playlist-menu"
     var context: MediaMenuContext = .library
-    var onRename: (() -> Void)? = nil
-    var onDelete: (() -> Void)? = nil
+    var onRename: ((Playlist) -> Void)? = nil
+    var onDelete: ((Playlist) -> Void)? = nil
     var onUnpinAll: (() -> Void)? = nil
 
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
 
     var body: some View {
         let candidates = displayPlaylist.playlists.compactMap { $0.hiddenCandidate(deps: deps) }
-        let downloadablePlaylists = displayPlaylist.playlists.filter { playlist in
-            playlist.actionAvailability(for: .download).isAvailable
-        }
         let downloadAvailability = MusicItemActionAvailability.combined(
             displayPlaylist.playlists.map { playlist in
-                playlist.actionAvailability(for: .download)
+                resolvedDownloadMenuAvailability(
+                    isDownloaded: deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist),
+                    sourceAvailability: playlist.actionAvailability(for: .download)
+                )
             }
         )
         let renameAvailability = MusicItemActionAvailability.combined(
@@ -772,27 +1108,14 @@ struct MergedPlaylistActionsContextMenu: View {
             displayPlaylist.playlists.map { $0.actionAvailability(for: .delete) }
         )
         let isDownloaded = isAnyConstituentDownloaded
+        let isHidden = hiddenMediaIsHidden(
+            identity: nil,
+            candidates: candidates,
+            store: deps.hiddenMediaStore
+        )
         let isPinned = displayPlaylist.playlists.allSatisfy {
             deps.pinMutationWorkflow.isPinned(id: $0.id, sourceKey: $0.sourceCompositeKey ?? "")
         }
-        let removeDownloadAvailability = resolvedDownloadMenuAvailability(
-            isDownloaded: isDownloaded,
-            sourceAvailability: downloadAvailability
-        )
-        let downloadAll: (() -> Void)? = isDownloaded ? nil : {
-            Task {
-                for playlist in downloadablePlaylists {
-                    await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: true)
-                }
-            }
-        }
-        let removeDownloads: (() -> Void)? = isDownloaded ? {
-            Task {
-                for playlist in displayPlaylist.playlists {
-                    await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(playlist, isEnabled: false)
-                }
-            }
-        } : nil
 
         SwiftUIMediaMenuRenderer(
             sections: MediaMenuCatalog.sections(
@@ -814,38 +1137,67 @@ struct MergedPlaylistActionsContextMenu: View {
                     canEditPlaylist: false,
                     canRemoveFromQueue: false,
                     itemActions: [
-                        .downloadAll: downloadAvailability,
-                        .removeDownloads: removeDownloadAvailability,
-                        .renameAll: renameAvailability,
-                        .deleteAll: deleteAvailability
+                        .download: downloadAvailability,
+                        .rename: renameAvailability,
+                        .deletePlaylist: deleteAvailability
                     ]
                 )
             ),
-            state: MediaMenuState(isDownloaded: isDownloaded, isPinned: isPinned),
+            state: MediaMenuState(isDownloaded: isDownloaded, isPinned: isPinned, isHidden: isHidden),
             handlers: MediaMenuHandlers(
                 play: {
-                    withMergedTracks { tracks in
+                    withPreferredTracks { tracks in
                         nowPlayingVM.play(tracks: tracks)
                     }
                 },
                 shuffle: {
-                    withMergedTracks { tracks in
+                    withPreferredTracks { tracks in
                         nowPlayingVM.shufflePlay(tracks: tracks)
                     }
                 },
                 playNext: {
-                    withMergedTracks { tracks in
+                    withPreferredTracks { tracks in
                         nowPlayingVM.playNext(tracks)
                     }
                 },
                 playLast: {
-                    withMergedTracks { tracks in
+                    withPreferredTracks { tracks in
                         nowPlayingVM.playLast(tracks)
                     }
                 },
-                renameAll: onRename,
-                downloadAll: downloadAll,
-                removeDownloads: removeDownloads,
+                rename: onRename.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Rename Playlist",
+                        items: displayPlaylist.editablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
+                download: sourceMutationAction(
+                    title: "Manage Playlist Download",
+                    items: displayPlaylist.playlists.filter {
+                        resolvedDownloadMenuAvailability(
+                            isDownloaded: deps.offlineDownloadService.isPlaylistDownloadEnabled($0),
+                            sourceAvailability: $0.actionAvailability(for: .download)
+                        ).isAvailable
+                    },
+                    id: \.sourceScopedID,
+                    itemTitle: \.title,
+                    sourceKey: \.sourceCompositeKey,
+                    presenter: sourceActionPresenter,
+                    deps: deps
+                ) { selectedPlaylist in
+                    Task {
+                        await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
+                            selectedPlaylist,
+                            isEnabled: !deps.offlineDownloadService.isPlaylistDownloadEnabled(selectedPlaylist)
+                        )
+                    }
+                },
                 pin: {
                     if isPinned {
                         if let onUnpinAll {
@@ -865,10 +1217,22 @@ struct MergedPlaylistActionsContextMenu: View {
                 shareEnsembleLink: {
                     ShareActions.shareEnsembleLink(displayPlaylist, deps: deps)
                 },
-                deleteAll: onDelete,
+                deletePlaylist: onDelete.flatMap { callback in
+                    sourceMutationAction(
+                        title: "Delete Playlist",
+                        items: displayPlaylist.deletablePlaylists,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: callback
+                    )
+                },
                 toggleHidden: hiddenMediaToggleAction(
                     candidates: candidates,
-                    store: deps.hiddenMediaStore
+                    store: deps.hiddenMediaStore,
+                    presenter: sourceActionPresenter
                 )
             )
         )
@@ -878,12 +1242,13 @@ struct MergedPlaylistActionsContextMenu: View {
         displayPlaylist.playlists.contains { deps.offlineDownloadService.isPlaylistDownloadEnabled($0) }
     }
 
-    private func withMergedTracks(perform action: @escaping ([Track]) -> Void) {
+    private func withPreferredTracks(perform action: @escaping ([Track]) -> Void) {
         Task {
-            let interleaved = (try? await displayPlaylist.resolvedTracks(
+            let tracks = (try? await DisplayPlaylist.resolvedTracks(
+                for: [displayPlaylist.primaryPlaylist],
                 using: deps.playlistRepository
             )) ?? []
-            guard !interleaved.isEmpty else {
+            guard !tracks.isEmpty else {
                 await MainActor.run {
                     deps.toastCenter.show(
                         ToastPayload(
@@ -898,7 +1263,7 @@ struct MergedPlaylistActionsContextMenu: View {
                 return
             }
             await MainActor.run {
-                action(interleaved)
+                action(tracks)
             }
         }
     }
@@ -920,9 +1285,54 @@ private extension Album {
 }
 
 @MainActor
-func hiddenSourceDescription(_ sourceKey: String, deps: DependencyContainer) -> String {
+func mediaSourceDescription(_ sourceKey: String, deps: DependencyContainer) -> String {
     guard let source = deps.accountManager.sourcePresentation(for: sourceKey) else { return sourceKey }
     return "\(source.serverName) · \(source.libraryName) · \(source.accountName)"
+}
+
+@MainActor
+func sourceMutationAction<Item>(
+    title: String,
+    items: [Item],
+    id: (Item) -> String,
+    itemTitle: (Item) -> String,
+    sourceKey: (Item) -> String?,
+    presenter: MediaSourceActionPresenter,
+    deps: DependencyContainer,
+    action: @escaping (Item) -> Void
+) -> (() -> Void)? {
+    let choices = items.compactMap { item -> MediaSourceActionChoice? in
+        guard let sourceKey = sourceKey(item) else { return nil }
+        return MediaSourceActionChoice(
+            id: id(item),
+            title: itemTitle(item),
+            source: mediaSourceDescription(sourceKey, deps: deps)
+        ) {
+            action(item)
+        }
+    }
+    guard !choices.isEmpty else { return nil }
+    return { presenter.present(title: title, choices: choices) }
+}
+
+@MainActor
+func sourceMutationAction(
+    title: String,
+    tracks: [Track],
+    presenter: MediaSourceActionPresenter,
+    deps: DependencyContainer,
+    action: @escaping (Track) -> Void
+) -> (() -> Void)? {
+    sourceMutationAction(
+        title: title,
+        items: tracks,
+        id: \.sourceScopedID,
+        itemTitle: \.title,
+        sourceKey: \.sourceCompositeKey,
+        presenter: presenter,
+        deps: deps,
+        action: action
+    )
 }
 
 extension Track {
@@ -942,18 +1352,24 @@ extension Track {
         return HiddenMediaCandidate(
             identity: identity,
             title: title,
-            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps),
+            source: mediaSourceDescription(identity.sourceCompositeKey, deps: deps),
             relatedCatalogID: appleMusicCatalogID
         )
     }
 
     @MainActor
     func hiddenToggleAction(deps: DependencyContainer) -> (() -> Void)? {
-        hiddenMediaToggleAction(
-            identity: hiddenIdentity(deps: deps),
-            candidates: hiddenCandidate(deps: deps).map { [$0] } ?? [],
-            store: deps.hiddenMediaStore
-        )
+        if let identity = hiddenIdentity(deps: deps) {
+            return { deps.hiddenMediaStore.setHidden(false, identity: identity) }
+        }
+        guard let candidate = hiddenCandidate(deps: deps) else { return nil }
+        return {
+            deps.hiddenMediaStore.setHidden(
+                true,
+                identity: candidate.identity,
+                relatedCatalogID: candidate.relatedCatalogID
+            )
+        }
     }
 }
 
@@ -964,7 +1380,7 @@ extension Album {
         return HiddenMediaCandidate(
             identity: identity,
             title: title,
-            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps)
+            source: mediaSourceDescription(identity.sourceCompositeKey, deps: deps)
         )
     }
 }
@@ -976,7 +1392,7 @@ extension Artist {
         return HiddenMediaCandidate(
             identity: identity,
             title: name,
-            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps)
+            source: mediaSourceDescription(identity.sourceCompositeKey, deps: deps)
         )
     }
 }
@@ -988,7 +1404,7 @@ extension Playlist {
         return HiddenMediaCandidate(
             identity: identity,
             title: title,
-            source: hiddenSourceDescription(identity.sourceCompositeKey, deps: deps)
+            source: mediaSourceDescription(identity.sourceCompositeKey, deps: deps)
         )
     }
 }

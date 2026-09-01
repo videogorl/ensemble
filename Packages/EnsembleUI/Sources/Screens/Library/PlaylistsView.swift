@@ -93,12 +93,9 @@ public struct PlaylistsView: View {
     @State private var creatingPlaylistToastID: UUID?
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
-    @State private var displayPlaylistPendingDelete: DisplayPlaylist?
     @State private var showCreatePlaylistPush = false
     @State private var renamePushPlaylist: Playlist?
     @State private var renamePushPlaylistTitle = ""
-    @State private var renamePushDP: DisplayPlaylist?
-    @State private var renamePushDPTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
     @State private var isRestoringCloudSources = DependencyContainer.shared.accountManager.isAwaitingCloudSources
@@ -107,6 +104,7 @@ public struct PlaylistsView: View {
     private let accountManager = DependencyContainer.shared.accountManager
     private let syncCoordinator = DependencyContainer.shared.syncCoordinator
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @Environment(\.isStageFlowActive) private var rootStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
 
@@ -273,23 +271,6 @@ public struct PlaylistsView: View {
                 let latest = settingsManager.demoModeEnabled
                 if latest != demoModeEnabled { demoModeEnabled = latest }
             }
-            // Alert: confirm delete for every deletable source in a merged playlist.
-            .alert("Delete Merged Playlist?", isPresented: Binding(
-                get: { displayPlaylistPendingDelete != nil },
-                set: { if !$0 { displayPlaylistPendingDelete = nil } }
-            )) {
-                Button("Cancel", role: .cancel) { displayPlaylistPendingDelete = nil }
-                Button("Delete All", role: .destructive) {
-                    guard let dp = displayPlaylistPendingDelete else { return }
-                    displayPlaylistPendingDelete = nil
-                    for playlist in dp.deletablePlaylists {
-                        startOptimisticDelete(for: playlist)
-                    }
-                }
-            } message: {
-                let count = displayPlaylistPendingDelete?.deletablePlaylists.count ?? 0
-                Text("This will permanently delete \"\(displayPlaylistPendingDelete?.title ?? "")\" from \(count) source\(count == 1 ? "" : "s").")
-            }
             .sheet(item: $playlistForEditSheet) { playlist in
                 PlaylistDetailView(
                     playlist: playlist,
@@ -378,28 +359,6 @@ public struct PlaylistsView: View {
                 .disabled(renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } message: {
                 Text("Choose a new playlist name.")
-            }
-            .alert("Rename Playlist", isPresented: Binding(
-                get: { renamePushDP != nil },
-                set: { if !$0 { renamePushDP = nil } }
-            )) {
-                TextField("Playlist name", text: $renamePushDPTitle)
-                Button("Cancel", role: .cancel) {
-                    renamePushDP = nil
-                }
-                Button("Save") {
-                    guard let dp = renamePushDP else { return }
-                    let title = renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                    renamePushDP = nil
-                    viewModel.applyOptimisticRenameForMerged(dp, newTitle: title)
-                    for playlist in dp.editablePlaylists {
-                        renamePlaylist(playlist, to: title)
-                    }
-                }
-                .disabled(renamePushDPTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            } message: {
-                let count = renamePushDP?.editablePlaylists.count ?? 0
-                Text("This will rename on \(count) source\(count == 1 ? "" : "s").")
             }
     }
 
@@ -539,10 +498,10 @@ public struct PlaylistsView: View {
                                 MergedPlaylistActionsContextMenu(
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
-                                    onRename: {
-                                        presentRenameAlert(for: dp)
+                                    onRename: { playlist in
+                                        presentRenameAlert(for: playlist)
                                     },
-                                    onDelete: { displayPlaylistPendingDelete = dp }
+                                    onDelete: { playlistPendingSwipeDelete = $0 }
                                 )
                             } else {
                                 PlaylistActionsContextMenu(
@@ -551,11 +510,11 @@ public struct PlaylistsView: View {
                                     onGetInfo: {
                                         libraryItemInfoRequest = .playlist(dp.primaryPlaylist)
                                     },
-                                    onRename: {
-                                        presentRenameAlert(for: dp.primaryPlaylist)
+                                    onRename: { playlist in
+                                        presentRenameAlert(for: playlist)
                                     },
-                                    onEdit: { playlistForEditSheet = dp.primaryPlaylist },
-                                    onDelete: { playlistPendingSwipeDelete = dp.primaryPlaylist }
+                                    onEdit: { playlistForEditSheet = $0 },
+                                    onDelete: { playlistPendingSwipeDelete = $0 }
                                 )
                             }
                         }
@@ -563,7 +522,17 @@ public struct PlaylistsView: View {
                     .if(!dp.deletablePlaylists.isEmpty && !isPendingCreation) { row in
                         row.standardDeleteSwipeAction {
                             if dp.isMerged {
-                                displayPlaylistPendingDelete = dp
+                                sourceMutationAction(
+                                    title: "Delete Playlist",
+                                    items: dp.deletablePlaylists,
+                                    id: \.sourceScopedID,
+                                    itemTitle: \.title,
+                                    sourceKey: \.sourceCompositeKey,
+                                    presenter: sourceActionPresenter,
+                                    deps: deps
+                                ) { playlist in
+                                    playlistPendingSwipeDelete = playlist
+                                }?()
                             } else {
                                 playlistPendingSwipeDelete = dp.primaryPlaylist
                             }
@@ -833,11 +802,6 @@ public struct PlaylistsView: View {
     private func presentRenameAlert(for playlist: Playlist) {
         renamePushPlaylistTitle = playlist.title
         renamePushPlaylist = playlist
-    }
-
-    private func presentRenameAlert(for displayPlaylist: DisplayPlaylist) {
-        renamePushDPTitle = displayPlaylist.title
-        renamePushDP = displayPlaylist
     }
 
 }

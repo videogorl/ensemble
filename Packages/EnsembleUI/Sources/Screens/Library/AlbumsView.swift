@@ -287,10 +287,11 @@ public struct AlbumDetailView: View {
     @StateObject private var viewModel: AlbumDetailViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var isBioExpanded = false
-    @State private var isConfirmingDelete = false
+    @State private var albumPendingDeletion: Album?
     @Environment(\.openURL) private var openURL
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dependencies) private var deps
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
     @State private var metadataEditorRequest: ContextMenuMetadataEditorRequest?
 
@@ -357,53 +358,75 @@ public struct AlbumDetailView: View {
             showFilter: false,
             mediaType: .album,
             selectedTrackId: selectedTrackId,
-            hiddenCandidates: album.hiddenCandidate(deps: deps).map { [$0] } ?? [],
-            hiddenIdentity: HiddenMediaIdentity(album),
+            actionTracks: viewModel.preferredFilteredTracks,
+            hiddenCandidates: displayAlbum.albums.compactMap { $0.hiddenCandidate(deps: deps) },
+            hiddenIdentity: displayAlbum.isMerged ? nil : HiddenMediaIdentity(album),
             includesHidden: includesHidden,
             albumMenuActions: AlbumDetailMenuActions(
-                downloadAvailability: resolvedDownloadMenuAvailability(
-                    isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled(album),
-                    sourceAvailability: album.actionAvailability(for: .download)
+                downloadAvailability: .combined(displayAlbum.albums.map {
+                    resolvedDownloadMenuAvailability(
+                        isDownloaded: deps.offlineDownloadService.isAlbumDownloadEnabled($0),
+                        sourceAvailability: $0.actionAvailability(for: .download)
+                    )
+                }),
+                editMetadataAvailability: .combined(
+                    displayAlbum.albums.map { $0.actionAvailability(for: .editMetadata) }
                 ),
-                editMetadataAvailability: album.actionAvailability(for: .editMetadata),
-                deleteAvailability: album.actionAvailability(for: .delete),
-                onEditMetadata: {
-                    metadataEditorRequest = ContextMenuMetadataEditorRequest(
-                        kind: .album,
-                        currentTitle: album.title
-                    ) { newTitle in
-                        do {
-                            let result = try await deps.metadataMutationWorkflow.editAlbum(
-                                album,
-                                title: newTitle,
-                                scope: .albumDetail
+                deleteAvailability: .combined(
+                    displayAlbum.albums.map { $0.actionAvailability(for: .delete) }
+                ),
+                onToggleDownload: {
+                    sourceMutationAction(
+                        title: "Manage Album Download",
+                        items: displayAlbum.albums,
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { selectedAlbum in
+                        Task {
+                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(
+                                selectedAlbum,
+                                isEnabled: !deps.offlineDownloadService.isAlbumDownloadEnabled(selectedAlbum)
                             )
-                            await MainActor.run {
-                                deps.toastCenter.show(result.successToast)
-                            }
-                        } catch {
-                            await MainActor.run {
-                                deps.toastCenter.show(
-                                    deps.metadataMutationWorkflow.editFailureToast(
-                                        noun: "Album",
-                                        itemID: album.sourceScopedID,
-                                        error: error,
-                                        scope: .albumDetail
-                                    )
-                                )
-                            }
-                            throw error
                         }
-                    }
+                    }?()
+                },
+                onEditMetadata: {
+                    sourceMutationAction(
+                        title: "Edit Album Metadata",
+                        items: displayAlbum.albums.filter {
+                            $0.actionAvailability(for: .editMetadata).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps,
+                        action: presentMetadataEditor(for:)
+                    )?()
                 },
                 onDelete: {
-                    isConfirmingDelete = true
+                    sourceMutationAction(
+                        title: "Delete Album",
+                        items: displayAlbum.albums.filter {
+                            $0.actionAvailability(for: .delete).isAvailable
+                        },
+                        id: \.sourceScopedID,
+                        itemTitle: \.title,
+                        sourceKey: \.sourceCompositeKey,
+                        presenter: sourceActionPresenter,
+                        deps: deps
+                    ) { selectedAlbum in
+                        albumPendingDeletion = selectedAlbum
+                    }?()
                 },
                 onPlayNext: {
-                    nowPlayingVM.playNext(viewModel.filteredTracks)
+                    nowPlayingVM.playNext(viewModel.preferredFilteredTracks)
                 },
                 onPlayLast: {
-                    nowPlayingVM.playLast(viewModel.filteredTracks)
+                    nowPlayingVM.playLast(viewModel.preferredFilteredTracks)
                 }
             ),
             additionalFooterContent: AnyView(albumMetadataFooter),
@@ -430,14 +453,19 @@ public struct AlbumDetailView: View {
         .metadataEditorSheet(request: $metadataEditorRequest)
         .confirmationDialog(
             "Delete Album?",
-            isPresented: $isConfirmingDelete,
+            isPresented: Binding(
+                get: { albumPendingDeletion != nil },
+                set: { if !$0 { albumPendingDeletion = nil } }
+            ),
             titleVisibility: .visible
         ) {
             Button("Delete Album", role: .destructive) {
+                guard let deletingAlbum = albumPendingDeletion else { return }
+                albumPendingDeletion = nil
                 Task {
                     do {
                         let result = try await deps.metadataMutationWorkflow.deleteAlbum(
-                            album,
+                            deletingAlbum,
                             scope: .albumDetail
                         )
                         await MainActor.run {
@@ -449,7 +477,7 @@ public struct AlbumDetailView: View {
                             deps.toastCenter.show(
                                 deps.metadataMutationWorkflow.deleteFailureToast(
                                     noun: "Album",
-                                    itemID: album.sourceScopedID,
+                                    itemID: deletingAlbum.sourceScopedID,
                                     error: error,
                                     scope: .albumDetail
                                 )
@@ -460,7 +488,37 @@ public struct AlbumDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently deletes \"\(album.title)\" from the Plex server and removes its local cache.")
+            Text("This permanently deletes \"\(albumPendingDeletion?.title ?? album.title)\" from its source and removes its local cache.")
+        }
+    }
+
+    private func presentMetadataEditor(for selectedAlbum: Album) {
+        metadataEditorRequest = ContextMenuMetadataEditorRequest(
+            kind: .album,
+            currentTitle: selectedAlbum.title
+        ) { newTitle in
+            do {
+                let result = try await deps.metadataMutationWorkflow.editAlbum(
+                    selectedAlbum,
+                    title: newTitle,
+                    scope: .albumDetail
+                )
+                await MainActor.run {
+                    deps.toastCenter.show(result.successToast)
+                }
+            } catch {
+                await MainActor.run {
+                    deps.toastCenter.show(
+                        deps.metadataMutationWorkflow.editFailureToast(
+                            noun: "Album",
+                            itemID: selectedAlbum.sourceScopedID,
+                            error: error,
+                            scope: .albumDetail
+                        )
+                    )
+                }
+                throw error
+            }
         }
     }
 

@@ -17,9 +17,9 @@
   resolver. Never rebuild a partially available playlist solely from locally
   synced tracks.
 - Same-named regular playlists may merge for display across providers; smart or
-  editorial kinds stay separate. A merged mutation splits only to compatible
-  concrete constituents, reports partial outcomes, and retries only failed
-  sources. Unsupported constituents remain visible with their reason.
+  editorial kinds stay separate. Mutating a merged artist, album, track, or
+  playlist first selects one exact-source constituent. Playback, queueing, and
+  adding media to a playlist use the preferred copy without prompting.
 - Merging is presentation-only: exact source records remain stored and reappear
   when disabled. Preferred source order may choose among proven copies but never
   reroutes an explicit mutation, rating, download, or playback owner.

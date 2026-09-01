@@ -44,4 +44,27 @@ public enum MergingProjection {
         )
         return self.tracks(ordered, preferences: preferences)
     }
+
+    public static func mutationCandidates(
+        for track: Track,
+        in tracks: [Track],
+        preferences: EnsembleMergingPreferences
+    ) -> [Track] {
+        guard preferences.isEnabled,
+              preferences.mergeTracks,
+              let identity = trackIdentity(track) else { return [track] }
+        let matches = tracks.filter { trackIdentity($0) == identity }
+        return preferences.ordered(matches, sourceKey: \.sourceCompositeKey)
+    }
+
+    private static func trackIdentity(_ track: Track) -> String? {
+        EnsembleMergeIdentity.track(
+            title: track.title,
+            artist: track.artistName ?? track.albumArtistName,
+            album: track.albumName,
+            trackNumber: track.trackNumber,
+            discNumber: track.discNumber,
+            duration: track.duration
+        )
+    }
 }

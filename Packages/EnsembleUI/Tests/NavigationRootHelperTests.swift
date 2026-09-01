@@ -330,6 +330,7 @@ final class NavigationRootHelperTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = HiddenMediaStore(defaults: defaults)
+        let presenter = MediaSourceActionPresenter()
         let identity = HiddenMediaIdentity(
             kind: .album,
             itemID: "album",
@@ -341,12 +342,57 @@ final class NavigationRootHelperTests: XCTestCase {
             source: "Server · Library · Account"
         )
 
-        try XCTUnwrap(hiddenMediaToggleAction(candidates: [candidate], store: store))()
+        try XCTUnwrap(hiddenMediaToggleAction(
+            candidates: [candidate],
+            store: store,
+            presenter: presenter
+        ))()
         XCTAssertTrue(store.snapshot.contains(identity))
 
-        try XCTUnwrap(hiddenMediaToggleAction(identity: identity, candidates: [], store: store))()
+        try XCTUnwrap(hiddenMediaToggleAction(
+            identity: identity,
+            candidates: [],
+            store: store,
+            presenter: presenter
+        ))()
         XCTAssertFalse(store.snapshot.contains(identity))
-        XCTAssertNil(hiddenMediaToggleAction(candidates: [], store: store))
+        XCTAssertNil(hiddenMediaToggleAction(candidates: [], store: store, presenter: presenter))
+
+        let secondIdentity = HiddenMediaIdentity(
+            kind: .album,
+            itemID: "album-2",
+            sourceCompositeKey: "appleMusic:account:device:library"
+        )
+        let secondCandidate = HiddenMediaCandidate(
+            identity: secondIdentity,
+            title: "Album",
+            source: "Apple Music"
+        )
+        try XCTUnwrap(hiddenMediaToggleAction(
+            candidates: [candidate, secondCandidate],
+            store: store,
+            presenter: presenter
+        ))()
+        let request = try XCTUnwrap(presenter.pendingRequest)
+        XCTAssertEqual(request.choices.map(\.id), [candidate.id, secondCandidate.id])
+        XCTAssertFalse(store.snapshot.contains(secondIdentity))
+
+        presenter.choose(request.choices[1])
+        presenter.completeSelection()
+        XCTAssertTrue(store.snapshot.contains(secondIdentity))
+
+        store.setHidden(true, identity: identity)
+        try XCTUnwrap(hiddenMediaToggleAction(
+            candidates: [candidate, secondCandidate],
+            store: store,
+            presenter: presenter
+        ))()
+        let unhideRequest = try XCTUnwrap(presenter.pendingRequest)
+        XCTAssertEqual(unhideRequest.title, "Unhide Item")
+        presenter.choose(unhideRequest.choices[0])
+        presenter.completeSelection()
+        XCTAssertFalse(store.snapshot.contains(identity))
+        XCTAssertTrue(store.snapshot.contains(secondIdentity))
     }
 
     func testConcreteArtistDetailDestinationTargetsArtists() {

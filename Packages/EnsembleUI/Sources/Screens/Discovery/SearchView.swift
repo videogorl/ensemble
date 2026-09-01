@@ -8,6 +8,7 @@ public struct SearchView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @ObservedObject private var pinnedVM: PinnedViewModel
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     @State private var isPinnedExpanded = false
     @State private var collapsesPinsAfterDrag = false
     @State private var pinDragSource: ResolvedPin?
@@ -497,6 +498,7 @@ public struct SearchView: View {
                 .contextMenu {
                     ArtistActionsContextMenu(
                         artist: displayArtist.primaryArtist,
+                        sourceArtists: displayArtist.artists,
                         nowPlayingVM: nowPlayingVM,
                         customPinAction: { isPinned in
                             if isPinned {
@@ -927,7 +929,9 @@ public struct SearchView: View {
             nowPlayingVM: nowPlayingVM,
             deps: deps,
             navigationCoordinator: navigationCoordinator,
-            recentPlaylistTitle: nvmRecentPlaylistTitle
+            recentPlaylistTitle: nvmRecentPlaylistTitle,
+            mutationCandidates: viewModel.mutationCandidates(for:),
+            sourceActionPresenter: sourceActionPresenter
         ) { tracks in
             presentPlaylistPicker(with: tracks)
         } onGetInfo: { track in
@@ -950,6 +954,7 @@ public struct SearchView: View {
         let album = displayAlbum.primaryAlbum
         return AlbumActionsContextMenu(
             album: album,
+            sourceAlbums: displayAlbum.albums,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)

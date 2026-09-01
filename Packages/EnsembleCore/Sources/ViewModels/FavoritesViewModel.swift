@@ -117,6 +117,14 @@ public final class FavoritesViewModel: ObservableObject, MediaDetailViewModelPro
         isLoading = false
     }
 
+    public func mutationCandidates(for track: Track) -> [Track] {
+        MergingProjection.mutationCandidates(
+            for: track,
+            in: tracks,
+            preferences: settingsManager.mergingPreferences
+        )
+    }
+
     // MARK: - Change Observation
 
     private func observeReloadTriggers() {

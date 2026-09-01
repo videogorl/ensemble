@@ -297,6 +297,7 @@ public struct AlbumGrid: View {
         let album = displayAlbum.primaryAlbum
         AlbumActionsContextMenu(
             album: album,
+            sourceAlbums: displayAlbum.albums,
             nowPlayingVM: nowPlayingVM,
             presentPlaylistPicker: { tracks, title in
                 playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks, title: title)
@@ -304,11 +305,11 @@ public struct AlbumGrid: View {
             onGetInfo: {
                 libraryItemInfoRequest = .album(album)
             },
-            onEditMetadata: {
-                presentAlbumMetadataEditor(album)
+            onEditMetadata: { selectedAlbum in
+                presentAlbumMetadataEditor(selectedAlbum)
             },
-            onDelete: {
-                pendingAlbumDeletion = album
+            onDelete: { selectedAlbum in
+                pendingAlbumDeletion = selectedAlbum
             },
             customPinAction: { isPinned in
                 if isPinned {

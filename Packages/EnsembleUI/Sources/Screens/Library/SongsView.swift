@@ -12,6 +12,7 @@ public struct SongsView: View {
     @Environment(\.dependencies) private var deps
     @Environment(\.isStageFlowActive) private var isStageFlowActive
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     let libraryVM: LibraryViewModel
     let nowPlayingVM: NowPlayingViewModel
     @State private var showFilterSheet = false
@@ -393,7 +394,9 @@ public struct SongsView: View {
             nowPlayingVM: nowPlayingVM,
             deps: deps,
             navigationCoordinator: navigationCoordinator,
-            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title
+            recentPlaylistTitle: nowPlayingVM.lastPlaylistTarget?.title,
+            mutationCandidates: libraryVM.mutationCandidates(for:),
+            sourceActionPresenter: sourceActionPresenter
         ) { tracks in
             presentPlaylistPicker(with: tracks)
         } onGetInfo: { track in

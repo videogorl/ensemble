@@ -15,6 +15,11 @@ public protocol MediaDetailViewModelProtocol: ObservableObject {
     var filterOptions: FilterOptions { get set }
     
     func loadTracks() async
+    func mutationCandidates(for track: Track) -> [Track]
+}
+
+public extension MediaDetailViewModelProtocol {
+    func mutationCandidates(for track: Track) -> [Track] { [track] }
 }
 
 // MARK: - Album Detail ViewModel
@@ -136,6 +141,25 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
 
         hasLoadedTracks = true
         isLoading = false
+    }
+
+    public func mutationCandidates(for track: Track) -> [Track] {
+        MergingProjection.mutationCandidates(
+            for: track,
+            in: sourceTracks,
+            preferences: settingsManager.mergingPreferences
+        )
+    }
+
+    public var preferredFilteredTracks: [Track] {
+        let preferredAlbum = displayAlbum.primaryAlbum
+        return applyFilters(
+            to: sourceTracks.filter {
+                $0.albumRatingKey == preferredAlbum.id &&
+                    $0.sourceCompositeKey == preferredAlbum.sourceCompositeKey
+            },
+            with: filterOptions
+        )
     }
 
     private func loadTracks(for album: Album) async throws -> [Track] {

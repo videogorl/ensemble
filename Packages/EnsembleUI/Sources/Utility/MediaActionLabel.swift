@@ -24,8 +24,6 @@ struct MediaActionLabel: View {
         case rename
         case editPlaylist
         case download(isDownloaded: Bool)
-        case downloadAll
-        case removeDownloads
         case favorite(isFavorited: Bool, usesFilledIcon: Bool)
         case pin(isPinned: Bool)
         case unpinAll
@@ -38,8 +36,6 @@ struct MediaActionLabel: View {
         case deleteTrack
         case deleteAlbum
         case deletePlaylist
-        case deleteAll
-        case renameAll
     }
 
     let kind: Kind
@@ -86,10 +82,6 @@ struct MediaActionLabel: View {
             return "Edit Playlist"
         case .download(let isDownloaded):
             return isDownloaded ? "Remove Download" : "Download"
-        case .downloadAll:
-            return "Download All"
-        case .removeDownloads:
-            return "Remove Downloads"
         case .favorite(let isFavorited, _):
             return isFavorited ? "Unfavorite" : "Favorite"
         case .pin(let isPinned):
@@ -114,10 +106,6 @@ struct MediaActionLabel: View {
             return "Delete Album"
         case .deletePlaylist:
             return "Delete Playlist"
-        case .deleteAll:
-            return "Delete All"
-        case .renameAll:
-            return "Rename All…"
         }
     }
 
@@ -149,16 +137,12 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.artist
         case .getInfo:
             return EnsembleDesign.Icon.info
-        case .editMetadata, .rename, .renameAll:
+        case .editMetadata, .rename:
             return EnsembleDesign.Icon.edit
         case .editPlaylist:
             return EnsembleDesign.Icon.editPlaylist
         case .download(let isDownloaded):
             return isDownloaded ? EnsembleDesign.Icon.removeDownload : EnsembleDesign.Icon.download
-        case .downloadAll:
-            return EnsembleDesign.Icon.download
-        case .removeDownloads:
-            return EnsembleDesign.Icon.removeDownload
         case .favorite(let isFavorited, let usesFilledIcon):
             if usesFilledIcon {
                 return isFavorited ? EnsembleDesign.Icon.favoriteRemoveFilled : EnsembleDesign.Icon.favoriteFilled
@@ -178,7 +162,7 @@ struct MediaActionLabel: View {
             return EnsembleDesign.Icon.removeFromPlaylist
         case .removeFromQueue:
             return EnsembleDesign.Icon.removeCircle
-        case .deleteTrack, .deleteAlbum, .deletePlaylist, .deleteAll:
+        case .deleteTrack, .deleteAlbum, .deletePlaylist:
             return EnsembleDesign.Icon.delete
         }
     }

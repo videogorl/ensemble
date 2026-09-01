@@ -81,6 +81,28 @@ final class DisplayAlbumTests: XCTestCase {
 
         XCTAssertEqual(separate.map(\.id), ["plex-14", "apple-14", "plex-15", "apple-15", "plex-16", "apple-16"])
         XCTAssertEqual(merged.map(\.id), ["plex-14", "plex-15", "apple-15", "plex-16"])
+        XCTAssertEqual(
+            MergingProjection.mutationCandidates(
+                for: merged[0],
+                in: tracks,
+                preferences: EnsembleMergingPreferences(
+                    mergeTracks: true,
+                    preferredSourceKeys: [plexSource, appleSource]
+                )
+            ).map(\.id),
+            ["plex-14", "apple-14"]
+        )
+        XCTAssertEqual(
+            MergingProjection.mutationCandidates(
+                for: merged[2],
+                in: tracks,
+                preferences: EnsembleMergingPreferences(
+                    mergeTracks: true,
+                    preferredSourceKeys: [plexSource, appleSource]
+                )
+            ).map(\.id),
+            ["apple-15"]
+        )
     }
 
     private func makeTrack(

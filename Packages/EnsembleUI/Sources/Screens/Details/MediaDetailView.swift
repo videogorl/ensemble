@@ -97,6 +97,7 @@ public struct AlbumDetailMenuActions {
     let downloadAvailability: MusicItemActionAvailability
     let editMetadataAvailability: MusicItemActionAvailability
     let deleteAvailability: MusicItemActionAvailability
+    let onToggleDownload: () -> Void
     let onEditMetadata: () -> Void
     let onDelete: () -> Void
     let onPlayNext: () -> Void
@@ -225,6 +226,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     let showFilter: Bool
     let mediaType: PinnedItemType?
     let selectedTrackId: String?
+    let actionTracks: [Track]?
     let genreChipContent: AnyView?
     let playlistMenuActions: PlaylistDetailMenuActions?
     let albumMenuActions: AlbumDetailMenuActions?
@@ -260,6 +262,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     @State private var isPinnedForHeader: Bool
     @Environment(\.dependencies) private var deps
     @EnvironmentObject private var navigationCoordinator: NavigationCoordinator
+    @EnvironmentObject private var sourceActionPresenter: MediaSourceActionPresenter
     private let pinManager = DependencyContainer.shared.pinManager
     // Targeted observation: only re-evaluate when these specific values change
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -276,6 +279,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         showFilter: Bool = true,
         mediaType: PinnedItemType? = nil,
         selectedTrackId: String? = nil,
+        actionTracks: [Track]? = nil,
         hiddenCandidates: [HiddenMediaCandidate] = [],
         hiddenIdentity: HiddenMediaIdentity? = nil,
         includesHidden: Bool = false,
@@ -298,6 +302,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         self.showFilter = showFilter
         self.mediaType = mediaType
         self.selectedTrackId = selectedTrackId
+        self.actionTracks = actionTracks
         self.hiddenCandidates = hiddenCandidates
         self.hiddenIdentity = hiddenIdentity
         self.includesHidden = includesHidden
@@ -402,7 +407,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
         }
         .task(id: quickTargetRefreshKey) {
             lastPlaylistQuickTarget = await PlaylistActionPresentationHost.resolveRecentPlaylistTarget(
-                for: viewModel.filteredTracks,
+                for: resolvedActionTracks,
                 nowPlayingVM: nowPlayingVM
             )
         }
@@ -431,7 +436,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var playableTracks: [Track] {
-        viewModel.filteredTracks.filter(\.isLibraryAvailable)
+        resolvedActionTracks.filter(\.isLibraryAvailable)
+    }
+
+    private var resolvedActionTracks: [Track] {
+        actionTracks ?? viewModel.filteredTracks
     }
 
     private var shouldShowStandaloneFilterButton: Bool {
@@ -439,9 +448,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var quickTargetRefreshKey: String {
-        let firstTrackID = viewModel.filteredTracks.first?.id ?? "none"
+        let firstTrackID = resolvedActionTracks.first?.id ?? "none"
         let playlistTargetID = nvmLastPlaylistTargetId ?? "none"
-        return "\(firstTrackID):\(viewModel.filteredTracks.count):\(playlistTargetID)"
+        return "\(firstTrackID):\(resolvedActionTracks.count):\(playlistTargetID)"
     }
 
     private var headerArtworkLoadKey: String {
@@ -519,23 +528,23 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     } label: {
                         MediaActionLabel(kind: .playNext)
                     }
-                    .disabled(viewModel.filteredTracks.isEmpty)
+                    .disabled(resolvedActionTracks.isEmpty)
 
                     Button {
                         albumMenuActions.onPlayLast()
                     } label: {
                         MediaActionLabel(kind: .playLast)
                     }
-                    .disabled(viewModel.filteredTracks.isEmpty)
+                    .disabled(resolvedActionTracks.isEmpty)
 
                     if let recentTitle = PlaylistActionPresentationHost.recentPlaylistTitle(
-                        for: viewModel.filteredTracks,
+                        for: resolvedActionTracks,
                         target: lastPlaylistQuickTarget,
                         nowPlayingVM: nowPlayingVM
                     ) {
                         Button {
                             PlaylistActionPresentationHost.addToRecentPlaylist(
-                                viewModel.filteredTracks,
+                                resolvedActionTracks,
                                 target: lastPlaylistQuickTarget,
                                 nowPlayingVM: nowPlayingVM
                             )
@@ -545,11 +554,11 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
 
                     Button {
-                        presentPlaylistPicker(with: viewModel.filteredTracks)
+                        presentPlaylistPicker(with: resolvedActionTracks)
                     } label: {
                         MediaActionLabel(kind: .addToPlaylist)
                     }
-                    .disabled(viewModel.filteredTracks.isEmpty)
+                    .disabled(resolvedActionTracks.isEmpty)
 
                     Divider()
 
@@ -596,9 +605,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
 
                     let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
                     Button {
-                        Task {
-                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(album, isEnabled: !isDownloaded)
-                        }
+                        albumMenuActions.onToggleDownload()
                     } label: {
                         MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                     }
@@ -754,14 +761,14 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 } label: {
                     MediaActionLabel(kind: .playNext)
                 }
-                .disabled(viewModel.filteredTracks.isEmpty)
+                .disabled(resolvedActionTracks.isEmpty)
 
                 Button {
                     playlistMenuActions.onPlayLast()
                 } label: {
                     MediaActionLabel(kind: .playLast)
                 }
-                .disabled(viewModel.filteredTracks.isEmpty)
+                .disabled(resolvedActionTracks.isEmpty)
 
                 Divider()
 
@@ -841,10 +848,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     private var hasHiddenMediaAction: Bool {
-        if let hiddenIdentity, deps.hiddenMediaStore.snapshot.contains(hiddenIdentity) {
-            return true
-        }
-        return hiddenCandidates.contains { !deps.hiddenMediaStore.snapshot.contains($0.identity) }
+        hiddenIdentity != nil || !hiddenCandidates.isEmpty
     }
 
     private func presentPlaylistPicker(with tracks: [Track], title: String = "Add Album to Playlist") {
@@ -1347,7 +1351,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     private var radioButton: some View {
         if let _ = viewModel as? AlbumDetailViewModel {
             Button {
-                nowPlayingVM.enableRadio(tracks: viewModel.filteredTracks)
+                nowPlayingVM.enableRadio(tracks: resolvedActionTracks)
             } label: {
                 radioButtonLabel
             }
@@ -1450,8 +1454,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 trackPendingDeletion = track
                 isConfirmingTrackDelete = true
             },
+            onToggleHidden: { track in
+                track.hiddenToggleAction(deps: deps)?()
+            },
             isTrackFavorited: { track in
                 nowPlayingVM.isTrackFavorited(track)
+            },
+            isTrackHidden: { track in
+                track.hiddenIdentity(deps: deps) != nil
+            },
+            canToggleHidden: { track in
+                track.hiddenIdentity(deps: deps) != nil || track.hiddenCandidate(deps: deps) != nil
             },
             canAddToLibrary: { track in
                 nowPlayingVM.canAddTrackToLibrary(track)
@@ -1467,7 +1480,17 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 guard let merged = viewModel as? MergedPlaylistDetailViewModel else { return true }
                 return merged.canRemoveTrackFromPlaylist(track)
             },
-            recentPlaylistTitle: lastPlaylistQuickTarget?.title
+            recentPlaylistTitle: lastPlaylistQuickTarget?.title,
+            mutationCandidates: viewModel.mutationCandidates(for:),
+            onSelectMutationSource: { title, tracks, action in
+                sourceMutationAction(
+                    title: title,
+                    tracks: tracks,
+                    presenter: sourceActionPresenter,
+                    deps: deps,
+                    action: action
+                )?()
+            }
         )
     }
 
