@@ -97,6 +97,8 @@ public enum EnsembleMergeIdentity {
         let normalized = value
             .replacingOccurrences(of: "’", with: "'")
             .replacingOccurrences(of: "‘", with: "'")
+            .replacingOccurrences(of: "”", with: "\"")
+            .replacingOccurrences(of: "“", with: "\"")
             .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")

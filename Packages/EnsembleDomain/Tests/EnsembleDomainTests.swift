@@ -168,11 +168,15 @@ final class EnsembleDomainTests: XCTestCase {
         ))
     }
 
-    func testMergeIdentityNormalizesCaseAndTypographicApostrophes() {
+    func testMergeIdentityNormalizesCaseAndTypographicQuotes() {
         let expected = EnsembleMergeIdentity.normalized("Don't Judge Me")
 
         XCTAssertEqual(EnsembleMergeIdentity.normalized("DON’T JUDGE ME"), expected)
         XCTAssertEqual(EnsembleMergeIdentity.normalized("Don‘t Judge Me"), expected)
+        XCTAssertEqual(
+            EnsembleMergeIdentity.normalized("“Dirty Computer”"),
+            EnsembleMergeIdentity.normalized("\"Dirty Computer\"")
+        )
         XCTAssertNotEqual(
             EnsembleMergeIdentity.normalized("Janelle Monáe Feat. Brian Wilson"),
             EnsembleMergeIdentity.normalized("Janelle Monáe ft. Brian Wilson")
