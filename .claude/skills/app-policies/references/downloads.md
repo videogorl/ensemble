@@ -8,6 +8,8 @@
   Capability loss never disables removal of existing local data.
 - Download rows, files, membership, and cleanup use exact source identity. Never
   collide libraries/accounts by rating key or display name.
+- A merged download command enables every missing eligible source target. Only
+  when every eligible target is enabled does the command remove them all.
 - Removing a track's final target reference deletes its audio and derived
   artifacts. Preserve shared artifacts while another target references them,
   and delete only after explicit target removal or a complete authoritative

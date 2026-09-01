@@ -1512,6 +1512,12 @@ public final class NowPlayingViewModel: ObservableObject {
         }
     }
 
+    public func lastPlaylistTarget(for tracks: [Track]) -> LastPlaylistTarget? {
+        syncCoordinator.lastPlaylistTarget(
+            forServerSourceKey: defaultPlaylistServerSourceKey(for: tracks)
+        )
+    }
+
     public func compatibleTrackCount(_ tracks: [Track], for playlist: Playlist) -> Int {
         playlistActionService.compatibleTrackCount(tracks, for: playlist)
     }

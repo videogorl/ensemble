@@ -347,6 +347,7 @@ public struct AlbumDetailView: View {
     }
 
     public var body: some View {
+        let downloadState = deps.downloadMutationWorkflow.batchState(for: displayAlbum.albums)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -369,6 +370,7 @@ public struct AlbumDetailView: View {
                         sourceAvailability: $0.actionAvailability(for: .download)
                     )
                 }),
+                isDownloaded: downloadState.isEnabled,
                 editMetadataAvailability: .combined(
                     displayAlbum.albums.map { $0.actionAvailability(for: .editMetadata) }
                 ),
@@ -376,8 +378,13 @@ public struct AlbumDetailView: View {
                     displayAlbum.albums.map { $0.actionAvailability(for: .delete) }
                 ),
                 onToggleDownload: {
+                    Task {
+                        await deps.downloadMutationWorkflow.toggleDownloads(for: displayAlbum.albums)
+                    }
+                },
+                onAddToPlaylist: { present in
                     sourceMutationAction(
-                        title: "Manage Album Download",
+                        title: "Add Album to Playlist",
                         items: displayAlbum.albums,
                         id: \.sourceScopedID,
                         itemTitle: \.title,
@@ -385,23 +392,17 @@ public struct AlbumDetailView: View {
                         presenter: sourceActionPresenter,
                         deps: deps
                     ) { selectedAlbum in
-                        Task {
-                            await deps.downloadMutationWorkflow.setAlbumDownloadEnabled(
-                                selectedAlbum,
-                                isEnabled: !deps.offlineDownloadService.isAlbumDownloadEnabled(selectedAlbum)
-                            )
-                        }
+                        present(viewModel.filteredTracks(for: selectedAlbum), "Add Album to Playlist")
                     }?()
                 },
                 onEditMetadata: {
                     sourceMutationAction(
                         title: "Edit Album Metadata",
-                        items: displayAlbum.albums.filter {
-                            $0.actionAvailability(for: .editMetadata).isAvailable
-                        },
+                        items: displayAlbum.albums,
                         id: \.sourceScopedID,
                         itemTitle: \.title,
                         sourceKey: \.sourceCompositeKey,
+                        availability: { $0.actionAvailability(for: .editMetadata) },
                         presenter: sourceActionPresenter,
                         deps: deps,
                         action: presentMetadataEditor(for:)

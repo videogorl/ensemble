@@ -11,7 +11,7 @@ public struct MergedPlaylistDetailView: View {
     @State private var showRenamePrompt = false
     @State private var renamePromptText = ""
     @State private var showDeleteConfirmation = false
-    @State private var renameTarget: Playlist?
+    @State private var renameTargets: [Playlist] = []
     @State private var deleteTarget: Playlist?
     @State private var editTarget: Playlist?
     @Environment(\.dependencies) private var deps
@@ -29,15 +29,7 @@ public struct MergedPlaylistDetailView: View {
         let downloadAvailabilities = playlists.map { playlist in
             playlist.actionAvailability(for: .download)
         }
-        let isAnyDownloaded = playlists.contains {
-            deps.offlineDownloadService.isPlaylistDownloadEnabled($0)
-        }
-        let downloadablePlaylists = zip(playlists, downloadAvailabilities).compactMap { playlist, availability in
-            resolvedDownloadMenuAvailability(
-                isDownloaded: deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist),
-                sourceAvailability: availability
-            ).isAvailable ? playlist : nil
-        }
+        let downloadState = deps.downloadMutationWorkflow.batchState(for: playlists)
         MediaDetailView(
             viewModel: viewModel,
             nowPlayingVM: nowPlayingVM,
@@ -51,10 +43,10 @@ public struct MergedPlaylistDetailView: View {
             hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
             playlistMenuActions: PlaylistDetailMenuActions(
                 downloadAvailability: resolvedMergedDownloadMenuAvailability(
-                    isAnyDownloaded: isAnyDownloaded,
+                    isAnyDownloaded: downloadState.enabledCount > 0,
                     sourceAvailabilities: downloadAvailabilities
                 ),
-                isDownloaded: isAnyDownloaded,
+                isDownloaded: downloadState.isEnabled,
                 renameAvailability: .combined(
                     playlists.map { $0.actionAvailability(for: .rename) }
                 ),
@@ -65,22 +57,9 @@ public struct MergedPlaylistDetailView: View {
                     playlists.map { $0.actionAvailability(for: .delete) }
                 ),
                 onToggleDownload: {
-                    sourceMutationAction(
-                        title: "Manage Playlist Download",
-                        items: downloadablePlaylists,
-                        id: \.sourceScopedID,
-                        itemTitle: \.title,
-                        sourceKey: \.sourceCompositeKey,
-                        presenter: sourceActionPresenter,
-                        deps: deps
-                    ) { playlist in
-                        Task {
-                            await deps.downloadMutationWorkflow.setPlaylistDownloadEnabled(
-                                playlist,
-                                isEnabled: !deps.offlineDownloadService.isPlaylistDownloadEnabled(playlist)
-                            )
-                        }
-                    }?()
+                    Task {
+                        await deps.downloadMutationWorkflow.toggleDownloads(for: playlists)
+                    }
                 },
                 onRename: {
                     sourceMutationAction(
@@ -89,12 +68,11 @@ public struct MergedPlaylistDetailView: View {
                         id: \.sourceScopedID,
                         itemTitle: \.title,
                         sourceKey: \.sourceCompositeKey,
+                        allAction: presentRenamePrompt(for:),
                         presenter: sourceActionPresenter,
                         deps: deps
                     ) { playlist in
-                        renameTarget = playlist
-                        renamePromptText = playlist.title
-                        showRenamePrompt = true
+                        presentRenamePrompt(for: [playlist])
                     }?()
                 },
                 onEdit: {
@@ -150,14 +128,14 @@ public struct MergedPlaylistDetailView: View {
         .alert("Rename Playlist", isPresented: $showRenamePrompt) {
             TextField("Playlist name", text: $renamePromptText)
             Button("Cancel", role: .cancel) {
-                renameTarget = nil
+                renameTargets = []
             }
             Button("Save") {
                 renamePlaylistFromPrompt()
             }
             .disabled(renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
-            Text("Choose a new playlist name for the selected source.")
+            Text("Choose a new playlist name for the selected source or sources.")
         }
         .alert("Delete Playlist?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
@@ -188,9 +166,22 @@ public struct MergedPlaylistDetailView: View {
     // MARK: - Header
 
     private func renamePlaylistFromPrompt() {
-        guard let playlist = renameTarget else { return }
-        renameTarget = nil
+        let playlists = renameTargets
+        renameTargets = []
         let newTitle = renamePromptText.trimmingCharacters(in: .whitespacesAndNewlines)
+        for playlist in playlists {
+            renamePlaylist(playlist, to: newTitle)
+        }
+    }
+
+    private func presentRenamePrompt(for playlists: [Playlist]) {
+        guard let first = playlists.first else { return }
+        renameTargets = playlists
+        renamePromptText = first.title
+        showRenamePrompt = true
+    }
+
+    private func renamePlaylist(_ playlist: Playlist, to newTitle: String) {
         guard let start = deps.playlistMutationWorkflow.beginRename(
             playlist: playlist,
             to: newTitle

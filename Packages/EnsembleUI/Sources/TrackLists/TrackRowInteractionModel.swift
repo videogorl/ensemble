@@ -21,6 +21,7 @@ public struct TrackRowInteractionModel {
         public let onToggleHidden: (() -> Void)?
         public let isFavorited: Bool
         public let isHidden: Bool
+        public let hideRequiresSourceSelection: Bool
         public let recentPlaylistTitle: String?
         public let favoriteAvailability: MusicItemActionAvailability
         public let editMetadataAvailability: MusicItemActionAvailability
@@ -67,8 +68,9 @@ public struct TrackRowInteractionModel {
     public let canAddToRecentPlaylist: ((Track) -> Bool)?
     public let canRemoveFromPlaylist: ((Track) -> Bool)?
     public let recentPlaylistTitle: String?
+    public let recentPlaylistTitleForTrack: ((Track) -> String?)?
     public let mutationCandidates: ((Track) -> [Track])?
-    public let onSelectMutationSource: ((String, [Track], @escaping (Track) -> Void) -> Void)?
+    public let onSelectMutationSource: ((String, [Track], (([Track]) -> Void)?, @escaping (Track) -> Void) -> Void)?
 
     public init(
         onPlayNext: ((Track) -> Void)? = nil,
@@ -93,8 +95,9 @@ public struct TrackRowInteractionModel {
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         canRemoveFromPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
+        recentPlaylistTitleForTrack: ((Track) -> String?)? = nil,
         mutationCandidates: ((Track) -> [Track])? = nil,
-        onSelectMutationSource: ((String, [Track], @escaping (Track) -> Void) -> Void)? = nil
+        onSelectMutationSource: ((String, [Track], (([Track]) -> Void)?, @escaping (Track) -> Void) -> Void)? = nil
     ) {
         self.onPlayNext = onPlayNext
         self.onPlayLast = onPlayLast
@@ -118,6 +121,7 @@ public struct TrackRowInteractionModel {
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.canRemoveFromPlaylist = canRemoveFromPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
         self.mutationCandidates = mutationCandidates
         self.onSelectMutationSource = onSelectMutationSource
     }
@@ -175,6 +179,7 @@ public struct TrackRowInteractionModel {
                 onToggleHidden: nil,
                 isFavorited: false,
                 isHidden: false,
+                hideRequiresSourceSelection: false,
                 recentPlaylistTitle: nil,
                 favoriteAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
                 editMetadataAvailability: .unavailable(reason: track.unavailableReason ?? "This track is unavailable."),
@@ -204,7 +209,11 @@ public struct TrackRowInteractionModel {
                 candidates: addToLibraryCandidates,
                 callback: onAddToLibrary
             ),
-            onAddToPlaylist: onAddToPlaylist.map { callback in { callback(track) } },
+            onAddToPlaylist: mutationAction(
+                title: "Add Song to Playlist",
+                candidates: candidates,
+                callback: onAddToPlaylist
+            ),
             onAddToRecentPlaylist: allowRecentPlaylist ? onAddToRecentPlaylist.map { callback in { callback(track) } } : nil,
             onToggleFavorite: mutationAction(
                 title: isFavorited ? "Unfavorite Song" : "Favorite Song",
@@ -230,11 +239,17 @@ public struct TrackRowInteractionModel {
             onToggleHidden: mutationAction(
                 title: "Hide Song",
                 candidates: hiddenCandidates,
-                callback: onToggleHidden
+                callback: onToggleHidden,
+                allAction: onToggleHidden.map { callback in
+                    { tracks in tracks.forEach(callback) }
+                }
             ),
             isFavorited: isFavorited,
             isHidden: isTrackHidden?(track) ?? false,
-            recentPlaylistTitle: allowRecentPlaylist ? recentPlaylistTitle : nil,
+            hideRequiresSourceSelection: hiddenCandidates.count > 1,
+            recentPlaylistTitle: allowRecentPlaylist
+                ? recentPlaylistTitleForTrack?(track) ?? recentPlaylistTitle
+                : nil,
             favoriteAvailability: .combined(candidates.map {
                 $0.actionAvailability(for: .favorite, isFavorited: self.isFavorited($0))
             }),
@@ -250,13 +265,14 @@ public struct TrackRowInteractionModel {
     private func mutationAction(
         title: String,
         candidates: [Track],
-        callback: ((Track) -> Void)?
+        callback: ((Track) -> Void)?,
+        allAction: (([Track]) -> Void)? = nil
     ) -> (() -> Void)? {
         guard let callback, let first = candidates.first else { return nil }
         guard candidates.count > 1, let onSelectMutationSource else {
             return { callback(first) }
         }
-        return { onSelectMutationSource(title, candidates, callback) }
+        return { onSelectMutationSource(title, candidates, allAction, callback) }
     }
 }
 
@@ -351,12 +367,19 @@ extension TrackRowInteractionModel {
                 PlaylistActionPresentationHost.recentPlaylistTitle(for: [track], nowPlayingVM: nowPlayingVM) != nil
             },
             recentPlaylistTitle: recentPlaylistTitle,
+            recentPlaylistTitleForTrack: { track in
+                PlaylistActionPresentationHost.recentPlaylistTitle(
+                    for: [track],
+                    nowPlayingVM: nowPlayingVM
+                )
+            },
             mutationCandidates: mutationCandidates,
             onSelectMutationSource: sourceActionPresenter.map { presenter in
-                { title, tracks, action in
+                { title, tracks, allAction, action in
                     sourceMutationAction(
                         title: title,
                         tracks: tracks,
+                        allAction: allAction,
                         presenter: presenter,
                         deps: deps,
                         action: action

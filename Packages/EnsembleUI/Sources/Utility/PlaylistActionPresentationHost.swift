@@ -39,7 +39,7 @@ public enum PlaylistActionPresentationHost {
         for tracks: [Track],
         nowPlayingVM: NowPlayingViewModel
     ) -> String? {
-        guard let target = nowPlayingVM.lastPlaylistTarget else { return nil }
+        guard let target = nowPlayingVM.lastPlaylistTarget(for: tracks) else { return nil }
         return nowPlayingVM.compatibleTrackCount(
             tracks,
             forServerSourceKey: target.sourceCompositeKey

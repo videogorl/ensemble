@@ -223,7 +223,8 @@ enum NativeMediaTableActionBuilder {
             state: MediaMenuState(
                 recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
                 isFavorited: resolvedActions.isFavorited,
-                isHidden: resolvedActions.isHidden
+                isHidden: resolvedActions.isHidden,
+                hideRequiresSourceSelection: resolvedActions.hideRequiresSourceSelection
             ),
             handlers: nativeMediaTableMenuHandlers(
                 for: resolvedActions,
@@ -261,7 +262,8 @@ enum NativeMediaTableActionBuilder {
             state: MediaMenuState(
                 recentPlaylistTitle: resolvedActions.recentPlaylistTitle,
                 isFavorited: resolvedActions.isFavorited,
-                isHidden: resolvedActions.isHidden
+                isHidden: resolvedActions.isHidden,
+                hideRequiresSourceSelection: resolvedActions.hideRequiresSourceSelection
             ),
             handlers: nativeMediaTableMenuHandlers(
                 for: resolvedActions,

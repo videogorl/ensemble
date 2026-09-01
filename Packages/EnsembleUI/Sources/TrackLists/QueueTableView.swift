@@ -251,6 +251,7 @@ public struct QueueTableView: UIViewRepresentable {
     let onGoToArtist: ((Track) -> Void)?
     let canAddToRecentPlaylist: ((Track) -> Bool)?
     let recentPlaylistTitle: String?
+    let recentPlaylistTitleForTrack: ((Track) -> String?)?
     let onRemoveFromQueue: (Int) -> Void
     let onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
 
@@ -274,6 +275,7 @@ public struct QueueTableView: UIViewRepresentable {
         onGoToArtist: ((Track) -> Void)? = nil,
         canAddToRecentPlaylist: ((Track) -> Bool)? = nil,
         recentPlaylistTitle: String? = nil,
+        recentPlaylistTitleForTrack: ((Track) -> String?)? = nil,
         onRemoveFromQueue: @escaping (Int) -> Void,
         onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void
     ) {
@@ -294,6 +296,7 @@ public struct QueueTableView: UIViewRepresentable {
         self.onGoToArtist = onGoToArtist
         self.canAddToRecentPlaylist = canAddToRecentPlaylist
         self.recentPlaylistTitle = recentPlaylistTitle
+        self.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
         self.onRemoveFromQueue = onRemoveFromQueue
         self.onMoveItem = onMoveItem
     }
@@ -353,6 +356,7 @@ public struct QueueTableView: UIViewRepresentable {
         context.coordinator.onGoToArtist = onGoToArtist
         context.coordinator.canAddToRecentPlaylist = canAddToRecentPlaylist
         context.coordinator.recentPlaylistTitle = recentPlaylistTitle
+        context.coordinator.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
         context.coordinator.onRemoveFromQueue = onRemoveFromQueue
         context.coordinator.onMoveItem = onMoveItem
         context.coordinator.artworkLoader = dependencies.artworkLoader
@@ -404,6 +408,7 @@ public struct QueueTableView: UIViewRepresentable {
             onGoToArtist: onGoToArtist,
             canAddToRecentPlaylist: canAddToRecentPlaylist,
             recentPlaylistTitle: recentPlaylistTitle,
+            recentPlaylistTitleForTrack: recentPlaylistTitleForTrack,
             onRemoveFromQueue: onRemoveFromQueue,
             onMoveItem: onMoveItem,
             artworkLoader: dependencies.artworkLoader,
@@ -431,6 +436,7 @@ public struct QueueTableView: UIViewRepresentable {
         var onGoToArtist: ((Track) -> Void)?
         var canAddToRecentPlaylist: ((Track) -> Bool)?
         var recentPlaylistTitle: String?
+        var recentPlaylistTitleForTrack: ((Track) -> String?)?
         var onRemoveFromQueue: (Int) -> Void
         var onMoveItem: (String, Int, Int, QueueItemSource?) -> Void
         var artworkLoader: ArtworkLoaderProtocol
@@ -483,6 +489,7 @@ public struct QueueTableView: UIViewRepresentable {
             onGoToArtist: ((Track) -> Void)?,
             canAddToRecentPlaylist: ((Track) -> Bool)?,
             recentPlaylistTitle: String?,
+            recentPlaylistTitleForTrack: ((Track) -> String?)?,
             onRemoveFromQueue: @escaping (Int) -> Void,
             onMoveItem: @escaping (String, Int, Int, QueueItemSource?) -> Void,
             artworkLoader: ArtworkLoaderProtocol,
@@ -505,6 +512,7 @@ public struct QueueTableView: UIViewRepresentable {
             self.onGoToArtist = onGoToArtist
             self.canAddToRecentPlaylist = canAddToRecentPlaylist
             self.recentPlaylistTitle = recentPlaylistTitle
+            self.recentPlaylistTitleForTrack = recentPlaylistTitleForTrack
             self.onRemoveFromQueue = onRemoveFromQueue
             self.onMoveItem = onMoveItem
             self.artworkLoader = artworkLoader
@@ -737,7 +745,8 @@ public struct QueueTableView: UIViewRepresentable {
                 onGoToArtist: self.onGoToArtist,
                 canAddToLibrary: self.canAddToLibrary,
                 canAddToRecentPlaylist: self.canAddToRecentPlaylist,
-                recentPlaylistTitle: self.recentPlaylistTitle
+                recentPlaylistTitle: self.recentPlaylistTitle,
+                recentPlaylistTitleForTrack: self.recentPlaylistTitleForTrack
             )
             let resolvedActions = interactionModel.resolve(for: track)
 

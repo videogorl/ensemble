@@ -94,7 +94,7 @@ public struct PlaylistsView: View {
     @State private var playlistForEditSheet: Playlist?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var showCreatePlaylistPush = false
-    @State private var renamePushPlaylist: Playlist?
+    @State private var renamePushPlaylists: [Playlist] = []
     @State private var renamePushPlaylistTitle = ""
     // Cached merge-aware playlist list — avoids recomputing grouping on every body evaluation
     @State private var cachedDisplayedPlaylists: [DisplayPlaylist]?
@@ -343,18 +343,20 @@ public struct PlaylistsView: View {
                 }
             }
             .alert("Rename Playlist", isPresented: Binding(
-                get: { renamePushPlaylist != nil },
-                set: { if !$0 { renamePushPlaylist = nil } }
+                get: { !renamePushPlaylists.isEmpty },
+                set: { if !$0 { renamePushPlaylists = [] } }
             )) {
                 TextField("Playlist name", text: $renamePushPlaylistTitle)
                 Button("Cancel", role: .cancel) {
-                    renamePushPlaylist = nil
+                    renamePushPlaylists = []
                 }
                 Button("Save") {
-                    guard let playlist = renamePushPlaylist else { return }
+                    let playlists = renamePushPlaylists
                     let title = renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                    renamePushPlaylist = nil
-                    renamePlaylist(playlist, to: title)
+                    renamePushPlaylists = []
+                    for playlist in playlists {
+                        renamePlaylist(playlist, to: title)
+                    }
                 }
                 .disabled(renamePushPlaylistTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } message: {
@@ -498,8 +500,8 @@ public struct PlaylistsView: View {
                                 MergedPlaylistActionsContextMenu(
                                     displayPlaylist: dp,
                                     nowPlayingVM: nowPlayingVM,
-                                    onRename: { playlist in
-                                        presentRenameAlert(for: playlist)
+                                    onRename: { playlists in
+                                        presentRenameAlert(for: playlists)
                                     },
                                     onDelete: { playlistPendingSwipeDelete = $0 }
                                 )
@@ -511,7 +513,7 @@ public struct PlaylistsView: View {
                                         libraryItemInfoRequest = .playlist(dp.primaryPlaylist)
                                     },
                                     onRename: { playlist in
-                                        presentRenameAlert(for: playlist)
+                                        presentRenameAlert(for: [playlist])
                                     },
                                     onEdit: { playlistForEditSheet = $0 },
                                     onDelete: { playlistPendingSwipeDelete = $0 }
@@ -799,9 +801,10 @@ public struct PlaylistsView: View {
         }
     }
 
-    private func presentRenameAlert(for playlist: Playlist) {
-        renamePushPlaylistTitle = playlist.title
-        renamePushPlaylist = playlist
+    private func presentRenameAlert(for playlists: [Playlist]) {
+        guard let first = playlists.first else { return }
+        renamePushPlaylistTitle = first.title
+        renamePushPlaylists = playlists
     }
 
 }

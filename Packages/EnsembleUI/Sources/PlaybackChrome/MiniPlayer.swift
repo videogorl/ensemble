@@ -93,8 +93,8 @@ public struct MiniPlayer: View {
                     track: track,
                     nowPlayingVM: viewModel,
                     context: .miniPlayer,
-                    onAddToPlaylist: {
-                        playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
+                    onAddToPlaylist: { selectedTrack in
+                        playlistActionRequest = PlaylistActionPresentationHost.request(for: [selectedTrack])
                     },
                     onGoToAlbum: {
                         if let albumId = track.albumRatingKey {

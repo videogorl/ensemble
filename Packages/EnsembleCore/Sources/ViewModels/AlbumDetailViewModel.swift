@@ -152,11 +152,14 @@ public final class AlbumDetailViewModel: ObservableObject, MediaDetailViewModelP
     }
 
     public var preferredFilteredTracks: [Track] {
-        let preferredAlbum = displayAlbum.primaryAlbum
-        return applyFilters(
+        filteredTracks(for: displayAlbum.primaryAlbum)
+    }
+
+    public func filteredTracks(for album: Album) -> [Track] {
+        applyFilters(
             to: sourceTracks.filter {
-                $0.albumRatingKey == preferredAlbum.id &&
-                    $0.sourceCompositeKey == preferredAlbum.sourceCompositeKey
+                $0.albumRatingKey == album.id &&
+                    $0.sourceCompositeKey == album.sourceCompositeKey
             },
             with: filterOptions
         )

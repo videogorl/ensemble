@@ -629,7 +629,7 @@ public struct SidebarView: View {
     @State private var playlistActionRequest: PlaylistActionPresentationRequest?
     @State private var libraryItemInfoRequest: LibraryItemInfoRequest?
     @State private var playlistForEditSheet: Playlist?
-    @State private var playlistPendingRename: Playlist?
+    @State private var playlistsPendingRename: [Playlist] = []
     @State private var playlistPendingRenameTitle = ""
     @State private var playlistPendingDelete: Playlist?
     @SceneStorage("sidebarPinsExpanded") private var isPinsExpanded = true
@@ -1057,18 +1057,20 @@ public struct SidebarView: View {
             .nativeSheetNavigationContainer()
         }
         .alert("Rename Playlist", isPresented: Binding(
-            get: { playlistPendingRename != nil },
-            set: { if !$0 { playlistPendingRename = nil } }
+            get: { !playlistsPendingRename.isEmpty },
+            set: { if !$0 { playlistsPendingRename = [] } }
         )) {
             TextField("Playlist name", text: $playlistPendingRenameTitle)
             Button("Cancel", role: .cancel) {
-                playlistPendingRename = nil
+                playlistsPendingRename = []
             }
             Button("Save") {
-                guard let playlist = playlistPendingRename else { return }
+                let playlists = playlistsPendingRename
                 let title = playlistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-                playlistPendingRename = nil
-                renamePinnedPlaylist(playlist, to: title)
+                playlistsPendingRename = []
+                for playlist in playlists {
+                    renamePinnedPlaylist(playlist, to: title)
+                }
             }
             .disabled(playlistPendingRenameTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } message: {
@@ -1798,7 +1800,7 @@ public struct SidebarView: View {
                     },
                     onRename: { selectedPlaylist in
                         playlistPendingRenameTitle = selectedPlaylist.title
-                        playlistPendingRename = selectedPlaylist
+                        playlistsPendingRename = [selectedPlaylist]
                     },
                     onEdit: { selectedPlaylist in
                         playlistForEditSheet = selectedPlaylist
@@ -1858,9 +1860,10 @@ public struct SidebarView: View {
                     nowPlayingVM: nowPlayingVM,
                     toastNamespace: "sidebar-merged-playlist-menu",
                     context: .sidebar,
-                    onRename: { playlist in
-                        playlistPendingRenameTitle = playlist.title
-                        playlistPendingRename = playlist
+                    onRename: { playlists in
+                        guard let first = playlists.first else { return }
+                        playlistPendingRenameTitle = first.title
+                        playlistsPendingRename = playlists
                     },
                     onDelete: { playlist in
                         playlistPendingDelete = playlist

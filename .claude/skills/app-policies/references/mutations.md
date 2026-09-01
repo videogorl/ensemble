@@ -17,9 +17,11 @@
   resolver. Never rebuild a partially available playlist solely from locally
   synced tracks.
 - Same-named regular playlists may merge for display across providers; smart or
-  editorial kinds stay separate. Mutating a merged artist, album, track, or
-  playlist first selects one exact-source constituent. Playback, queueing, and
-  adding media to a playlist use the preferred copy without prompting.
+  editorial kinds stay separate. Rename and hide may target one or all eligible
+  constituents; other mutations select one exact-source constituent. Playback
+  and queueing use the preferred copy. Adding media to a playlist selects the
+  media source first; the recent-playlist shortcut uses the preferred source's
+  most recently created or added-to playlist.
 - Merging is presentation-only: exact source records remain stored and reappear
   when disabled. Preferred source order may choose among proven copies but never
   reroutes an explicit mutation, rating, download, or playback owner.

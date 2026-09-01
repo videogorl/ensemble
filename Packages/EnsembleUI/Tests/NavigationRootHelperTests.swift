@@ -374,10 +374,10 @@ final class NavigationRootHelperTests: XCTestCase {
             presenter: presenter
         ))()
         let request = try XCTUnwrap(presenter.pendingRequest)
-        XCTAssertEqual(request.choices.map(\.id), [candidate.id, secondCandidate.id])
+        XCTAssertEqual(request.choices.map(\.id), ["all-sources", candidate.id, secondCandidate.id])
         XCTAssertFalse(store.snapshot.contains(secondIdentity))
 
-        presenter.choose(request.choices[1])
+        presenter.choose(request.choices[2])
         presenter.completeSelection()
         XCTAssertTrue(store.snapshot.contains(secondIdentity))
 
@@ -392,7 +392,7 @@ final class NavigationRootHelperTests: XCTestCase {
         presenter.choose(unhideRequest.choices[0])
         presenter.completeSelection()
         XCTAssertFalse(store.snapshot.contains(identity))
-        XCTAssertTrue(store.snapshot.contains(secondIdentity))
+        XCTAssertFalse(store.snapshot.contains(secondIdentity))
     }
 
     func testConcreteArtistDetailDestinationTargetsArtists() {

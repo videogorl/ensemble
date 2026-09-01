@@ -778,7 +778,8 @@ public struct ArtistDetailView: View {
     /// Toolbar menu with Pin/Unpin action for the artist
     private var artistPinMenuButton: some View {
         let isPinned = isArtistPinned
-        let isDownloaded = dependencies.offlineDownloadService.isArtistDownloadEnabled(viewModel.artist)
+        let downloadState = dependencies.downloadMutationWorkflow.batchState(for: displayArtist.artists)
+        let isDownloaded = downloadState.isEnabled
         let canDownload = viewModel.artist.actionAvailability(for: .download).isAvailable
         let downloadableMergedArtists = mergedDownloadableArtists
         return Menu {
@@ -798,24 +799,13 @@ public struct ArtistDetailView: View {
 
             if displayArtist.isMerged, !downloadableMergedArtists.isEmpty {
                 Button {
-                    sourceMutationAction(
-                        title: "Manage Artist Download",
-                        items: downloadableMergedArtists,
-                        id: \.sourceScopedID,
-                        itemTitle: \.name,
-                        sourceKey: \.sourceCompositeKey,
-                        presenter: sourceActionPresenter,
-                        deps: dependencies
-                    ) { artist in
-                        Task {
-                            await dependencies.downloadMutationWorkflow.setArtistDownloadEnabled(
-                                artist,
-                                isEnabled: !dependencies.offlineDownloadService.isArtistDownloadEnabled(artist)
-                            )
-                        }
-                    }?()
+                    Task {
+                        await dependencies.downloadMutationWorkflow.toggleDownloads(
+                            for: displayArtist.artists
+                        )
+                    }
                 } label: {
-                    MediaActionLabel(kind: .download(isDownloaded: false))
+                    MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
                 }
             } else if canDownload {
                 Button {

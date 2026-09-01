@@ -650,8 +650,8 @@ struct HubItemCard: View {
             sourceTracks: displayItem.items.compactMap(\.track),
             nowPlayingVM: nowPlayingVM,
             context: .search,
-            onAddToPlaylist: {
-                playlistActionRequest = PlaylistActionPresentationHost.request(for: [track])
+            onAddToPlaylist: { selectedTrack in
+                playlistActionRequest = PlaylistActionPresentationHost.request(for: [selectedTrack])
             },
             onGoToAlbum: {
                 if let albumId = track.albumRatingKey {

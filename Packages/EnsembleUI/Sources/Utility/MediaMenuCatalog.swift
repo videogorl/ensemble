@@ -250,6 +250,7 @@ struct MediaMenuState: Equatable {
     var isDownloaded = false
     var isPinned = false
     var isHidden = false
+    var hideRequiresSourceSelection = false
     var isShuffleEnabled = false
     var repeatMode: RepeatMode = .off
 }
@@ -631,7 +632,7 @@ extension MediaMenuActionDescriptor {
         case .rename:
             return MediaMenuLabel(title: "Rename…", systemImage: EnsembleDesign.Icon.edit)
         case .editPlaylist:
-            return MediaMenuLabel(title: "Edit Playlist", systemImage: EnsembleDesign.Icon.editPlaylist)
+            return MediaMenuLabel(title: "Edit Playlist…", systemImage: EnsembleDesign.Icon.editPlaylist)
         case .download:
             return MediaMenuLabel(
                 title: state.isDownloaded ? "Remove Download" : "Download",
@@ -651,7 +652,7 @@ extension MediaMenuActionDescriptor {
             return MediaMenuLabel(title: "Unpin All", systemImage: EnsembleDesign.Icon.unpin)
         case .toggleHidden:
             return MediaMenuLabel(
-                title: state.isHidden ? "Unhide" : "Hide",
+                title: "\(state.isHidden ? "Unhide" : "Hide")\(state.hideRequiresSourceSelection ? "…" : "")",
                 systemImage: state.isHidden ? "eye" : "eye.slash"
             )
         case .shareEnsembleLink:
@@ -703,7 +704,11 @@ extension MediaMenuActionDescriptor {
         case .favorite: return .favorite(isFavorited: state.isFavorited, usesFilledIcon: false)
         case .pin: return .pin(isPinned: state.isPinned)
         case .unpinAll: return .unpinAll
-        case .toggleHidden: return .toggleHidden(isHidden: state.isHidden)
+        case .toggleHidden:
+            return .toggleHidden(
+                isHidden: state.isHidden,
+                requiresSourceSelection: state.hideRequiresSourceSelection
+            )
         case .shareEnsembleLink: return .shareEnsembleLink
         case .shareLink: return .shareLink
         case .shareAudioFile: return .shareAudioFile

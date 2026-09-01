@@ -487,8 +487,15 @@ private struct MediaSourceActionPicker: View {
                         Text(choice.source)
                             .font(.caption)
                             .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        if let reason = choice.availability.reason, !choice.availability.isAvailable {
+                            Text(reason)
+                                .font(.caption)
+                                .foregroundColor(EnsembleDesign.Color.secondaryText)
+                        }
                     }
                 }
+                .disabled(!choice.availability.isAvailable)
+                .accessibilityHint(choice.availability.reason ?? "")
             }
             .navigationTitle(request.title)
             .toolbar {

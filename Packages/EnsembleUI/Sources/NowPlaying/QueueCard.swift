@@ -209,11 +209,7 @@ public struct QueueCard: View {
                             presentPlaylistPicker(with: [track], title: "Add to Playlist")
                         },
                         onAddToRecentPlaylist: { track in
-                            PlaylistActionPresentationHost.addToRecentPlaylist(
-                                [track],
-                                target: lastPlaylistQuickTarget,
-                                nowPlayingVM: viewModel
-                            )
+                            PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: viewModel)
                         },
                         onGoToAlbum: { track in
                             if let albumId = track.albumRatingKey {
@@ -232,11 +228,16 @@ public struct QueueCard: View {
                         canAddToRecentPlaylist: { track in
                             PlaylistActionPresentationHost.recentPlaylistTitle(
                                 for: [track],
-                                target: lastPlaylistQuickTarget,
                                 nowPlayingVM: viewModel
                             ) != nil
                         },
                         recentPlaylistTitle: lastPlaylistQuickTarget?.title,
+                        recentPlaylistTitleForTrack: { track in
+                            PlaylistActionPresentationHost.recentPlaylistTitle(
+                                for: [track],
+                                nowPlayingVM: viewModel
+                            )
+                        },
                         onRemoveFromQueue: { absoluteIndex in
                             viewModel.removeFromQueue(at: capturedCurrentIndex + 1 + absoluteIndex)
                         },
@@ -486,9 +487,8 @@ public struct QueueCard: View {
                 track: item.track,
                 nowPlayingVM: viewModel,
                 context: context,
-                recentPlaylistTarget: lastPlaylistQuickTarget,
-                onAddToPlaylist: {
-                    presentPlaylistPicker(with: [item.track], title: "Add to Playlist")
+                onAddToPlaylist: { selectedTrack in
+                    presentPlaylistPicker(with: [selectedTrack], title: "Add to Playlist")
                 },
                 onGoToAlbum: {
                     if let albumId = item.track.albumRatingKey {

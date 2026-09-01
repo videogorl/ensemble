@@ -1089,7 +1089,8 @@ final class EnsembleUITests: XCTestCase {
             onToggleFavorite: { _ in },
             isTrackFavorited: { $0.id == "track-1" },
             canAddToRecentPlaylist: { $0.id == "track-1" },
-            recentPlaylistTitle: "Road Trip"
+            recentPlaylistTitle: "Global Road Trip",
+            recentPlaylistTitleForTrack: { _ in "Source Road Trip" }
         )
 
         let resolved = model.resolve(for: track)
@@ -1097,7 +1098,7 @@ final class EnsembleUITests: XCTestCase {
         XCTAssertNotNil(resolved.onPlayNext)
         XCTAssertNotNil(resolved.onAddToRecentPlaylist)
         XCTAssertNotNil(resolved.onToggleFavorite)
-        XCTAssertEqual(resolved.recentPlaylistTitle, "Road Trip")
+        XCTAssertEqual(resolved.recentPlaylistTitle, "Source Road Trip")
         XCTAssertTrue(resolved.isFavorited)
         XCTAssertTrue(resolved.hasContextMenu)
     }
@@ -1181,6 +1182,37 @@ final class EnsembleUITests: XCTestCase {
             subscriberTrack.sourceScopedID,
             freeAccountTrack.sourceScopedID
         ])
+    }
+
+    func testMergedTrackFollowUpActionsSelectSourceAndOfferAllOnlyForHide() {
+        let first = Track(
+            id: "track-1",
+            key: "/tracks/1",
+            title: "Track",
+            sourceCompositeKey: "plex:account:server:library-1"
+        )
+        let second = Track(
+            id: "track-2",
+            key: "/tracks/2",
+            title: "Track",
+            sourceCompositeKey: "plex:account:server:library-2"
+        )
+        var selections: [(title: String, includesAll: Bool)] = []
+        let model = TrackRowInteractionModel(
+            onAddToPlaylist: { _ in },
+            onToggleHidden: { _ in },
+            mutationCandidates: { _ in [first, second] },
+            onSelectMutationSource: { title, _, allAction, _ in
+                selections.append((title, allAction != nil))
+            }
+        )
+
+        let resolved = model.resolve(for: first)
+        resolved.onAddToPlaylist?()
+        resolved.onToggleHidden?()
+
+        XCTAssertEqual(selections.map(\.title), ["Add Song to Playlist", "Hide Song"])
+        XCTAssertEqual(selections.map(\.includesAll), [false, true])
     }
 
     func testMediaTrackListIdentityOrderUsesSourceScopedTrackID() {

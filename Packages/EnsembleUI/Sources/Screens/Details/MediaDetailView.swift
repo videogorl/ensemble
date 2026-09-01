@@ -95,9 +95,11 @@ public struct PlaylistDetailMenuActions {
 
 public struct AlbumDetailMenuActions {
     let downloadAvailability: MusicItemActionAvailability
+    let isDownloaded: Bool
     let editMetadataAvailability: MusicItemActionAvailability
     let deleteAvailability: MusicItemActionAvailability
     let onToggleDownload: () -> Void
+    let onAddToPlaylist: (@escaping ([Track], String) -> Void) -> Void
     let onEditMetadata: () -> Void
     let onDelete: () -> Void
     let onPlayNext: () -> Void
@@ -554,7 +556,9 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                     }
 
                     Button {
-                        presentPlaylistPicker(with: resolvedActionTracks)
+                        albumMenuActions.onAddToPlaylist { tracks, title in
+                            presentPlaylistPicker(with: tracks, title: title)
+                        }
                     } label: {
                         MediaActionLabel(kind: .addToPlaylist)
                     }
@@ -603,11 +607,10 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                         MediaActionLabel(kind: .pin(isPinned: isPinned))
                     }
 
-                    let isDownloaded = deps.offlineDownloadService.isAlbumDownloadEnabled(album)
                     Button {
                         albumMenuActions.onToggleDownload()
                     } label: {
-                        MediaActionLabel(kind: .download(isDownloaded: isDownloaded))
+                        MediaActionLabel(kind: .download(isDownloaded: albumMenuActions.isDownloaded))
                     }
                     .disabled(!albumMenuActions.downloadAvailability.isAvailable)
                     .accessibilityHint(albumMenuActions.downloadAvailability.reason ?? "")
@@ -1402,11 +1405,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 presentPlaylistPicker(with: [track], title: "Add to Playlist")
             },
             onAddToRecentPlaylist: { track in
-                PlaylistActionPresentationHost.addToRecentPlaylist(
-                    [track],
-                    target: lastPlaylistQuickTarget,
-                    nowPlayingVM: nowPlayingVM
-                )
+                PlaylistActionPresentationHost.addToRecentPlaylist([track], nowPlayingVM: nowPlayingVM)
             },
             onToggleFavorite: { track in
                 Task {
@@ -1472,7 +1471,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             canAddToRecentPlaylist: { track in
                 PlaylistActionPresentationHost.recentPlaylistTitle(
                     for: [track],
-                    target: lastPlaylistQuickTarget,
                     nowPlayingVM: nowPlayingVM
                 ) != nil
             },
@@ -1481,11 +1479,18 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 return merged.canRemoveTrackFromPlaylist(track)
             },
             recentPlaylistTitle: lastPlaylistQuickTarget?.title,
+            recentPlaylistTitleForTrack: { track in
+                PlaylistActionPresentationHost.recentPlaylistTitle(
+                    for: [track],
+                    nowPlayingVM: nowPlayingVM
+                )
+            },
             mutationCandidates: viewModel.mutationCandidates(for:),
-            onSelectMutationSource: { title, tracks, action in
+            onSelectMutationSource: { title, tracks, allAction, action in
                 sourceMutationAction(
                     title: title,
                     tracks: tracks,
+                    allAction: allAction,
                     presenter: sourceActionPresenter,
                     deps: deps,
                     action: action
