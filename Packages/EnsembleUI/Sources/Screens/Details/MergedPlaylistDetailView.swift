@@ -47,14 +47,6 @@ public struct MergedPlaylistDetailView: View {
             groupByDisc: false,
             mediaType: .playlist,
             hiddenCandidates: playlists.compactMap { $0.hiddenCandidate(deps: deps) },
-            genreChipContent: AnyView(
-                GenreFilterHeader(
-                    availableGenres: viewModel.availableGenres,
-                    selectedGenres: $viewModel.filterOptions.selectedGenres,
-                    excludedGenres: $viewModel.filterOptions.excludedGenres,
-                    reservesEmptySpace: true
-                )
-            ),
             playlistMenuActions: PlaylistDetailMenuActions(
                 downloadAvailability: resolvedMergedDownloadMenuAvailability(
                     isAnyDownloaded: isAnyDownloaded,
