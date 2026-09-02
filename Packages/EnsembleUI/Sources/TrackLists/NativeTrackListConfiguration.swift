@@ -21,6 +21,7 @@ public struct NativeTrackListConfiguration {
     public var trackSourceLabels: [String: String]
     public var currentTrackId: String?
     public var selectedTrackId: String?
+    public var contentRevision: UInt64?
     public var availabilityGeneration: UInt64
     public var activeDownloadTrackIdentities: Set<String>
     public var interactionModel: TrackRowInteractionModel
@@ -40,6 +41,7 @@ public struct NativeTrackListConfiguration {
         trackSourceLabels: [String: String] = [:],
         currentTrackId: String? = nil,
         selectedTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         interactionModel: TrackRowInteractionModel = TrackRowInteractionModel()
@@ -58,6 +60,7 @@ public struct NativeTrackListConfiguration {
         self.trackSourceLabels = trackSourceLabels
         self.currentTrackId = currentTrackId
         self.selectedTrackId = selectedTrackId
+        self.contentRevision = contentRevision
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.interactionModel = interactionModel
@@ -65,6 +68,7 @@ public struct NativeTrackListConfiguration {
 
     public static func songs(
         currentTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         topContentInset: CGFloat = 0,
@@ -87,6 +91,7 @@ public struct NativeTrackListConfiguration {
             usesDynamicTableHeaderHeight: usesDynamicTableHeaderHeight,
             supplementalMetadataWidth: supplementalMetadataWidth,
             currentTrackId: currentTrackId,
+            contentRevision: contentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             interactionModel: interactionModel

@@ -74,6 +74,7 @@ public struct SongsTrackListHost: View {
     public init(
         tracks: [Track],
         currentTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         topContentInset: CGFloat = 0,
@@ -91,6 +92,7 @@ public struct SongsTrackListHost: View {
             tracks: tracks,
             configuration: .songs(
                 currentTrackId: currentTrackId,
+                contentRevision: contentRevision,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 topContentInset: topContentInset,
@@ -110,6 +112,7 @@ public struct SongsTrackListHost: View {
     public init(
         sections: [NativeTrackListSection],
         currentTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         topContentInset: CGFloat = 0,
@@ -128,6 +131,7 @@ public struct SongsTrackListHost: View {
             sections: sections,
             configuration: .songs(
                 currentTrackId: currentTrackId,
+                contentRevision: contentRevision,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 topContentInset: topContentInset,
@@ -175,6 +179,7 @@ public struct SongsTrackListHost: View {
                 showAlbumName: configuration.showAlbumName,
                 currentTrackId: configuration.currentTrackId,
                 selectedTrackId: configuration.selectedTrackId,
+                contentRevision: configuration.contentRevision,
                 availabilityGeneration: configuration.availabilityGeneration,
                 activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
                 topContentInset: configuration.topContentInset,
@@ -214,6 +219,7 @@ public struct SongsTrackListHost: View {
             groupByDisc: configuration.groupByDisc,
             currentTrackId: configuration.currentTrackId,
             selectedTrackId: configuration.selectedTrackId,
+            contentRevision: configuration.contentRevision,
             availabilityGeneration: configuration.availabilityGeneration,
             activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
             managesOwnScrolling: true,

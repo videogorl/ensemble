@@ -577,6 +577,7 @@ public struct MediaTrackList: UIViewRepresentable {
     let groupByDisc: Bool
     let currentTrackId: String?
     let selectedTrackId: String?
+    let contentRevision: UInt64?
     let onTrackTap: (Track, Int) -> Void
     let onPlayNext: ((Track) -> Void)?
     let onPlayLast: ((Track) -> Void)?
@@ -639,6 +640,7 @@ public struct MediaTrackList: UIViewRepresentable {
         groupByDisc: Bool = false,
         currentTrackId: String? = nil,
         selectedTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         managesOwnScrolling: Bool = false,
@@ -676,6 +678,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.groupByDisc = groupByDisc
         self.currentTrackId = currentTrackId
         self.selectedTrackId = selectedTrackId
+        self.contentRevision = contentRevision
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = managesOwnScrolling
@@ -730,6 +733,7 @@ public struct MediaTrackList: UIViewRepresentable {
         showAlbumName: Bool = true,
         currentTrackId: String? = nil,
         selectedTrackId: String? = nil,
+        contentRevision: UInt64? = nil,
         availabilityGeneration: UInt64 = 0,
         activeDownloadTrackIdentities: Set<String> = [],
         topContentInset: CGFloat = 0,
@@ -756,6 +760,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.groupByDisc = false
         self.currentTrackId = currentTrackId
         self.selectedTrackId = selectedTrackId
+        self.contentRevision = contentRevision
         self.availabilityGeneration = availabilityGeneration
         self.activeDownloadTrackIdentities = activeDownloadTrackIdentities
         self.managesOwnScrolling = true
@@ -875,14 +880,17 @@ public struct MediaTrackList: UIViewRepresentable {
             tableView.contentInset.bottom = bottomContentInset
         }
 
-        let contentIsUnchanged: Bool
-        switch (context.coordinator.sections, sections) {
-        case let (.some(previous), .some(current)):
-            contentIsUnchanged = arraysShareStorage(previous, current)
-        case (nil, nil):
-            contentIsUnchanged = arraysShareStorage(context.coordinator.tracks, tracks)
-        default:
-            contentIsUnchanged = false
+        let contentIsUnchanged: Bool = if let contentRevision {
+            contentRevision == context.coordinator.contentRevision
+        } else {
+            switch (context.coordinator.sections, sections) {
+            case let (.some(previous), .some(current)):
+                arraysShareStorage(previous, current)
+            case (nil, nil):
+                arraysShareStorage(context.coordinator.tracks, tracks)
+            default:
+                false
+            }
         }
         let newGroupedTracks = contentIsUnchanged ? context.coordinator.groupedTracks : makeTrackGroups()
 
@@ -918,6 +926,7 @@ public struct MediaTrackList: UIViewRepresentable {
         // Update coordinator state
         context.coordinator.tracks = tracks
         context.coordinator.sections = sections
+        context.coordinator.contentRevision = contentRevision
         context.coordinator.groupedTracks = newGroupedTracks
         context.coordinator.groupSignature = newGroupSignature
         context.coordinator.favoriteStateSignature = newFavoriteStateSignature
@@ -1058,6 +1067,7 @@ public struct MediaTrackList: UIViewRepresentable {
         let coordinator = Coordinator(
             tracks: tracks,
             sections: sections,
+            contentRevision: contentRevision,
             groupedTracks: makeTrackGroups(),
             showArtwork: showArtwork,
             showTrackNumbers: showTrackNumbers,
@@ -1151,6 +1161,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var showAlbumName: Bool
         var currentTrackId: String?
         var sections: [NativeTrackListSection]?
+        var contentRevision: UInt64?
         var onTrackTap: (Track, Int) -> Void
         var onPlayNext: ((Track) -> Void)?
         var onPlayLast: ((Track) -> Void)?
@@ -1196,6 +1207,7 @@ public struct MediaTrackList: UIViewRepresentable {
         fileprivate init(
             tracks: [Track],
             sections: [NativeTrackListSection]?,
+            contentRevision: UInt64?,
             groupedTracks: [MediaTrackGroup],
             showArtwork: Bool,
             showTrackNumbers: Bool,
@@ -1237,6 +1249,7 @@ public struct MediaTrackList: UIViewRepresentable {
         ) {
             self.tracks = tracks
             self.sections = sections
+            self.contentRevision = contentRevision
             self.groupedTracks = groupedTracks
             self.groupSignature = groupedTracks.map(\.signature)
             self.favoriteStateSignature = []

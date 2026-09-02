@@ -22,6 +22,7 @@ public struct SongsView: View {
     @State private var cachedStageFlowAlbums: [SongsStageFlowAlbum] = []
     @State private var cachedNativeTrackSections: [NativeTrackListSection] = []
     @StateObject private var trackSnapshotCache = BrowseSnapshotCache(TrackBrowseSnapshot.empty)
+    @State private var trackContentRevision: UInt64 = 0
     // Targeted observation: only re-evaluate when these specific values change,
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
@@ -135,7 +136,7 @@ public struct SongsView: View {
             availabilityGeneration: $availabilityGeneration
         )
         .onReceive(libraryVM.$trackBrowseSnapshot) { snapshot in
-            trackSnapshotCache.snapshot = snapshot
+            cacheTrackSnapshot(snapshot)
             updateNativeTrackSections(from: snapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: snapshot.tracks)
@@ -146,7 +147,7 @@ public struct SongsView: View {
         }
         .onAppear {
             let snapshot = libraryVM.immediateTrackBrowseSnapshot
-            trackSnapshotCache.snapshot = snapshot
+            cacheTrackSnapshot(snapshot)
             updateNativeTrackSections(from: trackSnapshot.sections)
             guard isStageFlowActive else { return }
             rebuildCachedStageFlowAlbums(from: trackSnapshot.tracks)
@@ -165,6 +166,15 @@ public struct SongsView: View {
         if rebuiltAlbums != cachedStageFlowAlbums {
             cachedStageFlowAlbums = rebuiltAlbums
         }
+    }
+
+    private func cacheTrackSnapshot(_ snapshot: TrackBrowseSnapshot) {
+        let previous = trackSnapshotCache.snapshot
+        if !arraysShareStorage(previous.tracks, snapshot.tracks) ||
+            !arraysShareStorage(previous.sections, snapshot.sections) {
+            trackContentRevision &+= 1
+        }
+        trackSnapshotCache.snapshot = snapshot
     }
 
     private func updateNativeTrackSections(from sections: [LibraryViewModel.TrackSection]) {
@@ -227,6 +237,7 @@ public struct SongsView: View {
                     SongsTrackListHost(
                         sections: largeScreenTrackSections,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        contentRevision: trackContentRevision,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
@@ -244,6 +255,7 @@ public struct SongsView: View {
                     SongsTrackListHost(
                         sections: largeScreenTrackSections,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        contentRevision: trackContentRevision,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
@@ -264,6 +276,7 @@ public struct SongsView: View {
                     SongsTrackListHost(
                         tracks: trackSnapshot.tracks,
                         currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                        contentRevision: trackContentRevision,
                         availabilityGeneration: availabilityGeneration,
                         activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                         bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
@@ -360,6 +373,7 @@ public struct SongsView: View {
         SongsTrackListHost(
             sections: largeScreenTrackSections,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+            contentRevision: trackContentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
@@ -379,6 +393,7 @@ public struct SongsView: View {
         SongsTrackListHost(
             tracks: trackSnapshot.tracks,
             currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+            contentRevision: trackContentRevision,
             availabilityGeneration: availabilityGeneration,
             activeDownloadTrackIdentities: activeDownloadTrackIdentities,
             bottomContentInset: largeScreenSongListBottomInset,
@@ -463,6 +478,7 @@ public struct SongsView: View {
             SongsTrackListHost(
                 tracks: trackSnapshot.tracks,
                 currentTrackId: nowPlayingVM.currentTrack?.playbackIdentity,
+                contentRevision: trackContentRevision,
                 availabilityGeneration: availabilityGeneration,
                 activeDownloadTrackIdentities: activeDownloadTrackIdentities,
                 bottomContentInset: TrackListLayoutMetrics.compactMiniPlayerBottomSpacing,
