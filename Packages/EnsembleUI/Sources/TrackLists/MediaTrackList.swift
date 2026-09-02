@@ -628,6 +628,7 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Used to show loading/empty indicators below the track list while keeping
     /// the header (chips + artwork + buttons) structurally identical across all states.
     let tableFooterContent: AnyView?
+    let onRefresh: (() async -> Void)?
     @Environment(\.dependencies) private var dependencies
     @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
     @Environment(\.scenePhase) private var scenePhase
@@ -650,6 +651,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableHeaderContent: AnyView? = nil,
         tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
+        onRefresh: (() async -> Void)? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
@@ -688,6 +690,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableHeaderContent = tableHeaderContent
         self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
+        self.onRefresh = onRefresh
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.trackSourceLabels = trackSourceLabels
         self.scrollOffset = scrollOffset
@@ -742,6 +745,7 @@ public struct MediaTrackList: UIViewRepresentable {
         tableHeaderContent: AnyView? = nil,
         tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
+        onRefresh: (() async -> Void)? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
@@ -770,6 +774,7 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableHeaderContent = tableHeaderContent
         self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
+        self.onRefresh = onRefresh
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.trackSourceLabels = trackSourceLabels
         self.scrollOffset = scrollOffset
@@ -820,6 +825,16 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.separatorColor = TrackListLayoutMetrics.nativeSeparatorColor
         tableView.backgroundColor = .clear
         tableView.isScrollEnabled = managesOwnScrolling
+
+        if managesOwnScrolling, onRefresh != nil {
+            let refreshControl = UIRefreshControl()
+            refreshControl.addTarget(
+                context.coordinator,
+                action: #selector(Coordinator.refresh(_:)),
+                for: .valueChanged
+            )
+            tableView.refreshControl = refreshControl
+        }
 
         // Self-scrolling tables extend under the nav bar (via .ignoresSafeArea on the
         // SwiftUI side) and use .automatic so UIKit adds the correct top content inset.
@@ -965,6 +980,7 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.tableHeaderContent = tableHeaderContent
         context.coordinator.tableHeaderRevision = tableHeaderRevision
         context.coordinator.tableFooterContent = tableFooterContent
+        context.coordinator.onRefresh = onRefresh
 
         // Reload data immediately after updating groupedTracks to keep UIKit's geometry
         // in sync with the backing data. Previously there was a ~85 line gap between the
@@ -1105,7 +1121,8 @@ public struct MediaTrackList: UIViewRepresentable {
             displayRatingsRevision: displayRatingsRevision,
             tableHeaderContent: tableHeaderContent,
             tableHeaderRevision: tableHeaderRevision,
-            tableFooterContent: tableFooterContent
+            tableFooterContent: tableFooterContent,
+            onRefresh: onRefresh
         )
         return coordinator
     }
@@ -1200,6 +1217,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastDisplayRatingsRevision: UInt64 = 0
         var tableHeaderContent: AnyView?
         var tableHeaderRevision: String?
+        var onRefresh: (() async -> Void)?
         weak var contentScrollViewOwner: UIViewController?
         weak var tableView: UITableView?
         private var artworkRecoveryObserver: NSObjectProtocol?
@@ -1245,7 +1263,8 @@ public struct MediaTrackList: UIViewRepresentable {
             displayRatingsRevision: UInt64,
             tableHeaderContent: AnyView?,
             tableHeaderRevision: String?,
-            tableFooterContent: AnyView?
+            tableFooterContent: AnyView?,
+            onRefresh: (() async -> Void)?
         ) {
             self.tracks = tracks
             self.sections = sections
@@ -1290,6 +1309,7 @@ public struct MediaTrackList: UIViewRepresentable {
             self.tableHeaderContent = tableHeaderContent
             self.tableHeaderRevision = tableHeaderRevision
             self.tableFooterContent = tableFooterContent
+            self.onRefresh = onRefresh
             super.init()
             artworkRecoveryObserver = NotificationCenter.default.addObserver(
                 forName: ArtworkLoader.serversBecameAvailable,
@@ -1315,6 +1335,18 @@ public struct MediaTrackList: UIViewRepresentable {
             }
             guard !indexPaths.isEmpty else { return }
             tableView.reloadRows(at: indexPaths, with: .none)
+        }
+
+        @objc func refresh(_ refreshControl: UIRefreshControl) {
+            guard let onRefresh else {
+                refreshControl.endRefreshing()
+                return
+            }
+
+            Task { @MainActor in
+                await onRefresh()
+                refreshControl.endRefreshing()
+            }
         }
         
         // MARK: - Bounds-Safe Accessor

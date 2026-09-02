@@ -99,9 +99,13 @@ public struct SongsView: View {
     public var body: some View {
         Group {
             if trackSnapshot.phase != .idle && !hasLibraryContent {
-                loadingView
+                loadingView.refreshable {
+                    await refreshLibrary()
+                }
             } else if !hasLibraryContent {
-                emptyView
+                emptyView.refreshable {
+                    await refreshLibrary()
+                }
             } else if isStageFlowActive {
                 landscapeAlbumStageFlowView
             } else {
@@ -116,11 +120,8 @@ public struct SongsView: View {
         .if(!isStageFlowActive) { view in
             view.searchable(text: trackFilterOptions.searchText, prompt: "Filter songs")
         }
-        .refreshable {
-            await libraryVM.refreshFromServer()
-        }
         .refreshCommand {
-            await libraryVM.refreshFromServer()
+            await refreshLibrary()
         }
         .toolbar {
             EnsembleBrowseToolbar(isVisible: hasLibraryContent && !isStageFlowActive) {
@@ -246,7 +247,8 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollOffset: scrollOffset
+                        scrollOffset: scrollOffset,
+                        onRefresh: refreshLibrary
                     ) { track, _ in
                         playAvailableTrack(track)
                     }
@@ -265,7 +267,8 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollOffset: scrollOffset
+                        scrollOffset: scrollOffset,
+                        onRefresh: refreshLibrary
                     ) { track, _ in
                         playTrack(track)
                     }
@@ -284,7 +287,8 @@ public struct SongsView: View {
                         interactionModel: largeScreenTrackInteractionModel,
                         tableHeaderContent: songsTableHeaderContent,
                         tableFooterContent: songsCountFooterContent,
-                        scrollOffset: scrollOffset
+                        scrollOffset: scrollOffset,
+                        onRefresh: refreshLibrary
                     ) { track, index in
                         playAvailableTrack(track, index: index)
                     }
@@ -383,7 +387,8 @@ public struct SongsView: View {
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
-            scrollOffset: scrollOffset
+            scrollOffset: scrollOffset,
+            onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
         }
@@ -402,7 +407,8 @@ public struct SongsView: View {
             interactionModel: largeScreenTrackInteractionModel,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: songsCountFooterContent,
-            scrollOffset: scrollOffset
+            scrollOffset: scrollOffset,
+            onRefresh: refreshLibrary
         ) { track, _ in
             playTrack(track)
         }
@@ -487,7 +493,8 @@ public struct SongsView: View {
                 interactionModel: largeScreenTrackInteractionModel,
                 tableHeaderContent: songsTableHeaderContent,
                 tableFooterContent: songsCountFooterContent,
-                scrollOffset: scrollOffset
+                scrollOffset: scrollOffset,
+                onRefresh: refreshLibrary
             ) { track, _ in
                 playTrack(track)
             }
@@ -496,6 +503,10 @@ public struct SongsView: View {
 
     private func presentPlaylistPicker(with tracks: [Track]) {
         playlistActionRequest = PlaylistActionPresentationHost.request(for: tracks)
+    }
+
+    private func refreshLibrary() async {
+        await libraryVM.refreshFromServer()
     }
 
     private var albumStageFlowView: some View {
