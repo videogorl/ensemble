@@ -1,9 +1,13 @@
 import EnsembleCore
 import SwiftUI
 
+private final class ForegroundScrollActivityState {
+    var isScrolling = false
+    var endTask: Task<Void, Never>?
+}
+
 private struct ForegroundScrollActivityModifier: ViewModifier {
-    @State private var isScrolling = false
-    @State private var endTask: Task<Void, Never>?
+    @State private var state = ForegroundScrollActivityState()
 
     func body(content: Content) -> some View {
         #if os(iOS)
@@ -26,16 +30,16 @@ private struct ForegroundScrollActivityModifier: ViewModifier {
     }
 
     private func beginScrolling() {
-        endTask?.cancel()
-        endTask = nil
-        guard !isScrolling else { return }
-        isScrolling = true
+        state.endTask?.cancel()
+        state.endTask = nil
+        guard !state.isScrolling else { return }
+        state.isScrolling = true
         DependencyContainer.shared.foregroundWorkScheduler.beginInteraction(.scrolling)
     }
 
     private func scheduleScrollingEnd() {
-        endTask?.cancel()
-        endTask = Task { @MainActor in
+        state.endTask?.cancel()
+        state.endTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 900_000_000)
             guard !Task.isCancelled else { return }
             endScrollingImmediately()
@@ -43,10 +47,10 @@ private struct ForegroundScrollActivityModifier: ViewModifier {
     }
 
     private func endScrollingImmediately() {
-        endTask?.cancel()
-        endTask = nil
-        guard isScrolling else { return }
-        isScrolling = false
+        state.endTask?.cancel()
+        state.endTask = nil
+        guard state.isScrolling else { return }
+        state.isScrolling = false
         DependencyContainer.shared.foregroundWorkScheduler.endInteraction(.scrolling)
     }
 }
