@@ -22,7 +22,6 @@ public struct SongsTrackListHost: View {
     private let configuration: NativeTrackListConfiguration
     private let tableHeaderContent: AnyView?
     private let tableFooterContent: AnyView?
-    private let searchTextBinding: Binding<String>?
     private let scrollOffset: Binding<CGFloat>?
     private let onRemoveFromPlaylist: ((Track, Int) -> Void)?
     private let onTrackTap: (Track, Int) -> Void
@@ -39,7 +38,6 @@ public struct SongsTrackListHost: View {
         configuration: NativeTrackListConfiguration,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
         scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
@@ -50,7 +48,6 @@ public struct SongsTrackListHost: View {
         self.configuration = configuration
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
-        self.searchTextBinding = searchTextBinding
         self.scrollOffset = scrollOffset
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
@@ -61,7 +58,6 @@ public struct SongsTrackListHost: View {
         configuration: NativeTrackListConfiguration,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
         scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
@@ -70,7 +66,6 @@ public struct SongsTrackListHost: View {
         self.configuration = configuration
         self.tableHeaderContent = tableHeaderContent
         self.tableFooterContent = tableFooterContent
-        self.searchTextBinding = searchTextBinding
         self.scrollOffset = scrollOffset
         self.onRemoveFromPlaylist = onRemoveFromPlaylist
         self.onTrackTap = onTrackTap
@@ -88,7 +83,6 @@ public struct SongsTrackListHost: View {
         interactionModel: TrackRowInteractionModel,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
         scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
@@ -107,7 +101,6 @@ public struct SongsTrackListHost: View {
             ),
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
-            searchTextBinding: searchTextBinding,
             scrollOffset: scrollOffset,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
@@ -127,7 +120,6 @@ public struct SongsTrackListHost: View {
         interactionModel: TrackRowInteractionModel,
         tableHeaderContent: AnyView? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
         scrollOffset: Binding<CGFloat>? = nil,
         onRemoveFromPlaylist: ((Track, Int) -> Void)? = nil,
         onTrackTap: @escaping (Track, Int) -> Void
@@ -147,7 +139,6 @@ public struct SongsTrackListHost: View {
             ),
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
-            searchTextBinding: searchTextBinding,
             scrollOffset: scrollOffset,
             onRemoveFromPlaylist: onRemoveFromPlaylist,
             onTrackTap: onTrackTap
@@ -191,7 +182,6 @@ public struct SongsTrackListHost: View {
                 rowHeight: configuration.rowHeight,
                 tableHeaderContent: tableHeaderContent,
                 tableFooterContent: tableFooterContent,
-                searchTextBinding: searchTextBinding,
                 interactionModel: configuration.interactionModel,
                 supplementalMetadataWidth: configuration.supplementalMetadataWidth,
                 trackSourceLabels: configuration.trackSourceLabels,
@@ -232,7 +222,6 @@ public struct SongsTrackListHost: View {
             rowHeight: configuration.rowHeight,
             tableHeaderContent: tableHeaderContent,
             tableFooterContent: tableFooterContent,
-            searchTextBinding: searchTextBinding,
             interactionModel: configuration.interactionModel,
             supplementalMetadataWidth: configuration.supplementalMetadataWidth,
             trackSourceLabels: configuration.trackSourceLabels,
@@ -247,47 +236,36 @@ public struct SongsTrackListHost: View {
 
     #if os(macOS)
     private var macTrackList: some View {
-        searchableIfNeeded(
-            MacNativeTrackTableView(
-                sections: sections,
-                showArtwork: configuration.showArtwork,
-                showTrackNumbers: configuration.showTrackNumbers,
-                showAlbumName: configuration.showAlbumName,
-                tableHeaderContent: tableHeaderContent,
-                tableFooterContent: tableFooterContent,
-                currentTrackId: configuration.currentTrackId,
-                selectedTrackId: configuration.selectedTrackId,
-                availabilityGeneration: configuration.availabilityGeneration,
-                activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
-                bottomContentInset: configuration.bottomContentInset,
-                tableHeaderExtraHeight: configuration.tableHeaderExtraHeight,
-                usesDynamicTableHeaderHeight: configuration.usesDynamicTableHeaderHeight,
-                supplementalMetadataWidth: configuration.supplementalMetadataWidth,
-                trackSourceLabels: configuration.trackSourceLabels,
-                rowHeight: configuration.rowHeight,
-                interactionModel: configuration.interactionModel,
-                onRemoveFromPlaylist: onRemoveFromPlaylist,
-                sectionScrollRequest: sectionScrollRequest,
-                onTrackTap: onTrackTap
-            )
-            .libraryScrollIndexOverlay(.centered) {
-                sectionIndex { sectionID in
-                    sectionScrollRequestID += 1
-                    sectionScrollRequest = TrackSectionScrollRequest(
-                        id: sectionScrollRequestID,
-                        sectionID: sectionID
-                    )
-                }
-            }
+        MacNativeTrackTableView(
+            sections: sections,
+            showArtwork: configuration.showArtwork,
+            showTrackNumbers: configuration.showTrackNumbers,
+            showAlbumName: configuration.showAlbumName,
+            tableHeaderContent: tableHeaderContent,
+            tableFooterContent: tableFooterContent,
+            currentTrackId: configuration.currentTrackId,
+            selectedTrackId: configuration.selectedTrackId,
+            availabilityGeneration: configuration.availabilityGeneration,
+            activeDownloadTrackIdentities: configuration.activeDownloadTrackIdentities,
+            bottomContentInset: configuration.bottomContentInset,
+            tableHeaderExtraHeight: configuration.tableHeaderExtraHeight,
+            usesDynamicTableHeaderHeight: configuration.usesDynamicTableHeaderHeight,
+            supplementalMetadataWidth: configuration.supplementalMetadataWidth,
+            trackSourceLabels: configuration.trackSourceLabels,
+            rowHeight: configuration.rowHeight,
+            interactionModel: configuration.interactionModel,
+            onRemoveFromPlaylist: onRemoveFromPlaylist,
+            sectionScrollRequest: sectionScrollRequest,
+            onTrackTap: onTrackTap
         )
-    }
-
-    @ViewBuilder
-    private func searchableIfNeeded<Content: View>(_ content: Content) -> some View {
-        if let searchTextBinding {
-            content.searchable(text: searchTextBinding)
-        } else {
-            content
+        .libraryScrollIndexOverlay(.centered) {
+            sectionIndex { sectionID in
+                sectionScrollRequestID += 1
+                sectionScrollRequest = TrackSectionScrollRequest(
+                    id: sectionScrollRequestID,
+                    sectionID: sectionID
+                )
+            }
         }
     }
     #endif

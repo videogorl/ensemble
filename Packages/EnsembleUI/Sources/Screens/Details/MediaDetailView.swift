@@ -361,7 +361,7 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
     }
 
     public var body: some View {
-        baseContent
+        searchableContent
         .toolbar {
             EnsembleDetailToolbarActions {
                 if shouldShowStandaloneFilterButton {
@@ -438,6 +438,18 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
             currentTrackId: $currentTrackId,
             lastPlaylistTargetId: $nvmLastPlaylistTargetId
         )
+    }
+
+    @ViewBuilder
+    private var searchableContent: some View {
+        if showFilter {
+            baseContent.searchable(
+                text: $viewModel.filterOptions.searchText,
+                prompt: "Search tracks"
+            )
+        } else {
+            baseContent
+        }
     }
 
     /// Whether the radio button should be shown.
@@ -1574,7 +1586,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
-            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             interactionModel: trackInteractionModel,
             supplementalMetadataWidth: trackListSupplementalMetadataWidth,
             trackSourceLabels: headerData.trackSourceLabels,
@@ -1610,7 +1621,6 @@ public struct MediaDetailView<ViewModel: MediaDetailViewModelProtocol>: View {
                 emptyStateFooter
                 if let additionalFooterContent { additionalFooterContent }
             }),
-            searchTextBinding: showFilter ? $viewModel.filterOptions.searchText : nil,
             onRemoveFromPlaylist: playlistTrackRemovalHandler.map { handler in
                 { track, _ in
                     let displayIndex = viewModel.filteredTracks.firstIndex { $0.playbackIdentity == track.playbackIdentity } ?? 0

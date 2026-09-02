@@ -617,11 +617,6 @@ public struct MediaTrackList: UIViewRepresentable {
     /// Used to show loading/empty indicators below the track list while keeping
     /// the header (chips + artwork + buttons) structurally identical across all states.
     let tableFooterContent: AnyView?
-    /// When provided, a UISearchController is attached to the navigation bar —
-    /// hidden by default, revealed on pull-down like Apple Music / Settings.
-    /// The binding syncs the search text back to the parent view model.
-    let searchTextBinding: Binding<String>?
-
     @Environment(\.dependencies) private var dependencies
     @Environment(\.trackListDisplayRatingsRevision) private var displayRatingsRevision
     @Environment(\.scenePhase) private var scenePhase
@@ -643,7 +638,6 @@ public struct MediaTrackList: UIViewRepresentable {
         tableHeaderContent: AnyView? = nil,
         tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
@@ -681,7 +675,6 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableHeaderContent = tableHeaderContent
         self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
-        self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.trackSourceLabels = trackSourceLabels
         self.scrollOffset = scrollOffset
@@ -735,7 +728,6 @@ public struct MediaTrackList: UIViewRepresentable {
         tableHeaderContent: AnyView? = nil,
         tableHeaderRevision: String? = nil,
         tableFooterContent: AnyView? = nil,
-        searchTextBinding: Binding<String>? = nil,
         interactionModel: TrackRowInteractionModel? = nil,
         supplementalMetadataWidth: CGFloat? = nil,
         trackSourceLabels: [String: String] = [:],
@@ -763,7 +755,6 @@ public struct MediaTrackList: UIViewRepresentable {
         self.tableHeaderContent = tableHeaderContent
         self.tableHeaderRevision = tableHeaderRevision
         self.tableFooterContent = tableFooterContent
-        self.searchTextBinding = searchTextBinding
         self.supplementalMetadataWidth = supplementalMetadataWidth
         self.trackSourceLabels = trackSourceLabels
         self.scrollOffset = scrollOffset
@@ -847,14 +838,6 @@ public struct MediaTrackList: UIViewRepresentable {
         tableView.dragInteractionEnabled = true
         context.coordinator.tableView = tableView
 
-        // When a search binding is provided, set up a UISearchController once the
-        // table is in the view hierarchy. Uses didMoveToWindow to find the hosting
-        // UIViewController and attach the search controller to its navigation item.
-        if let searchTextBinding {
-            context.coordinator.pendingSearchBinding = searchTextBinding
-            context.coordinator.pendingTableView = tableView
-        }
-
         return tableView
     }
     
@@ -862,11 +845,10 @@ public struct MediaTrackList: UIViewRepresentable {
         context.coordinator.scrollOffset = scrollOffset
         context.coordinator.isSceneActive = scenePhase == .active
 
-        // Attach UISearchController once the table is in a window.
-        // Must happen after the view is in the hierarchy so we can find the
-        // hosting UIViewController and its navigation controller.
-        if context.coordinator.pendingSearchBinding != nil && tableView.window != nil {
-            context.coordinator.attachSearchController()
+        if managesOwnScrolling,
+           context.coordinator.contentScrollViewOwner == nil,
+           tableView.window != nil {
+            context.coordinator.registerContentScrollView(tableView)
         }
 
         // Re-apply content insets if they were cleared. This can happen when
@@ -1041,6 +1023,10 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
     }
+
+    public static func dismantleUIView(_ tableView: UITableView, coordinator: Coordinator) {
+        coordinator.unregisterContentScrollView(tableView)
+    }
     
     public func makeCoordinator() -> Coordinator {
         let coordinator = Coordinator(
@@ -1127,7 +1113,7 @@ public struct MediaTrackList: UIViewRepresentable {
         }
     }
     
-    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate, UISearchResultsUpdating {
+    public class Coordinator: NSObject, UITableViewDelegate, UITableViewDataSource, UITableViewDragDelegate {
         var tracks: [Track]
         fileprivate var groupedTracks: [MediaTrackGroup]
         var groupSignature: [String]
@@ -1173,16 +1159,8 @@ public struct MediaTrackList: UIViewRepresentable {
         var lastDisplayRatingsRevision: UInt64 = 0
         var tableHeaderContent: AnyView?
         var tableHeaderRevision: String?
-        /// Pending search binding — set before the table is in a window, consumed
-        /// once the UISearchController is attached to the navigation item.
-        var pendingSearchBinding: Binding<String>?
-        /// Reference to the table view for setContentScrollView
-        weak var pendingTableView: UITableView?
+        weak var contentScrollViewOwner: UIViewController?
         weak var tableView: UITableView?
-        /// Retains the search controller so it isn't deallocated
-        private var searchController: UISearchController?
-        /// Active search binding for UISearchResultsUpdating
-        private var activeSearchBinding: Binding<String>?
         private var artworkRecoveryObserver: NSObjectProtocol?
 
         fileprivate init(
@@ -1642,46 +1620,26 @@ public struct MediaTrackList: UIViewRepresentable {
             }
         }
 
-        // MARK: - Search Controller
+        // MARK: - Navigation Content Scroll View
 
-        /// Finds the hosting UIViewController and attaches a UISearchController to its
-        /// navigation item. Uses setContentScrollView so the navigation controller
-        /// knows which scroll view to observe for hide-on-scroll behavior.
-        func attachSearchController() {
-            guard let binding = pendingSearchBinding,
-                  let tableView = pendingTableView else { return }
-
-            // Walk up the responder chain to find the hosting UIViewController
+        func registerContentScrollView(_ tableView: UITableView) {
             var responder: UIResponder? = tableView
             while let next = responder?.next {
                 if let vc = next as? UIViewController, vc.navigationController != nil {
-                    let sc = UISearchController(searchResultsController: nil)
-                    sc.searchResultsUpdater = self
-                    sc.obscuresBackgroundDuringPresentation = false
-                    sc.searchBar.placeholder = "Search tracks"
-                    sc.searchBar.text = binding.wrappedValue
-
-                    vc.navigationItem.searchController = sc
-                    vc.navigationItem.hidesSearchBarWhenScrolling = true
-                    vc.definesPresentationContext = true
-
-                    // Tell UIKit which scroll view to observe for hide-on-scroll.
-                    // Without this, the navigation controller can't detect scrolling
-                    // from a UIViewRepresentable's table view.
                     vc.setContentScrollView(tableView, for: .top)
-
-                    searchController = sc
-                    activeSearchBinding = binding
-                    pendingSearchBinding = nil
-                    pendingTableView = nil
+                    contentScrollViewOwner = vc
                     return
                 }
                 responder = next
             }
         }
 
-        public func updateSearchResults(for searchController: UISearchController) {
-            activeSearchBinding?.wrappedValue = searchController.searchBar.text ?? ""
+        func unregisterContentScrollView(_ tableView: UITableView) {
+            guard let contentScrollViewOwner else { return }
+            if contentScrollViewOwner.contentScrollView(for: .top) === tableView {
+                contentScrollViewOwner.setContentScrollView(nil, for: .top)
+            }
+            self.contentScrollViewOwner = nil
         }
     }
 }
