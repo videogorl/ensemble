@@ -1,17 +1,19 @@
 import SwiftUI
 
 enum SceneScrollRestorationID: String {
-    case feed = "HomeView.scrollOffset"
-    case artists = "ArtistsView.scrollOffset"
-    case albums = "AlbumsView.scrollOffset"
-    case playlists = "PlaylistsView.scrollOffset"
-    case genres = "GenresView.scrollOffset"
-    case searchExplore = "SearchView.exploreScrollOffset"
-    case searchResults = "SearchView.resultsScrollOffset"
-    case songs = "SongsView.scrollOffset"
+    case feed
+    case artists
+    case albums
+    case playlists
+    case genres
+    case searchExplore
+    case searchResults
 }
 
 enum SceneScrollRestoration {
+    @MainActor static var offsets: [SceneScrollRestorationID: Double] = [:]
+    @MainActor static var songsPosition: (trackID: String, offset: CGFloat)?
+
     static func clampedOffset(_ requestedOffset: CGFloat, maximumOffset: CGFloat) -> CGFloat {
         min(max(requestedOffset, 0), max(maximumOffset, 0))
     }
@@ -29,14 +31,19 @@ private final class SceneScrollOffsetCache {
 @available(iOS 18.0, macOS 15.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 private struct SceneScrollRestorationModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
-    @SceneStorage private var storedScrollOffset: Double
     @State private var scrollPosition = ScrollPosition()
     @State private var isRestoring = true
     @State private var liveOffset = SceneScrollOffsetCache()
+    let id: SceneScrollRestorationID
     let restoresNativeScrollView: Bool
 
+    private var storedScrollOffset: Double {
+        get { SceneScrollRestoration.offsets[id, default: 0] }
+        nonmutating set { SceneScrollRestoration.offsets[id] = newValue }
+    }
+
     init(id: SceneScrollRestorationID, restoresNativeScrollView: Bool = false) {
-        _storedScrollOffset = SceneStorage(wrappedValue: 0, id.rawValue)
+        self.id = id
         self.restoresNativeScrollView = restoresNativeScrollView
     }
 

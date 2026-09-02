@@ -27,20 +27,10 @@ public struct SongsView: View {
     // not when any of offlineDownloadService's 5+ @Published props update
     @State private var activeDownloadTrackIdentities: Set<String> = DependencyContainer.shared.offlineDownloadService.activeDownloadTrackIdentities
     @State private var availabilityGeneration: UInt64 = DependencyContainer.shared.trackAvailabilityResolver.availabilityGeneration
-    @SceneStorage("SongsView.scrollTrackID") private var storedScrollTrackID = ""
-    @SceneStorage("SongsView.scrollTrackOffset") private var storedScrollTrackOffset = 0.0
-
     private var scrollPosition: Binding<(trackID: String, offset: CGFloat)?> {
         Binding(
-            get: {
-                storedScrollTrackID.isEmpty
-                    ? nil
-                    : (storedScrollTrackID, CGFloat(storedScrollTrackOffset))
-            },
-            set: { position in
-                storedScrollTrackID = position?.trackID ?? ""
-                storedScrollTrackOffset = Double(position?.offset ?? 0)
-            }
+            get: { SceneScrollRestoration.songsPosition },
+            set: { SceneScrollRestoration.songsPosition = $0 }
         )
     }
 
