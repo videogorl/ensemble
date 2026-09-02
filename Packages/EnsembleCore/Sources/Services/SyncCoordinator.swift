@@ -1701,12 +1701,12 @@ public final class SyncCoordinator: ObservableObject {
         sourceCompositeKey: String,
         rating: Int?
     ) async throws {
-        let provider = try providerResolver.requireCapability(
+        let match = try providerResolver.requireCapabilityMatchingSourceScope(
             sourceKey: sourceCompositeKey,
             name: "collection ratings",
             as: MusicSourceCollectionRatingMutating.self
         )
-        try await provider.rateCollection(ratingKey: ratingKey, rating: rating)
+        try await match.capability.rateCollection(ratingKey: ratingKey, rating: rating)
     }
 
     /// Report playback timeline to Plex server

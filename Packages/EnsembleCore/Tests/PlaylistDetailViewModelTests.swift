@@ -176,7 +176,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         func countPendingMutations() async throws -> Int { pending.count }
     }
 
-    private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating {
+    private actor RecordingPlaylistProvider: MusicSourceSyncProvider, MusicSourcePlaylistMutating, MusicSourceCollectionRatingMutating {
         enum Event: Equatable {
             case create(title: String, trackIDs: [String])
             case add(playlistID: String, trackIDs: [String])
@@ -184,6 +184,7 @@ final class PlaylistDetailViewModelTests: XCTestCase {
             case delete(playlistID: String)
             case replace(playlistID: String, trackIDs: [String])
             case edit(playlistID: String, originalItemIDs: [String?], editedItemIDs: [String?])
+            case rateCollection(ratingKey: String, rating: Int?)
         }
 
         nonisolated let sourceIdentifier: MusicSourceIdentifier
@@ -268,6 +269,10 @@ final class PlaylistDetailViewModelTests: XCTestCase {
                 originalItemIDs: originalItems.map(\.playlistItemID),
                 editedItemIDs: editedItems.map(\.playlistItemID)
             ))
+        }
+
+        func rateCollection(ratingKey: String, rating: Int?) async throws {
+            events.append(.rateCollection(ratingKey: ratingKey, rating: rating))
         }
     }
 
@@ -1920,6 +1925,20 @@ final class PlaylistDetailViewModelTests: XCTestCase {
         XCTAssertEqual(invocation?.track.id, "library-song")
         XCTAssertEqual(invocation?.track.appleMusicCatalogID, "catalog-song")
         XCTAssertEqual(invocation?.rating, 10)
+    }
+
+    func testCollectionRatingResolvesServerScopedPlaylistToLibraryProvider() async throws {
+        let provider = makeRecordingPlaylistProvider()
+        let syncCoordinator = makeSyncCoordinator(providers: [provider])
+
+        try await syncCoordinator.rateCollection(
+            ratingKey: "playlist-1",
+            sourceCompositeKey: "plex:account-1:server-1",
+            rating: 10
+        )
+
+        let events = await provider.eventsSnapshot()
+        XCTAssertEqual(events, [.rateCollection(ratingKey: "playlist-1", rating: 10)])
     }
 
     func testQueuedRatingMutationCapabilityIsProviderSpecific() {
