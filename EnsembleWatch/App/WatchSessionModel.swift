@@ -141,6 +141,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
         queueRevision: Int? = nil,
         tracks: [WatchCompanionTrackPayload]? = nil,
         booleanValue: Bool? = nil,
+        repeatMode: WatchCompanionRepeatMode? = nil,
         targetID: String? = nil,
         targetSourceKey: String? = nil,
         targetTitle: String? = nil,
@@ -174,6 +175,7 @@ final class WatchSessionModel: NSObject, ObservableObject {
             queueRevision: queueRevision,
             tracks: tracks,
             booleanValue: booleanValue,
+            repeatMode: repeatMode,
             targetID: targetID,
             targetSourceKey: targetSourceKey,
             targetTitle: targetTitle
@@ -359,6 +361,26 @@ final class WatchSessionModel: NSObject, ObservableObject {
         addSystemRemoteTarget(to: commandCenter.togglePlayPauseCommand, kind: .togglePlayPause)
         addSystemRemoteTarget(to: commandCenter.nextTrackCommand, kind: .next)
         addSystemRemoteTarget(to: commandCenter.previousTrackCommand, kind: .previous)
+
+        let shuffleTarget = commandCenter.changeShuffleModeCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
+            let isEnabled = event.shuffleType == .items || event.shuffleType == .collections
+            Task { @MainActor in
+                self?.send(.toggleShuffle, booleanValue: isEnabled)
+            }
+            return .success
+        }
+        remoteCommandTargets.append((commandCenter.changeShuffleModeCommand, shuffleTarget))
+
+        let repeatTarget = commandCenter.changeRepeatModeCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            let mode = Self.repeatMode(for: event.repeatType)
+            Task { @MainActor in
+                self?.send(.cycleRepeatMode, repeatMode: mode)
+            }
+            return .success
+        }
+        remoteCommandTargets.append((commandCenter.changeRepeatModeCommand, repeatTarget))
     }
 
     private func addSystemRemoteTarget(
@@ -387,6 +409,8 @@ final class WatchSessionModel: NSObject, ObservableObject {
         guard let snapshot, let track = snapshot.currentTrack else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             MPNowPlayingInfoCenter.default().playbackState = .stopped
+            MPRemoteCommandCenter.shared().changeShuffleModeCommand.isEnabled = false
+            MPRemoteCommandCenter.shared().changeRepeatModeCommand.isEnabled = false
             return
         }
 
@@ -415,6 +439,27 @@ final class WatchSessionModel: NSObject, ObservableObject {
         commandCenter.togglePlayPauseCommand.isEnabled = true
         commandCenter.nextTrackCommand.isEnabled = snapshot.currentQueueIndex < snapshot.queueCount - 1
         commandCenter.previousTrackCommand.isEnabled = true
+        commandCenter.changeShuffleModeCommand.isEnabled = true
+        commandCenter.changeRepeatModeCommand.isEnabled = true
+        commandCenter.changeShuffleModeCommand.currentShuffleType = snapshot.isShuffleEnabled ? .items : .off
+        commandCenter.changeRepeatModeCommand.currentRepeatType = Self.repeatType(for: snapshot.repeatMode)
+    }
+
+    nonisolated private static func repeatMode(for type: MPRepeatType) -> WatchCompanionRepeatMode {
+        switch type {
+        case .all: .all
+        case .one: .one
+        case .off: .off
+        @unknown default: .off
+        }
+    }
+
+    nonisolated private static func repeatType(for mode: WatchCompanionRepeatMode) -> MPRepeatType {
+        switch mode {
+        case .all: .all
+        case .one: .one
+        case .off: .off
+        }
     }
 
     private func systemArtwork(for data: Data?) -> MPMediaItemArtwork? {

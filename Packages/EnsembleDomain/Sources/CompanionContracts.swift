@@ -187,11 +187,12 @@ public struct EnsembleCompanionCommand: Codable, Sendable {
     public let queueRevision: Int?
     public let tracks: [EnsembleCompanionTrackPayload]?
     public let booleanValue: Bool?
+    public let repeatMode: EnsembleCompanionRepeatMode?
     public let targetID: String?
     public let targetSourceKey: String?
     public let targetTitle: String?
 
-    public init(id: UUID = UUID(), kind: EnsembleCompanionCommandKind, time: TimeInterval? = nil, itemID: String? = nil, itemSourceKey: String? = nil, itemPlaylistItemID: String? = nil, queueRevision: Int? = nil, tracks: [EnsembleCompanionTrackPayload]? = nil, booleanValue: Bool? = nil, targetID: String? = nil, targetSourceKey: String? = nil, targetTitle: String? = nil) {
+    public init(id: UUID = UUID(), kind: EnsembleCompanionCommandKind, time: TimeInterval? = nil, itemID: String? = nil, itemSourceKey: String? = nil, itemPlaylistItemID: String? = nil, queueRevision: Int? = nil, tracks: [EnsembleCompanionTrackPayload]? = nil, booleanValue: Bool? = nil, repeatMode: EnsembleCompanionRepeatMode? = nil, targetID: String? = nil, targetSourceKey: String? = nil, targetTitle: String? = nil) {
         self.id = id
         self.kind = kind
         self.time = time
@@ -201,6 +202,7 @@ public struct EnsembleCompanionCommand: Codable, Sendable {
         self.queueRevision = queueRevision
         self.tracks = tracks
         self.booleanValue = booleanValue
+        self.repeatMode = repeatMode
         self.targetID = targetID
         self.targetSourceKey = targetSourceKey
         self.targetTitle = targetTitle

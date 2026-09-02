@@ -432,6 +432,20 @@ final class EnsembleWatchCoreTests: XCTestCase {
         XCTAssertEqual(playedTrackIDs.count, tracks.count)
     }
 
+    func testWatchPlaybackQueueSetsSystemModesIdempotently() {
+        var queue = WatchPlaybackQueue()
+        _ = queue.replace(with: (1...4).map { makeTrack(id: "track-\($0)") })
+
+        XCTAssertTrue(queue.setShuffleEnabled(true))
+        let shuffledIDs = queue.tracks.map(\.id)
+        XCTAssertFalse(queue.setShuffleEnabled(true))
+        XCTAssertEqual(queue.tracks.map(\.id), shuffledIDs)
+
+        XCTAssertTrue(queue.setRepeatMode(.one))
+        XCTAssertFalse(queue.setRepeatMode(.one))
+        XCTAssertEqual(queue.repeatMode, .one)
+    }
+
     func testWatchShuffleKeepsSelectedAutoplayCurrentExactlyOnce() {
         var queue = WatchPlaybackQueue()
         _ = queue.replace(with: [makeTrack(id: "manual")])

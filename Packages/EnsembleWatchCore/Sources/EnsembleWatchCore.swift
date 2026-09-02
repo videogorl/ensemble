@@ -510,12 +510,26 @@ struct WatchPlaybackQueue {
         syncTracks()
     }
 
+    @discardableResult
+    mutating func setShuffleEnabled(_ enabled: Bool) -> Bool {
+        guard isShuffleEnabled != enabled else { return false }
+        toggleShuffle()
+        return true
+    }
+
     mutating func cycleRepeatMode() {
         let nextRawValue = EnsembleQueuePolicy.nextRepeatRawValue(
             current: repeatMode.rawValue,
             caseCount: WatchQueueRepeatMode.allCases.count
         )
         repeatMode = WatchQueueRepeatMode(rawValue: nextRawValue) ?? .off
+    }
+
+    @discardableResult
+    mutating func setRepeatMode(_ mode: WatchQueueRepeatMode) -> Bool {
+        guard repeatMode != mode else { return false }
+        repeatMode = mode
+        return true
     }
 
     mutating func toggleAutoplay() {
@@ -662,6 +676,8 @@ public final class WatchPlaybackController: ObservableObject {
     private var nowPlayingArtwork: MPMediaItemArtwork?
     private var queueIndex: Int?
     private var queueCount = 0
+    private var isShuffleEnabled = false
+    private var repeatMode: WatchQueueRepeatMode = .off
     #if os(watchOS)
     private var audioSessionCancellables = Set<AnyCancellable>()
     private var remoteCommandTargets: [(MPRemoteCommand, Any)] = []
@@ -672,6 +688,8 @@ public final class WatchPlaybackController: ObservableObject {
     var playNextHandler: (() -> Void)?
     var playPreviousHandler: (() -> Void)?
     var resumeHandler: (() -> Void)?
+    var setShuffleEnabledHandler: ((Bool) -> Void)?
+    var setRepeatModeHandler: ((WatchQueueRepeatMode) -> Void)?
 
     public init() {
         #if os(watchOS)
@@ -823,6 +841,9 @@ public final class WatchPlaybackController: ObservableObject {
         currentTime = 0
         errorMessage = nil
         status = .idle
+        #if os(watchOS)
+        updateRemoteCommandAvailability()
+        #endif
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
 
@@ -840,6 +861,12 @@ public final class WatchPlaybackController: ObservableObject {
     func updateQueue(index: Int?, count: Int) {
         queueIndex = index
         queueCount = count
+        updateNowPlayingInfo()
+    }
+
+    func updatePlaybackModes(isShuffleEnabled: Bool, repeatMode: WatchQueueRepeatMode) {
+        self.isShuffleEnabled = isShuffleEnabled
+        self.repeatMode = repeatMode
         updateNowPlayingInfo()
     }
 
@@ -1035,6 +1062,21 @@ public final class WatchPlaybackController: ObservableObject {
         addTarget(to: commandCenter.togglePlayPauseCommand) { [weak self] in self?.togglePlayPause() }
         addTarget(to: commandCenter.nextTrackCommand) { [weak self] in self?.playNextHandler?() }
         addTarget(to: commandCenter.previousTrackCommand) { [weak self] in self?.playPreviousHandler?() }
+        let shuffleTarget = commandCenter.changeShuffleModeCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangeShuffleModeCommandEvent else { return .commandFailed }
+            let isEnabled = Self.isShuffleEnabled(for: event.shuffleType)
+            Task { @MainActor in self?.setShuffleEnabledHandler?(isEnabled) }
+            return .success
+        }
+        remoteCommandTargets.append((commandCenter.changeShuffleModeCommand, shuffleTarget))
+
+        let repeatTarget = commandCenter.changeRepeatModeCommand.addTarget { [weak self] event in
+            guard let event = event as? MPChangeRepeatModeCommandEvent else { return .commandFailed }
+            let mode = Self.repeatMode(for: event.repeatType)
+            Task { @MainActor in self?.setRepeatModeHandler?(mode) }
+            return .success
+        }
+        remoteCommandTargets.append((commandCenter.changeRepeatModeCommand, repeatTarget))
         updateRemoteCommandAvailability()
     }
 
@@ -1052,6 +1094,10 @@ public final class WatchPlaybackController: ObservableObject {
         commandCenter.togglePlayPauseCommand.isEnabled = currentTrack != nil
         commandCenter.nextTrackCommand.isEnabled = queueIndex.map { $0 + 1 < queueCount } == true
         commandCenter.previousTrackCommand.isEnabled = currentTrack != nil
+        commandCenter.changeShuffleModeCommand.isEnabled = currentTrack != nil
+        commandCenter.changeRepeatModeCommand.isEnabled = currentTrack != nil
+        commandCenter.changeShuffleModeCommand.currentShuffleType = isShuffleEnabled ? .items : .off
+        commandCenter.changeRepeatModeCommand.currentRepeatType = Self.repeatType(for: repeatMode)
     }
 
     private func addTarget(to command: MPRemoteCommand, action: @escaping @MainActor () -> Void) {
@@ -1060,6 +1106,27 @@ public final class WatchPlaybackController: ObservableObject {
             return .success
         }
         remoteCommandTargets.append((command, target))
+    }
+
+    nonisolated static func isShuffleEnabled(for type: MPShuffleType) -> Bool {
+        type == .items || type == .collections
+    }
+
+    nonisolated static func repeatMode(for type: MPRepeatType) -> WatchQueueRepeatMode {
+        switch type {
+        case .all: .all
+        case .one: .one
+        case .off: .off
+        @unknown default: .off
+        }
+    }
+
+    nonisolated static func repeatType(for mode: WatchQueueRepeatMode) -> MPRepeatType {
+        switch mode {
+        case .all: .all
+        case .one: .one
+        case .off: .off
+        }
     }
 
     private func observeAudioSession() {
@@ -1234,6 +1301,16 @@ public final class WatchExperienceModel: ObservableObject {
         playback.resumeHandler = { [weak self] in
             self?.resumeCurrentPlayback()
         }
+        playback.setShuffleEnabledHandler = { [weak self] isEnabled in
+            self?.setShuffleEnabled(isEnabled)
+        }
+        playback.setRepeatModeHandler = { [weak self] mode in
+            self?.setRepeatMode(mode)
+        }
+        playback.updatePlaybackModes(
+            isShuffleEnabled: playbackQueue.isShuffleEnabled,
+            repeatMode: playbackQueue.repeatMode
+        )
         if let restoredTrack = playbackQueue.currentTrack {
             playback.restore(track: restoredTrack, time: playbackQueue.currentTime)
         }
@@ -1617,15 +1694,30 @@ public final class WatchExperienceModel: ObservableObject {
     }
 
     public func toggleShuffle() {
-        playbackQueue.toggleShuffle()
+        setShuffleEnabled(!playbackQueue.isShuffleEnabled)
+    }
+
+    public func setShuffleEnabled(_ isEnabled: Bool) {
+        guard playbackQueue.setShuffleEnabled(isEnabled) else { return }
         markQueueChanged()
         playback.updateQueue(index: playbackQueue.currentIndex, count: playbackQueue.items.count)
+        playback.updatePlaybackModes(isShuffleEnabled: isEnabled, repeatMode: playbackQueue.repeatMode)
         preloadNextTrack()
     }
 
     public func cycleRepeatMode() {
         playbackQueue.cycleRepeatMode()
         markQueueChanged()
+        playback.updatePlaybackModes(
+            isShuffleEnabled: playbackQueue.isShuffleEnabled,
+            repeatMode: playbackQueue.repeatMode
+        )
+    }
+
+    public func setRepeatMode(_ mode: WatchQueueRepeatMode) {
+        guard playbackQueue.setRepeatMode(mode) else { return }
+        markQueueChanged()
+        playback.updatePlaybackModes(isShuffleEnabled: playbackQueue.isShuffleEnabled, repeatMode: mode)
     }
 
     public func toggleAutoplay() {

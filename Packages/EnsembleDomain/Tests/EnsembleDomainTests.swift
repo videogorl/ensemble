@@ -226,6 +226,8 @@ final class EnsembleDomainTests: XCTestCase {
 
         let command = EnsembleCompanionCommand(
             kind: .createPlaylist,
+            booleanValue: true,
+            repeatMode: .one,
             targetSourceKey: "plex:a:s",
             targetTitle: "Watch Mix"
         )
@@ -235,5 +237,7 @@ final class EnsembleDomainTests: XCTestCase {
         )
         XCTAssertEqual(decoded.targetTitle, "Watch Mix")
         XCTAssertEqual(decoded.targetSourceKey, "plex:a:s")
+        XCTAssertEqual(decoded.booleanValue, true)
+        XCTAssertEqual(decoded.repeatMode, .one)
     }
 }

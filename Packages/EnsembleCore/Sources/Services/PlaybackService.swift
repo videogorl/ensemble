@@ -4296,7 +4296,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         setRepeatMode(RepeatMode(rawValue: nextRawValue) ?? .off)
     }
 
-    private func setShuffleEnabled(_ enabled: Bool) {
+    public func setShuffleEnabled(_ enabled: Bool) {
         guard isShuffleEnabled != enabled else {
             updateNowPlayingInfo()
             return
@@ -4305,7 +4305,7 @@ public final class PlaybackService: NSObject, PlaybackServiceProtocol {
         toggleShuffle()
     }
 
-    private func setRepeatMode(_ mode: RepeatMode) {
+    public func setRepeatMode(_ mode: RepeatMode) {
         repeatMode = mode
         UserDefaults.standard.set(repeatMode.rawValue, forKey: PlaybackPreferenceKey.repeatMode)
         #if os(iOS)

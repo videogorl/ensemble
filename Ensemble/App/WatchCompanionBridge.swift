@@ -347,10 +347,19 @@ final class WatchCompanionBridge: NSObject, WCSessionDelegate {
             }
 
         case .toggleShuffle:
-            playbackService.toggleShuffle()
+            if let isEnabled = command.booleanValue {
+                playbackService.setShuffleEnabled(isEnabled)
+            } else {
+                playbackService.toggleShuffle()
+            }
 
         case .cycleRepeatMode:
-            playbackService.cycleRepeatMode()
+            if let repeatMode = command.repeatMode,
+               let mode = RepeatMode(rawValue: repeatMode.rawValue) {
+                playbackService.setRepeatMode(mode)
+            } else {
+                playbackService.cycleRepeatMode()
+            }
 
         case .requestQueue:
             break
