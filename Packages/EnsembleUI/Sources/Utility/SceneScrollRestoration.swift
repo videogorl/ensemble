@@ -22,12 +22,17 @@ private struct SceneScrollMetrics: Equatable {
     let maximumOffset: CGFloat
 }
 
+private final class SceneScrollOffsetCache {
+    var value: CGFloat = 0
+}
+
 @available(iOS 18.0, macOS 15.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 private struct SceneScrollRestorationModifier: ViewModifier {
     @Environment(\.scenePhase) private var scenePhase
     @SceneStorage private var storedScrollOffset: Double
     @State private var scrollPosition = ScrollPosition()
     @State private var isRestoring = true
+    @State private var liveOffset = SceneScrollOffsetCache()
     let restoresNativeScrollView: Bool
 
     init(id: SceneScrollRestorationID, restoresNativeScrollView: Bool = false) {
@@ -48,6 +53,7 @@ private struct SceneScrollRestorationModifier: ViewModifier {
                     )
                 )
             } action: { _, metrics in
+                liveOffset.value = metrics.offset
                 if isRestoring {
                     let requestedOffset = CGFloat(storedScrollOffset)
                     guard requestedOffset == 0 || metrics.maximumOffset > 0 else { return }
@@ -62,8 +68,16 @@ private struct SceneScrollRestorationModifier: ViewModifier {
                     }
                     return
                 }
-                guard scenePhase == .active else { return }
-                storedScrollOffset = Double(metrics.offset)
+            }
+            .onScrollPhaseChange { _, phase, context in
+                guard !isRestoring, phase == .idle, scenePhase == .active else { return }
+                storedScrollOffset = Double(
+                    context.geometry.contentOffset.y + context.geometry.contentInsets.top
+                )
+            }
+            .onChange(of: scenePhase) { phase in
+                guard !isRestoring, phase != .active else { return }
+                storedScrollOffset = Double(liveOffset.value)
             }
             .overlay {
                 #if os(iOS)

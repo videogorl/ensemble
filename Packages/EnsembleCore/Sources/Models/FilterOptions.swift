@@ -5,10 +5,13 @@ public typealias SortDirection = EnsembleDomain.SortDirection
 
 public enum FavoriteFilter: String, Codable, Sendable {
     case favorites
-    case unfavorited
+    case disliked = "unfavorited"
 
-    func includes(_ isFavorite: Bool) -> Bool {
-        isFavorite == (self == .favorites)
+    func includes(rating: Int, isFavorite: Bool? = nil) -> Bool {
+        switch self {
+        case .favorites: return isFavorite ?? (rating >= 8)
+        case .disliked: return !(isFavorite ?? (rating >= 8)) && rating > 0
+        }
     }
 }
 

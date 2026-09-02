@@ -138,25 +138,28 @@ final class MediaFilterEngineTests: XCTestCase {
 
         let tracks = [
             makeTrack(id: "favorite", rating: 10),
-            makeTrack(id: "unfavorited")
+            makeTrack(id: "disliked", rating: 2),
+            makeTrack(id: "unrated")
         ]
         let albums = [
             makeAlbum(id: "favorite", artistKey: "favorite-artist", rating: 10),
-            makeAlbum(id: "unfavorited", artistKey: "unfavorited-artist")
+            makeAlbum(id: "disliked", artistKey: "disliked-artist", rating: 2),
+            makeAlbum(id: "unrated", artistKey: "unrated-artist")
         ]
         let artists = [
             makeArtist(id: "favorite-artist", name: "Favorite"),
-            makeArtist(id: "unfavorited-artist", name: "Unfavorited")
+            makeArtist(id: "disliked-artist", name: "Disliked"),
+            makeArtist(id: "unrated-artist", name: "Unrated")
         ]
 
         XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["favorite"])
         XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["favorite"])
         XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["favorite-artist"])
 
-        options.favoriteFilter = .unfavorited
-        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["unfavorited"])
-        XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["unfavorited"])
-        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["unfavorited-artist"])
+        options.favoriteFilter = .disliked
+        XCTAssertEqual(MediaFilterEngine.filterTracks(tracks, with: options).map(\.id), ["disliked"])
+        XCTAssertEqual(MediaFilterEngine.filterAlbums(albums, with: options).map(\.id), ["disliked"])
+        XCTAssertEqual(MediaFilterEngine.filterArtists(artists, with: options, albums: albums).map(\.id), ["disliked-artist"])
     }
 
     func testGenresFilterSearchesTitleOnly() {

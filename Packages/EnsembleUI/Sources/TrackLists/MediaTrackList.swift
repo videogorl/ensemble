@@ -842,6 +842,9 @@ public struct MediaTrackList: UIViewRepresentable {
     }
     
     public func updateUIView(_ tableView: UITableView, context: Context) {
+        if context.coordinator.isSceneActive && scenePhase != .active {
+            context.coordinator.persistScrollOffset()
+        }
         context.coordinator.scrollOffset = scrollOffset
         context.coordinator.isSceneActive = scenePhase == .active
 
@@ -1144,6 +1147,7 @@ public struct MediaTrackList: UIViewRepresentable {
         var supplementalMetadataWidth: CGFloat?
         var trackSourceLabels: [String: String]
         var scrollOffset: Binding<CGFloat>?
+        var pendingScrollOffset: CGFloat?
         var isSceneActive: Bool
         var didRestoreScrollOffset = false
         var artworkLoader: ArtworkLoaderProtocol
@@ -1481,11 +1485,26 @@ public struct MediaTrackList: UIViewRepresentable {
         }
 
         public func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            guard didRestoreScrollOffset, isSceneActive, let scrollOffset else { return }
-            let offset = max(scrollView.contentOffset.y + scrollView.adjustedContentInset.top, 0)
-            if abs(scrollOffset.wrappedValue - offset) > 0.5 {
-                scrollOffset.wrappedValue = offset
-            }
+            guard didRestoreScrollOffset, isSceneActive, scrollOffset != nil else { return }
+            pendingScrollOffset = max(scrollView.contentOffset.y + scrollView.adjustedContentInset.top, 0)
+        }
+
+        public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if !decelerate { persistScrollOffset() }
+        }
+
+        public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            persistScrollOffset()
+        }
+
+        public func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+            persistScrollOffset()
+        }
+
+        func persistScrollOffset() {
+            guard let pendingScrollOffset, let scrollOffset,
+                  abs(scrollOffset.wrappedValue - pendingScrollOffset) > 0.5 else { return }
+            scrollOffset.wrappedValue = pendingScrollOffset
         }
         
         public func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {

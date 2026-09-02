@@ -179,7 +179,7 @@ public struct GenreChipBar: View {
         switch favoriteFilter {
         case nil: return EnsembleDesign.Icon.favorite
         case .favorites: return EnsembleDesign.Icon.favoriteFilled
-        case .unfavorited: return EnsembleDesign.Icon.favoriteRemove
+        case .disliked: return EnsembleDesign.Icon.favoriteRemove
         }
     }
 
@@ -187,15 +187,15 @@ public struct GenreChipBar: View {
         switch favoriteFilter {
         case nil: return "All Items"
         case .favorites: return "Favorites Only"
-        case .unfavorited: return "Unfavorited Only"
+        case .disliked: return "Disliked Only"
         }
     }
 
     private func cycleFavoriteFilter() {
         switch favoriteFilter {
         case nil: favoriteFilter = .favorites
-        case .favorites: favoriteFilter = .unfavorited
-        case .unfavorited: favoriteFilter = nil
+        case .favorites: favoriteFilter = .disliked
+        case .disliked: favoriteFilter = nil
         }
     }
 
